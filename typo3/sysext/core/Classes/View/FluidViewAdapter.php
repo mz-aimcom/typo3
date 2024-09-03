@@ -67,17 +67,12 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
     {
         if ($this->view instanceof FluidStandaloneAbstractTemplateView) {
             $this->view->setRenderingContext($renderingContext);
-            // @todo: This is needed because $this->view->setRenderingContext() sets *its own view* as
-            //        view within VariableContainer, but we want to keep *$this*. In the end, this entire
-            //        thing is a loop dependency and getView() on ViewHelperVariableContainer should fully
-            //        vanish somehow.
-            $this->view->getRenderingContext()->getViewHelperVariableContainer()->setView($this);
             return;
         }
         throw new \RuntimeException('view must be an instance of ext:fluid \TYPO3Fluid\Fluid\View\AbstractTemplateView', 1721578954);
     }
 
-    public function renderSection($sectionName, array $variables = [], $ignoreUnknown = false): string
+    public function renderSection($sectionName, array $variables = [], $ignoreUnknown = false): mixed
     {
         if ($this->view instanceof FluidStandaloneAbstractTemplateView) {
             return $this->view->renderSection($sectionName, $variables, $ignoreUnknown);
@@ -85,7 +80,7 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         throw new \RuntimeException('view must be an instance of ext:fluid \TYPO3Fluid\Fluid\View\AbstractTemplateView', 1721746411);
     }
 
-    public function renderPartial($partialName, $sectionName, array $variables, $ignoreUnknown = false): string
+    public function renderPartial($partialName, $sectionName, array $variables, $ignoreUnknown = false): mixed
     {
         if ($this->view instanceof FluidStandaloneAbstractTemplateView) {
             return $this->view->renderPartial($partialName, $sectionName, $variables, $ignoreUnknown);
@@ -93,6 +88,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         throw new \RuntimeException('view must be an instance of ext:fluid \TYPO3Fluid\Fluid\View\AbstractTemplateView', 1721746412);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->setControllerAction() instead.
+     */
     public function setTemplate(string $templateName): void
     {
         trigger_error(
@@ -102,6 +100,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->setControllerAction($templateName);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getViewHelperVariableContainer()->setView($view) instead.
+     */
     public function initializeRenderingContext(): void
     {
         trigger_error(
@@ -111,6 +112,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getViewHelperVariableContainer()->setView($this);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->setCache($cache) instead.
+     */
     public function setCache(FluidCacheInterface $cache): void
     {
         trigger_error(
@@ -120,6 +124,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->setCache($cache);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths() instead.
+     */
     public function getTemplatePaths(): TemplatePaths
     {
         trigger_error(
@@ -129,6 +136,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         return $this->getRenderingContext()->getTemplatePaths();
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getViewHelperResolver() instead.
+     */
     public function getViewHelperResolver(): ViewHelperResolver
     {
         trigger_error(
@@ -138,6 +148,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         return $this->getRenderingContext()->getViewHelperResolver();
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setTemplatePathAndFilename() instead.
+     */
     public function setTemplatePathAndFilename(string $templatePathAndFilename): void
     {
         trigger_error(
@@ -147,6 +160,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setTemplatePathAndFilename($templatePathAndFilename);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setTemplateRootPaths() instead.
+     */
     public function setTemplateRootPaths(array $templateRootPaths): void
     {
         trigger_error(
@@ -156,6 +172,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setTemplateRootPaths($templateRootPaths);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->getTemplateRootPaths() instead.
+     */
     public function getTemplateRootPaths(): array
     {
         trigger_error(
@@ -165,6 +184,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         return $this->getRenderingContext()->getTemplatePaths()->getTemplateRootPaths();
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setPartialRootPaths() instead.
+     */
     public function setPartialRootPaths(array $partialRootPaths): void
     {
         trigger_error(
@@ -174,6 +196,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setPartialRootPaths($partialRootPaths);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->getPartialRootPaths() instead.
+     */
     public function getPartialRootPaths(): array
     {
         trigger_error(
@@ -183,6 +208,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         return $this->getRenderingContext()->getTemplatePaths()->getPartialRootPaths();
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->getLayoutRootPaths() instead.
+     */
     public function getLayoutRootPaths(): array
     {
         trigger_error(
@@ -192,6 +220,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         return $this->getRenderingContext()->getTemplatePaths()->getLayoutRootPaths();
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setLayoutRootPaths() instead.
+     */
     public function setLayoutRootPaths(array $layoutRootPaths): void
     {
         trigger_error(
@@ -201,6 +232,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setLayoutRootPaths($layoutRootPaths);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setLayoutPathAndFilename() instead.
+     */
     public function setLayoutPathAndFilename(string $layoutPathAndFilename): void
     {
         trigger_error(
@@ -210,6 +244,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setLayoutPathAndFilename($layoutPathAndFilename);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getAttribute(ServerRequestInterface::class)->withFormat() and getRenderingContext()->getTemplatePaths()->setFormat() instead.
+     */
     public function setFormat(string $format): void
     {
         trigger_error(
@@ -228,6 +265,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setFormat($format);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->setAttribute(ServerRequestInterface::class) instead.
+     */
     public function setRequest(?ServerRequestInterface $request = null): void
     {
         trigger_error(
@@ -239,6 +279,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         }
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->setTemplateSource() instead.
+     */
     public function setTemplateSource(string $templateSource): void
     {
         trigger_error(
@@ -248,6 +291,9 @@ readonly class FluidViewAdapter implements CoreViewInterface, FluidStandaloneVie
         $this->getRenderingContext()->getTemplatePaths()->setTemplateSource($templateSource);
     }
 
+    /**
+     * @deprecated Will be removed in TYPO3 v14. Use getRenderingContext()->getTemplatePaths()->getTemplateSource() instead.
+     */
     public function hasTemplate(): bool
     {
         trigger_error(

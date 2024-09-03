@@ -28,7 +28,6 @@ use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
 use TYPO3\CMS\Extensionmanager\Domain\Repository\ExtensionRepository;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
 use TYPO3\CMS\Extensionmanager\Service\ExtensionManagementService;
-use TYPO3\CMS\Fluid\View\TemplateView;
 
 /**
  * Controller for actions related to the TER download of an extension
@@ -36,18 +35,18 @@ use TYPO3\CMS\Fluid\View\TemplateView;
  */
 class DownloadController extends AbstractController
 {
-    protected string $defaultViewObjectName = JsonView::class;
-
     /**
      * @var JsonView
      */
     protected $view;
 
     public function __construct(
-        protected readonly ExtensionRepository $extensionRepository,
-        protected readonly ExtensionManagementService $managementService,
-        protected readonly ExtensionConfiguration $extensionConfiguration,
-    ) {}
+        private readonly ExtensionRepository $extensionRepository,
+        private readonly ExtensionManagementService $managementService,
+        private readonly ExtensionConfiguration $extensionConfiguration,
+    ) {
+        $this->defaultViewObjectName = JsonView::class;
+    }
 
     /**
      * Check extension dependencies
@@ -134,7 +133,7 @@ class DownloadController extends AbstractController
     protected function initializeInstallFromTerAction()
     {
         // @todo: Switch to JsonView
-        $this->defaultViewObjectName = TemplateView::class;
+        $this->defaultViewObjectName = null;
     }
 
     /**

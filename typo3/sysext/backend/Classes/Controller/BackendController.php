@@ -38,6 +38,7 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Information\Typo3Version;
+use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
@@ -145,9 +146,14 @@ class BackendController
         $pageRenderer->addInlineSetting('RecordCommit', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('tce_db'));
         $pageRenderer->addInlineSetting('FileCommit', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('tce_file'));
         $pageRenderer->addInlineSetting('Clipboard', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('clipboard_process'));
-        $dateFormat = ['dd-MM-yyyy', 'HH:mm dd-MM-yyyy'];
+
         // Needed for FormEngine manipulation (date picker)
+        $formatter = new DateFormatter();
+        $dateFormat = [];
+        $dateFormat[0] = $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] ?? 'Y-m-d');
+        $dateFormat[1] = $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'] ?? 'H:i') . ' ' . $dateFormat[0];
         $pageRenderer->addInlineSetting('DateTimePicker', 'DateFormat', $dateFormat);
+
         $typo3Version = 'TYPO3 CMS ' . $this->typo3Version->getVersion();
         $title = $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ? $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] . ' [' . $typo3Version . ']' : $typo3Version;
         $pageRenderer->setTitle($title);
@@ -266,19 +272,21 @@ class BackendController
             $redirect = RouteRedirect::createFromRequest($request);
             if ($redirect !== null && $request->getMethod() === 'GET') {
                 // Only redirect to existing non-ajax routes with no restriction to a specific method
-                $redirect->resolve(GeneralUtility::makeInstance(Router::class));
+                $router = GeneralUtility::makeInstance(Router::class);
+                $redirect->resolve($router);
+                $module = $router->getRoute($redirect->getName())->getOption('module');
                 if ($this->isSpecialNoModuleRoute($redirect->getName())
-                    || $this->moduleProvider->accessGranted($redirect->getName(), $this->getBackendUser())
+                    || $this->moduleProvider->accessGranted($module->getIdentifier(), $this->getBackendUser())
                 ) {
                     // Only add start module from request in case user has access or it's a no module route,
                     // e.g. to FormEngine where permissions are checked by the corresponding component.
                     // Access might temporarily be blocked. e.g. due to being in a workspace.
                     $startModuleIdentifier = $redirect->getName();
                     $moduleParameters = $redirect->getParameters();
-                } elseif ($this->moduleProvider->isModuleRegistered($redirect->getName())) {
+                } elseif ($this->moduleProvider->isModuleRegistered($module->getIdentifier())) {
                     // A redirect is set, however, the user is not allowed to access the module.
                     // Store the requested module to later inform the user about the forced redirect.
-                    $inaccessibleRedirectModule = $this->moduleProvider->getModule($redirect->getName());
+                    $inaccessibleRedirectModule = $this->moduleProvider->getModule($module->getIdentifier());
                 }
             }
         } finally {
@@ -322,7 +330,7 @@ class BackendController
             try {
                 $deepLink = $this->uriBuilder->buildUriFromRoute($startModuleIdentifier, $parameters);
                 if ($startModule !== null && $inaccessibleRedirectModule !== null) {
-                    $this->enqueueRedirectMessage($startModule, $inaccessibleRedirectModule);
+                    $this->enqueueRedirectMessage($inaccessibleRedirectModule, $startModule);
                 }
                 return [$startModuleIdentifier, (string)$deepLink];
             } catch (RouteNotFoundException $e) {
