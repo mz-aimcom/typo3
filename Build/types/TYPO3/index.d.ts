@@ -24,7 +24,6 @@ declare namespace TYPO3 {
   export let Severity: import('@typo3/backend/severity').default;
   export let ShortcutMenu: typeof import('@typo3/backend/toolbar/shortcut-menu').default;
   export let WindowManager: typeof import('@typo3/backend/window-manager').default;
-  export let Wizard: typeof import('@typo3/backend/wizard').default;
   export let WorkspacesMenu: typeof import('@typo3/workspaces/toolbar/workspaces-menu').default;
   export const lang: {
     [key: string]: string
@@ -40,6 +39,9 @@ declare namespace TYPO3 {
     export const cssUrls: {
       [key: string]: string
     };
+    export namespace cache {
+      export const iconCacheIdentifier: string | undefined;
+    }
     export namespace Clipboard {
       export const moduleUrl: string;
     }
@@ -52,7 +54,8 @@ declare namespace TYPO3 {
     export namespace FormEngine {
       export const moduleUrl: string;
       export const formName: string;
-      export const legacyFieldChangedCb: () => void;
+
+      export const doSaveFieldName: string;
     }
     export namespace FormEngineInline {
       export const config: {
@@ -66,12 +69,12 @@ declare namespace TYPO3 {
           }
           context: import('@typo3/backend/form-engine/inline-relation/ajax-dispatcher').Context,
         }
-      }
+      };
       export const unique: {
         // todo: Resolve typing (possibly being real) issues in @typo3/backend/form-engine/container/inline-control-container
         // and use `import('@typo3/backend/form-engine/container/inline-control-container').UniqueDefinition`
         [key: string]: any,
-      }
+      };
     }
     export namespace WebLayout {
       export const moduleUrl: string;
@@ -89,21 +92,17 @@ declare namespace TYPO3 {
       export const startUid: number;
       export const tableSelection: string;
     }
+    export namespace Resource {
+      export const thumbnailUrl: string;
+    }
     export namespace ShowItem {
       export const moduleUrl: string;
     }
+    export namespace Wizards {
+      export const elementBrowserUrl: string;
+    }
     export namespace Workspaces {
       export const id: string;
-      export const token: string;
-    }
-  }
-  export namespace CMS {
-    export namespace Backend {
-      // @todo transform to proper interface, once FormEngine.js is migrated to TypeScript
-      export interface OnFieldChangeItem {
-        name: string;
-        data: {[key: string]: string|number|boolean|null}
-      }
     }
   }
 }
@@ -115,14 +114,6 @@ declare namespace TBE_EDITOR {
 // type definition for global namespace object
 interface Window {
   TYPO3: Partial<typeof TYPO3>;
+  ModuleStateStorage: typeof import('@typo3/backend/storage/module-state-storage').ModuleStateStorage;
   list_frame: Window;
 }
-
-/**
- * Declare modules for dependencies without TypeScript declarations
- * @todo: Use chart.js and flatpickr declaration via their vanilla package name
- */
-declare module 'flatpickr/locales';
-declare module 'flatpickr/plugins/shortcut-buttons.min';
-declare module '@typo3/dashboard/contrib/chartjs';
-declare module '@typo3/backend/contrib/mark';

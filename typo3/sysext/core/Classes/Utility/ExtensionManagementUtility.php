@@ -384,12 +384,13 @@ class ExtensionManagementUtility
      * @throws \RuntimeException If reference to related position fields can not
      * @param string $table Name of TCA table
      * @param string $field Name of TCA field
-     * @param array $item New item to add
+     * @param array|SelectItem $item New item to add
      * @param string $relativeToField Add item relative to existing field
      * @param string $relativePosition Valid keywords: 'before', 'after'
      */
-    public static function addTcaSelectItem(string $table, string $field, array $item, string $relativeToField = '', string $relativePosition = ''): void
+    public static function addTcaSelectItem(string $table, string $field, array|SelectItem $item, string $relativeToField = '', string $relativePosition = ''): void
     {
+        $item = $item instanceof SelectItem ? $item->toArray() : $item;
         if ($relativePosition !== '' && $relativePosition !== 'before' && $relativePosition !== 'after' && $relativePosition !== 'replace') {
             throw new \InvalidArgumentException('Relative position must be either empty or one of "before", "after", "replace".', 1303236967);
         }
@@ -604,34 +605,6 @@ class ExtensionManagementUtility
         return implode(', ', $cleanInsertionListParts);
     }
 
-    /**
-     * Adds $content to the default page TSconfig as set in $GLOBALS['TYPO3_CONF_VARS'][BE]['defaultPageTSconfig']
-     *
-     * @deprecated since TYPO3 v13.0, will be removed in TYPO3 v14.0.
-     */
-    public static function addPageTSConfig(string $content): void
-    {
-        trigger_error(
-            'ExtensionManagementUtility::addPageTSConfig() has been deprecated in TYPO3 v13.0 and will be removed in v14.0. Use Configuration/page.tsconfig files in extensions instead.',
-            E_USER_DEPRECATED
-        );
-        $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'] .= chr(10) . $content;
-    }
-
-    /**
-     * Adds $content to the default user TSconfig as set in $GLOBALS['TYPO3_CONF_VARS'][BE]['defaultUserTSconfig']
-     *
-     * @deprecated since TYPO3 v13.0, will be removed in TYPO3 v14.0.
-     */
-    public static function addUserTSConfig(string $content): void
-    {
-        trigger_error(
-            'ExtensionManagementUtility::addUserTSConfig() has been deprecated in TYPO3 v13.0 and will be removed in v14.0. Use Configuration/user.tsconfig files in extensions instead.',
-            E_USER_DEPRECATED
-        );
-        $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultUserTSconfig'] .= chr(10) . $content;
-    }
-
     /**************************************
      *
      *	 Adding SERVICES features
@@ -799,66 +772,119 @@ class ExtensionManagementUtility
      *	 Adding FRONTEND features
      *
      ***************************************/
+
     /**
-     * Adds an entry to the list of plugins in content elements of type "Insert plugin"
-     * Takes the $itemArray (label, value[,icon]) and adds to the items-array of $GLOBALS['TCA'][tt_content] elements with CType "listtype" (or another field if $type points to another fieldname)
-     * If the value (array pos. 1) is already found in that items-array, the entry is substituted, otherwise the input array is added to the bottom.
-     * Use this function to add a frontend plugin to this list of plugin-types - or more generally use this function to add an entry to any selectorbox/radio-button set in the FormEngine
+     * Convenience method so you don't have to deal with strings and arrays and $GLOBALS[TCA] directly that much.
+     *
+     * Adds a new entry to an existing TCA DB table that has a type field configured (via $TCA[$table][ctrl][type])
+     * such as "tt_content" or "pages" tables.
+     *
+     * Takes the $item (label, value[, icon] etc.) and adds the item to the items-array of $TCA[$table]
+     * of the "type" field. The position in the list can be chosen via the $position argument.
+     *
+     * In addition, a type-icon gets registered, and, based on the $item[value], the record type is also added
+     * to $TCA[$table]['types'][$newType], where $showItemList is added as 'showitem' key, as well as $additionalTypeInformation
+     * such as 'columnsOverride' or 'creationOptions'.
+     *
+     * In addition, the $showItemList will receive a 'extended' tab at the very end, so other extensions
+     * that add additional fields, will receive this at the extended tab automatically.
+     *
+     * Can be used in favor of addPlugin() and addTcaSelectItem().
      *
      * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
      *
-     * @param array|SelectItem $itemArray Numerical or assoc array: [0 or 'label'] => Plugin label, [1 or 'value'] => Plugin identifier / plugin key, ideally prefixed with an extension-specific name (e.g. "events2_list"), [2 or 'icon'] => Icon identifier or path to plugin icon, [3 or 'group'] => an optional "group" ID, falls back to "default"
-     * @param string|null $extensionKey The extension key
-     * @throws \RuntimeException
+     * @param array|SelectItem $item The item to add to the select field
+     * @param string $showItemList A string containing all fields to be used / displayed in this type
+     * @param array $additionalTypeInformation Additional type information to be added to the type in $TCA[$table]['types']
+     * @param string $position The position in the list where the new item should be added, something like "after:textpic"
+     * @param string $table The table name, defaults to 'tt_content'
      */
-    public static function addPlugin(array|SelectItem $itemArray, string $type = 'list_type', ?string $extensionKey = null): void
+    public static function addRecordType(array|SelectItem $item, string $showItemList, array $additionalTypeInformation = [], string $position = '', string $table = 'tt_content'): void
     {
-        // $extensionKey is required, but presumably for BC reasons it still lives after $type in the
-        // parameter list, and $type is nominally optional.
-        if (!isset($extensionKey)) {
-            throw new \InvalidArgumentException(
-                'No extension key could be determined when calling addPlugin()!'
-                . LF
-                . 'This method is meant to be called from Configuration/TCA/Overrides files. '
-                . 'The extension key needs to be specified as third parameter. '
-                . 'Calling it from any other place e.g. ext_localconf.php does not work and is not supported.',
-                1404068038
-            );
+        $selectItem = is_array($item) ? SelectItem::fromTcaItemArray($item) : $item;
+        $typeField = $GLOBALS['TCA'][$table]['ctrl']['type'] ?? null;
+        // Throw exception if no type is set
+        if ($typeField === null) {
+            throw new \RuntimeException('Cannot add record type "' . $selectItem->getValue() . '" for TCA table "' . $table . '" without type field defined.', 1725997543);
         }
-        $selectItem = is_array($itemArray) ? SelectItem::fromTcaItemArray($itemArray) : $itemArray;
-        if ($type === 'CType' && $selectItem->getIcon() && !isset($GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'][$selectItem->getValue()])) {
-            // Set the type icon as well
-            $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'][$selectItem->getValue()] = $selectItem->getIcon();
+        // Set the type icon as well
+        if ($selectItem->getIcon()) {
+            $GLOBALS['TCA'][$table]['ctrl']['typeicon_classes'][$selectItem->getValue()] = $selectItem->getIcon();
         }
         if (!$selectItem->hasGroup()) {
             $selectItem = $selectItem->withGroup('default');
         }
+
+        $relativeInformation = GeneralUtility::trimExplode(':', $position, true, 2);
+        self::addTcaSelectItem($table, $typeField, $selectItem, $relativeInformation[1] ?? '', $relativeInformation[0] ?? '');
+
+        $showItemList = trim($showItemList, ', ');
+        // Add the extended tab if not already added manually at the very end.
+        if ($showItemList !== '' && !str_contains($showItemList, '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended')) {
+            $showItemList .= ',--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended';
+        }
+        if ($showItemList !== '') {
+            $showItemList .= ',';
+        }
+
+        $additionalTypeInformation['showitem'] = $showItemList;
+        $GLOBALS['TCA'][$table]['types'][$selectItem->getValue()] = $additionalTypeInformation;
+    }
+
+    /**
+     * This is a helper method to add a new "frontend plugin". It therefore takes the $itemArray (label, value[,icon]) and
+     * adds to the items-array of $GLOBALS['TCA']['tt_content']['columns']['CType'|. So basically, this method adds
+     * a new "select item" to the tt_content record type column ("CType").
+     *
+     * Additionally, this registers a given icon for the new record type and adds the plugin to the "plugin" group,
+     * in case no group is manually specified in the items array. If the value (array pos. 1) is already found in
+     * that items-array, the entry is substituted, otherwise the input array is added to the bottom.
+     *
+     * Finally a basic "showitem" configuration is added for the plugin. However, this should be adjusted by either
+     * manually defining $GLOBALS['TCA']['tt_content']['types']['my_plugin'|['showitem'] or by calling further
+     * helper methods, such as {@see ExtensionManagementUtility::addToAllTCAtypes()}.
+     *
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     *
+     * @param array|SelectItem $itemArray Numerical or assoc array: [0 or 'label'] => Plugin label, [1 or 'value'] => Plugin identifier / plugin key, ideally prefixed with an extension-specific name (e.g. "events2_list"), [2 or 'icon'] => Icon identifier or path to plugin icon, [3 or 'group'] => an optional "group" ID, falls back to "plugins"
+     * @param string $flexForm The flex form (data structure) to be used for the plugin. Either a reference to a flex-form XML file (eg. "FILE:EXT:newloginbox/flexform_ds.xml") or the XML directly.
+     */
+    public static function addPlugin(array|SelectItem $itemArray, string $flexForm = ''): void
+    {
+        $selectItem = is_array($itemArray) ? SelectItem::fromTcaItemArray($itemArray) : $itemArray;
+        if ($selectItem->getIcon() && !isset($GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'][$selectItem->getValue()])) {
+            // Set the type icon as well
+            $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'][$selectItem->getValue()] = $selectItem->getIcon();
+        }
+        if (!$selectItem->hasGroup()) {
+            $selectItem = $selectItem->withGroup('plugins');
+        }
         // Override possible existing entries.
-        foreach ($GLOBALS['TCA']['tt_content']['columns'][$type]['config']['items'] ?? [] as $index => $item) {
+        foreach ($GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'] ?? [] as $index => $item) {
             if ((string)($item['value'] ?? '') === (string)$selectItem->getValue()) {
-                $GLOBALS['TCA']['tt_content']['columns'][$type]['config']['items'][$index] = $selectItem->toArray();
+                $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][$index] = $selectItem->toArray();
                 return;
             }
         }
-        $GLOBALS['TCA']['tt_content']['columns'][$type]['config']['items'][] = $selectItem->toArray();
-
-        // Populate plugin subtype groups with CType group if missing.
-        $groupIdentifier = $selectItem->getGroup();
-        if ($type === 'list_type'
-            && !isset($GLOBALS['TCA']['tt_content']['columns'][$type]['config']['itemGroups'][$groupIdentifier])
-            && is_string($GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups'][$groupIdentifier] ?? false)
-        ) {
-            $GLOBALS['TCA']['tt_content']['columns'][$type]['config']['itemGroups'][$groupIdentifier] =
-                $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups'][$groupIdentifier];
-        }
+        $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][] = $selectItem->toArray();
 
         // Ensure to have at least some basic information available when editing the new type in FormEngine
-        if (
-            $type === 'CType'
-            && !isset($GLOBALS['TCA']['tt_content']['types'][$selectItem->getValue()])
+        if (!isset($GLOBALS['TCA']['tt_content']['types'][$selectItem->getValue()])
             && isset($GLOBALS['TCA']['tt_content']['types']['header'])
         ) {
             $GLOBALS['TCA']['tt_content']['types'][$selectItem->getValue()] = $GLOBALS['TCA']['tt_content']['types']['header'];
+        }
+
+        // Add data structure for the plugin
+        if ($flexForm !== '') {
+            $GLOBALS['TCA']['tt_content']['types'][$selectItem->getValue()]['columnsOverrides']['pi_flexform']['config']['ds'] = $flexForm;
+            // Add flexform to showitem list
+            self::addToAllTCAtypes(
+                'tt_content',
+                '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:plugin, pi_flexform',
+                $selectItem->getValue(),
+                'after:palette:headers'
+            );
         }
     }
 
@@ -867,16 +893,24 @@ class ExtensionManagementUtility
      * This is used by plugins to add a flexform XML reference / content for use when they are selected as plugin or content element.
      * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
      *
-     * @param string $piKeyToMatch Plugin key as used in the list_type field. Use the asterisk * to match all list_type values.
+     * @param string $_ previously $piKeyToMatch but now unused since there is no plugin key anymore => plugins are proper record (content) types
      * @param string $value Either a reference to a flex-form XML file (eg. "FILE:EXT:newloginbox/flexform_ds.xml") or the XML directly.
-     * @param string $CTypeToMatch Value of tt_content.CType (Content Type) to match. The default is "list" which corresponds to the "Insert Plugin" content element.  Use the asterisk * to match all CType values.
+     * @param string $CTypeToMatch Value of tt_content.CType (Content Type) to add the data structure
      * @see addPlugin()
+     * @deprecated Will be removed in TYPO3 v15
      */
-    public static function addPiFlexFormValue(string $piKeyToMatch, string $value, string $CTypeToMatch = 'list'): void
+    public static function addPiFlexFormValue(string $_, string $value, string $CTypeToMatch = ''): void
     {
-        if (is_array($GLOBALS['TCA']['tt_content']['columns']) && is_array($GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds'])) {
-            $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds'][$piKeyToMatch . ',' . $CTypeToMatch] = $value;
+        trigger_error(
+            __METHOD__ . ' is deprecated and will be removed in TYPO3 v15. Define the data structure for you content type by adding it in the addPlugin() call or setting it via columnsOverrides directly.',
+            E_USER_DEPRECATED
+        );
+
+        if ($CTypeToMatch === '' || $value === '') {
+            return;
         }
+
+        $GLOBALS['TCA']['tt_content']['types'][$CTypeToMatch]['columnsOverrides']['pi_flexform']['config']['ds'] = $value;
     }
 
     /**
@@ -892,69 +926,6 @@ class ExtensionManagementUtility
     {
         if (is_array($GLOBALS['TCA'][$content_table]['columns']) && isset($GLOBALS['TCA'][$content_table]['columns'][$content_field]['config']['allowed'])) {
             $GLOBALS['TCA'][$content_table]['columns'][$content_field]['config']['allowed'] .= ',' . $table;
-        }
-    }
-
-    /**
-     * Add PlugIn to the default template rendering (previously called "Static Template #43")
-     *
-     * When adding a frontend plugin you will have to add both an entry to the TCA definition of tt_content table AND to the TypoScript template which must initiate the rendering.
-     *
-     * The naming of #43 has historic reason and is rooted inside code which is now put into a TER extension called
-     * "statictemplates". Since the static template with uid 43 is the "content.default" and practically always used
-     * for rendering the content elements it's very useful to have this function automatically adding the necessary
-     * TypoScript for calling your plugin.
-     * The logic is now generalized and called "defaultContentRendering", see addTypoScript() as well.
-     *
-     * $type determines the type of frontend plugin:
-     * + list_type (default) - the good old "Insert plugin" entry
-     * + CType - a new content element type
-     * + includeLib - just includes the library for manual use somewhere in TypoScript.
-     * (Remember that your $type definition should correspond to the column/items array in $GLOBALS['TCA'][tt_content] where you added the selector item for the element! See addPlugin() function)
-     * FOR USE IN ext_localconf.php FILES
-     *
-     * @param string $key The extension key
-     * @param string $_ unused since TYPO3 CMS 8
-     * @param string $suffix Is used as a suffix of the class name (e.g. "_pi1")
-     * @param string $type See description above
-     * @param bool $cacheable If $cached is set as USER content object (cObject) is created - otherwise a USER_INT object is created.
-     */
-    public static function addPItoST43(string $key, string $_ = '', string $suffix = '', string $type = 'list_type', bool $cacheable = false): void
-    {
-        $cN = self::getCN($key);
-        // General plugin
-        $pluginContent = trim('
-plugin.' . $cN . $suffix . ' = USER' . ($cacheable ? '' : '_INT') . '
-plugin.' . $cN . $suffix . '.userFunc = ' . $cN . $suffix . '->main
-');
-        self::addTypoScript($key, 'setup', '
-# Setting ' . $key . ' plugin TypoScript
-' . $pluginContent);
-        // Add after defaultContentRendering
-        switch ($type) {
-            case 'list_type':
-                $addLine = 'tt_content.list.20.' . $key . $suffix . ' = < plugin.' . $cN . $suffix;
-                break;
-            case 'CType':
-                $addLine = trim('
-tt_content.' . $key . $suffix . ' =< lib.contentElement
-tt_content.' . $key . $suffix . ' {
-    templateName = Generic
-    20 =< plugin.' . $cN . $suffix . '
-}
-');
-                break;
-            case 'includeLib':
-                $addLine = 'page.1000 = < plugin.' . $cN . $suffix;
-                break;
-            default:
-                $addLine = '';
-        }
-        if ($addLine) {
-            self::addTypoScript($key, 'setup', '
-# Setting ' . $key . ' plugin TypoScript
-' . $addLine . '
-', 'defaultContentRendering');
         }
     }
 
@@ -1120,27 +1091,6 @@ tt_content.' . $key . $suffix . ' {
      * Internal extension management methods
      *
      ***************************************/
-    /**
-     * Find extension icon
-     *
-     * @param string $extensionPath Path to extension directory.
-     * @param bool $returnFullPath Return full path of file.
-     * @deprecated will be removed in TYPO3 v14.0 - Use Package->getPackageIcon() instead.
-     */
-    public static function getExtensionIcon(string $extensionPath, bool $returnFullPath = false): string
-    {
-        trigger_error('ExtensionManagementUtility::getExtensionIcon() will be removed in v14.0. Use Package->getPackageIcon() instead.', E_USER_DEPRECATED);
-        $icon = '';
-        $resourcePath = 'Resources/Public/Icons/Extension.';
-        foreach (['svg', 'png', 'gif'] as $fileExtension) {
-            if (file_exists($extensionPath . $resourcePath . $fileExtension)) {
-                $icon = $resourcePath . $fileExtension;
-                break;
-            }
-        }
-        return $returnFullPath ? $extensionPath . $icon : $icon;
-    }
-
     /**
      * Gets an array of loaded extension keys
      */

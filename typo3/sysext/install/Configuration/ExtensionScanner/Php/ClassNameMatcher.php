@@ -404,6 +404,7 @@ return [
     'TYPO3\CMS\Core\FrontendEditing\FrontendEditingController' => [
         'restFiles' => [
             'Deprecation-86110-FrontendEditingController.rst',
+            'Breaking-87193-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\ExtDirect\ExtDirectDebug' => [
@@ -1310,6 +1311,7 @@ return [
     'TYPO3\CMS\Frontend\Page\PageRepositoryInitHookInterface' => [
         'restFiles' => [
             'Deprecation-88746-PageRepositoryPHPClassMovedFromFrontendToCoreExtension.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Configuration\AbstractConfigurationManager' => [
@@ -2355,11 +2357,13 @@ return [
         'restFiles' => [
             'Deprecation-101133-IconStateClass.rst',
             'Breaking-101133-IconStateChangedType.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Type\Enumeration' => [
         'restFiles' => [
             'Deprecation-101163-Enumeration.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractRepository' => [
@@ -2390,6 +2394,7 @@ return [
     'TYPO3\CMS\Core\Resource\DuplicationBehavior' => [
         'restFiles' => [
             'Deprecation-101151-DuplicationBehaviorClass.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\Processing\AbstractGraphicalTask' => [
@@ -2405,6 +2410,7 @@ return [
     'TYPO3\CMS\Frontend\ContentObject\ContentObjectPostInitHookInterface' => [
         'restFiles' => [
             'Breaking-102581-RemovedHookForManipulatingContentObjectRenderer.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-102581-UnusedInterfaceForContentObjectRendererHook.rst',
             'Feature-102581-PSR-14EventForModifyingContentObjectRenderer.rst',
         ],
@@ -2413,11 +2419,13 @@ return [
         'restFiles' => [
             'Deprecation-101174-InformationStatusClass.rst',
             'Feature-101174-InformationStatus.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Frontend\ContentObject\ContentObjectGetDataHookInterface' => [
         'restFiles' => [
             'Breaking-102614-RemovedHookForManipulatingGetDataResult.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-102614-UnusedInterfaceForGetDataHook.rst',
             'Feature-102614-PSR-14EventForModifyingGetDataResult.rst',
         ],
@@ -2425,6 +2433,7 @@ return [
     'TYPO3\CMS\Frontend\ContentObject\ContentObjectOneSourceCollectionHookInterface' => [
         'restFiles' => [
             'Breaking-102624-RemovedHookForManipulatingImageSourceCollection.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-102624-UnusedInterfaceForGetImageSourceCollectionHook.rst',
             'Feature-102624-PSR-14EventForModifyingImageSourceCollection.rst',
         ],
@@ -2433,6 +2442,7 @@ return [
         'restFiles' => [
             'Deprecation-102631-DeprecatedControllerAttributeForAutoConfiguringBackendControllers.rst',
             'Feature-102631-IntroduceAsControllerAttributeToAutoconfigureBackendControllers.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Context\ContextAwareInterface' => [
@@ -2448,6 +2458,7 @@ return [
     'TYPO3\CMS\Frontend\ContentObject\ContentObjectGetImageResourceHookInterface' => [
         'restFiles' => [
             'Breaking-102755-ImprovedGetImageResourceFunctionality.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-102755-UnusedInterfaceForGetImageResourceHook.rst',
             'Feature-102755-PSR-14EventForModifyingGetImageResourceResult.rst',
         ],
@@ -2457,6 +2468,7 @@ return [
             'Breaking-102806-HooksInPageRepositoryRemoved.rst',
             'Deprecation-102806-InterfacesForPageRepositoryHooks.rst',
             'Feature-102806-BeforePageIsRetrievedEventInPageRepository.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Domain\Repository\PageRepositoryGetPageHookInterface' => [
@@ -2464,11 +2476,13 @@ return [
             'Breaking-102806-HooksInPageRepositoryRemoved.rst',
             'Deprecation-102806-InterfacesForPageRepositoryHooks.rst',
             'Feature-102806-BeforePageIsRetrievedEventInPageRepository.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Frontend\ContentObject\ContentObjectStdWrapHookInterface' => [
         'restFiles' => [
             'Breaking-102745-RemovedContentObjectStdWrapHook.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-102745-UnusedInterfaceForStdWrapHook.rst',
             'Feature-102745-PSR-14EventsForModifyingContentObjectStdWrapFunctionality.rst',
         ],
@@ -2481,11 +2495,13 @@ return [
     'TYPO3\CMS\Install\Updates\AbstractDownloadExtensionUpdate' => [
         'restFiles' => [
             'Deprecation-102943-AbstractDownloadExtensionUpdateMovedToExtextensionmanager.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Install\Updates\ExtensionModel' => [
         'restFiles' => [
             'Deprecation-102943-AbstractDownloadExtensionUpdateMovedToExtextensionmanager.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extensionmanager\Event\AfterExtensionDatabaseContentHasBeenImportedEvent' => [
@@ -2515,31 +2531,37 @@ return [
     'TYPO3\CMS\Extbase\Security\Cryptography\HashService' => [
         'restFiles' => [
             'Deprecation-102763-ExtbaseHashService.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\DataHandling\SlugEnricher' => [
         'restFiles' => [
             'Deprecation-103244-ClassSlugEnricher.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Fluid\View\StandaloneView' => [
         'restFiles' => [
             'Deprecation-104773-CustomFluidViewsAndExtbase.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Fluid\View\TemplateView' => [
         'restFiles' => [
             'Deprecation-104773-CustomFluidViewsAndExtbase.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Mvc\View\ViewResolverInterface' => [
         'restFiles' => [
             'Deprecation-104773-CustomFluidViewsAndExtbase.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Mvc\View\GenericViewResolver' => [
         'restFiles' => [
             'Deprecation-104773-CustomFluidViewsAndExtbase.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic' => [
@@ -2552,4 +2574,55 @@ return [
             'Deprecation-104789-RenderStaticForFluidViewHelpers.rst',
         ],
     ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController' => [
+        'restFiles' => [
+            'Deprecation-105230-TypoScriptFrontendControllerAndGLOBALSTSFE.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Mail\Event\AfterMailerInitializationEvent' => [
+        'restFiles' => [
+            'Breaking-105809-AfterMailerInitializationEventRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Collection\SortableCollectionInterface' => [
+        'restFiles' => [
+            'Breaking-33747-RemoveNonImplementedSortableCollectionLogic.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidCombinedPointerFieldException' => [
+        'restFiles' => [
+            'Breaking-107047-RemovePointerFieldFunctionalityOfTCAFlex.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Cache\Backend\FreezableBackendInterface' => [
+        'restFiles' => [
+            'Breaking-107310-RemoveFreezableBackendInterface.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Processing\LocalCropScaleMaskHelper' => [
+        'restFiles' => [
+            'Breaking-107403-RemoveLocalPreviewHelperAndLocalCropScaleMaskHelper.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Processing\LocalPreviewHelper' => [
+        'restFiles' => [
+            'Breaking-107403-RemoveLocalPreviewHelperAndLocalCropScaleMaskHelper.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Localization\Parser\LocalizationParserInterface' => [
+        'restFiles' => [
+            'Deprecation-107436-LocalizationParsers.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Localization\Parser\AbstractXmlParser' => [
+        'restFiles' => [
+            'Deprecation-107436-LocalizationParsers.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Localization\Parser\XliffParser' => [
+        'restFiles' => [
+            'Deprecation-107436-LocalizationParsers.rst',
+        ],
+    ],
+
 ];

@@ -18,7 +18,14 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Site;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
-use TYPO3\CMS\Core\Site\Set\SetCollector;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Messaging\FlashMessage;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Site\Set\SetError;
+use TYPO3\CMS\Core\Site\Set\SetRegistry;
+use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * @internal
@@ -27,16 +34,70 @@ use TYPO3\CMS\Core\Site\Set\SetCollector;
 final readonly class TcaSiteSetCollector
 {
     public function __construct(
-        private SetCollector $setCollector,
+        private SetRegistry $setRegistry,
+        private FlashMessageService $flashMessageService,
     ) {}
 
     public function populateSiteSets(array &$fieldConfiguration): void
     {
-        foreach ($this->setCollector->getSetDefinitions() as $set) {
+        $currentValue = $fieldConfiguration['row'][$fieldConfiguration['field']] ?? '';
+        $selectedSets = $currentValue === '' ? [] : array_fill_keys(GeneralUtility::trimExplode(',', $currentValue), true);
+
+        $hiddenSets = GeneralUtility::trimExplode(',', $this->getBackendUser()->getTSConfig()['options.']['sites.']['hideSets'] ?? '', true);
+        foreach ($this->setRegistry->getAllSets() as $set) {
+            $hidden = $set->hidden || in_array($set->name, $hiddenSets, true);
+            if ($hidden && !isset($selectedSets[$set->name])) {
+                continue;
+            }
             $fieldConfiguration['items'][] = [
-                'label' => $set->label,
+                'label' => $this->getLanguageService()->sL($set->label) . (
+                    $hidden ? ' (' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.hidden') . ')' : ''
+                ),
                 'value' => $set->name,
             ];
+            unset($selectedSets[$set->name]);
         }
+
+        $flashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
+        $languageService = $this->getLanguageService();
+        foreach ($selectedSets as $invalidSet => $_) {
+            $reason = $this->setRegistry->getInvalidSets()[$invalidSet] ?? [
+                'error' => SetError::notFound,
+                'name' => $invalidSet,
+                'context' => 'site:' . ($fieldConfiguration['row']['identifier'] ?? ''),
+            ];
+            $error = sprintf(
+                $languageService->sL($reason['error']->getLabel()),
+                $reason['name'],
+                $reason['context'],
+            );
+
+            $fieldConfiguration['items'][] = [
+                'label' => sprintf(
+                    $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.noMatchingValue'),
+                    $error
+                ),
+                'value' => $invalidSet,
+            ];
+
+            $flashMessage = GeneralUtility::makeInstance(
+                FlashMessage::class,
+                $error,
+                $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.site.invalidSetDependencies'),
+                ContextualFeedbackSeverity::ERROR,
+                false
+            );
+            $flashMessageQueue->enqueue($flashMessage);
+        }
+    }
+
+    protected function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
+    }
+
+    protected function getLanguageService(): LanguageService
+    {
+        return $GLOBALS['LANG'];
     }
 }

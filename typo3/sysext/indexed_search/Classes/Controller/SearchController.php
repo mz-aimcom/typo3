@@ -28,11 +28,10 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\Utility\RootlineUtility;
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\Frontend\Typolink\LinkFactory;
 use TYPO3\CMS\Frontend\Typolink\LinkResult;
 use TYPO3\CMS\Frontend\Typolink\LinkResultInterface;
@@ -99,7 +98,7 @@ class SearchController extends ActionController
     ) {}
 
     /**
-     * sets up all necessary object for searching
+     * Sets up all necessary object for searching
      */
     protected function initialize(array $searchData = []): array
     {
@@ -164,15 +163,16 @@ class SearchController extends ActionController
     }
 
     /**
-     * Performs the search, the display and writing stats
+     * Executes a search operation based on the provided criteria,
+     * displays the search results, and logs relevant statistics.
      *
-     * @Extbase\IgnoreValidation("search")
+     * @param array<string, mixed> $search The search criteria, typically data submitted from the search form.
      */
     public function searchAction(array $search = []): ResponseInterface
     {
         // check if TypoScript is loaded
         if (!isset($this->settings['results'])) {
-            return $this->redirect('noTypoScript');
+            return new ForwardResponse('noTypoScript');
         }
 
         $searchData = $this->initialize($search);
@@ -259,9 +259,10 @@ class SearchController extends ActionController
                 }
             }
 
+            $pointer = (int)($searchData['pointer'] ?? 0);
             $paginator = new SlicePaginator(
                 $result['rows'],
-                ((int)$searchData['pointer']) + 1,
+                $pointer + 1,
                 $resultData['count'],
                 $searchData['numberOfResults'],
             );
@@ -327,7 +328,7 @@ class SearchController extends ActionController
                     $theId = $rlParts[1];
                     $theRLid = 'rl1_' . $rlParts[1];
                 } else {
-                    $theId = $rlParts[0] ?? '0';
+                    $theId = $rlParts[0];
                     $theRLid = '0';
                 }
                 $sectionName = $this->getPathFromPageId((int)$theId);
@@ -644,15 +645,15 @@ class SearchController extends ActionController
     }
 
     /**
-     * Sort options about the search form
+     * Handles and prepares search form options for rendering.
      *
-     * @Extbase\IgnoreValidation("search")
+     * @param array<string, mixed> $search Optional search parameters, typically from form input.
      */
     public function formAction(array $search = []): ResponseInterface
     {
         // check if TypoScript is loaded
         if (!isset($this->settings['results'])) {
-            return $this->redirect('noTypoScript');
+            return new ForwardResponse('noTypoScript');
         }
 
         $searchData = $this->initialize($search);
@@ -668,7 +669,7 @@ class SearchController extends ActionController
     }
 
     /**
-     * TypoScript was not loaded
+     * Action displayed when TypoScript was not loaded
      */
     public function noTypoScriptAction(): ResponseInterface
     {
@@ -679,7 +680,7 @@ class SearchController extends ActionController
      * building together the available options for every dropdown
      ***************************************/
     /**
-     * get the values for the "type" selector
+     * Get the values for the "type" selector
      *
      * @return array Associative array with options
      */
@@ -698,7 +699,7 @@ class SearchController extends ActionController
     }
 
     /**
-     * get the values for the "defaultOperand" selector
+     * Get the values for the "defaultOperand" selector
      *
      * @return array Associative array with options
      */
@@ -717,7 +718,7 @@ class SearchController extends ActionController
     }
 
     /**
-     * get the values for the "media type" selector
+     * Get the values for the "media type" selector
      *
      * @return array Associative array with options
      */
@@ -753,7 +754,7 @@ class SearchController extends ActionController
     }
 
     /**
-     * get the values for the "section" selector
+     * Get the values for the "section" selector
      * Here values like "rl1_" and "rl2_" + a root level 1/2 id can be added
      * to perform searches in root level 1+2 specifically. The id-values can even
      * be comma-separated. e.g. "rl1_1,2" would search for stuff inside pages on
@@ -958,6 +959,7 @@ class SearchController extends ActionController
         }
 
         $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
+        $cObj->setRequest($this->request);
         $cObj->start($row, 'pages');
         return $this->linkFactory->create($linkText, $linkConfiguration, $cObj);
     }
@@ -1017,7 +1019,8 @@ class SearchController extends ActionController
                             array_pop($breadcrumbWraps);
                             break;
                         }
-                        $path = $this->getTypoScriptFrontendController()->cObj->wrap(htmlspecialchars($v['title']), array_pop($breadcrumbWraps)['wrap']) . $path;
+                        $contentObjectRenderer = $this->request->getAttribute('currentContentObject');
+                        $path = $contentObjectRenderer->wrap(htmlspecialchars($v['title']), array_pop($breadcrumbWraps)['wrap']) . $path;
                     }
                 }
             } catch (RootLineException $e) {
@@ -1095,47 +1098,47 @@ class SearchController extends ActionController
         $fullTypoScriptArray = $this->typoScriptService->convertPlainArrayToTypoScriptArray($this->settings);
         $typoScriptArray = $fullTypoScriptArray['results.'];
 
-        $typoScriptFrontendController = $this->getTypoScriptFrontendController();
+        $contentObjectRenderer = $this->request->getAttribute('currentContentObject');
         $this->settings['results.']['summaryCropAfter'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('summaryCropAfter', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('summaryCropAfter', $typoScriptArray ?? []),
             10,
             5000,
             180
         );
-        $this->settings['results.']['summaryCropSignifier'] = $typoScriptFrontendController->cObj->stdWrapValue('summaryCropSignifier', $typoScriptArray ?? []);
+        $this->settings['results.']['summaryCropSignifier'] = $contentObjectRenderer->stdWrapValue('summaryCropSignifier', $typoScriptArray ?? []);
         $this->settings['results.']['titleCropAfter'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('titleCropAfter', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('titleCropAfter', $typoScriptArray ?? []),
             10,
             500,
             50
         );
-        $this->settings['results.']['titleCropSignifier'] = $typoScriptFrontendController->cObj->stdWrapValue('titleCropSignifier', $typoScriptArray ?? []);
+        $this->settings['results.']['titleCropSignifier'] = $contentObjectRenderer->stdWrapValue('titleCropSignifier', $typoScriptArray ?? []);
         $this->settings['results.']['markupSW_summaryMax'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('markupSW_summaryMax', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('markupSW_summaryMax', $typoScriptArray ?? []),
             10,
             5000,
             300
         );
         $this->settings['results.']['markupSW_postPreLgd'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('markupSW_postPreLgd', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('markupSW_postPreLgd', $typoScriptArray ?? []),
             1,
             500,
             60
         );
         $this->settings['results.']['markupSW_postPreLgd_offset'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('markupSW_postPreLgd_offset', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('markupSW_postPreLgd_offset', $typoScriptArray ?? []),
             1,
             50,
             5
         );
-        $this->settings['results.']['markupSW_divider'] = $typoScriptFrontendController->cObj->stdWrapValue('markupSW_divider', $typoScriptArray ?? []);
+        $this->settings['results.']['markupSW_divider'] = $contentObjectRenderer->stdWrapValue('markupSW_divider', $typoScriptArray ?? []);
         $this->settings['results.']['hrefInSummaryCropAfter'] = MathUtility::forceIntegerInRange(
-            $typoScriptFrontendController->cObj->stdWrapValue('hrefInSummaryCropAfter', $typoScriptArray ?? []),
+            $contentObjectRenderer->stdWrapValue('hrefInSummaryCropAfter', $typoScriptArray ?? []),
             10,
             400,
             60
         );
-        $this->settings['results.']['hrefInSummaryCropSignifier'] = $typoScriptFrontendController->cObj->stdWrapValue('hrefInSummaryCropSignifier', $typoScriptArray ?? []);
+        $this->settings['results.']['hrefInSummaryCropSignifier'] = $contentObjectRenderer->stdWrapValue('hrefInSummaryCropSignifier', $typoScriptArray ?? []);
     }
 
     /**
@@ -1157,10 +1160,5 @@ class SearchController extends ActionController
         }
 
         return $searchWord;
-    }
-
-    private function getTypoScriptFrontendController(): TypoScriptFrontendController
-    {
-        return $this->request->getAttribute('frontend.controller');
     }
 }

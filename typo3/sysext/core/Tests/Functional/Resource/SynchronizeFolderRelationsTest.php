@@ -26,6 +26,7 @@ use TYPO3\CMS\Core\Resource\Event\AfterFolderRenamedEvent;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\SynchronizeFolderRelations;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class SynchronizeFolderRelationsTest extends FunctionalTestCase
@@ -42,7 +43,8 @@ final class SynchronizeFolderRelationsTest extends FunctionalTestCase
 
         $this->subject = new SynchronizeFolderRelations(
             $this->get(ConnectionPool::class),
-            $this->get(FlashMessageService::class)
+            $this->get(FlashMessageService::class),
+            $this->get(TcaSchemaFactory::class)
         );
     }
 
@@ -65,7 +67,7 @@ final class SynchronizeFolderRelationsTest extends FunctionalTestCase
 
         // Check flash message content
         $flashMessage = array_shift($flashMessages);
-        self::assertStringContainsString('6 Filemount records', $flashMessage->getMessage());
+        self::assertStringContainsString('6 File mount records', $flashMessage->getMessage());
     }
 
     #[Test]

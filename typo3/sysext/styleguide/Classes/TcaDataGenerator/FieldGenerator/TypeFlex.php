@@ -17,10 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Styleguide\TcaDataGenerator\FieldGenerator;
 
-use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\FieldGeneratorInterface;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\FieldGeneratorResolver;
+use TYPO3\CMS\Styleguide\TcaDataGenerator\FieldGeneratorResolverAwareInterface;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\GeneratorNotFoundException;
 
 /**
@@ -28,8 +29,7 @@ use TYPO3\CMS\Styleguide\TcaDataGenerator\GeneratorNotFoundException;
  *
  * @internal
  */
-#[Autoconfigure(public: true)]
-final class TypeFlex extends AbstractFieldGenerator implements FieldGeneratorInterface
+final class TypeFlex extends AbstractFieldGenerator implements FieldGeneratorInterface, FieldGeneratorResolverAwareInterface
 {
     protected array $matchArray = [
         'fieldConfig' => [
@@ -39,16 +39,28 @@ final class TypeFlex extends AbstractFieldGenerator implements FieldGeneratorInt
         ],
     ];
 
+    private ?FieldGeneratorResolver $fieldGeneratorResolver = null;
+
     public function __construct(
         private readonly FlexFormTools $flexFormTools,
-        private readonly FieldGeneratorResolver $fieldGeneratorResolver,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
+
+    public function setFieldGeneratorResolver(FieldGeneratorResolver $fieldGeneratorResolver): void
+    {
+        $this->fieldGeneratorResolver = $fieldGeneratorResolver;
+    }
 
     public function generate(array $data): string
     {
+        if ($this->fieldGeneratorResolver === null) {
+            throw new \RuntimeException('Not initialized. Call setFieldGeneratorResolver() first.', 1726780937);
+        }
+        $schema = $this->tcaSchemaFactory->get($data['tableName']);
+
         // Parse the flex form
-        $structureIdentifier = $this->flexFormTools->getDataStructureIdentifier($data['fieldConfig'], $data['tableName'], $data['fieldName'], []);
-        $dataStructureArray = $this->flexFormTools->parseDataStructureByIdentifier($structureIdentifier);
+        $structureIdentifier = $this->flexFormTools->getDataStructureIdentifier($data['fieldConfig'], $data['tableName'], $data['fieldName'], [], $schema);
+        $dataStructureArray = $this->flexFormTools->parseDataStructureByIdentifier($structureIdentifier, $schema);
 
         // Loop through this xml mess and call a generator for each found field
         $aFlexFieldData = $data;

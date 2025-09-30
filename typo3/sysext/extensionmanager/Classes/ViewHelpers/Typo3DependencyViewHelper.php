@@ -19,19 +19,19 @@ namespace TYPO3\CMS\Extensionmanager\ViewHelpers;
 
 use TYPO3\CMS\Core\Utility\VersionNumberUtility;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Shows the version numbers of the TYPO3 dependency, if any.
+ * ViewHelper to shows the version numbers of the TYPO3 dependency, if any.
+ *
+ * ```
+ *   <em:typo3Dependency extension="{distribution}" />
+ * ```
  *
  * @internal
  */
 final class Typo3DependencyViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * As this ViewHelper renders HTML, the output must not be escaped.
      *
@@ -44,9 +44,9 @@ final class Typo3DependencyViewHelper extends AbstractViewHelper
         $this->registerArgument('extension', Extension::class, '', true);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $dependency = $arguments['extension']->getTypo3Dependency();
+        $dependency = $this->arguments['extension']->getTypo3Dependency();
         if ($dependency === null) {
             return '';
         }

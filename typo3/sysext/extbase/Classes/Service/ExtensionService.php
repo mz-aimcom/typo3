@@ -147,7 +147,7 @@ class ExtensionService implements SingletonInterface
     /**
      * Determines the target page of the specified plugin.
      * If plugin.tx_$pluginSignature.view.defaultPid is set, this value is used as target page id
-     * If defaultPid is set to "auto", a the target pid is determined by loading the tt_content record that contains this plugin
+     * If defaultPid is set to "auto", the target pid is determined by loading the tt_content record that contains this plugin
      * If the page could not be determined, NULL is returned
      * If defaultPid is "auto" and more than one page contains the specified plugin, an Exception is thrown
      *
@@ -175,12 +175,8 @@ class ExtensionService implements SingletonInterface
                     ->from('tt_content')
                     ->where(
                         $queryBuilder->expr()->eq(
-                            'list_type',
-                            $queryBuilder->createNamedParameter($pluginSignature)
-                        ),
-                        $queryBuilder->expr()->eq(
                             'CType',
-                            $queryBuilder->createNamedParameter('list')
+                            $queryBuilder->createNamedParameter($pluginSignature)
                         ),
                         $queryBuilder->expr()->eq(
                             'sys_language_uid',

@@ -18,60 +18,60 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\DataHandling\Localization;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\Localization\State;
+use TYPO3\CMS\Core\Schema\FieldTypeFactory;
+use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class StateTest extends UnitTestCase
 {
-    public const TABLE_NAME = 'tx_test_table';
+    private const TABLE_NAME = 'tx_test_table';
+
+    protected TcaSchemaFactory $tcaSchemaFactory;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['TCA'] = [];
-    }
-
-    #[DataProvider('stateObjectCanBeCreatedDataProvider')]
-    #[Test]
-    public function stateObjectCanBeCreated(string $tableName, array $states): void
-    {
-        $subject = new State($tableName, $states);
-
-        self::assertInstanceOf(State::class, $subject);
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $this->tcaSchemaFactory = new TcaSchemaFactory(
+            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
+            new FieldTypeFactory(),
+            '',
+            $cacheMock
+        );
     }
 
     public static function stateObjectCanBeCreatedDataProvider(): array
     {
         return [
             'without states' => [
-                static::TABLE_NAME,
+                self::TABLE_NAME,
                 [],
             ],
             'with states' => [
-                static::TABLE_NAME,
+                self::TABLE_NAME,
                 ['nonExistingField' => 'invalidState'],
             ],
         ];
     }
 
-    #[DataProvider('statesAreEnrichedAndSanitizedOnObjectCreationDataProvider')]
+    #[DataProvider('stateObjectCanBeCreatedDataProvider')]
     #[Test]
-    public function statesAreEnrichedAndSanitizedOnObjectCreation(
-        array $states,
-        array $expected
-    ): void {
-        $GLOBALS['TCA'] = $this->provideTableConfiguration(
-            'first_field',
-            'second_field'
-        );
-
-        $subject = new State(static::TABLE_NAME, $states);
-
-        self::assertSame(
-            $expected,
-            $subject->toArray()
-        );
+    #[DoesNotPerformAssertions]
+    public function stateObjectCanBeCreated(string $tableName, array $states): void
+    {
+        $this->tcaSchemaFactory->load([self::TABLE_NAME => []], true);
+        // We need two instances for the calls in ->sanitize() and ->enrich()
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        new State($tableName, $states);
     }
 
     public static function statesAreEnrichedAndSanitizedOnObjectCreationDataProvider(): array
@@ -156,19 +156,36 @@ final class StateTest extends UnitTestCase
         ];
     }
 
-    /**
-     * @param string[] ...$fieldNames
-     */
-    private function provideTableConfiguration(string ...$fieldNames): array
+    #[DataProvider('statesAreEnrichedAndSanitizedOnObjectCreationDataProvider')]
+    #[Test]
+    public function statesAreEnrichedAndSanitizedOnObjectCreation(array $states, array $expected): void
     {
-        $columnsConfiguration = [];
-        foreach ($fieldNames as $fieldName) {
-            $columnsConfiguration[$fieldName]['config']['behaviour']['allowLanguageSynchronization'] = true;
-        }
-        return [
-            static::TABLE_NAME => [
-                'columns' => $columnsConfiguration,
+        $this->tcaSchemaFactory->load([
+            'tx_test_table' => [
+                'columns' => [
+                    'first_field' => [
+                        'config' => [
+                            'type' => 'input',
+                            'behaviour' => [
+                                'allowLanguageSynchronization' => true,
+                            ],
+                        ],
+                    ],
+                    'second_field' => [
+                        'config' => [
+                            'type' => 'input',
+                            'behaviour' => [
+                                'allowLanguageSynchronization' => true,
+                            ],
+                        ],
+                    ],
+                ],
             ],
-        ];
+        ], true);
+        // We need two instances for the calls in ->sanitize() and ->enrich()
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        $subject = new State('tx_test_table', $states);
+        self::assertSame($expected, $subject->toArray());
     }
 }

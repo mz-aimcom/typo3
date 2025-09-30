@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Backend\Form;
 
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
+use TYPO3\CMS\Core\Domain\DateTimeFormat;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -137,7 +138,7 @@ abstract class AbstractNode implements NodeInterface, LoggerAwareInterface
     {
         $validationRules = [];
         if (!empty($config['eval'])) {
-            $evalList = GeneralUtility::trimExplode(',', $config['eval'] ?? '', true);
+            $evalList = GeneralUtility::trimExplode(',', $config['eval'], true);
             foreach ($evalList as $evalType) {
                 $validationRules[] = [
                     'type' => $evalType,
@@ -148,11 +149,21 @@ abstract class AbstractNode implements NodeInterface, LoggerAwareInterface
             $newValidationRule = [
                 'type' => 'range',
             ];
+
+            $isDateTime = ($config['type'] ?? '') === 'datetime';
             if (!empty($config['range']['lower'])) {
-                $newValidationRule['lower'] = $config['range']['lower'];
+                $lower = (int)$config['range']['lower'];
+                if ($isDateTime) {
+                    $lower = date(DateTimeFormat::ISO8601_LOCALTIME, $lower);
+                }
+                $newValidationRule['lower'] = $lower;
             }
             if (!empty($config['range']['upper'])) {
-                $newValidationRule['upper'] = $config['range']['upper'];
+                $upper = (int)$config['range']['upper'];
+                if ($isDateTime) {
+                    $upper = date(DateTimeFormat::ISO8601_LOCALTIME, $upper);
+                }
+                $newValidationRule['upper'] = $upper;
             }
             $validationRules[] = $newValidationRule;
         }

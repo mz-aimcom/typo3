@@ -15,6 +15,7 @@
 
 namespace TYPO3\CMS\Scheduler\Task;
 
+use TYPO3\CMS\Core\Cache\Backend\Typo3DatabaseBackend;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -50,12 +51,46 @@ class CachingFrameworkGarbageCollectionTask extends AbstractTask
             // backend is within selected backends in additional field of task
             foreach ($cacheConfigurations as $cacheName => $cacheConfiguration) {
                 // The cache backend used for this cache
-                $usedCacheBackend = $cacheConfiguration['backend'] ?? null;
-                if (in_array($usedCacheBackend, $this->selectedBackends)) {
+                $usedCacheBackend = $cacheConfiguration['backend'] ?? Typo3DatabaseBackend::class;
+                if (in_array($usedCacheBackend, $this->selectedBackends, true)) {
                     GeneralUtility::makeInstance(CacheManager::class)->getCache($cacheName)->collectGarbage();
                 }
             }
         }
         return true;
+    }
+
+    public function getTaskParameters(): array
+    {
+        return [
+            'cache_backends' => implode(',', $this->selectedBackends),
+        ];
+    }
+
+    public function setTaskParameters(array $parameters): void
+    {
+        $selectedBackends = $parameters['selectedBackends'] ?? $parameters['cache_backends'] ?? [];
+        if (!is_array($selectedBackends)) {
+            $selectedBackends = GeneralUtility::trimExplode(',', $selectedBackends, true);
+        }
+        $this->selectedBackends = $selectedBackends;
+    }
+
+    /**
+     * Get all registered caching framework backends
+     */
+    public function getRegisteredBackends(array &$config): void
+    {
+        $backends = [];
+        $cacheConfigurations = $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations'];
+        foreach ($cacheConfigurations ?? [] as $cacheConfiguration) {
+            $backend = (string)($cacheConfiguration['backend'] ?? Typo3DatabaseBackend::class);
+            if (!in_array($backend, $backends, true)) {
+                $backends[] = $backend;
+            }
+        }
+        foreach ($backends as $backend) {
+            $config['items'][] = ['value' => $backend, 'label' => $backend];
+        }
     }
 }

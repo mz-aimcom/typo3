@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Domain\Finishers;
 
+use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Domain\Model\FileReference;
@@ -68,6 +69,11 @@ use TYPO3\CMS\Form\Domain\Model\FormElements\FormElementInterface;
  *   if the value from the submitted form element with the identifier
  *   '<elementIdentifier>' is empty (think about password fields etc.)
  *
+ *  options.elements.<elementIdentifier>.hashed (default: false)
+ *  ------------------------------------------------------
+ *    Set this to true if the value from the submitted form element
+ *    should be hashed before writing into the database.
+ *
  * options.elements.<elementIdentifier>.saveFileIdentifierInsteadOfUid (default: false)
  * -------------------------------------------------------------------
  *   This setting only rules for form elements which creates a FAL object
@@ -104,7 +110,7 @@ use TYPO3\CMS\Form\Domain\Model\FormElements\FormElementInterface;
  *
  *   Don't be confused. If you use the FormRuntime accessor feature within
  *   options.databaseColumnMappings, the functionality is nearly equal
- *   to the the options.elements configuration.
+ *   to the options.elements configuration.
  *
  * options.databaseColumnMappings.<databaseColumnName>.skipIfValueIsEmpty (default: false)
  * ---------------------------------------------------------------------
@@ -136,6 +142,7 @@ use TYPO3\CMS\Form\Domain\Model\FormElements\FormElementInterface;
  *          advancedpassword-1:
  *            mapOnDatabaseColumn: 'password'
  *            skipIfValueIsEmpty: true
+ *            hashed: true
  *
  * Multiple database operations
  * ============================
@@ -253,6 +260,9 @@ class SaveToDatabaseFinisher extends AbstractFinisher
             } elseif ($elementValue instanceof \DateTimeInterface) {
                 $format = $elementsConfiguration[$elementIdentifier]['dateFormat'] ?? 'U';
                 $elementValue = $elementValue->format($format);
+            } elseif ($elementValue && ($elementsConfiguration[$elementIdentifier]['hashed'] ?? false) === true) {
+                $hashInstance = GeneralUtility::makeInstance(PasswordHashFactory::class)->getDefaultHashInstance('FE');
+                $elementValue = $hashInstance->getHashedPassword($elementValue);
             }
 
             $databaseData[$elementsConfiguration[$elementIdentifier]['mapOnDatabaseColumn']] = $elementValue;

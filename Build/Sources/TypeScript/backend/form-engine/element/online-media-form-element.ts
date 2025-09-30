@@ -12,7 +12,7 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { LitElement, TemplateResult, html } from 'lit';
+import { LitElement, type TemplateResult, html } from 'lit';
 
 /**
  * Module: @typo3/backend/form-engine/element/online-media-form-element
@@ -23,12 +23,12 @@ export class OnlineMediaFormElement extends LitElement {
   @property({ type: String, attribute: 'help-text' }) allowedExtensionsHelpText: string;
   @property({ type: String, attribute: 'extensions' }) allowedExtensions: string;
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <form @submit="${ this.dispatchSubmitEvent }">
         <div class="form-control-wrap">

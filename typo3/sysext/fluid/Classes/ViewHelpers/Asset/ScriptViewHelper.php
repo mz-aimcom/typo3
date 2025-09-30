@@ -18,30 +18,21 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers\Asset;
 
 use TYPO3\CMS\Core\Page\AssetCollector;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\TagBuilder;
 
 /**
  * ViewHelper to add JavaScript to the TYPO3 AssetCollector. Either a file or inline JavaScript can be added.
  *
- * Examples
- * ========
- *
- * ::
- *
- *    <f:asset.script identifier="identifier123" src="EXT:my_ext/Resources/Public/JavaScript/foo.js" />
+ * ```
+ *    <f:asset.script identifier="identifier123" src="EXT:my_ext/Resources/Public/JavaScript/foo.js" inline="0" />
  *    <f:asset.script identifier="identifier123">
  *       alert('hello world');
  *    </f:asset.script>
+ * ```
  *
- * Details
- * =======
- *
- * In the AssetCollector, the "identifier" attribute is used as a unique identifier. Thus, if assets are added multiple
- * times using the same identifier, the asset will only be served once (the last added overrides previous assets).
- *
- * Some available attributes are defaults but do not make sense for this ViewHelper. Relevant attributes specific
- * for this ViewHelper are: async, crossorigin, defer, integrity, nomodule, nonce, referrerpolicy, src, type.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-asset-script
  */
 final class ScriptViewHelper extends AbstractTagBasedViewHelper
 {
@@ -60,11 +51,10 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
      */
     protected $escapeChildren = false;
 
-    protected AssetCollector $assetCollector;
-
-    public function injectAssetCollector(AssetCollector $assetCollector): void
-    {
-        $this->assetCollector = $assetCollector;
+    public function __construct(
+        private readonly AssetCollector $assetCollector,
+    ) {
+        parent::__construct();
     }
 
     public function initialize(): void
@@ -90,6 +80,7 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
         $this->registerArgument('useNonce', 'bool', 'Whether to use the global nonce value', false, false);
         $this->registerArgument('identifier', 'string', 'Use this identifier within templates to only inject your JS once, even though it is added multiple times.', true);
         $this->registerArgument('priority', 'boolean', 'Define whether the JavaScript should be put in the <head> tag above-the-fold or somewhere in the body part.', false, false);
+        $this->registerArgument('inline', 'bool', 'Define whether or not the referenced file should be loaded as inline script (Only to be used if \'src\' is set).', false, false);
     }
 
     public function render(): string
@@ -111,7 +102,14 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
             'useNonce' => $this->arguments['useNonce'],
         ];
         if ($src !== null) {
-            $this->assetCollector->addJavaScript($identifier, $src, $attributes, $options);
+            if ($this->arguments['inline'] ?? false) {
+                $content = @file_get_contents(GeneralUtility::getFileAbsFileName(trim($src)));
+                if ($content !== false) {
+                    $this->assetCollector->addInlineJavaScript($identifier, $content, $attributes, $options);
+                }
+            } else {
+                $this->assetCollector->addJavaScript($identifier, $src, $attributes, $options);
+            }
         } else {
             $content = (string)$this->renderChildren();
             if ($content !== '') {

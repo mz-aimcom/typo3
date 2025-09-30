@@ -18,8 +18,11 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Domain;
 
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\RecordFieldTransformer;
+use TYPO3\CMS\Core\Domain\Record;
 use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
@@ -28,20 +31,26 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class RecordFactoryTest extends UnitTestCase
 {
+    protected bool $resetSingletonInstances = true;
+
     #[Test]
     public function createFromDatabaseRowThrowsExceptionWhenTableIsNotTcaTable(): void
     {
         $this->expectExceptionCode(1715266929);
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isType('string'))->willReturn(false);
+        $cacheMock->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder(),
+            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
             new FieldTypeFactory(),
             '',
             $cacheMock
         );
         $schemaFactory->load(['existing_schema' => ['ctrl' => [], 'columns' => []]]);
-        $subject = new RecordFactory($schemaFactory, $this->createMock(RecordFieldTransformer::class));
+        $subject = new RecordFactory(
+            $schemaFactory,
+            $this->createMock(RecordFieldTransformer::class),
+            $this->createMock(EventDispatcherInterface::class),
+        );
         $subject->createFromDatabaseRow('foo', ['foo' => 1]);
     }
 
@@ -49,32 +58,40 @@ final class RecordFactoryTest extends UnitTestCase
     public function createFromDatabaseRowAddsTypeField(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isType('string'))->willReturn(false);
+        $cacheMock->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder(),
+            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
             new FieldTypeFactory(),
             '',
             $cacheMock
         );
         $schemaFactory->load([
             'foo' => [
-                'ctrl' => ['type' => 'type'],
+                'ctrl' => ['type' => 'type', 'crdate' => 'crdate'],
                 'columns' => ['type' => ['config' => ['type' => 'select', 'items' => [['value' => 'bar', 'label' => 'bar']]]]],
                 'types' => ['bar' => ['showitem' => 'type']],
             ],
         ]);
-        $subject = new RecordFactory($schemaFactory, $this->createMock(RecordFieldTransformer::class));
-        $recordObject = $subject->createFromDatabaseRow('foo', ['uid' => 1, 'pid' => 2, 'type' => 'bar']);
+        $subject = new RecordFactory(
+            $schemaFactory,
+            $this->createMock(RecordFieldTransformer::class),
+            $this->createMock(EventDispatcherInterface::class),
+        );
+        $time = time();
+        /** @var Record $recordObject */
+        $recordObject = $subject->createFromDatabaseRow('foo', ['uid' => 1, 'pid' => 2, 'type' => 'bar', 'crdate' => $time]);
         self::assertEquals('bar', $recordObject->toArray()['type']);
+        self::assertEquals($time, $recordObject->toArray(true)['_system']['createdAt']->getTimestamp());
+        self::assertEquals('bar', $recordObject->get('type'));
     }
 
     #[Test]
     public function resolvedRecordOnlyContainsFieldsInSubSchema(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isType('string'))->willReturn(false);
+        $cacheMock->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder(),
+            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
             new FieldTypeFactory(),
             '',
             $cacheMock
@@ -86,11 +103,17 @@ final class RecordFactoryTest extends UnitTestCase
                 'types' => ['foo' => ['showitem' => 'foo']],
             ],
         ]);
-        $subject = new RecordFactory($schemaFactory, $this->createMock(RecordFieldTransformer::class));
+        $subject = new RecordFactory(
+            $schemaFactory,
+            $this->createMock(RecordFieldTransformer::class),
+            $this->createMock(EventDispatcherInterface::class),
+        );
+        /** @var Record $recordObject */
         $recordObject = $subject->createFromDatabaseRow('foo', ['uid' => 1, 'pid' => 2, 'type' => 'foo', 'foo' => 'fooValue', 'bar' => 'barValue']);
-        self::assertFalse($recordObject->offsetExists('bar'));
-        self::assertTrue($recordObject->offsetExists('foo'));
-        self::assertTrue($recordObject->getRawRecord()->offsetExists('foo'));
-        self::assertTrue($recordObject->getRawRecord()->offsetExists('bar'));
+        self::assertFalse($recordObject->has('bar'));
+        self::assertTrue($recordObject->has('foo'));
+        self::assertIsArray($recordObject->toArray(true)['_system']);
+        self::assertTrue($recordObject->getRawRecord()->has('foo'));
+        self::assertTrue($recordObject->getRawRecord()->has('bar'));
     }
 }

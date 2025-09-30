@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\Utility\File;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UploadedFileInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
@@ -57,6 +58,7 @@ use TYPO3\CMS\Core\SysLog\Type as SystemLogType;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\Exception\NotImplementedMethodException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Validation\ResultException;
 
 /**
  * Contains functions for performing file operations like copying, pasting, uploading, moving,
@@ -67,7 +69,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * This class contains functions primarily used by tce_file.php (TYPO3 Core Engine for file manipulation)
  * Functions include copying, moving, deleting, uploading and so on...
  *
- * All fileoperations must be within the filemount paths of the user.
+ * All fileoperations must be within the file mount paths of the user.
  *
  * @internal Since TYPO3 v10, this class should not be used anymore outside of TYPO3 Core, and is considered internal,
  * as the FAL API should be used instead.
@@ -77,7 +79,7 @@ class ExtendedFileUtility extends BasicFileUtility
     /**
      * Defines behaviour when uploading files with names that already exist;
      */
-    protected DuplicationBehavior $existingFilesConflictMode;
+    protected DuplicationBehavior $existingFilesConflictMode = DuplicationBehavior::CANCEL;
 
     /**
      * This array is self-explaining (look in the class below).
@@ -123,7 +125,12 @@ class ExtendedFileUtility extends BasicFileUtility
     /**
      * @var array
      */
-    protected $fileCmdMap;
+    protected array $fileCmdMap = [];
+
+    /**
+     * @var array<string, UploadedFileInterface|list<UploadedFileInterface>>
+     */
+    protected array $uploadedFiles = [];
 
     /**
      * The File Factory
@@ -153,12 +160,13 @@ class ExtendedFileUtility extends BasicFileUtility
      *
      * @param array $fileCmds Array with the commands to execute. See "TYPO3 Core API" document
      */
-    public function start($fileCmds)
+    public function start(array $fileCmds, array $uploadedFiles): void
     {
         // Initialize Object Factory
         $this->fileFactory = GeneralUtility::makeInstance(ResourceFactory::class);
         // Initializing file processing commands:
         $this->fileCmdMap = $fileCmds;
+        $this->uploadedFiles = $uploadedFiles;
     }
 
     /**
@@ -189,12 +197,8 @@ class ExtendedFileUtility extends BasicFileUtility
             if ($this->fileCmdMap['upload'] ?? false) {
                 $uploads = $this->fileCmdMap['upload'];
                 foreach ($uploads as $upload) {
-                    if (empty($_FILES['upload_' . $upload['data']]['name'])
-                        || (
-                            is_array($_FILES['upload_' . $upload['data']]['name'])
-                            && empty($_FILES['upload_' . $upload['data']]['name'][0])
-                        )
-                    ) {
+                    $uploadedFileIndex = 'upload_' . $upload['data'];
+                    if (!$this->uploadedFileHasClientName($this->uploadedFiles[$uploadedFileIndex] ?? null)) {
                         unset($this->fileCmdMap['upload'][$upload['data']]);
                     }
                 }
@@ -279,7 +283,7 @@ class ExtendedFileUtility extends BasicFileUtility
         if (!is_object($this->getBackendUser())) {
             return;
         }
-        $this->getBackendUser()->writelog(SystemLogType::FILE, $action, $severity, 0, $message, $context);
+        $this->getBackendUser()->writelog(SystemLogType::FILE, $action, $severity, null, $message, $context);
     }
 
     /**
@@ -291,11 +295,29 @@ class ExtendedFileUtility extends BasicFileUtility
      */
     protected function addMessageToFlashMessageQueue($localizationKey, array $replaceMarkers = [], ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::ERROR)
     {
-        if (($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
-            && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isBackend()
-        ) {
+        if ($this->isBackendScope()) {
             $label = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/fileMessages.xlf:' . $localizationKey);
             $message = vsprintf($label, $replaceMarkers);
+            $flashMessage = GeneralUtility::makeInstance(
+                FlashMessage::class,
+                $message,
+                '',
+                $severity,
+                true
+            );
+            $this->addFlashMessage($flashMessage);
+        }
+    }
+
+    protected function addEvaluationResultHintsToFlashMessageQueue(
+        ResultException $exception,
+        ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::ERROR,
+    ): void {
+        if (!$this->isBackendScope()) {
+            return;
+        }
+        foreach ($exception->messages as $messageItem) {
+            $message = $messageItem->labelBag?->compile($this->getLanguageService()) ?? $messageItem->message;
             $flashMessage = GeneralUtility::makeInstance(
                 FlashMessage::class,
                 $message,
@@ -803,6 +825,9 @@ class ExtendedFileUtility extends BasicFileUtility
             } catch (NotInMountPointException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFile]);
+            } catch (ResultException $e) {
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File {identifier} was not renamed to {destination}', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
+                $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" was not renamed. Write-permission problem in "{destination}"?', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotRenamed', [$sourceFileObject->getName(), $targetFile]);
@@ -832,6 +857,9 @@ class ExtendedFileUtility extends BasicFileUtility
             } catch (NotInMountPointException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFile]);
+            } catch (ResultException $e) {
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File {identifier} was not renamed to {destination}', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
+                $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Directory "{identifier}" was not renamed. Write-permission problem in "{destination}"?', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DirectoryWasNotRenamed', [$sourceFileObject->getName(), $targetFile]);
@@ -978,39 +1006,18 @@ class ExtendedFileUtility extends BasicFileUtility
 
     /**
      * Upload of files (action=1)
-     * when having multiple uploads (HTML5-style), the array $_FILES looks like this:
-     * Array(
-     * [upload_1] => Array(
-     * [name] => Array(
-     * [0] => GData - Content-Elements and Media-Gallery.pdf
-     * [1] => CMS Expo 2011.txt
-     * )
-     * [type] => Array(
-     * [0] => application/pdf
-     * [1] => text/plain
-     * )
-     * [tmp_name] => Array(
-     * [0] => /Applications/MAMP/tmp/php/phpNrOB43
-     * [1] => /Applications/MAMP/tmp/php/phpD2HQAK
-     * )
-     * [size] => Array(
-     * [0] => 373079
-     * [1] => 1291
-     * )
-     * )
-     * )
      * in HTML you'd need sth like this: <input type="file" name="upload_1[]" multiple="true" />
      *
      * @param array $cmds $cmds['data'] is the ID-number (points to the global var that holds the filename-ref
-     *                    ($_FILES['upload_' . $id]['name']) . $cmds['target'] is the target directory, $cmds['charset']
+     *                    ($this->uploadedFiles['upload_' . $id]['name']) . $cmds['target'] is the target directory, $cmds['charset']
      *                    is the the character set of the file name (utf-8 is needed for JS-interaction)
      * @return File[]|bool Returns an array of new file objects upon success. False otherwise
      */
     public function func_upload($cmds)
     {
         $uploadPosition = $cmds['data'];
-        $uploadedFileData = $_FILES['upload_' . $uploadPosition];
-        if (empty($uploadedFileData['name']) || is_array($uploadedFileData['name']) && empty($uploadedFileData['name'][0])) {
+        $uploadedFileData = $this->uploadedFiles['upload_' . $uploadPosition] ?? null;
+        if (!$this->uploadedFileHasClientName($uploadedFileData)) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'No file was uploaded');
             $this->addMessageToFlashMessageQueue('FileUtility.NoFileWasUploaded');
             return false;
@@ -1018,40 +1025,27 @@ class ExtendedFileUtility extends BasicFileUtility
         // Example identifier for $cmds['target'] => "2:targetpath/targetfolder/"
         $targetFolderObject = $this->getFileObject($cmds['target']);
         // Uploading with non HTML-5-style, thus, make an array out of it, so we can loop over it
-        if (!is_array($uploadedFileData['name'])) {
-            $uploadedFileData = [
-                'name' => [$uploadedFileData['name']],
-                'type' => [$uploadedFileData['type']],
-                'tmp_name' => [$uploadedFileData['tmp_name']],
-                'size' => [$uploadedFileData['size']],
-            ];
+        if (!is_array($uploadedFileData)) {
+            $uploadedFileData = [$uploadedFileData];
         }
-        $uploadedFileData['name'] = array_map(\Normalizer::normalize(...), $uploadedFileData['name']);
         $resultObjects = [];
-        $numberOfUploadedFilesForPosition = count($uploadedFileData['name']);
         // Loop through all uploaded files
-        for ($i = 0; $i < $numberOfUploadedFilesForPosition; $i++) {
-            $fileInfo = [
-                'name' => $uploadedFileData['name'][$i],
-                'type' => $uploadedFileData['type'][$i],
-                'tmp_name' => $uploadedFileData['tmp_name'][$i],
-                'size' => $uploadedFileData['size'][$i],
-            ];
+        foreach ($uploadedFileData as $uploadedFile) {
             try {
-                $fileObject = $targetFolderObject->addUploadedFile($fileInfo, $this->existingFilesConflictMode);
+                $fileObject = $targetFolderObject->addUploadedFile($uploadedFile, $this->existingFilesConflictMode);
                 if ($this->existingFilesConflictMode === DuplicationBehavior::REPLACE) {
                     $this->getIndexer($fileObject->getStorage())->updateIndexEntry($fileObject);
                 }
                 $resultObjects[] = $fileObject;
                 $this->internalUploadMap[$uploadPosition] = $fileObject->getCombinedIdentifier();
-                if ($fileObject->getName() !== $fileInfo['name']) {
-                    $this->addMessageToFlashMessageQueue('FileUtility.FileNameSanitized', [$fileInfo['name'], $fileObject->getName()], ContextualFeedbackSeverity::WARNING);
+                if ($fileObject->getName() !== $uploadedFile->getClientFilename()) {
+                    $this->addMessageToFlashMessageQueue('FileUtility.FileNameSanitized', [$uploadedFile->getClientFilename(), $fileObject->getName()], ContextualFeedbackSeverity::WARNING);
                 }
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Uploading file "{identifier}" to "{destination}"', ['identifier' => $fileInfo['name'], 'destination' => $targetFolderObject->getIdentifier()]);
-                $this->addMessageToFlashMessageQueue('FileUtility.UploadingFileTo', [$fileInfo['name'], $targetFolderObject->getIdentifier()], ContextualFeedbackSeverity::OK);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Uploading file "{identifier}" to "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->addMessageToFlashMessageQueue('FileUtility.UploadingFileTo', [$uploadedFile->getClientFilename(), $targetFolderObject->getIdentifier()], ContextualFeedbackSeverity::OK);
             } catch (InsufficientFileWritePermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override {identifier}', ['identifier' => $fileInfo['name']]);
-                $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$fileInfo['name']]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override {identifier}', ['identifier' => $uploadedFile->getClientFilename()]);
+                $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$uploadedFile->getClientFilename()]);
             } catch (UploadException $e) {
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'The upload has failed, no uploaded file found');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheUploadHasFailedNoUploadedFileFound');
@@ -1059,17 +1053,20 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to upload files');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToUploadFiles');
             } catch (UploadSizeException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $fileInfo['name']]);
-                $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$fileInfo['name']]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $uploadedFile->getClientFilename()]);
+                $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$uploadedFile->getClientFilename()]);
             } catch (InsufficientFolderWritePermissionsException $e) {
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFolderObject->getIdentifier()]);
             } catch (IllegalFileExtensionException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $fileInfo['name'], 'destination' => $targetFolderObject->getIdentifier()]);
-                $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$fileInfo['name'], $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$uploadedFile->getClientFilename(), $targetFolderObject->getIdentifier()]);
             } catch (ExistingTargetFileNameException $e) {
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'No unique filename available in "{destination}"', ['destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.NoUniqueFilenameAvailableIn', [$targetFolderObject->getIdentifier()]);
+            } catch (ResultException $e) {
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Uploading file "{identifier}" to "{destination}" failed', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Uploaded file could not be moved. Write-permission problem in "{destination}"? Error: {error}', ['destination' => $targetFolderObject->getIdentifier(), 'error' => $e->getMessage()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.UploadedFileCouldNotBeMoved', [$targetFolderObject->getIdentifier()]);
@@ -1092,8 +1089,8 @@ class ExtendedFileUtility extends BasicFileUtility
     {
         $fileObjectToReplace = null;
         $uploadPosition = $cmdArr['data'];
-        $fileInfo = $_FILES['replace_' . $uploadPosition];
-        if (empty($fileInfo['name'])) {
+        $uploadedFile = $this->uploadedFiles['replace_' . $uploadPosition];
+        if (empty($uploadedFile->getClientFilename())) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'No file was uploaded for replacing');
             $this->addMessageToFlashMessageQueue('FileUtility.NoFileWasUploadedForReplacing');
             return false;
@@ -1106,26 +1103,27 @@ class ExtendedFileUtility extends BasicFileUtility
             $fileObjectToReplace = $this->getFileObject($cmdArr['uid']);
             $folder = $fileObjectToReplace->getParentFolder();
             $resourceStorage = $fileObjectToReplace->getStorage();
+            $uploadedFileExtension = pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
 
-            $fileObject = $resourceStorage->addUploadedFile($fileInfo, $folder, $fileObjectToReplace->getName(), DuplicationBehavior::REPLACE);
-
-            // Check if there is a file that is going to be uploaded that has a different name as the replacing one
-            // but exists in that folder as well.
-            // rename to another name, but check if the name is already given
-            if ($keepFileName === false) {
-                // if a file with the same name already exists, we need to change it to _01 etc.
-                // if the file does not exist, we can do a simple rename
-                $resourceStorage->moveFile($fileObject, $folder, $fileInfo['name'], DuplicationBehavior::RENAME);
+            if (!$keepFileName) {
+                $fileObject = $resourceStorage->replaceAndRenameUploadedFile($uploadedFile, $fileObjectToReplace);
+            } elseif ($uploadedFileExtension !== $fileObjectToReplace->getExtension()) {
+                // `keepFileName` would cause a failing consistency check, for instance, when adding `image/png` contents to an existing `file.pdf`.
+                // This step ensures the file is renamed from `file.pdf` to `file.png`.
+                $targetFileName = pathinfo($fileObjectToReplace->getName(), PATHINFO_FILENAME) . '.' . $uploadedFileExtension;
+                $fileObject = $resourceStorage->replaceAndRenameUploadedFile($uploadedFile, $fileObjectToReplace, $targetFileName);
+            } else {
+                $fileObject = $resourceStorage->addUploadedFile($uploadedFile, $folder, $fileObjectToReplace->getName(), DuplicationBehavior::REPLACE);
             }
 
             $resultObjects[] = $fileObject;
             $this->internalUploadMap[$uploadPosition] = $fileObject->getCombinedIdentifier();
 
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Replacing file "{identifier}" to "{destination}"', ['identifier' => $fileInfo['name'], 'destination' => $fileObjectToReplace->getIdentifier()]);
-            $this->addMessageToFlashMessageQueue('FileUtility.ReplacingFileTo', [$fileInfo['name'], $fileObjectToReplace->getIdentifier()], ContextualFeedbackSeverity::OK);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Replacing file "{identifier}" to "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
+            $this->addMessageToFlashMessageQueue('FileUtility.ReplacingFileTo', [$uploadedFile->getClientFilename(), $fileObjectToReplace->getIdentifier()], ContextualFeedbackSeverity::OK);
         } catch (InsufficientFileWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override "{destination}"', ['destination' => $fileInfo['name']]);
-            $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$fileInfo['name']]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override "{destination}"', ['destination' => $uploadedFile->getClientFilename()]);
+            $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$uploadedFile->getClientFilename()]);
         } catch (UploadException $e) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'The upload has failed, no uploaded file found');
             $this->addMessageToFlashMessageQueue('FileUtility.TheUploadHasFailedNoUploadedFileFound');
@@ -1133,17 +1131,20 @@ class ExtendedFileUtility extends BasicFileUtility
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to upload files');
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToUploadFiles');
         } catch (UploadSizeException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $fileInfo['name']]);
-            $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$fileInfo['name']]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $uploadedFile->getClientFilename()]);
+            $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$uploadedFile->getClientFilename()]);
         } catch (InsufficientFolderWritePermissionsException $e) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $fileObjectToReplace->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$fileObjectToReplace->getIdentifier()]);
         } catch (IllegalFileExtensionException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $fileInfo['name'], 'destination' => $fileObjectToReplace->getIdentifier()]);
-            $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$fileInfo['name'], $fileObjectToReplace->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
+            $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$uploadedFile->getClientFilename(), $fileObjectToReplace->getIdentifier()]);
         } catch (ExistingTargetFileNameException $e) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'No unique filename available in "{destination}"', ['destination' => $fileObjectToReplace->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.NoUniqueFilenameAvailableIn', [$fileObjectToReplace->getIdentifier()]);
+        } catch (ResultException $e) {
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Replacing file "{identifier}" to "{destination}" failed', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
+            $this->addEvaluationResultHintsToFlashMessageQueue($e);
         } catch (\RuntimeException $e) {
             throw $e;
         }
@@ -1159,6 +1160,23 @@ class ExtendedFileUtility extends BasicFileUtility
 
         $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
         $defaultFlashMessageQueue->enqueue($flashMessage);
+    }
+
+    protected function isBackendScope(): bool
+    {
+        return ($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
+            && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isBackend();
+    }
+
+    protected function uploadedFileHasClientName(null|array|UploadedFileInterface $file): bool
+    {
+        if ($file instanceof UploadedFileInterface) {
+            return !empty($file->getClientFilename());
+        }
+        if (isset($file[0]) && $file[0] instanceof UploadedFileInterface) {
+            return !empty($file[0]->getClientFilename());
+        }
+        return false;
     }
 
     /**

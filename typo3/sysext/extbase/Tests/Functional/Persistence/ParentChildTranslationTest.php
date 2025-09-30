@@ -46,7 +46,7 @@ final class ParentChildTranslationTest extends FunctionalTestCase
         $children = [];
         foreach ($results as $main) {
             $children[] = $main->getChild()->getTitle();
-            $children[] = $main->getSqueeze()[0]->getChild()->getTitle();
+            $children[] = $main->getSqueeze()->toArray()[0]->getChild()->getTitle();
         }
 
         self::assertSame(
@@ -82,7 +82,7 @@ final class ParentChildTranslationTest extends FunctionalTestCase
         $children = [];
         foreach ($results as $main) {
             $children[] = $main->getChild()->getTitle();
-            $children[] = $main->getSqueeze()[0]->getChild()->getTitle();
+            $children[] = $main->getSqueeze()->toArray()[0]->getChild()->getTitle();
         }
 
         self::assertSame(
@@ -91,6 +91,42 @@ final class ParentChildTranslationTest extends FunctionalTestCase
                 'Kind 1 DE',
                 'Kind 2 DE',
                 'Kind 3 DE',
+            ],
+            $children
+        );
+    }
+    #[Test]
+    public function multilevelFallbackOfChildrenRespects(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/parentChildTranslationExampleData.csv');
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        $query = $this->get(MainRepository::class)->createQuery();
+        $querySettings = $query->getQuerySettings();
+        $querySettings->setStoragePageIds([1]);
+        $querySettings->setRespectSysLanguage(true);
+        $querySettings->setLanguageAspect(new LanguageAspect(5, 5, LanguageAspect::OVERLAYS_MIXED, [1]));
+
+        $results = $query->execute();
+
+        self::assertCount(2, $results);
+
+        $children = [];
+        foreach ($results as $main) {
+            $children[] = $main->getChild()->getTitle();
+            $children[] = $main->getSqueeze()->toArray()[0]->getChild()->getTitle();
+        }
+
+        self::assertSame(
+            [
+                'Enfant 1 FR',
+                'Enfant 1 FR',
+                // This needs to be a DE child due to the fallback
+                'Kind 2 DE',
+                'Enfant 3 FR',
             ],
             $children
         );

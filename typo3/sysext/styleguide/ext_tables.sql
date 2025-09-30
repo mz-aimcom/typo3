@@ -33,6 +33,8 @@ CREATE TABLE tx_styleguide_elements_basic (
     none_1 text,
     none_2 text,
     none_3 text,
+    none_4 text,
+    none_5 text,
 
     # type=passthrough needs manual configuration
     passthrough_1 text,
@@ -41,6 +43,14 @@ CREATE TABLE tx_styleguide_elements_basic (
     # type=user needs manual configuration
     user_1 text,
     user_2 text,
+);
+
+CREATE TABLE tx_styleguide_elements_select (
+    # @todo This is a bug in tree DH handling with maxitems=1 TCA fields where
+    #       DefaultTcaSchema currently creates a int default 0 not null field
+    #       which fails with postgres when no page is selected.
+    #       Build/Scripts/runTests.sh -s acceptance -d postgres -i 15 -p 8.3
+    select_tree_7 varchar(255) DEFAULT '' NOT NULL
 );
 
 CREATE TABLE tx_styleguide_elements_rte_flex_1_inline_1_child (

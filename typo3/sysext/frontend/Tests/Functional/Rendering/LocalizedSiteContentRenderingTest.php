@@ -106,10 +106,6 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected array $pathsToLinkInTestInstance = [
-        'typo3/sysext/frontend/Tests/Functional/Fixtures/Images' => 'fileadmin/user_upload',
-    ];
-
     private const VALUE_PageId = 89;
     private const TABLE_Content = 'tt_content';
     private const LANGUAGE_PRESETS = [
@@ -117,6 +113,10 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
         'DA' => ['id' => 1, 'title' => 'Dansk', 'locale' => 'da_DK.UTF8'],
         'DE' => ['id' => 2, 'title' => 'Deutsch', 'locale' => 'de_DE.UTF8'],
         'PL' => ['id' => 3, 'title' => 'Polski', 'locale' => 'pl_PL.UTF8'],
+    ];
+
+    protected array $pathsToLinkInTestInstance = [
+        'typo3/sysext/frontend/Tests/Functional/Fixtures/Images' => 'fileadmin/user_upload',
     ];
 
     protected function setUp(): void
@@ -289,6 +289,10 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
                         'header' => '[Translate to Dansk:] Regular Element #3',
                         'image' => ['[Kasper] Image translated to Dansk', '[T3BOARD] Image added in Dansk (without parent)'],
                     ],
+                    303 => [
+                        'header' => '[DA] Without default language',
+                        'image' => ['[T3BOARD] Image added to DA element without default language'],
+                    ],
                 ],
                 'fallbackType' => 'fallback',
                 'fallbackChain' => 'pageNotFound',
@@ -388,7 +392,7 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
         //Expected behaviour:
         //the page is NOT translated so setting sys_language_mode to different values changes the results
         //- setting sys_language_mode to empty value makes TYPO3 return default language records
-        //- setting it to strict throws 404, independently from other settings
+        //- setting it to strict throws 404, independently of other settings
         //Setting config.sys_language_overlay = 0
         return [
             [
@@ -539,8 +543,8 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
                 'fallbackChain' => '0,pageNotFound',
                 'overlayMode' => 'mixed',
             ],
-            //Dutch elements are shown because of the content fallback 1,0 - first Dutch, then default language
-            //note that '[DA] Without default language' is NOT shown - due to overlays (fetch default language and overlay it with translations)
+            // Dutch elements are shown because of the content fallback 1,0 - first Dutch, then default language
+            // Floating elements in the target language are still shown
             [
                 'languageConfiguration' => [
                     'fallbackType' => 'fallback',
@@ -559,6 +563,11 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
                         'header' => '[Translate to Dansk:] Regular Element #3',
                         'image' => ['[Kasper] Image translated to Dansk', '[T3BOARD] Image added in Dansk (without parent)'],
                     ],
+                    303 => [
+                        'header' => '[DA] Without default language',
+                        'image' => ['[T3BOARD] Image added to DA element without default language'],
+                    ],
+
                 ],
                 'pageTitle' => '[DA]Page',
                 'languageId' => 2,
@@ -753,24 +762,26 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
         ];
         // Expected behaviour:
         // Not translated element #2 is shown because sys_language_overlay = 1 (with sys_language_overlay = hideNonTranslated, it would be hidden)
+        // Also: Floating records are also shown.
         yield 'fallback to EN' => [
             'languageConfiguration' => [
                 'fallbackType' => 'fallback',
                 'fallbackChain' => ['EN'],
             ],
-            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', 'Regular Element #3'],
+            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', 'Regular Element #3', '[PL] Without default language'],
             'fallbackType' => 'fallback',
             'fallbackChain' => '0,pageNotFound',
             'overlayMode' => 'mixed',
         ];
         // Expected behaviour:
         // Element #3 is not translated in PL, but it is translated in DA. The DA version is shown as it has a fallback chain defined.
+        // Also: Floating records are also shown.
         yield 'fallback with multiple languages' => [
             'languageConfiguration' => [
                 'fallbackType' => 'fallback',
                 'fallbackChain' => ['DA', 'EN'],
             ],
-            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', '[Translate to Dansk:] Regular Element #3'],
+            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', '[Translate to Dansk:] Regular Element #3', '[PL] Without default language'],
             'fallbackType' => 'fallback',
             'fallbackChain' => '1,0,pageNotFound',
             'overlayMode' => 'mixed',
@@ -780,13 +791,13 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
                 'fallbackType' => 'fallback',
                 'fallbackChain' => [],
             ],
-            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', 'Regular Element #3'],
+            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', 'Regular Element #2', 'Regular Element #3', '[PL] Without default language'],
             'fallbackType' => 'fallback',
             'fallbackChain' => 'pageNotFound',
             'overlayMode' => 'mixed',
         ];
         // Expected behaviour:
-        // Non translated default language elements are not shown, because of hideNonTranslated
+        // Non translated default language elements are not shown, because of "hideNonTranslated" a.k.a. "strict"
         yield 'strict with fallback to default' => [
             'languageConfiguration' => [
                 'fallbackType' => 'strict',
@@ -802,7 +813,7 @@ final class LocalizedSiteContentRenderingTest extends FunctionalTestCase
                 'fallbackType' => 'strict',
                 'fallbackChain' => ['DA', 'EN'],
             ],
-            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', '[PL] Without default language'],
+            'visibleRecordHeaders' => ['[Translate to Polski:] Regular Element #1', '[Translate to Dansk:] Regular Element #3', '[PL] Without default language'],
             'fallbackType' => 'strict',
             'fallbackChain' => '1,0,pageNotFound',
             'overlayMode' => 'includeFloating',

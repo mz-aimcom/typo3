@@ -41,20 +41,16 @@ final class MaintenanceCest extends AbstractCest
     {
         $I->click('Analyze database…');
         $I->waitForElementVisible('.modal-dialog');
-        $I->see('Analyze Database Structure', '.modal-dialog h4');
+        $I->see('Analyze Database Structure', '.modal-dialog h1');
         $I->waitForElementVisible('.callout-success');
         $I->see('Database schema is up to date. Good job!', '.callout-success .callout-title');
-        $I->click('.t3js-modal-close');
-        $I->waitForElementNotVisible('.modal-dialog');
     }
 
     public function removeTemporaryAssetsWorks(ApplicationTester $I): void
     {
         $I->click('Scan temporary files…');
         $I->waitForElementVisible('.modal-dialog');
-        $I->see('Remove Temporary Assets', '.modal-dialog h4');
-        $I->click('.t3js-modal-close');
-        $I->waitForElementNotVisible('.modal-dialog');
+        $I->see('Remove Temporary Assets', '.modal-dialog h1');
     }
 
     #[Env('classic')]
@@ -69,18 +65,14 @@ final class MaintenanceCest extends AbstractCest
     {
         $I->click('Scan tables…');
         $I->waitForElementVisible('.modal-dialog');
-        $I->see('Clear Persistent Database Tables', '.modal-dialog h4');
-        $I->click('.t3js-modal-close');
-        $I->waitForElementNotVisible('.modal-dialog');
+        $I->see('Clear Persistent Database Tables', '.modal-dialog h1');
     }
 
     public function createAdminUserWorks(ApplicationTester $I): void
     {
         $I->click('Create Administrator…');
         $I->waitForElementVisible('.modal-dialog');
-        $I->see('Create Administrative User', '.modal-dialog h4');
-        $I->click('.t3js-modal-close');
-        $I->waitForElementNotVisible('.modal-dialog');
+        $I->see('Create Administrative User', '.modal-dialog h1');
     }
 
     public function resetBackendUserPreferencesWorks(ApplicationTester $I): void
@@ -95,9 +87,7 @@ final class MaintenanceCest extends AbstractCest
     {
         $I->click('Manage languages…');
         $I->waitForElementVisible('.modal-dialog');
-        $I->see('Manage Language Packs', '.modal-dialog h4');
-        $I->waitForText('Active languages', 30, '.modal-dialog h3');
-        $I->click('.t3js-modal-close');
-        $I->waitForElementNotVisible('.modal-dialog');
+        $I->see('Manage Language Packs', '.modal-dialog h1');
+        $I->waitForText('Active languages', 30, '.modal-dialog h2');
     }
 }

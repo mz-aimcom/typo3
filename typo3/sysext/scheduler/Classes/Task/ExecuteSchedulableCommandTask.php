@@ -107,8 +107,6 @@ class ExecuteSchedulableCommandTask extends AbstractTask
      */
     public function getAdditionalInformation(): string
     {
-        $label = $this->commandIdentifier;
-
         try {
             $commandRegistry = GeneralUtility::makeInstance(CommandRegistry::class);
             $schedulableCommand = $commandRegistry->getCommandByIdentifier($this->commandIdentifier);
@@ -123,23 +121,23 @@ class ExecuteSchedulableCommandTask extends AbstractTask
             $input = new ArrayInput($this->getParameters(true), $schedulableCommand->getDefinition());
             $arguments = $input->__toString();
         } catch (\Symfony\Component\Console\Exception\RuntimeException|InvalidArgumentException $e) {
-            return $label . "\n"
+            return $this->commandIdentifier . "\n"
                 . sprintf(
                     $this->getLanguageService()->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.errorParsingArguments'),
                     $e->getMessage()
                 );
         } catch (InvalidOptionException $e) {
-            return $label . "\n"
+            return $this->commandIdentifier . "\n"
                 . sprintf(
                     $this->getLanguageService()->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.errorParsingOptions'),
                     $e->getMessage()
                 );
         }
         if ($arguments !== '') {
-            $label .= ' ' . $arguments;
+            return $this->commandIdentifier . ' ' . $arguments;
         }
 
-        return $label;
+        return '';
     }
 
     public function getArguments(): array
@@ -193,5 +191,31 @@ class ExecuteSchedulableCommandTask extends AbstractTask
             }
         }
         return array_merge($this->arguments, $options);
+    }
+
+    public function getTaskType(): string
+    {
+        return $this->commandIdentifier;
+    }
+    public function setTaskType(string $taskType): void
+    {
+        $this->commandIdentifier = $taskType;
+    }
+
+    public function getTaskParameters(): array
+    {
+        return [
+            'commandIdentifier' => $this->commandIdentifier,
+            'arguments' => $this->arguments,
+            'options' => $this->options,
+            'optionValues' => $this->optionValues,
+        ];
+    }
+    public function setTaskParameters(array $parameters): void
+    {
+        $this->commandIdentifier = $parameters['commandIdentifier'] ?? $this->commandIdentifier;
+        $this->arguments = $parameters['arguments'] ?? [];
+        $this->options = $parameters['options'] ?? [];
+        $this->optionValues = $parameters['optionValues'] ?? [];
     }
 }

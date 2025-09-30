@@ -11,10 +11,8 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { MessageUtility } from '../../utility/message-utility';
 import { AjaxDispatcher } from './../inline-relation/ajax-dispatcher';
-import { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 import DocumentService from '@typo3/core/document-service';
 import NProgress from 'nprogress';
 import Sortable from 'sortablejs';
@@ -28,6 +26,8 @@ import RegularEvent from '@typo3/core/event/regular-event';
 import Severity from '../../severity';
 import Utility from '../../utility';
 import { selector } from '@typo3/core/literals';
+import type AjaxRequest from '@typo3/core/ajax/ajax-request';
+import type { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 
 enum Selectors {
   toggleSelector = '[data-bs-toggle="formengine-inline"]',
@@ -41,7 +41,6 @@ enum Selectors {
   uniqueValueSelectors = 'select.t3js-inline-unique',
   revertUniqueness = '.t3js-revert-unique',
   controlContainer = '.t3js-inline-controls',
-  controlTopOuterContainer = '.t3js-inline-controls-top-outer-container',
 }
 
 enum States {
@@ -432,7 +431,7 @@ class InlineControlContainer {
       if (hiddenValueCheckBox !== null && hiddenValueInput !== null) {
         hiddenValueCheckBox.checked = !hiddenValueCheckBox.checked;
         hiddenValueInput.value = hiddenValueCheckBox.checked ? '1' : '0';
-        FormEngineValidation.markFieldAsChanged(hiddenValueCheckBox);
+        FormEngine.markFieldAsChanged(hiddenValueCheckBox);
       }
 
       const hiddenClass = 't3-form-field-container-inline-hidden';
@@ -666,7 +665,7 @@ class InlineControlContainer {
     }
 
     (<HTMLInputElement>formField).value = records.join(',');
-    (<HTMLInputElement>formField).classList.add('has-change');
+    FormEngine.markFieldAsChanged(formField);
     document.dispatchEvent(new Event('change'));
 
     this.redrawSortingButtons(this.container.dataset.objectGroup, records);
@@ -697,7 +696,7 @@ class InlineControlContainer {
       records.splice(indexOfRemoveUid, 1);
 
       (<HTMLInputElement>formField).value = records.join(',');
-      (<HTMLInputElement>formField).classList.add('has-change');
+      FormEngine.markFieldAsChanged(formField);
       document.dispatchEvent(new Event('change'));
 
       this.redrawSortingButtons(this.container.dataset.objectGroup, records);
@@ -751,7 +750,7 @@ class InlineControlContainer {
       .map((child: HTMLElement) => child.dataset.objectUid);
 
     (<HTMLInputElement>formField).value = records.join(',');
-    (<HTMLInputElement>formField).classList.add('has-change');
+    FormEngine.markFieldAsChanged(formField);
     document.dispatchEvent(new Event('inline:sorting-changed'));
     document.dispatchEvent(new Event('change'));
 
@@ -777,7 +776,7 @@ class InlineControlContainer {
     }
 
     new RegularEvent('transitionend', (): void => {
-      recordContainer.parentElement.removeChild(recordContainer);
+      recordContainer.remove();
       FormEngineValidation.validate(this.container);
     }).bindTo(recordContainer);
 
@@ -795,12 +794,8 @@ class InlineControlContainer {
    */
   private toggleContainerControls(visible: boolean): void {
     const controlContainer = this.container.querySelectorAll(
-      ':scope > ' + Selectors.controlContainer + ', '
-      + ':scope > ' + Selectors.controlTopOuterContainer + ' ' + Selectors.controlContainer
+      ':scope > ' + Selectors.controlContainer
     );
-    if (controlContainer === null) {
-      return;
-    }
     controlContainer.forEach((container: HTMLElement): void => {
       const controlContainerButtons = container.querySelectorAll('button, a');
       controlContainerButtons.forEach((button: HTMLElement): void => {

@@ -19,6 +19,7 @@ return [
         'security' => [
             'ignorePageTypeRestriction' => true,
         ],
+        'versioningWS' => true,
     ],
 
     'columns' => [
@@ -47,9 +48,9 @@ return [
                 'size' => 10,
                 'valuePicker' => [
                     'items' => [
-                        [ 'blue', '#0000FF'],
-                        [ 'red', '#FF0000'],
-                        [ 'typo3 orange', '#FF8700'],
+                        [ 'label' => 'blue', 'value' => '#0000FF'],
+                        [ 'label' => 'red', 'value' => '#FF0000'],
+                        [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
                     ],
                 ],
             ],

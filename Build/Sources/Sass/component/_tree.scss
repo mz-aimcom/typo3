@@ -1,6 +1,6 @@
 :root {
     --tree-color: var(--typo3-text-color-base);
-    --tree-bg: var(--typo3-surface-container-low);
+    --tree-bg: var(--typo3-surface-base);
     // node
     --tree-node-color: var(--tree-color);
     --tree-node-bg: var(--tree-bg);
@@ -33,7 +33,6 @@
 // Nodes
 //
 .nodes-container {
-    color-scheme: light dark;
     color: var(--tree-color);
     background: var(--tree-bg);
     position: relative;
@@ -101,7 +100,6 @@
         --tree-node-bg: var(--tree-node-hover-bg);
         --tree-node-border-color: var(--tree-node-hover-border-color);
         outline: 1px solid;
-        z-index: 1;
     }
 
     &:focus,
@@ -110,7 +108,6 @@
         --tree-node-bg: var(--tree-node-focus-bg);
         --tree-node-border-color: var(--tree-node-focus-border-color);
         outline: 1px solid;
-        z-index: 1;
     }
 
     &:active,
@@ -370,12 +367,12 @@
 // Dragging Tooltip
 //
 .dragging-tooltip {
-    color-scheme: light dark;
     pointer-events: none;
     position: fixed;
     left: 0;
     top: 0;
-    display: flex;
+    display: grid;
+    grid-template-columns: auto 1fr;
     align-items: center;
     gap: .5rem;
     padding: var(--typo3-component-padding-y) var(--typo3-component-padding-x);
@@ -393,17 +390,33 @@
     display: flex;
     flex-grow: 1;
     align-items: center;
-    gap: .25rem;
+    gap: .5rem;
     overflow: hidden;
 }
 
 .dragging-tooltip-content-label {
     display: flex;
+    gap: .15rem;
     flex-direction: column;
 }
 
 .dragging-tooltip-content-description {
     opacity: .75;
+}
+
+.dragging-tooltip-thumbnails {
+    display: flex;
+    gap: .15rem;
+
+    typo3-backend-drag-tooltip-thumbnail {
+        display: block;
+
+        img,
+        svg {
+            display: block;
+            border-radius: .15rem;
+        }
+    }
 }
 
 //
@@ -464,7 +477,6 @@ typo3-backend-form-selecttree-toolbar {
 }
 
 .tree-toolbar {
-    color-scheme: light dark;
     padding: var(--module-docheader-padding-y) 12px;
     color: var(--module-color);
     border-bottom: 1px solid var(--module-docheader-border-color);
@@ -472,7 +484,6 @@ typo3-backend-form-selecttree-toolbar {
 
     &__menu {
         padding-inline-end: 32px;
-        display: flex;
         min-height: var(--module-docheader-bar-height);
     }
 
@@ -483,11 +494,34 @@ typo3-backend-form-selecttree-toolbar {
 
     &__menuitem {
         color: inherit;
-        display: inline-block;
-        padding: .25rem;
-        border: none;
+        display: inline-flex;
+        padding: 0 .25rem;
+        border: 1px solid transparent;
         background: 0 0;
-        font-size: 11px;
+        font-size: var(--typo3-font-size-small);
+        justify-content: center;
+        align-items: center;
+        height: var(--module-docheader-bar-height);
+        border-radius: var(--typo3-input-border-radius);
+        outline-offset: 0;
+
+        &:is(button) {
+            &:hover {
+                border-color: var(--typo3-state-default-hover-border-color);
+                color: var(--typo3-state-default-hover-color);
+                background-color: var(--typo3-state-default-hover-bg);
+            }
+
+            &:focus {
+                border-color: var(--typo3-state-default-focus-border-color);
+                color: var(--typo3-state-default-focus-color);
+                background-color: var(--typo3-state-default-focus-bg);
+            }
+
+            &:focus-visible {
+                outline: var(--typo3-outline-width) var(--typo3-outline-style) color-mix(in srgb, var(--typo3-state-default-focus-border-color), transparent 25%);
+            }
+        }
     }
 
     &__drag-node {

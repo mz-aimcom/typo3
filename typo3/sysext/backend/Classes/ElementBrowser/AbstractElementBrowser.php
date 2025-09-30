@@ -26,6 +26,7 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewInterface;
 
@@ -73,6 +74,7 @@ abstract class AbstractElementBrowser
         protected readonly UriBuilder $uriBuilder,
         protected readonly ExtensionConfiguration $extensionConfiguration,
         protected readonly BackendViewFactory $backendViewFactory,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -128,7 +130,7 @@ abstract class AbstractElementBrowser
     protected function getBParamDataAttributes()
     {
         $params = explode('|', $this->bparams);
-        $fieldRef = $params[0] ?? null;
+        $fieldRef = $params[0];
         $rteParams = $params[1] ?? null;
         $rteConfig = $params[2] ?? null;
         $irreObjectId = $params[4] ?? null;

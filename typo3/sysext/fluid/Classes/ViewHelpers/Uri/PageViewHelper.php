@@ -31,53 +31,19 @@ use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder as ExtbaseUriBuilder;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Typolink\LinkFactory;
 use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * A ViewHelper for creating URIs to TYPO3 pages.
+ * ViewHelper for creating URIs to TYPO3 pages.
  *
- * Examples
- * ========
+ * ```
+ *   <f:uri.page pageUid="42" additionalParams="{foo: 'bar'}">page link</f:uri.page>
+ * ```
  *
- * URI to the current page
- * -----------------------
- *
- * ::
- *
- *    <f:uri.page>page link</f:uri.page>
- *
- * ``/page/path/name.html``
- *
- * Depending on current page, routing and page path configuration.
- *
- * Query parameters
- * ----------------
- *
- * ::
- *
- *    <f:uri.page pageUid="1" additionalParams="{foo: 'bar'}" />
- *
- * ``/page/path/name.html?foo=bar``
- *
- * Depending on current page, routing and page path configuration.
- *
- * Query parameters for extensions
- * -------------------------------
- *
- * ::
- *
- *    <f:uri.page pageUid="1" additionalParams="{extension_key: {foo: 'bar'}}" />
- *
- * ``/page/path/name.html?extension_key[foo]=bar``
- *
- * Depending on current page, routing and page path configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-page
  */
 final class PageViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('pageUid', 'int', 'target PID');
@@ -92,21 +58,21 @@ final class PageViewHelper extends AbstractViewHelper
         $this->registerArgument('argumentsToBeExcludedFromQueryString', 'array', 'arguments to be removed from the URI. Only active if $addQueryString = TRUE', false, []);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
         $request = null;
-        if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
         }
         if ($request instanceof ExtbaseRequestInterface) {
-            return self::renderWithExtbaseContext($request, $arguments);
+            return self::renderWithExtbaseContext($request, $this->arguments);
         }
         if ($request instanceof ServerRequestInterface) {
             if (ApplicationType::fromRequest($request)->isFrontend()) {
                 // Use the regular typolink functionality.
-                return self::renderFrontendLinkWithCoreContext($request, $arguments, $renderChildrenClosure);
+                return self::renderFrontendLinkWithCoreContext($request, $this->arguments, $this->renderChildren(...));
             }
-            return self::renderBackendLinkWithCoreContext($request, $arguments);
+            return self::renderBackendLinkWithCoreContext($request, $this->arguments);
         }
         throw new \RuntimeException(
             'The rendering context of ViewHelper f:uri.page is missing a valid request object.',
@@ -114,7 +80,7 @@ final class PageViewHelper extends AbstractViewHelper
         );
     }
 
-    protected static function renderBackendLinkWithCoreContext(ServerRequestInterface $request, array $arguments): string
+    private static function renderBackendLinkWithCoreContext(ServerRequestInterface $request, array $arguments): string
     {
         $pageUid = isset($arguments['pageUid']) ? (int)$arguments['pageUid'] : null;
         $section = isset($arguments['section']) ? (string)$arguments['section'] : '';
@@ -159,7 +125,7 @@ final class PageViewHelper extends AbstractViewHelper
         return $uri;
     }
 
-    protected static function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
+    private static function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
     {
         $pageUid = isset($arguments['pageUid']) ? (int)$arguments['pageUid'] : 'current';
         $pageType = isset($arguments['pageType']) ? (int)$arguments['pageType'] : 0;
@@ -214,7 +180,7 @@ final class PageViewHelper extends AbstractViewHelper
         }
     }
 
-    protected static function renderWithExtbaseContext(ExtbaseRequestInterface $request, array $arguments): string
+    private static function renderWithExtbaseContext(ExtbaseRequestInterface $request, array $arguments): string
     {
         $pageUid = $arguments['pageUid'];
         $additionalParams = $arguments['additionalParams'];

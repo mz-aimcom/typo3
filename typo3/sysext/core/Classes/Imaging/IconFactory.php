@@ -40,30 +40,13 @@ readonly class IconFactory
         private FrontendInterface $runtimeCache,
     ) {}
 
-    /**
-     * @todo: Change $size to allow IconSize only in v14
-     */
     public function getIcon(
         string $identifier,
-        string|IconSize $size = IconSize::MEDIUM,
+        IconSize $size = IconSize::MEDIUM,
         ?string $overlayIdentifier = null,
-        \TYPO3\CMS\Core\Type\Icon\IconState|IconState|null $state = null
+        ?IconState $state = null
     ): Icon {
-        if ($state instanceof \TYPO3\CMS\Core\Type\Icon\IconState) {
-            trigger_error(
-                'Using the non-native enumeration TYPO3\CMS\Core\Type\Icon\IconState in IconFactory->getIcon()'
-                . ' will not work in TYPO3 v14.0 anymore. Use native TYPO3\CMS\Core\Imaging\IconState instead.',
-                E_USER_DEPRECATED
-            );
-            $stateValue = (string)$state;
-        } else {
-            $stateValue = $state?->value ?? '';
-        }
-        if (is_string($size)) {
-            $size = IconSize::from($size);
-            $size->triggerDeprecation();
-        }
-        $cacheIdentifier = 'icon-factory-' . hash('xxh3', $identifier . $size->value . $overlayIdentifier . $stateValue);
+        $cacheIdentifier = 'icon-factory-' . hash('xxh3', $identifier . $size->value . $overlayIdentifier . ($state->value ?? ''));
         $icon = $this->runtimeCache->get($cacheIdentifier);
         if ($icon instanceof Icon) {
             return $icon;
@@ -75,7 +58,7 @@ readonly class IconFactory
         }
 
         $iconConfiguration = $this->iconRegistry->getIconConfigurationByIdentifier($identifier);
-        $iconConfiguration['state'] = $stateValue;
+        $iconConfiguration['state'] = $state;
         $icon = $this->createIcon($identifier, $size, $overlayIdentifier, $iconConfiguration);
 
         /** @var IconProviderInterface $iconProvider */
@@ -91,17 +74,9 @@ readonly class IconFactory
 
     /**
      * This method is used throughout the TYPO3 Backend to show icons for a DB record
-     *
-     * @param string $table The TCA table name
-     * @param array $row The DB record of the TCA table
-     * @todo: Change $size to allow IconSize only in v14
      */
-    public function getIconForRecord(string $table, array $row, string|IconSize|null $size = IconSize::MEDIUM): Icon
+    public function getIconForRecord(string $table, array $row, IconSize $size = IconSize::MEDIUM): Icon
     {
-        if (is_string($size)) {
-            $size = IconSize::from($size);
-            $size->triggerDeprecation();
-        }
         $iconIdentifier = $this->mapRecordTypeToIconIdentifier($table, $row);
         $overlayIdentifier = $this->mapRecordTypeToOverlayIdentifier($table, $row);
         return $this->getIcon($iconIdentifier, $size, $overlayIdentifier);
@@ -227,13 +202,6 @@ readonly class IconFactory
             $recordType[0] = 'tcarecords-' . $table . '-default';
         }
 
-        if (($row['CType'] ?? '') === 'list' && ($row['list_type'] ?? '') !== '') {
-            $pluginIcon = $this->getIconForPlugin($row['list_type']);
-            if ($pluginIcon) {
-                $recordType[7] = $pluginIcon;
-            }
-        }
-
         krsort($recordType);
         foreach ($recordType as $iconName) {
             if ($this->iconRegistry->isRegistered($iconName)) {
@@ -242,23 +210,6 @@ readonly class IconFactory
         }
 
         return $this->iconRegistry->getDefaultIconIdentifier();
-    }
-
-    /**
-     * Returns a possible configured icon for the given plugin name
-     */
-    protected function getIconForPlugin(string $pluginName): ?string
-    {
-        $result = null;
-        $items = $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['items'] ?? [];
-        foreach ($items as $item) {
-            if ($item['value'] === $pluginName) {
-                $result = $item['icon'];
-                break;
-            }
-        }
-
-        return $result;
     }
 
     /**
@@ -358,15 +309,9 @@ readonly class IconFactory
 
     /**
      * Get Icon for a file by its extension
-     *
-     * @todo: Change $size to allow IconSize only in v14
      */
-    public function getIconForFileExtension(string $fileExtension, string|IconSize $size = IconSize::MEDIUM, ?string $overlayIdentifier = null): Icon
+    public function getIconForFileExtension(string $fileExtension, IconSize $size = IconSize::MEDIUM, ?string $overlayIdentifier = null): Icon
     {
-        if (is_string($size)) {
-            $size = IconSize::from($size);
-            $size->triggerDeprecation();
-        }
         $iconName = $this->iconRegistry->getIconIdentifierForFileExtension($fileExtension);
         return $this->getIcon($iconName, $size, $overlayIdentifier);
     }
@@ -384,12 +329,10 @@ readonly class IconFactory
      * There is a hook in place to manipulate the icon name and overlays.
      *
      * @param array $options An associative array with additional options.
-     *
-     * @todo: Change $size to allow IconSize only in v14
      */
     public function getIconForResource(
         ResourceInterface $resource,
-        string|IconSize $size = IconSize::MEDIUM,
+        IconSize $size = IconSize::MEDIUM,
         ?string $overlayIdentifier = null,
         array $options = []
     ): Icon {
@@ -397,7 +340,7 @@ readonly class IconFactory
 
         // Folder
         if ($resource instanceof FolderInterface) {
-            // non browsable storage
+            // non-browsable storage
             if ($resource->getStorage()->isBrowsable() === false && !empty($options['mount-root'])) {
                 $iconIdentifier = 'apps-filetree-folder-locked';
             } else {
@@ -406,14 +349,12 @@ readonly class IconFactory
                     $iconIdentifier = 'apps-filetree-root';
                 }
 
-                $role = is_callable([$resource, 'getRole']) ? $resource->getRole() : '';
-
                 // user/group mount root
                 if (!empty($options['mount-root'])) {
                     $iconIdentifier = 'apps-filetree-mount';
-                    if ($role === FolderInterface::ROLE_READONLY_MOUNT) {
+                    if ($resource->getRole() === FolderInterface::ROLE_READONLY_MOUNT) {
                         $overlayIdentifier = 'overlay-locked';
-                    } elseif ($role === FolderInterface::ROLE_USER_MOUNT) {
+                    } elseif ($resource->getRole() === FolderInterface::ROLE_USER_MOUNT) {
                         $overlayIdentifier = 'overlay-restricted';
                     }
                 }
@@ -426,9 +367,9 @@ readonly class IconFactory
                         $iconIdentifier = 'apps-filetree-folder-default';
                     }
 
-                    if ($role === FolderInterface::ROLE_TEMPORARY) {
+                    if ($resource->getRole() === FolderInterface::ROLE_TEMPORARY) {
                         $iconIdentifier = 'apps-filetree-folder-temp';
-                    } elseif ($role === FolderInterface::ROLE_RECYCLER) {
+                    } elseif ($resource->getRole() === FolderInterface::ROLE_RECYCLER) {
                         $iconIdentifier = 'apps-filetree-folder-recycler';
                     }
                 }
@@ -469,11 +410,6 @@ readonly class IconFactory
             }
         }
 
-        if (is_string($size)) {
-            $size = IconSize::from($size);
-            $size->triggerDeprecation();
-        }
-
         $event = $this->eventDispatcher->dispatch(
             new ModifyIconForResourcePropertiesEvent(
                 $resource,
@@ -496,8 +432,7 @@ readonly class IconFactory
         $icon = GeneralUtility::makeInstance(Icon::class);
         $icon->setIdentifier($identifier);
         $icon->setSize($size);
-        $iconState = IconState::tryFrom($iconConfiguration['state']) ?? IconState::STATE_DEFAULT;
-        $icon->setState($iconState);
+        $icon->setState($iconConfiguration['state'] ?? IconState::STATE_DEFAULT);
         if (!empty($overlayIdentifier)) {
             $icon->setOverlayIcon($this->getIcon($overlayIdentifier, IconSize::OVERLAY));
         }
@@ -506,9 +441,4 @@ readonly class IconFactory
         }
         return $icon;
     }
-
-    /**
-     * @internal Remove in v14. May have been used during testing in TYPO3 <v14.
-     */
-    public function clearIconCache(): void {}
 }

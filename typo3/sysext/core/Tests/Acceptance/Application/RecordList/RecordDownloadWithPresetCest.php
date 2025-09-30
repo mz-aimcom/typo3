@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Acceptance\Application\RecordList;
 
+use Codeception\Exception\MalformedLocatorException;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\ApplicationTester;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\Helper\ModalDialog;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\Helper\PageTree;
@@ -97,10 +98,23 @@ final class RecordDownloadWithPresetCest
         $I->click('//table[@id="typo3-backend-user-list"]/tbody/tr[descendant::button[@data-contextmenu-uid="' . $userId . '"]]//a[@title="Edit"]');
         $I->waitForElement('#EditDocumentController');
         // This was "li[5]" in UsersCest. Don't know why, for me the TSconfig is on the third tab...
-        $I->click('//form[@id="EditDocumentController"]//ul/li[3]/a');
+        $I->click('//form[@id="EditDocumentController"]//ul/li[3]/button');
         $I->waitForElementVisible($codeMirrorSelector);
         $I->executeJS("document.querySelector('" . $codeMirrorSelector . "').setContent('" . $userTsConfig . "')");
         $I->click($this->inModuleHeader . ' .btn[title="Save"]');
+        $I->wait(0.5);
+        $I->switchToMainFrame();
+        try {
+            $needsStepUp = count($I->grabMultiple('.modal-sudo-mode-verification')) > 0;
+        } catch (MalformedLocatorException) {
+            $needsStepUp = false;
+        }
+        if ($needsStepUp) {
+            $I->see('Verify with user password');
+            $I->fillField('//input[@name="password"]', 'password');
+            $I->click('//button[@name="verify"]');
+        }
+        $I->switchToContentFrame();
         $I->wait(0.5);
         $I->click($this->inModuleHeader . ' .btn[title="Close"]');
         $I->waitForElement('#typo3-backend-user-list');

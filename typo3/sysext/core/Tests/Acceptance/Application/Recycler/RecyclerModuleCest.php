@@ -50,7 +50,10 @@ final class RecyclerModuleCest
         $I->switchToContentFrame();
         $I->waitForElement('[title="Create new record"]');
         $I->click('a[title="Create new record"]');
-        $I->click('//a[text()[normalize-space(.) = "Page (inside)"]]');
+        $I->waitForElementVisible('button[data-bs-target="#inside-types"]');
+        $I->click('button[data-bs-target="#inside-types"]');
+        $I->waitForElementVisible('#inside-types');
+        $I->click('//a[text()[normalize-space(.) = "Standard"]]');
         $I->fillField('//input[contains(@data-formengine-input-name, "data[pages]") and contains(@data-formengine-input-name, "[title]")]', self::$pageTitle);
         $I->click('button[name="_savedok"]');
 
@@ -82,6 +85,7 @@ final class RecyclerModuleCest
 
         $I->amGoingTo('Recover the page and its contents');
         $I->click('tr[data-recordtitle="' . self::$pageTitle . '"] .t3js-multi-record-selection-check');
+        $I->waitForElementClickable('button[data-multi-record-selection-action="massundo"]');
         $I->click('button[data-multi-record-selection-action="massundo"]');
         $this->modalDialog->canSeeDialog();
         $I->click('#undo-recursive');

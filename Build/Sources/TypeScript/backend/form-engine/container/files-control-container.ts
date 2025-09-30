@@ -11,21 +11,22 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { MessageUtility } from '../../utility/message-utility';
 import { AjaxDispatcher } from './../inline-relation/ajax-dispatcher';
-import { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 import NProgress from 'nprogress';
 import Sortable from 'sortablejs';
 import FormEngine from '@typo3/backend/form-engine';
 import FormEngineValidation from '@typo3/backend/form-engine-validation';
 import Icons from '../../icons';
 import InfoWindow from '../../info-window';
-import Modal, { ModalElement } from '../../modal';
+import Modal, { type ModalElement } from '../../modal';
+import DocumentService from '@typo3/core/document-service';
 import RegularEvent from '@typo3/core/event/regular-event';
 import Severity from '../../severity';
 import Utility from '../../utility';
 import { selector } from '@typo3/core/literals';
+import type AjaxRequest from '@typo3/core/ajax/ajax-request';
+import type { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 
 enum Selectors {
   toggleSelector = '[data-bs-toggle="formengine-file"]',
@@ -87,8 +88,14 @@ class FilesControlContainer extends HTMLElement {
   private requestQueue: RequestQueue = {};
   private progressQueue: ProgressQueue = {};
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
+    if (this.container !== null) {
+      // Container is already initialized, which means the component has been rendered before. Nothing to do here.
+      return;
+    }
+
     const identifier = this.getAttribute('identifier') || '' as string;
+    await DocumentService.ready();
     this.container = <HTMLElement>this.querySelector(selector`[id="${identifier}"]`);
 
     if (this.container !== null) {
@@ -269,10 +276,10 @@ class FilesControlContainer extends HTMLElement {
       if (hiddenValueCheckBox !== null && hiddenValueInput !== null) {
         hiddenValueCheckBox.checked = !hiddenValueCheckBox.checked;
         hiddenValueInput.value = hiddenValueCheckBox.checked ? '1' : '0';
-        FormEngineValidation.markFieldAsChanged(hiddenValueCheckBox);
+        FormEngine.markFieldAsChanged(hiddenValueCheckBox);
       }
 
-      const hiddenClass = 't3-form-field-container-inline-hidden';
+      const hiddenClass = 't3-form-field-container-files-hidden';
       const isHidden = recordContainer.classList.contains(hiddenClass);
       let toggleIcon: string;
 
@@ -453,7 +460,7 @@ class FilesControlContainer extends HTMLElement {
     }
 
     (<HTMLInputElement>formField).value = records.join(',');
-    (<HTMLInputElement>formField).classList.add('has-change');
+    FormEngine.markFieldAsChanged(formField);
     document.dispatchEvent(new Event('change'));
 
     this.redrawSortingButtons(this.container.dataset.objectGroup, records);
@@ -479,7 +486,7 @@ class FilesControlContainer extends HTMLElement {
       records.splice(indexOfRemoveUid, 1);
 
       (<HTMLInputElement>formField).value = records.join(',');
-      (<HTMLInputElement>formField).classList.add('has-change');
+      FormEngine.markFieldAsChanged(formField);
       document.dispatchEvent(new Event('change'));
 
       this.redrawSortingButtons(this.container.dataset.objectGroup, records);
@@ -527,7 +534,7 @@ class FilesControlContainer extends HTMLElement {
       .map((child: HTMLElement) => child.dataset.objectUid);
 
     (<HTMLInputElement>formField).value = records.join(',');
-    (<HTMLInputElement>formField).classList.add('has-change');
+    FormEngine.markFieldAsChanged(formField);
     document.dispatchEvent(new Event('formengine:files:sorting-changed'));
     document.dispatchEvent(new Event('change'));
 
@@ -549,7 +556,7 @@ class FilesControlContainer extends HTMLElement {
     }
 
     new RegularEvent('transitionend', (): void => {
-      recordContainer.parentElement.removeChild(recordContainer);
+      recordContainer.remove();
       FormEngineValidation.validate(this.container);
     }).bindTo(recordContainer);
 
@@ -562,13 +569,16 @@ class FilesControlContainer extends HTMLElement {
   }
 
   private toggleContainerControls(visible: boolean): void {
-    const controlContainer = this.container.querySelector(Selectors.controlContainer);
-    if (controlContainer === null) {
-      return;
-    }
-    const controlContainerButtons = controlContainer.querySelectorAll('button, a');
-    controlContainerButtons.forEach((button: HTMLElement): void => {
-      button.style.display = visible ? null : 'none';
+    // Note: This toggleContainerControls() is different from inline-control-container.ts
+    // because it uses a lit component. So no ':scope >' here.
+    const controlContainer = this.container.querySelectorAll(
+      Selectors.controlContainer
+    );
+    controlContainer.forEach((container: HTMLElement): void => {
+      const controlContainerButtons = container.querySelectorAll('button, a');
+      controlContainerButtons.forEach((button: HTMLElement): void => {
+        button.style.display = visible ? null : 'none';
+      });
     });
   }
 

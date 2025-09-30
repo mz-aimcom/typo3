@@ -1,6 +1,6 @@
 .. include:: /Includes.rst.txt
 
-.. _bar-chart-widget:
+..  _bar-chart-widget:
 
 ================
 Bar Chart Widget
@@ -14,6 +14,8 @@ This kind of widgets are useful if you want to show some statistics of for examp
 historical data.
 
 .. php:class:: TYPO3\CMS\Dashboard\Widgets\BarChartWidget
+
+..  _bar-chart-widget-example:
 
 Example
 -------
@@ -39,24 +41,33 @@ Example
             height: 'medium'
             width: 'medium'
 
+..  _bar-chart-widget-options:
+
 Options
 -------
 
 .. include:: Options/RefreshAvailable.rst.txt
 
+..  _bar-chart-widget-dependencies:
+
 Dependencies
 ------------
 
-.. option:: $dataProvider
+..  confval:: $dataProvider
+    :type: :php:`\TYPO3\CMS\Dashboard\Widgets\ChartDataProviderInterface`
+    :name: bar-chart-widget-dataProvider
 
-   To add data to a Bar Chart widget, you need to have a DataProvider that implements
-   the interface :php:`ChartDataProviderInterface`.
+    To add data to a Bar Chart widget, you need to have a DataProvider that implements
+    the interface :php-short:`\TYPO3\CMS\Dashboard\Widgets\ChartDataProviderInterface`.
 
-   See :ref:`graph-widget-implementation` for further information.
+    See :ref:`graph-widget-implementation` for further information.
 
-.. option:: $buttonProvider
+..  confval:: $buttonProvider
+    :type: :php:`\TYPO3\CMS\Dashboard\Widgets\ButtonProviderInterface`
+    :name: bar-chart-widget-buttonProvider
 
-   Optionally you can add a button with a link to some additional data.
-   This button should be provided by a ButtonProvider that implements the interface :php:`ButtonProviderInterface`.
+    Optionally you can add a button with a link to some additional data.
+    This button should be provided by a ButtonProvider that implements the interface
+    :php-short:`\TYPO3\CMS\Dashboard\Widgets\ButtonProviderInterface`.
 
-   See :ref:`adding-buttons` for further info and configuration options.
+    See :ref:`adding-buttons` for further info and configuration options.

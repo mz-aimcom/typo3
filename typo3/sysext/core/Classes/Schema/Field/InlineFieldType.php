@@ -20,21 +20,24 @@ namespace TYPO3\CMS\Core\Schema\Field;
 use TYPO3\CMS\Core\Schema\RelationshipType;
 
 /**
- * This is a "inline" reference field - the "parent" field to a child table / field.
- *
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
+ * This is an "inline" reference field - the "parent" field to a child table / field.
  */
-final readonly class InlineFieldType extends AbstractFieldType implements FieldTypeInterface, RelationalFieldTypeInterface
+final readonly class InlineFieldType extends AbstractFieldType implements RelationalFieldTypeInterface
 {
     public function __construct(
         protected string $name,
         protected array $configuration,
-        protected array $relations,
+        protected array $relations
     ) {}
 
     public function getType(): string
     {
         return 'inline';
+    }
+
+    public function isSearchable(): false
+    {
+        return false;
     }
 
     public function getRelations(): array
@@ -52,8 +55,18 @@ final readonly class InlineFieldType extends AbstractFieldType implements FieldT
         return (bool)($this->configuration['behaviour']['disableMovingChildrenWithParent'] ?? false) === false;
     }
 
-    public static function __set_state(array $state): self
+    public function isNullable(): false
     {
-        return new self(...$state);
+        return false;
+    }
+
+    public function hasDefaultValue(): false
+    {
+        return false;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

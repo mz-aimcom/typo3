@@ -20,6 +20,10 @@ test.describe('modules', () => {
       'label': 'the info module',
       'route': 'module/web/info',
     },
+    'mod_site_settings': {
+      'label': 'the site settings module',
+      'route': 'module/site/settings',
+    },
     'mod_reports': {
       'label': 'the reports module',
       'route': 'module/system/reports',
@@ -36,7 +40,7 @@ test.describe('modules', () => {
   const defaultDisableRules = ['color-contrast'];
   for (let [key, data] of Object.entries(dataprovider)) {
     test(key + ':' + data.label, async ({ page }) => {
-      const url = `${config.baseUrl}/${data.route}`;
+      const url = `${data.route}`;
       await page.goto(url);
       await expect(page).toHaveURL(url);
       await page.waitForLoadState('networkidle');

@@ -39,8 +39,15 @@ class LocalizationStateSelector extends AbstractNode
         $fieldName = $this->data['fieldName'];
         $fieldId = StringUtility::getUniqueId('formengine-localization-state-selector-');
         $l10nStateFieldName = 'l10n_state';
+
+        $localizationState = State::fromJSON(
+            $this->data['tableName'],
+            $this->data['databaseRow'][$l10nStateFieldName] ?? null
+        );
+
         if (
-            !isset($this->data['defaultLanguageRow'])
+            $localizationState === null
+            || !isset($this->data['defaultLanguageRow'])
             || !isset($this->data['processedTca']['columns'][$fieldName]['config']['behaviour']['allowLanguageSynchronization'])
             || !$this->data['processedTca']['columns'][$fieldName]['config']['behaviour']['allowLanguageSynchronization']
         ) {
@@ -68,11 +75,6 @@ class LocalizationStateSelector extends AbstractNode
             $fieldValueInParentRow = (string)$this->data['defaultLanguageRow'][$fieldName];
         }
 
-        $localizationState = State::fromJSON(
-            $this->data['tableName'],
-            $this->data['databaseRow'][$l10nStateFieldName] ?? null
-        );
-
         $fieldElementName = 'data[' . htmlspecialchars($this->data['tableName']) . ']'
             . '[' . htmlspecialchars((string)$this->data['databaseRow']['uid']) . ']'
             . '[' . htmlspecialchars($l10nStateFieldName) . ']'
@@ -80,7 +82,7 @@ class LocalizationStateSelector extends AbstractNode
 
         $html = [];
         $html[] = '<div class="t3js-l10n-state-container">';
-        $html[] =   '<div class="form-legend">';
+        $html[] =   '<div class="form-label">';
         $html[] =       $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_wizards.xlf:localizationStateSelector.header');
         $html[] =   '</div>';
         $html[] =   '<div class="form-check">';

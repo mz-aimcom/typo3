@@ -156,6 +156,14 @@ final class TranslateViewHelperTest extends FunctionalTestCase
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de_at" languageKey="de_at" />',
                 'DE_AT label',
             ],
+            'languageKey en when key is overridden in en' => [
+                '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.en" />',
+                'EN label override en',
+            ],
+            'fallback to default, integer-based attribute for not existing label' => [
+                '<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:iDoNotExist">{k}</f:translate></f:for>',
+                '4711',
+            ],
         ];
     }
 
@@ -173,6 +181,10 @@ final class TranslateViewHelperTest extends FunctionalTestCase
     public static function fallbackChainInNonExtbaseContextDataProvider(): array
     {
         return [
+            'languageKey fallback to default when key is not localized to en' => [
+                '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:not.localized.to.en" />',
+                'EN label',
+            ],
             'languageKey fallback to default when key is not localized to de' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:not.localized.to.de" languageKey="de" />',
                 'EN label',
@@ -332,9 +344,21 @@ final class TranslateViewHelperTest extends FunctionalTestCase
                 '<f:translate key="localized.to.de_at" languageKey="de_at" />',
                 'DE_AT label',
             ],
+            'use direct "de_AT" label when key is localized to de-AT with explicit languageKey given' => [
+                '<f:translate key="localized.to.de_at" languageKey="de-AT" />',
+                'DE_AT label',
+            ],
+            'use direct "de_AT" label when key is localized to de_AT with explicit languageKey given' => [
+                '<f:translate key="localized.to.de_at" languageKey="de_AT" />',
+                'DE_AT label',
+            ],
             'use direct "de_AT" label when key is localized to de_at without explicit languageKey given' => [
                 '<f:translate key="localized.to.de_at" />',
                 'DE_AT label',
+            ],
+            'id given for not existing label, fallback to child with integer based tag content' => [
+                '<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:translate id="foo">{k}</f:translate></f:for>',
+                '4711',
             ],
         ];
     }

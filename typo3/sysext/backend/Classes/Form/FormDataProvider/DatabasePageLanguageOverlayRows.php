@@ -21,13 +21,21 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Fill the "pageLanguageOverlayRows" part of the result array
  */
-class DatabasePageLanguageOverlayRows implements FormDataProviderInterface
+readonly class DatabasePageLanguageOverlayRows implements FormDataProviderInterface
 {
+    public function __construct(
+        private Context $context,
+        private ConnectionPool $connectionPool,
+        private TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
+
     /**
      * Fetch available page overlay records of page
      *
@@ -50,19 +58,18 @@ class DatabasePageLanguageOverlayRows implements FormDataProviderInterface
      */
     protected function getDatabaseRows(int $pid): array
     {
-        $context = GeneralUtility::makeInstance(Context::class);
-        $workspaceId = $context->getPropertyFromAspect('workspace', 'id');
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable('pages');
+        $workspaceId = $this->context->getPropertyFromAspect('workspace', 'id');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, (int)$workspaceId));
 
-        $rows = $queryBuilder->select('*')
+        $rows = $queryBuilder
+            ->select('*')
             ->from('pages')
             ->where($queryBuilder->expr()->eq(
-                $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'],
+                $this->tcaSchemaFactory->get('pages')->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                 $queryBuilder->createNamedParameter($pid, Connection::PARAM_INT)
             ))
             ->executeQuery()

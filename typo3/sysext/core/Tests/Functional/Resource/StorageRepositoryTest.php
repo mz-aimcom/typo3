@@ -153,7 +153,6 @@ final class StorageRepositoryTest extends FunctionalTestCase
         $file = $this->get(ResourceFactory::class)->getFileObjectFromCombinedIdentifier('1:/aDirectory/bar.txt');
         $rootProcessingFolder = $subject->getProcessingFolder();
         $processingFolder = $subject->getProcessingFolder($file);
-        self::assertInstanceOf(Folder::class, $processingFolder);
         self::assertNotEquals($rootProcessingFolder, $processingFolder);
         for ($i = ResourceStorage::PROCESSING_FOLDER_LEVELS; $i > 0; $i--) {
             $processingFolder = $processingFolder->getParentFolder();
@@ -239,7 +238,7 @@ final class StorageRepositoryTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
         $subject = $this->get(StorageRepository::class)->findByUid(1);
         $processingFolder = $subject->getProcessingFolder();
-        self::assertInstanceOf(Folder::class, $processingFolder);
+        self::assertSame('/temp/assets/_processed_/', $processingFolder->getIdentifier());
     }
 
     #[Test]
@@ -296,6 +295,23 @@ final class StorageRepositoryTest extends FunctionalTestCase
         $subject->deleteFile($file);
         self::assertFileExists(Environment::getPublicPath() . '/fileadmin/_recycler_/bar.txt');
         self::assertFileDoesNotExist(Environment::getPublicPath() . '/fileadmin/foo/bar.txt');
+    }
+
+    #[Test]
+    public function deleteFolderMovesFolderToRecyclerFolderIfAvailable(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+        $subject = $this->get(StorageRepository::class)->findByUid(1);
+        mkdir(Environment::getPublicPath() . '/fileadmin/foo');
+        mkdir(Environment::getPublicPath() . '/fileadmin/_recycler_');
+        file_put_contents(Environment::getPublicPath() . '/fileadmin/foo/bar.txt', 'myData');
+        $folder = $this->get(ResourceFactory::class)->getFolderObjectFromCombinedIdentifier('1:/foo');
+        $subject->deleteFolder($folder, true);
+        self::assertFileExists(Environment::getPublicPath() . '/fileadmin/_recycler_/foo/bar.txt');
+        self::assertFileDoesNotExist(Environment::getPublicPath() . '/fileadmin/foo/bar.txt');
+        self::assertDirectoryDoesNotExist(Environment::getPublicPath() . '/fileadmin/foo');
     }
 
     #[Test]
@@ -501,7 +517,7 @@ final class StorageRepositoryTest extends FunctionalTestCase
         $targetParentFolder = $this->get(ResourceFactory::class)->getFolderObjectFromCombinedIdentifier('1:/');
         $subject->copyFolder($folderToCopy, $targetParentFolder, null, $conflictMode);
         $newFolder = $this->get(ResourceFactory::class)->getFolderObjectFromCombinedIdentifier('1:/foo_01');
-        self::assertInstanceOf(Folder::class, $newFolder);
+        self::assertEquals('/foo_01/', $newFolder->getIdentifier());
     }
 
     #[Test]

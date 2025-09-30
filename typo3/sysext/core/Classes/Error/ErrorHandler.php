@@ -41,6 +41,21 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
 {
     use LoggerAwareTrait;
 
+    protected const ERROR_LEVEL_LABELS = [
+        E_WARNING => 'PHP Warning',
+        E_NOTICE => 'PHP Notice',
+        E_USER_ERROR => 'PHP User Error',
+        E_USER_WARNING => 'PHP User Warning',
+        E_USER_NOTICE => 'PHP User Notice',
+        E_RECOVERABLE_ERROR => 'PHP Catchable Fatal Error',
+        E_USER_DEPRECATED => 'TYPO3 Deprecation Notice',
+        E_DEPRECATED => 'PHP Runtime Deprecation Notice',
+        // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
+        //        and only kept here here because possible custom PHP extensions may still use it.
+        //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
+        2048 /* deprecated E_STRICT */ => 'PHP Runtime Notice',
+    ];
+
     /**
      * Error levels which should result in an exception thrown.
      */
@@ -55,18 +70,6 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
      * Whether to write a flash message in case of an error
      */
     protected bool $debugMode = false;
-
-    protected const ERROR_LEVEL_LABELS = [
-        E_WARNING => 'PHP Warning',
-        E_NOTICE => 'PHP Notice',
-        E_USER_ERROR => 'PHP User Error',
-        E_USER_WARNING => 'PHP User Warning',
-        E_USER_NOTICE => 'PHP User Notice',
-        E_STRICT => 'PHP Runtime Notice',
-        E_RECOVERABLE_ERROR => 'PHP Catchable Fatal Error',
-        E_USER_DEPRECATED => 'TYPO3 Deprecation Notice',
-        E_DEPRECATED => 'PHP Runtime Deprecation Notice',
-    ];
 
     /**
      * Registers this class as default error handler
@@ -256,7 +259,6 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
                     'action' => SystemLogGenericAction::UNDEFINED,
                     'error' => SystemLogErrorClassification::SYSTEM_ERROR,
                     'level' => $logLevel,
-                    'details_nr' => 0,
                     'details' => str_replace('%', '%%', $logMessage),
                     'log_data' => empty($data) ? '' : json_encode($data),
                     'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),

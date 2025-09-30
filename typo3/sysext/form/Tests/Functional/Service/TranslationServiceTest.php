@@ -17,10 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Service;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locales;
-use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
 use TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement;
 use TYPO3\CMS\Form\Domain\Model\FormElements\Page;
 use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
@@ -31,14 +31,12 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 final class TranslationServiceTest extends FunctionalTestCase
 {
     private TranslationService $subject;
-    protected array $testExtensionsToLoad = ['typo3/sysext/form/Tests/Functional/Service/Fixtures/Extensions/form_labels'];
+    protected array $testExtensionsToLoad = ['typo3/sysext/form/Tests/Functional/Fixtures/Extensions/form_labels'];
 
     public function setUp(): void
     {
         parent::setUp();
-        $configurationManager = $this->getAccessibleMock(ConfigurationManager::class, ['getConfiguration'], [], '', false);
         $this->subject = new TranslationService(
-            $configurationManager,
             $this->get(LanguageServiceFactory::class),
             $this->get('cache.runtime'),
             new Locales()
@@ -187,6 +185,56 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
         self::assertEquals($expected, $this->subject->translateValuesRecursive($input, $xlfPaths));
+    }
+
+    public static function translateFormElementValueTranslatesFluidAdditionalAttributesDataProvider(): array
+    {
+        return [
+            [null, []],
+            [[], []],
+            ['foo', []],
+            [['foo' => 'bar'], ['foo' => 'bar']],
+            [['aria-label' => 'some label'], ['aria-label' => 'form-element-identifier ARIA-LABEL EN']],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('translateFormElementValueTranslatesFluidAdditionalAttributesDataProvider')]
+    public function translateFormElementValueTranslatesFluidAdditionalAttributes(mixed $fluidAdditionalAttributes, array $expected): void
+    {
+        $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
+        $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
+
+        $formRuntimeIdentifier = 'form-runtime-identifier';
+        $formElementIdentifier = 'form-element-identifier';
+
+        $formRuntimeRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $formRuntimeXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElementRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $textElementXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElement = new GenericFormElement($formElementIdentifier, 'Text');
+        $formElement->setOptions([
+            'renderingOptions' => $formElementRenderingOptions,
+            'properties' => [
+                'fluidAdditionalAttributes' => $fluidAdditionalAttributes,
+            ],
+        ]);
+
+        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
+        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['fluidAdditionalAttributes'], $mockFormRuntime));
     }
 
     #[Test]

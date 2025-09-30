@@ -15,7 +15,7 @@ import NProgress from 'nprogress';
 import Notification from '@typo3/backend/notification';
 import RegularEvent from '@typo3/core/event/regular-event';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 let itemProcessing = 0;
 
@@ -53,8 +53,14 @@ new RegularEvent('click', (e: MouseEvent, target: HTMLButtonElement): void => {
   // Trigger generate action
   new AjaxRequest(target.dataset.href).get().then(async (response: AjaxResponse): Promise<void> => {
     const json = await response.resolve('application/json');
-
-    itemProcessing--
+    if (json.status === false) {
+      NProgress.done();
+      Notification.error(json.title, json.body, 5);
+      target.querySelector('typo3-backend-icon').identifier = 'actions-' + target.dataset.generatorAction;
+      target.classList.remove('disabled');
+      return;
+    }
+    itemProcessing--;
     Notification.showMessage(json.title, json.body, json.status, 5);
     // Hide nprogress only if all items done loading/processing
     if (itemProcessing === 0) {
@@ -66,8 +72,7 @@ new RegularEvent('click', (e: MouseEvent, target: HTMLButtonElement): void => {
     // Action failed, reset to its original state
     NProgress.done();
     Notification.error('', error.response.status + ' ' + error.response.statusText, 5);
-
-    target.querySelector('typo3-backend-icon').identifier = target.dataset.generatorAction;
+    target.querySelector('typo3-backend-icon').identifier = 'actions-' + target.dataset.generatorAction;
     target.classList.remove('disabled');
   });
 }).delegateTo(document, '.t3js-generator-action');

@@ -1,26 +1,24 @@
-.. include:: /Includes.rst.txt
+:navigation-title: Configuration
 
-.. _configuration:
+..  include:: /Includes.rst.txt
+..  _configuration:
 
-=============
-Configuration
-=============
+=========================================
+Configuration of the EXT:lowlevel modules
+=========================================
 
-.. container:: row m-0 p-0
+..  card-grid::
+    :columns: 1
+    :columns-md: 2
+    :gap: 4
+    :class: pb-4
+    :card-height: 100
 
-   .. container:: col-md-6 pl-0 pr-3 py-3 m-0
+    ..  card:: :ref:`TSconfig <configuration-tsconfig>`
 
-      .. container:: card px-0 h-100
+        Configures display and function of the backend modules.
 
-         .. rst-class:: card-header h3
-
-            .. rubric:: :ref:`TSconfig <configuration-tsconfig>`
-
-         .. container:: card-body
-
-            Configures display and function of the backend modules.
-
-.. toctree::
+..  toctree::
     :hidden:
     :titlesonly:
 

@@ -20,24 +20,9 @@ namespace TYPO3\CMS\Core\Schema\Capability;
 /**
  * Contains all capabilities that can be defined in TCA
  * and are understandable by the Schema API.
- *
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
  */
 enum TcaSchemaCapability
 {
-    private const SYSTEM_CAPABILITIES = [
-        self::CreatedAt,
-        self::UpdatedAt,
-        self::RestrictionStartTime,
-        self::RestrictionEndTime,
-        self::SoftDelete,
-        self::EditLock,
-        self::RestrictionDisabledField,
-        self::InternalDescription,
-        self::SortByField,
-        self::RestrictionUserGroup,
-    ];
-
     // TCA[ctrl][delete]
     case SoftDelete;
 
@@ -80,6 +65,9 @@ enum TcaSchemaCapability
     // TCA[ctrl][hideAtCopy]
     case HideRecordsAtCopy;
 
+    // TCA[ctrl][hideTable]
+    case HideInUi;
+
     // TCA[ctrl][prependAtCopy]
     case PrependLabelTextAtCopy;
 
@@ -99,6 +87,18 @@ enum TcaSchemaCapability
 
     // TCA[ctrl][ignoreWebMountRestriction] inverted
     case RestrictionWebMount;
+    private const SYSTEM_CAPABILITIES = [
+        self::CreatedAt,
+        self::UpdatedAt,
+        self::RestrictionStartTime,
+        self::RestrictionEndTime,
+        self::SoftDelete,
+        self::EditLock,
+        self::RestrictionDisabledField,
+        self::InternalDescription,
+        self::SortByField,
+        self::RestrictionUserGroup,
+    ];
 
     public static function getSystemCapabilities(): array
     {

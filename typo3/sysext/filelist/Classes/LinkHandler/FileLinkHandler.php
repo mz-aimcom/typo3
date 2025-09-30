@@ -64,16 +64,28 @@ class FileLinkHandler extends AbstractResourceLinkHandler
     {
         $contentHtml = '';
         if ($this->selectedFolder !== null) {
+
+            // store the selected folder
+            $backendUser = $this->getBackendUser();
+            $modData = $backendUser->getModuleData('browse_links.php', 'ses');
+            $modData['expandFolder'] = $this->selectedFolder->getCombinedIdentifier();
+            $backendUser->pushModuleData('browse_links.php', $modData);
+
             // Create the filelist
             $this->filelist->start(
                 $this->selectedFolder,
                 MathUtility::forceIntegerInRange($this->currentPage, 1, 100000),
-                $request->getQueryParams()['sort'] ?? '',
-                ($request->getQueryParams()['reverse'] ?? '') === '1',
+                $this->sortField,
+                $this->sortDirection,
                 Mode::BROWSE
             );
             $this->filelist->setResourceDisplayMatcher($this->resourceDisplayMatcher);
             $this->filelist->setResourceSelectableMatcher($this->resourceSelectableMatcher);
+
+            // Only add selected columns if the feature is enabled
+            if ($this->getBackendUser()->getTSConfig()['options.']['file_list.']['displayColumnSelector'] ?? true) {
+                $this->filelist->setColumnsToRender($this->getBackendUser()->getModuleData('list/displayFields')['_FILE'] ?? []);
+            }
 
             $searchWord = trim((string)($request->getParsedBody()['searchTerm'] ?? $request->getQueryParams()['searchTerm'] ?? ''));
             $searchDemand = $searchWord !== '' ? FileSearchDemand::createForSearchTerm($searchWord)->withFolder($this->selectedFolder)->withRecursive() : null;
@@ -100,6 +112,7 @@ class FileLinkHandler extends AbstractResourceLinkHandler
             $markup[] = '<div class="row justify-content-between mb-2">';
             $markup[] = '    <div class="col-auto"></div>';
             $markup[] = '    <div class="col-auto">';
+            $markup[] = '        ' . $this->getSortingModeButtons($request, $this->filelist->mode);
             $markup[] = '        ' . $this->getViewModeButton($request);
             $markup[] = '    </div>';
             $markup[] = '</div>';

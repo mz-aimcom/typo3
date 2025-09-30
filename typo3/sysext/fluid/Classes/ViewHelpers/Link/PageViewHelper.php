@@ -34,49 +34,13 @@ use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 
 /**
- * A ViewHelper for creating links to TYPO3 pages.
+ * ViewHelper for creating links to TYPO3 pages.
  *
- * Examples
- * ========
+ * ```
+ *   <f:link.page pageUid="42" additionalParams="{foo: 'bar'}">page link</f:link.page>
+ * ```
  *
- * Link to the current page
- * ------------------------
- *
- * ::
- *
- *    <f:link.page>page link</f:link.page>
- *
- * Output::
- *
- *    <a href="/page/path/name.html">page link</a>
- *
- * Depending on current page, routing and page path configuration.
- *
- * Query parameters
- * ----------------
- *
- * ::
- *
- *    <f:link.page pageUid="1" additionalParams="{foo: 'bar'}">page link</f:link.page>
- *
- * Output::
- *
- *    <a href="/page/path/name.html?foo=bar">page link</a>
- *
- * Depending on current page, routing and page path configuration.
- *
- * Query parameters for extensions
- * -------------------------------
- *
- * ::
- *
- *    <f:link.page pageUid="1" additionalParams="{extension_key: {foo: 'bar'}}">page link</f:link.page>
- *
- * Output::
- *
- *    <a href="/page/path/name.html?extension_key[foo]=bar">page link</a>
- *
- * Depending on current page, routing and page path configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-link-page
  */
 final class PageViewHelper extends AbstractTagBasedViewHelper
 {
@@ -84,6 +48,12 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
      * @var string
      */
     protected $tagName = 'a';
+
+    public function __construct(
+        private readonly BackendUriBuilder $uriBuilder
+    ) {
+        parent::__construct();
+    }
 
     public function initializeArguments(): void
     {
@@ -117,7 +87,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
             $uri = $this->renderBackendLinkWithCoreContext($request);
             if ($uri !== '') {
                 $this->tag->addAttribute('href', $uri);
-                $this->tag->setContent($this->renderChildren());
+                $this->tag->setContent((string)$this->renderChildren());
                 $this->tag->forceClosingTag(true);
                 $result = $this->tag->render();
             } else {
@@ -131,7 +101,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
         );
     }
 
-    protected function renderFrontendLinkWithCoreContext(ServerRequestInterface $request): string
+    private function renderFrontendLinkWithCoreContext(ServerRequestInterface $request): string
     {
         $pageUid = isset($this->arguments['pageUid']) ? (int)$this->arguments['pageUid'] : 'current';
         $pageType = isset($this->arguments['pageType']) ? (int)$this->arguments['pageType'] : 0;
@@ -186,7 +156,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
             unset($linkResultAttributes['target']);
 
             $this->tag->addAttributes($linkResultAttributes);
-            $this->tag->setContent($this->renderChildren());
+            $this->tag->setContent((string)$this->renderChildren());
             $this->tag->forceClosingTag(true);
             $result = $this->tag->render();
         } catch (UnableToLinkException) {
@@ -195,7 +165,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
         return $result;
     }
 
-    protected function renderBackendLinkWithCoreContext(ServerRequestInterface $request): string
+    private function renderBackendLinkWithCoreContext(ServerRequestInterface $request): string
     {
         $pageUid = isset($this->arguments['pageUid']) ? (int)$this->arguments['pageUid'] : null;
         $section = isset($this->arguments['section']) ? (string)$this->arguments['section'] : '';
@@ -224,12 +194,11 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
         $arguments = array_replace_recursive($arguments, $additionalParams);
         $routeName = $arguments['route'] ?? null;
         unset($arguments['route'], $arguments['token']);
-        $backendUriBuilder = GeneralUtility::makeInstance(BackendUriBuilder::class);
         try {
             if ($absolute) {
-                $uri = (string)$backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_URL);
+                $uri = (string)$this->uriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_URL);
             } else {
-                $uri = (string)$backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_PATH);
+                $uri = (string)$this->uriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_PATH);
             }
         } catch (RouteNotFoundException) {
             $uri = '';
@@ -240,7 +209,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
         return $uri;
     }
 
-    protected function renderWithExtbaseContext(ExtbaseRequestInterface $request): string
+    private function renderWithExtbaseContext(ExtbaseRequestInterface $request): string
     {
         $pageUid = isset($this->arguments['pageUid']) ? (int)$this->arguments['pageUid'] : null;
         $pageType = isset($this->arguments['pageType']) ? (int)$this->arguments['pageType'] : 0;
@@ -273,7 +242,7 @@ final class PageViewHelper extends AbstractTagBasedViewHelper
         $uri = $uriBuilder->build();
         if ($uri !== '') {
             $this->tag->addAttribute('href', $uri);
-            $this->tag->setContent($this->renderChildren());
+            $this->tag->setContent((string)$this->renderChildren());
             $this->tag->forceClosingTag(true);
             $result = $this->tag->render();
         } else {

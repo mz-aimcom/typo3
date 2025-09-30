@@ -29,6 +29,8 @@ use TYPO3\CMS\Extbase\Persistence\PersistenceManagerInterface;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\CMS\Fluid\Tests\Functional\Fixtures\ViewHelpers\UserDomainClass;
 use TYPO3\CMS\Fluid\Tests\Functional\Fixtures\ViewHelpers\UserDomainClassToString;
+use TYPO3\CMS\Fluid\Tests\Functional\Fixtures\ViewHelpers\UserRoleBackedEnum;
+use TYPO3\CMS\Fluid\Tests\Functional\Fixtures\ViewHelpers\UserRoleEnum;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
 use TYPO3Fluid\Fluid\View\TemplateView;
@@ -593,6 +595,192 @@ EOT;
 <option value="value2">label2</option>
 <option value="value3">label3</option>
 </select>
+EOT;
+        self::assertSame($expected, $view->render());
+    }
+
+    #[Test]
+    public function selectAppliesSelectedValueFromUnitEnum(): void
+    {
+        $user = new UserDomainClass(1, 'Oliver', 'Bartsch');
+        $options = [
+            UserRoleEnum::ADMIN->name => 'Admin',
+            UserRoleEnum::EDITOR->name => 'Editor',
+            UserRoleEnum::GUEST->name => 'Guest',
+        ];
+
+        $serverRequest = (new ServerRequest())
+            ->withAttribute('extbase', new ExtbaseRequestParameters())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:form object="{user}" fieldNamePrefix="myFieldPrefix" objectName="user"><f:form.select prependOptionLabel="please choose" prependOptionValue="-1" options="{options}" property="role"/></f:form>');
+        $view = new TemplateView($context);
+        $view->assign('user', $user);
+        $view->assign('options', $options);
+        $view->assign('property', UserRoleEnum::EDITOR);
+        $view->assign('value', UserRoleEnum::EDITOR);
+        $result = $view->render();
+        self::assertStringContainsString('<select name="myFieldPrefix[user][role]">', $result);
+        self::assertStringContainsString('<option value="GUEST" selected="selected">Guest</option>', $result);
+    }
+
+    #[Test]
+    public function selectAppliesSelectedValueFromBackedEnum(): void
+    {
+        $user = new UserDomainClass(1, 'Oliver', 'Bartsch');
+        $options = [
+            UserRoleBackedEnum::ADMIN->value => 'Admin',
+            UserRoleBackedEnum::EDITOR->value => 'Editor',
+            UserRoleBackedEnum::GUEST->value => 'Guest',
+        ];
+
+        $serverRequest = (new ServerRequest())
+            ->withAttribute('extbase', new ExtbaseRequestParameters())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:form object="{user}" fieldNamePrefix="myFieldPrefix" objectName="user"><f:form.select prependOptionLabel="please choose" prependOptionValue="-1" options="{options}" property="roleBacked"/></f:form>');
+        $view = new TemplateView($context);
+        $view->assign('user', $user);
+        $view->assign('options', $options);
+        $view->assign('property', UserRoleEnum::EDITOR);
+        $view->assign('value', UserRoleEnum::EDITOR);
+        $result = $view->render();
+        self::assertStringContainsString('<select name="myFieldPrefix[user][roleBacked]">', $result);
+        self::assertStringContainsString('<option value="3" selected="selected">Guest</option>', $result);
+    }
+
+    #[Test]
+    public function selectCreatesExpectedOptionsWithAppendedValuesInTagContent(): void
+    {
+        $options = [
+            [
+                'uid' => 1,
+                'title' => 'Foo',
+            ],
+            [
+                'uid' => -1,
+                'title' => 'Bar',
+            ],
+            [
+                'title' => 'Baz',
+            ],
+            [
+                'uid' => '2',
+            ],
+        ];
+        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:form.select name="myName" optionsAfterContent="0" optionValueField="uid" optionLabelField="title" sortByOptionLabel="true" options="{options}"><option value="4711">4712</option></f:form.select>');
+        $view = new TemplateView($context);
+        $view->assign('options', $options);
+        $expected = <<< EOT
+<select name="myName"><option value="2"></option>
+<option value="-1">Bar</option>
+<option value="">Baz</option>
+<option value="1">Foo</option>
+<option value="4711">4712</option></select>
+EOT;
+        self::assertSame($expected, $view->render());
+    }
+
+    #[Test]
+    public function selectCreatesExpectedOptionsWithOptionFieldsBeingNumbers(): void
+    {
+        $options = [
+            [
+                0 => 1,
+                1 => 'Foo',
+            ],
+            [
+                0 => -1,
+                1 => 'Bar',
+            ],
+            [
+                1 => 'Baz',
+            ],
+            [
+                0 => '2',
+            ],
+        ];
+        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:form.select name="myName" optionsAfterContent="0" optionValueField="0" optionLabelField="1" sortByOptionLabel="true" options="{options}" />');
+        $view = new TemplateView($context);
+        $view->assign('options', $options);
+        $expected = <<< EOT
+<select name="myName"><option value="2"></option>
+<option value="-1">Bar</option>
+<option value="">Baz</option>
+<option value="1">Foo</option>
+</select>
+EOT;
+        self::assertSame($expected, $view->render());
+    }
+
+    #[Test]
+    public function selectCreatesExpectedOptionsWithPrependedValuesInTagContent(): void
+    {
+        $options = [
+            [
+                'uid' => 1,
+                'title' => 'Foo',
+            ],
+            [
+                'uid' => -1,
+                'title' => 'Bar',
+            ],
+            [
+                'title' => 'Baz',
+            ],
+            [
+                'uid' => '2',
+            ],
+        ];
+        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:form.select optionsAfterContent="1" name="myName" optionValueField="uid" optionLabelField="title" sortByOptionLabel="true" options="{options}"><option value="4711">4712</option></f:form.select>');
+        $view = new TemplateView($context);
+        $view->assign('options', $options);
+        $expected = <<< EOT
+<select name="myName"><option value="4711">4712</option><option value="2"></option>
+<option value="-1">Bar</option>
+<option value="">Baz</option>
+<option value="1">Foo</option>
+</select>
+EOT;
+        self::assertSame($expected, $view->render());
+    }
+
+    #[Test]
+    public function selectCreatesExpectedOptionsWithIntegerValuesInTagContent(): void
+    {
+        $options = [
+            [
+                'uid' => 1,
+                'title' => 'Foo',
+            ],
+            [
+                'uid' => -1,
+                'title' => 'Bar',
+            ],
+            [
+                'title' => 'Baz',
+            ],
+            [
+                'uid' => '2',
+            ],
+        ];
+        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
+        $context->getTemplatePaths()->setTemplateSource('<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:form.select name="myName" optionValueField="uid" optionLabelField="title" sortByOptionLabel="true" options="{options}"><option value="{i}">{k}</option></f:form.select></f:for>');
+        $view = new TemplateView($context);
+        $view->assign('options', $options);
+        $expected = <<< EOT
+<select name="myName"><option value="2"></option>
+<option value="-1">Bar</option>
+<option value="">Baz</option>
+<option value="1">Foo</option>
+<option value="4712">4711</option></select>
 EOT;
         self::assertSame($expected, $view->render());
     }

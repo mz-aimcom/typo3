@@ -176,65 +176,224 @@ $overrides = [
         'typo3tests_contentelementb_flexfield' => [
             'config' => [
                 'type' => 'flex',
-                'ds' => [
-                    'typo3tests_contentelementb' => '<T3FlexForms>' . "\n"
-                        . '    <sheets type="array">' . "\n"
-                        . '        <sDEF type="array">' . "\n"
-                        . '            <ROOT type="array">' . "\n"
-                        . '                <type>array</type>' . "\n"
-                        . '                <el type="array">' . "\n"
-                        . '                    <field index="header" type="array">' . "\n"
-                        . '                        <label>header</label>' . "\n"
-                        . '                        <config>' . "\n"
-                        . '                            <type>input</type>' . "\n"
-                        . '                        </config>' . "\n"
-                        . '                    </field>' . "\n"
-                        . '                    <field index="textarea" type="array">' . "\n"
-                        . '                        <label>textarea</label>' . "\n"
-                        . '                        <config>' . "\n"
-                        . '                            <type>text</type>' . "\n"
-                        . '                        </config>' . "\n"
-                        . '                    </field>' . "\n"
-                        . '                </el>' . "\n"
-                        . '            </ROOT>' . "\n"
-                        . '        </sDEF>' . "\n"
-                        . '        <sheet2 type="array">' . "\n"
-                        . '            <ROOT type="array">' . "\n"
-                        . '                <type>array</type>' . "\n"
-                        . '                <el>' . "\n"
-                        . '                    <link>' . "\n"
-                        . '                        <label>header</label>' . "\n"
-                        . '                        <config>' . "\n"
-                        . '                            <type>link</type>' . "\n"
-                        . '                        </config>' . "\n"
-                        . '                    </link>' . "\n"
-                        . '                    <number>' . "\n"
-                        . '                        <label>number</label>' . "\n"
-                        . '                        <config>' . "\n"
-                        . '                            <type>number</type>' . "\n"
-                        . '                        </config>' . "\n"
-                        . '                    </number>' . "\n"
-                        . '                </el>' . "\n"
-                        . '            </ROOT>' . "\n"
-                        . '        </sheet2>' . "\n"
-                        . '    </sheets>' . "\n"
-                        . '</T3FlexForms>',
-                    'default' => '<T3DataStructure>' . "\n"
-                        . '  <ROOT>' . "\n"
-                        . '    <type>array</type>' . "\n"
-                        . '    <el>' . "\n"
-                        . '      <xmlTitle>' . "\n"
-                        . '        <label>The Title:</label>' . "\n"
-                        . '        <config>' . "\n"
-                        . '            <type>input</type>' . "\n"
-                        . '            <size>48</size>' . "\n"
-                        . '        </config>' . "\n"
-                        . '      </xmlTitle>' . "\n"
-                        . '    </el>' . "\n"
-                        . '  </ROOT>' . "\n"
-                        . '</T3DataStructure>',
-                ],
-                'ds_pointerField' => 'CType',
+                'ds' => '<T3FlexForms>
+    <sheets type="array">
+        <sDEF type="array">
+            <ROOT type="array">
+                <type>array</type>
+                <el type="array">
+                    <field index="header" type="array">
+                        <label>header</label>
+                        <config>
+                            <type>input</type>
+                        </config>
+                    </field>
+                    <field index="textarea" type="array">
+                        <label>textarea</label>
+                        <config>
+                            <type>text</type>
+                        </config>
+                    </field>
+                    <field index="settings.mysettings" type="array">
+                        <title>section_1</title>
+                        <type>array</type>
+                        <section>1</section>
+                        <el type="array">
+                            <field index="container_1" type="array">
+                                <type>array</type>
+                                <title>container_1</title>
+                                <el type="array">
+                                    <field index="input_1" type="array">
+                                        <label>input_1 description</label>
+                                        <config type="array">
+                                            <type>input</type>
+                                        </config>
+                                    </field>
+                                    <field index="link_1" type="array">
+                                        <label>link_1 description</label>
+                                        <config type="array">
+                                            <type>link</type>
+                                        </config>
+                                    </field>
+                                </el>
+                            </field>
+                            <field index="container_2" type="array">
+                                <type>array</type>
+                                <title>container_2</title>
+                                <el type="array">
+                                    <field index="text_1" type="array">
+                                        <label>text_1 description</label>
+                                        <config type="array">
+                                            <type>text</type>
+                                            <default>foo</default>
+                                        </config>
+                                    </field>
+                                </el>
+                            </field>
+                        </el>
+                    </field>
+                </el>
+            </ROOT>
+        </sDEF>
+        <sheet2 type="array">
+            <ROOT type="array">
+                <type>array</type>
+                <el>
+                    <field index="header" type="array">
+                        <label>header</label>
+                        <config>
+                            <type>input</type>
+                        </config>
+                    </field>
+                    <field index="link" type="array">
+                        <label>header</label>
+                        <config type="array">
+                            <type>link</type>
+                        </config>
+                    </field>
+                    <field index="number" type="array">
+                        <label>number</label>
+                        <config type="array">
+                            <type>number</type>
+                        </config>
+                    </field>
+                    <field index="datetime" type="array">
+                        <label>datetime</label>
+                        <config type="array">
+                            <type>datetime</type>
+                        </config>
+                    </field>
+                    <field index="some.number" type="array">
+                        <label>number</label>
+                        <config type="array">
+                            <type>number</type>
+                        </config>
+                    </field>
+                    <field index="some.link" type="array">
+                        <label>link 2</label>
+                        <config type="array">
+                            <type>link</type>
+                        </config>
+                    </field>
+                    <field index="my_settings" type="array">
+                        <title>section_2</title>
+                        <type>array</type>
+                        <section>1</section>
+                        <el type="array">
+                            <field index="container_1" type="array">
+                                <type>array</type>
+                                <title>container_1</title>
+                                <el type="array">
+                                    <field index="input_2" type="array">
+                                        <label>input_2 description</label>
+                                        <config type="array">
+                                            <type>input</type>
+                                        </config>
+                                    </field>
+                                </el>
+                            </field>
+                            <field index="container_2" type="array">
+                                <type>array</type>
+                                <title>container_2</title>
+                                <el type="array">
+                                    <field index="text_2" type="array">
+                                        <label>text_2 description</label>
+                                        <config type="array">
+                                            <type>text</type>
+                                            <default>bar</default>
+                                        </config>
+                                    </field>
+                                </el>
+                            </field>
+                        </el>
+                    </field>
+                </el>
+            </ROOT>
+        </sheet2>
+    </sheets>
+</T3FlexForms>',
+                'default' => '<T3DataStructure>
+  <ROOT>
+    <type>array</type>
+    <el>
+      <xmlTitle>
+        <label>The Title:</label>
+        <config>
+            <type>input</type>
+            <size>48</size>
+        </config>
+      </xmlTitle>
+    </el>
+  </ROOT>
+</T3DataStructure>',
+            ],
+            'exclude' => true,
+            'label' => 'flexfield',
+        ],
+        'typo3tests_contentelementb_flexfield_ds' => [
+            'config' => [
+                'type' => 'flex',
+                'ds' => '
+<T3FlexForms>
+    <sheets type="array">
+        <sDEF type="array">
+            <ROOT type="array">
+                <type>array</type>
+                <el type="array">
+                    <field index="header" type="array">
+                        <label>header</label>
+                        <config>
+                            <type>input</type>
+                        </config>
+                    </field>
+                    <field index="textarea" type="array">
+                        <label>textarea</label>
+                        <config>
+                            <type>text</type>
+                        </config>
+                    </field>
+                </el>
+            </ROOT>
+        </sDEF>
+        <sheet2 type="array">
+            <ROOT type="array">
+                <type>array</type>
+                <el>
+                    <field index="link" type="array">
+                        <label>header</label>
+                        <config type="array">
+                            <type>link</type>
+                        </config>
+                    </field>
+                    <field index="number" type="array">
+                        <label>number</label>
+                        <config type="array">
+                            <type>number</type>
+                        </config>
+                    </field>
+                    <field index="datetime" type="array">
+                        <label>datetime</label>
+                        <config type="array">
+                            <type>datetime</type>
+                        </config>
+                    </field>
+                    <field index="some.number" type="array">
+                        <label>number</label>
+                        <config type="array">
+                            <type>number</type>
+                        </config>
+                    </field>
+                    <field index="some.further.link" type="array">
+                        <label>link 2</label>
+                        <config type="array">
+                            <type>link</type>
+                        </config>
+                    </field>
+                </el>
+            </ROOT>
+        </sheet2>
+    </sheets>
+</T3FlexForms>',
             ],
             'exclude' => true,
             'label' => 'flexfield',
@@ -245,6 +404,36 @@ $overrides = [
             ],
             'exclude' => true,
             'label' => 'json',
+        ],
+        'typo3tests_contentelementb_link' => [
+            'config' => [
+                'type' => 'link',
+            ],
+            'exclude' => true,
+            'label' => 'link',
+        ],
+        'typo3tests_contentelementb_link_nullable' => [
+            'config' => [
+                'type' => 'link',
+                'nullable' => true,
+            ],
+            'exclude' => true,
+            'label' => 'link',
+        ],
+        'typo3tests_contentelementb_country' => [
+            'config' => [
+                'type' => 'country',
+            ],
+            'exclude' => true,
+            'label' => 'country',
+        ],
+        'typo3tests_contentelementb_country_nullable' => [
+            'config' => [
+                'type' => 'country',
+                'nullable' => true,
+            ],
+            'exclude' => true,
+            'label' => 'country',
         ],
         'typo3tests_contentelementb_datetime' => [
             'config' => [
@@ -264,7 +453,7 @@ $overrides = [
     ],
     'types' => [
         'typo3tests_contentelementb' => [
-            'showitem' => '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,--palette--;;general,image,media,assets,typo3tests_contentelementb_collection,typo3tests_contentelementb_collection_recursive,typo3tests_contentelementb_categories_mm,typo3tests_contentelementb_categories_11,typo3tests_contentelementb_categories_1m,typo3tests_contentelementb_pages_relation,typo3tests_contentelementb_circular_relation,typo3tests_contentelementb_record_relation_recursive,typo3tests_contentelementb_pages_content_relation,typo3tests_contentelementb_pages_relations,typo3tests_contentelementb_pages_mm,typo3tests_contentelementb_folder,typo3tests_contentelementb_folder_recursive,--palette--;;typo3tests_contentelementb_palette,typo3tests_contentelementb_flexfield,typo3tests_contentelementb_json,typo3tests_contentelementb_datetime,typo3tests_contentelementb_datetime_nullable,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:language,--palette--;;language,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,--palette--;;hidden,--palette--;;access,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,rowDescription',
+            'showitem' => '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,--palette--;;general,image,media,assets,typo3tests_contentelementb_collection,typo3tests_contentelementb_collection_recursive,typo3tests_contentelementb_categories_mm,typo3tests_contentelementb_categories_11,typo3tests_contentelementb_categories_1m,typo3tests_contentelementb_pages_relation,typo3tests_contentelementb_circular_relation,typo3tests_contentelementb_record_relation_recursive,typo3tests_contentelementb_pages_content_relation,typo3tests_contentelementb_pages_relations,typo3tests_contentelementb_pages_mm,typo3tests_contentelementb_folder,typo3tests_contentelementb_folder_recursive,--palette--;;typo3tests_contentelementb_palette,typo3tests_contentelementb_flexfield,typo3tests_contentelementb_flexfield_ds,typo3tests_contentelementb_flexfield_sheets,typo3tests_contentelementb_json,typo3tests_contentelementb_link,typo3tests_contentelementb_link_nullable,typo3tests_contentelementb_country,typo3tests_contentelementb_country_nullable,typo3tests_contentelementb_datetime,typo3tests_contentelementb_datetime_nullable,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:language,--palette--;;language,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,--palette--;;hidden,--palette--;;access,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,rowDescription',
             'columnsOverrides' => [
                 'image' => [
                     'config' => [
@@ -435,16 +624,20 @@ $overrides = [
                     'label' => 'flexfield',
                     'config' => [],
                 ],
+                'typo3tests_contentelementb_flexfield_ds' => [
+                    'label' => 'flexfield',
+                    'config' => [],
+                ],
                 'typo3tests_contentelementb_json' => [
                     'label' => 'json',
                     'config' => [],
                 ],
                 'typo3tests_contentelementb_datetime' => [
-                    'label' => 'json',
+                    'label' => 'datetime',
                     'config' => [],
                 ],
                 'typo3tests_contentelementb_datetime_nullable' => [
-                    'label' => 'json',
+                    'label' => 'dateime nullable',
                     'config' => [],
                 ],
             ],
@@ -454,7 +647,6 @@ $overrides = [
         'typeicon_classes' => [
             'typo3tests_contentelementb' => 'tt_content-typo3tests_contentelementb-175ef6f',
         ],
-        'searchFields' => 'header,header_link,subheader,bodytext,pi_flexform,typo3tests_contentelementb_flexfield,typo3tests_contentelementb_json',
     ],
 ];
 

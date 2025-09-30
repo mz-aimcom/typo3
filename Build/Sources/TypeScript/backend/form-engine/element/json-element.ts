@@ -11,6 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
+import DocumentService from '@typo3/core/document-service';
 import { Resizable } from './modifier/resizable';
 import { Tabbable } from './modifier/tabbable';
 
@@ -30,7 +31,13 @@ import { Tabbable } from './modifier/tabbable';
 class JsonElement extends HTMLElement {
   private element: HTMLTextAreaElement = null;
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
+    if (this.element !== null) {
+      // Element is already initialized, which means the component has been rendered before. Nothing to do here.
+      return;
+    }
+
+    await DocumentService.ready();
     this.element = document.getElementById((this.getAttribute('recordFieldId') || '' as string)) as HTMLTextAreaElement;
 
     if (!this.element) {

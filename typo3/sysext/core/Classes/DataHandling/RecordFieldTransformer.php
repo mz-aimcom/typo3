@@ -20,7 +20,10 @@ namespace TYPO3\CMS\Core\DataHandling;
 use Doctrine\DBAL\Types\Type;
 use TYPO3\CMS\Core\Collection\LazyRecordCollection;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Country\CountryProvider;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Domain\FlexFormFieldValues;
 use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
 use TYPO3\CMS\Core\Domain\RawRecord;
 use TYPO3\CMS\Core\Domain\RecordFactory;
@@ -28,6 +31,7 @@ use TYPO3\CMS\Core\Domain\RecordInterface;
 use TYPO3\CMS\Core\Domain\RecordPropertyClosure;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
+use TYPO3\CMS\Core\LinkHandling\TypolinkParameter;
 use TYPO3\CMS\Core\Resource\Collection\LazyFileReferenceCollection;
 use TYPO3\CMS\Core\Resource\Collection\LazyFolderCollection;
 use TYPO3\CMS\Core\Resource\FileReference;
@@ -44,8 +48,6 @@ use TYPO3\CMS\Core\Schema\RelationMap;
 use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\MathUtility;
-use TYPO3\CMS\Frontend\Typolink\TypolinkParameter;
 
 /**
  * This generic mapper takes a field value of a record, and maps the value
@@ -79,16 +81,20 @@ readonly class RecordFieldTransformer
         protected LinkService $linkService,
         protected TypoLinkCodecService $typoLinkCodecService,
         protected ConnectionPool $connectionPool,
-        protected RecordIdentityMap $recordIdentityMap,
+        protected CountryProvider $countryProvider,
     ) {}
 
-    public function transformField(FieldTypeInterface $fieldInformation, RawRecord $rawRecord, Context $context): mixed
-    {
-        $fieldValue = $rawRecord[$fieldInformation->getName()];
+    public function transformField(
+        FieldTypeInterface $fieldInformation,
+        RawRecord $rawRecord,
+        Context $context,
+        RecordIdentityMap $recordIdentityMap,
+    ): mixed {
+        $fieldValue = $rawRecord->get($fieldInformation->getName());
 
         // type=file needs to be handled before RelationalFieldTypeInterface
         if ($fieldInformation instanceof FileFieldType) {
-            if ($fieldInformation->getRelationshipType()->isToOne()) {
+            if ($fieldInformation->getRelationshipType()->hasOne()) {
                 return new RecordPropertyClosure(
                     function () use ($rawRecord, $fieldInformation, $context): ?FileReference {
                         $fileReference = $this->relationResolver->resolveFileReferences($rawRecord, $fieldInformation, $context)[0] ?? null;
@@ -108,42 +114,28 @@ readonly class RecordFieldTransformer
             /** @var RecordFactory $recordFactory */
             // @todo This method is called by RecordFactory -> instantiating the factory here again shows, that those classes should actually be somehow belong together.
             $recordFactory = GeneralUtility::makeInstance(RecordFactory::class);
-            if ($fieldInformation->getRelationshipType()->isToOne()) {
+            if ($fieldInformation->getRelationshipType()->hasOne()) {
                 return new RecordPropertyClosure(
-                    function () use ($rawRecord, $fieldInformation, $context, $recordFactory): ?RecordInterface {
+                    function () use ($rawRecord, $fieldInformation, $context, $recordFactory, $recordIdentityMap): ?RecordInterface {
                         $recordData = $this->relationResolver->resolve($rawRecord, $fieldInformation, $context)[0] ?? null;
                         if ($recordData === null) {
                             return null;
                         }
                         $dbTable = $recordData['table'];
                         $row = $recordData['row'];
-                        // check RecordIdentityMap for already loaded records
-                        if ($this->recordIdentityMap->hasIdentifier($dbTable, (int)$row['uid'])) {
-                            $record = $this->recordIdentityMap->findByIdentifier($dbTable, (int)$row['uid']);
-                        } else {
-                            $record = $recordFactory->createResolvedRecordFromDatabaseRow($dbTable, $row, $context);
-                            $this->recordIdentityMap->add($record);
-                        }
-                        return $record;
+                        return $recordFactory->createResolvedRecordFromDatabaseRow($dbTable, $row, $context, $recordIdentityMap);
                     }
                 );
             }
             return new LazyRecordCollection(
                 $fieldValue,
-                function () use ($rawRecord, $fieldInformation, $context, $recordFactory): array {
+                function () use ($rawRecord, $fieldInformation, $context, $recordFactory, $recordIdentityMap): array {
                     $relationalRecords = [];
                     $recordData = $this->relationResolver->resolve($rawRecord, $fieldInformation, $context);
                     foreach ($recordData as $singleRecordData) {
                         $dbTable = $singleRecordData['table'];
                         $row = $singleRecordData['row'];
-                        // check RecordIdentityMap for already loaded records
-                        if ($this->recordIdentityMap->hasIdentifier($dbTable, (int)$row['uid'])) {
-                            $relationalRecords[] = $this->recordIdentityMap->findByIdentifier($dbTable, (int)$row['uid']);
-                        } else {
-                            $record = $recordFactory->createResolvedRecordFromDatabaseRow($dbTable, $row, $context);
-                            $this->recordIdentityMap->add($record);
-                            $relationalRecords[] = $record;
-                        }
+                        $relationalRecords[] = $recordFactory->createResolvedRecordFromDatabaseRow($dbTable, $row, $context, $recordIdentityMap);
                     }
                     return $relationalRecords;
                 }
@@ -174,18 +166,29 @@ readonly class RecordFieldTransformer
         }
         if ($fieldInformation->isType(TableColumnType::FLEX)) {
             /** @var FlexFormFieldType $fieldInformation */
-            return $this->processFlexForm($rawRecord, $fieldInformation, (string)$fieldValue, $context);
+            return new RecordPropertyClosure(fn(): FlexFormFieldValues => $this->processFlexForm($rawRecord, $fieldInformation, (string)$fieldValue, $context, $recordIdentityMap));
         }
         if ($fieldInformation->isType(TableColumnType::JSON)) {
-            return Type::getType('json')->convertToPHPValue((string)$fieldValue, $this->connectionPool->getConnectionForTable($rawRecord->getMainType())->getDatabasePlatform());
+            return new RecordPropertyClosure(
+                fn(): array|string|int|float|bool|null => Type::getType('json')->convertToPHPValue(
+                    (string)$fieldValue,
+                    $this->connectionPool->getConnectionForTable($rawRecord->getMainType())->getDatabasePlatform()
+                )
+            );
         }
         if ($fieldInformation instanceof DateTimeFieldType) {
-            return $fieldValue === null || (!$fieldInformation->isNullable() && $fieldValue === 0)
-                ? null
-                : new \DateTimeImmutable((MathUtility::canBeInterpretedAsInteger($fieldValue) ? '@' : '') . $fieldValue);
+            return DateTimeFactory::createFromDatabaseValue($fieldValue, $fieldInformation);
         }
         if ($fieldInformation->isType(TableColumnType::LINK)) {
-            return TypolinkParameter::createFromTypolinkParts($this->typoLinkCodecService->decode($fieldValue));
+            return new RecordPropertyClosure(
+                fn(): ?TypolinkParameter => $fieldValue === null && $fieldInformation->isNullable() ? null : TypolinkParameter::createFromTypolinkParts($this->typoLinkCodecService->decode((string)$fieldValue))
+            );
+        }
+        if ($fieldInformation->isType(TableColumnType::COUNTRY)) {
+            if ($fieldValue === null && $fieldInformation->isNullable()) {
+                return null;
+            }
+            return $this->countryProvider->getByIsoCode((string)$fieldValue) ?? '';
         }
         return $fieldValue;
     }
@@ -211,38 +214,42 @@ readonly class RecordFieldTransformer
      * selected Schema. Ideally, this should be "FlexRecord" objects, and also keep the original values.
      * This functionality will likely change in the future.
      */
-    protected function processFlexForm(RawRecord $record, FlexFormFieldType $fieldInformation, mixed $fieldValue, Context $context): array
-    {
-        $plainValues = $this->flexFormService->convertFlexFormContentToArray((string)$fieldValue);
-        $usedSchema = $this->flexFormSchemaFactory->getSchemaForRecord(
-            $record,
-            $fieldInformation,
-            // @todo: RelationMap does not work in FlexForm currently, as we do not have this information persisted somewhere
-            new RelationMap()
-        );
-
-        if ($usedSchema !== null) {
-            $resolvedValues = [];
+    protected function processFlexForm(
+        RawRecord $record,
+        FlexFormFieldType $fieldInformation,
+        mixed $fieldValue,
+        Context $context,
+        RecordIdentityMap $recordIdentityMap,
+    ): FlexFormFieldValues {
+        $plainValues = $this->flexFormService->convertFlexFormContentToSheetsArray((string)$fieldValue);
+        // @todo: RelationMap does not work in FlexForm currently, as we do not have this information persisted somewhere
+        $usedSchema = $this->flexFormSchemaFactory->getSchemaForRecord($record, $fieldInformation, new RelationMap());
+        if ($usedSchema === null) {
+            return new FlexFormFieldValues($plainValues);
+        }
+        $recordFactory = GeneralUtility::makeInstance(RecordFactory::class);
+        $transformedValues = [];
+        foreach ($plainValues as $sheetName => $values) {
             // Flatten keys (because we receive settings[mysetting] and we want settings.mysetting)
-            $plainValues = ArrayUtility::flattenPlain($plainValues);
-            $recordFactory = GeneralUtility::makeInstance(RecordFactory::class);
-            foreach ($plainValues as $fieldName => $plainFieldValue) {
+            $values = ArrayUtility::flattenPlain($values);
+            foreach ($values as $fieldName => &$plainFieldValue) {
                 // That's a "fun" workaround: In order to allow to process e.g. "sDEF/header", we need
                 // to add this to the "rawRecord" (thus, we clone it), so it is within the array
                 // and then set "sDEF/header" even though this is not a DB field. Then we keep it in "$fieldName"
                 // which actually is the plain field name (in this case "header")
-                $fieldInformationOfFlexField = $usedSchema->getField($fieldName);
+                $fieldInformationOfFlexField = $usedSchema->getField($fieldName, $sheetName);
                 // No field given, we just skip the value, as it is not properly defined
                 if ($fieldInformationOfFlexField === null) {
                     continue;
                 }
                 $rawRecordValues = array_replace($record->toArray(), [$fieldInformationOfFlexField->getName() => $plainFieldValue]);
                 $fakeRawRecordWithFlexField = $recordFactory->createRawRecord($record->getMainType(), $rawRecordValues);
-                $transformedValue = $this->transformField($fieldInformationOfFlexField, $fakeRawRecordWithFlexField, $context);
-                $resolvedValues[$fieldName] = $transformedValue;
+                $transformedValue = $this->transformField($fieldInformationOfFlexField, $fakeRawRecordWithFlexField, $context, $recordIdentityMap);
+                $plainFieldValue = $transformedValue;
             }
-            return ArrayUtility::unflatten($resolvedValues);
+            unset($plainFieldValue);
+            $transformedValues[$sheetName] = ArrayUtility::unflatten($values);
         }
-        return $plainValues;
+        return new FlexFormFieldValues($transformedValues);
     }
 }

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Error;
 
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Error\ErrorHandler;
 use TYPO3\CMS\Core\Log\Logger;
@@ -42,6 +43,7 @@ final class ErrorHandlerTest extends FunctionalTestCase
     }
 
     #[Test]
+    #[DoesNotPerformAssertions]
     public function handleErrorFetchesDeprecations(): void
     {
         trigger_error(
@@ -52,7 +54,6 @@ final class ErrorHandlerTest extends FunctionalTestCase
             'The second error should be caught by ErrorHandler as well.',
             E_USER_DEPRECATED
         );
-        self::assertTrue(true);
     }
 
     /**
@@ -76,7 +77,7 @@ final class ErrorHandlerTest extends FunctionalTestCase
 
         // Make sure the core error handler does not return true due to a deprecation error
         $logManagerMock = $this->createMock(LogManager::class);
-        $logManagerMock->expects(self::never())->method('getLogger')->with('TYPO3.CMS.deprecations');
+        $logManagerMock->expects($this->never())->method('getLogger')->with('TYPO3.CMS.deprecations');
         GeneralUtility::setSingletonInstance(LogManager::class, $logManagerMock);
 
         $logger = $this->getMockBuilder(Logger::class)
@@ -85,10 +86,13 @@ final class ErrorHandlerTest extends FunctionalTestCase
             ->getMock();
 
         // Make sure the assigned logger does not log
-        $logger->expects(self::never())->method('log');
+        $logger->expects($this->never())->method('log');
 
         $coreErrorHandler = new ErrorHandler(
-            E_ALL & ~(E_STRICT | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR)
+            // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
+            //        and only kept here here because possible custom PHP extensions may still use it.
+            //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
+            E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR)
         );
         $coreErrorHandler->setLogger($logger);
 

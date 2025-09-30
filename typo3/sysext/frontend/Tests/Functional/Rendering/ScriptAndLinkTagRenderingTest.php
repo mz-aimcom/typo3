@@ -27,6 +27,10 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
+    protected const LANGUAGE_PRESETS = [
+        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
+    ];
+
     /**
      * @var string[]
      */
@@ -50,14 +54,10 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
         'dataJSLibFooter'       => '/path/to/dataLibFooter.js',
     ];
 
-    protected const LANGUAGE_PRESETS = [
-        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
-        $this->importCsvDataSet(__DIR__ . '/../../../../core/Tests/Functional/Fixtures/pages.csv');
+        $this->importCsvDataSet(__DIR__ . '/../Fixtures/pages_frontend.csv');
         $this->writeSiteConfiguration(
             'test',
             $this->buildSiteConfiguration(1, '/'),

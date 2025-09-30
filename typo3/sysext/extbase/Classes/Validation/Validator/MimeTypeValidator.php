@@ -19,8 +19,6 @@ namespace TYPO3\CMS\Extbase\Validation\Validator;
 
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Resource\MimeTypeDetector;
-use TYPO3\CMS\Core\Type\File\FileInfo;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidValidationOptionsException;
 
@@ -33,12 +31,14 @@ final class MimeTypeValidator extends AbstractValidator
     protected string $notAllowedMessage = 'LLL:EXT:extbase/Resources/Private/Language/locallang.xlf:validation.mimetype.notallowed';
     protected string $invalidExtensionMessage = 'LLL:EXT:extbase/Resources/Private/Language/locallang.xlf:validation.mimetype.invalidextension';
 
+    protected array $translationOptions = ['notAllowedMessage', 'invalidExtensionMessage'];
+
     /**
      * @var array
      */
     protected $supportedOptions = [
         'allowedMimeTypes' => [null, 'Allowed mime types (using */* IANA media types)', 'array', true],
-        'ignoreFileExtensionCheck' => [false, 'If set to "true", it is checked, the file extension check is disabled', 'boolean'],
+        'ignoreFileExtensionCheck' => [false, 'If set to "true", the file extension check is disabled. Be aware of security considerations when setting this to "true".', 'boolean'],
         'notAllowedMessage' => [null, 'Translation key or message for not allowed MIME type', 'string'],
         'invalidExtensionMessage' => [null, 'Translation key or message for invalid file extension', 'string'],
     ];
@@ -101,11 +101,6 @@ final class MimeTypeValidator extends AbstractValidator
                 }
             }
         }
-    }
-
-    protected function getFileInfo(string $filePath): FileInfo
-    {
-        return GeneralUtility::makeInstance(FileInfo::class, $filePath);
     }
 
     /**

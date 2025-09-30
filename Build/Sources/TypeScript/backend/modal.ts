@@ -12,17 +12,17 @@
  */
 
 import { Modal as BootstrapModal } from 'bootstrap';
-import { html, nothing, LitElement, TemplateResult, PropertyValues } from 'lit';
+import { html, nothing, LitElement, type TemplateResult, type PropertyValues } from 'lit';
 import { customElement, property, state } from 'lit/decorators';
 import { unsafeHTML } from 'lit/directives/unsafe-html';
-import { classMap, ClassInfo } from 'lit/directives/class-map';
-import { styleMap, StyleInfo } from 'lit/directives/style-map';
+import { classMap, type ClassInfo } from 'lit/directives/class-map';
+import { styleMap, type StyleInfo } from 'lit/directives/style-map';
 import { ifDefined } from 'lit/directives/if-defined';
 import { classesArrayToClassInfo } from '@typo3/core/lit-helper';
 import RegularEvent from '@typo3/core/event/regular-event';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractAction } from './action-button/abstract-action';
-import { ModalResponseEvent } from '@typo3/backend/modal-interface';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AbstractAction } from './action-button/abstract-action';
+import type { ModalResponseEvent } from '@typo3/backend/modal-interface';
 import { SeverityEnum } from './enum/severity';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Severity from './severity';
@@ -65,6 +65,7 @@ export interface Button {
   active?: boolean;
   btnClass: string;
   name?: string;
+  form?: string;
   trigger?: (e: Event, modal: ModalElement) => void;
   icon?: string;
   action?: AbstractAction;
@@ -86,7 +87,7 @@ export interface Configuration {
   hideCloseButton: boolean;
 }
 
-type PartialConfiguration = Partial<Omit<Configuration, 'buttons'> & { buttons: Array<Partial<Button>> }>
+type PartialConfiguration = Partial<Omit<Configuration, 'buttons'> & { buttons: Array<Partial<Button>> }>;
 
 @customElement('typo3-backend-modal')
 export class ModalElement extends LitElement {
@@ -111,6 +112,8 @@ export class ModalElement extends LitElement {
 
   public userData: { [key: string]: any } = {};
 
+  private keydownEventHandler: RegularEvent = null;
+
   public setContent(content: TemplateResult | JQuery | Element | DocumentFragment): void {
     this.templateResultContent = content;
   }
@@ -118,15 +121,16 @@ export class ModalElement extends LitElement {
   public hideModal(): void {
     if (this.bootstrapModal) {
       this.bootstrapModal.hide();
+      this.keydownEventHandler?.release();
     }
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
-  protected firstUpdated(): void {
+  protected override firstUpdated(): void {
     this.bootstrapModal = new BootstrapModal(this.renderRoot.querySelector(Identifiers.modal), {});
     this.bootstrapModal.show();
     if (this.callback) {
@@ -134,13 +138,13 @@ export class ModalElement extends LitElement {
     }
   }
 
-  protected updated(changedProperties: PropertyValues) {
+  protected override updated(changedProperties: PropertyValues): void {
     if (changedProperties.has('templateResultContent')) {
       this.dispatchEvent(new CustomEvent('modal-updated', { bubbles: true }));
     }
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     const styles: StyleInfo = {
       zIndex: this.zindex.toString()
     };
@@ -165,7 +169,7 @@ export class ModalElement extends LitElement {
           <div class="modal-dialog">
               <div class="t3js-modal-content modal-content">
                   <div class="modal-header">
-                      <h4 class="t3js-modal-title modal-title">${this.modalTitle}</h4>
+                      <h1 class="h4 t3js-modal-title modal-title">${this.modalTitle}</h1>
                       ${this.hideCloseButton ? nothing : html`
                           <button class="t3js-modal-close close" @click=${() => this.bootstrapModal.hide()}>
                               <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon>
@@ -224,9 +228,8 @@ export class ModalElement extends LitElement {
   }
 
   private renderModalBody(): TemplateResult | JQuery | Element | DocumentFragment {
-    if (this.type === Types.ajax) {
-      return this.renderAjaxBody();
-    }
+    this.keydownEventHandler = new RegularEvent('keydown', this.handleKeydown);
+    this.keydownEventHandler.bindTo(document);
 
     if (this.type === Types.iframe) {
       const loadCallback = (e: Event) => {
@@ -234,12 +237,15 @@ export class ModalElement extends LitElement {
         if (iframe.contentDocument.title) {
           this.modalTitle = iframe.contentDocument.title;
         }
-        // see Build/Sources/Sass/scaffold/_scaffold.scss
-        iframe.contentDocument.body.classList.add('with-overflow');
+        new RegularEvent('keydown', this.handleKeydown).bindTo(iframe.contentDocument);
       };
       return html`
         <iframe src="${this.content}" name="modal_frame" class="modal-iframe t3js-modal-iframe" @load=${loadCallback}></iframe>
       `;
+    }
+
+    if (this.type === Types.ajax) {
+      return this.renderAjaxBody();
     }
 
     if (this.type === Types.template) {
@@ -260,6 +266,7 @@ export class ModalElement extends LitElement {
     return html`
       <button class=${classMap(classes)}
               name=${ifDefined(button.name || undefined)}
+              form=${ifDefined(button.form || undefined)}
               @click=${(e: Event) => this._buttonClick(e, button)}>
           ${button.icon ? html`<typo3-backend-icon identifier="${button.icon}" size="small"></typo3-backend-icon>` : nothing}
           ${button.text}
@@ -269,6 +276,12 @@ export class ModalElement extends LitElement {
 
   private trigger(event: string): void {
     this.dispatchEvent(new CustomEvent(event, { bubbles: true, composed: true }));
+  }
+
+  private handleKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape' && parent?.top?.TYPO3?.Modal) {
+      parent.top.TYPO3.Modal.dismiss();
+    }
   }
 }
 
@@ -494,7 +507,7 @@ class Modal {
     const modalTrigger = (evt: Event, triggerElement: HTMLElement): void => {
       evt.preventDefault();
       const content = triggerElement.dataset.bsContent || triggerElement.dataset.content || TYPO3?.lang?.['message.confirmation'] || 'Are you sure?';
-      let severity = SeverityEnum.info;
+      let severity = SeverityEnum.notice;
       if (triggerElement.dataset.severity in SeverityEnum) {
         const severityKey = triggerElement.dataset.severity as keyof typeof SeverityEnum;
         severity = SeverityEnum[severityKey];
@@ -543,14 +556,11 @@ class Modal {
               if (targetLocation && targetLocation !== '#') {
                 triggerElement.ownerDocument.location.href = targetLocation;
               }
-              if (triggerElement.getAttribute('type') === 'submit') {
-                // Submit a possible form in case the trigger has type=submit and is child of a form
-                (triggerElement.closest('form') as HTMLFormElement)?.submit();
-                if (triggerElement.tagName === 'BUTTON' && triggerElement.hasAttribute('form')) {
-                  // Submit a possible form in case the trigger is a BUTTON, having a
-                  // form attribute set to a valid form identifier in the ownerDocument.
-                  (triggerElement.ownerDocument.querySelector('form#' + triggerElement.getAttribute('form')) as HTMLFormElement)?.submit();
-                }
+              if (triggerElement.getAttribute('type') === 'submit' && (
+                triggerElement.tagName === 'BUTTON' || triggerElement.tagName === 'INPUT'
+              )) {
+                const submitter = triggerElement as HTMLButtonElement|HTMLInputElement;
+                submitter.form?.requestSubmit(submitter);
               }
               if (triggerElement.dataset.targetForm) {
                 // Submit a possible form in case the trigger has the data-target-form
@@ -605,7 +615,13 @@ class Modal {
       backdrop.style.zIndex = backdropZIndex.toString();
 
       // focus the button which was configured as active button
-      (currentModal.querySelector(`${Identifiers.footer} .t3js-active`) as HTMLInputElement)?.focus();
+      const activeButton = currentModal.querySelector(`${Identifiers.footer} .t3js-active`) as HTMLInputElement | null;
+      if (activeButton !== null) {
+        activeButton.focus();
+      } else {
+        // @todo can be removed once we switch to a native <dialog> tag
+        (currentModal.querySelector('[autofocus]') as HTMLInputElement)?.focus();
+      }
     });
 
     // Remove modal from Modal.instances when hidden

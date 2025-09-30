@@ -25,7 +25,6 @@ use TYPO3\CMS\Workspaces\Dependency\ElementEntity;
 use TYPO3\CMS\Workspaces\Dependency\ElementEntityProcessor;
 use TYPO3\CMS\Workspaces\Dependency\EventCallback;
 use TYPO3\CMS\Workspaces\Dependency\ReferenceEntity;
-use TYPO3\CMS\Workspaces\Service\GridDataService;
 
 /**
  * Service to collect dependent elements.
@@ -34,60 +33,33 @@ use TYPO3\CMS\Workspaces\Service\GridDataService;
  */
 class CollectionService implements SingletonInterface
 {
-    protected ?ElementEntityProcessor $elementEntityProcessor;
     protected ?DependencyResolver $dependencyResolver = null;
     protected array $dataArray;
     protected array $nestedDataArray;
+
+    public function __construct(
+        protected readonly ElementEntityProcessor $elementEntityProcessor,
+    ) {}
 
     public function getDependencyResolver(): DependencyResolver
     {
         if (!isset($this->dependencyResolver)) {
             $this->dependencyResolver = GeneralUtility::makeInstance(DependencyResolver::class);
-            $this->dependencyResolver->setOuterMostParentsRequireReferences(true);
             $this->dependencyResolver->setWorkspace($this->getBackendUser()->workspace);
-
             $this->dependencyResolver->setEventCallback(
                 ElementEntity::EVENT_Construct,
-                $this->getDependencyCallback('createNewDependentElementCallback')
+                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementCallback', ['workspace' => $this->getBackendUser()->workspace])
             );
-
             $this->dependencyResolver->setEventCallback(
                 ElementEntity::EVENT_CreateChildReference,
-                $this->getDependencyCallback('createNewDependentElementChildReferenceCallback')
+                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementChildReferenceCallback')
             );
-
             $this->dependencyResolver->setEventCallback(
                 ElementEntity::EVENT_CreateParentReference,
-                $this->getDependencyCallback('createNewDependentElementParentReferenceCallback')
+                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementParentReferenceCallback')
             );
         }
-
         return $this->dependencyResolver;
-    }
-
-    /**
-     * Gets a new callback to be used in the dependency resolver utility.
-     */
-    protected function getDependencyCallback(string $method, array $targetArguments = []): EventCallback
-    {
-        return GeneralUtility::makeInstance(
-            EventCallback::class,
-            $this->getElementEntityProcessor(),
-            $method,
-            $targetArguments
-        );
-    }
-
-    /**
-     * Gets the element entity processor.
-     */
-    protected function getElementEntityProcessor(): ElementEntityProcessor
-    {
-        if (!isset($this->elementEntityProcessor)) {
-            $this->elementEntityProcessor = GeneralUtility::makeInstance(ElementEntityProcessor::class);
-            $this->elementEntityProcessor->setWorkspace($this->getBackendUser()->workspace);
-        }
-        return $this->elementEntityProcessor;
     }
 
     /**
@@ -153,10 +125,10 @@ class CollectionService implements SingletonInterface
         $parentIsSet = isset($this->dataArray[$parentIdentifier]);
 
         if ($parentIsSet) {
-            $this->dataArray[$parentIdentifier][GridDataService::GridColumn_Collection] = $collection;
-            $this->dataArray[$parentIdentifier][GridDataService::GridColumn_CollectionLevel] = $collectionLevel;
-            $this->dataArray[$parentIdentifier][GridDataService::GridColumn_CollectionCurrent] = md5($parentIdentifier);
-            $this->dataArray[$parentIdentifier][GridDataService::GridColumn_CollectionChildren] = $this->getCollectionChildrenCount($parent->getChildren());
+            $this->dataArray[$parentIdentifier]['Workspaces_Collection'] = $collection;
+            $this->dataArray[$parentIdentifier]['Workspaces_CollectionLevel'] = $collectionLevel;
+            $this->dataArray[$parentIdentifier]['Workspaces_CollectionCurrent'] = md5($parentIdentifier);
+            $this->dataArray[$parentIdentifier]['Workspaces_CollectionChildren'] = $this->getCollectionChildrenCount($parent->getChildren());
             $nextParentIdentifier = $parentIdentifier;
             $collectionLevel++;
         }
@@ -173,7 +145,7 @@ class CollectionService implements SingletonInterface
             if (!empty($nextParentIdentifier) && isset($this->dataArray[$childIdentifier])) {
                 // Remove from dataArray, but collect to process later
                 // and add it just next to the accordant parent element
-                $this->dataArray[$childIdentifier][GridDataService::GridColumn_CollectionParent] = md5($nextParentIdentifier);
+                $this->dataArray[$childIdentifier]['Workspaces_CollectionParent'] = md5($nextParentIdentifier);
                 $this->nestedDataArray[$nextParentIdentifier][] = $this->dataArray[$childIdentifier];
                 unset($this->dataArray[$childIdentifier]);
             }

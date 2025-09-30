@@ -11,17 +11,17 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInteractableModule, ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
+import { AbstractInteractableModule, type ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
 import Modal from '@typo3/backend/modal';
 import Notification from '@typo3/backend/notification';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import MessageInterface from '../../message-interface';
 import { FlashMessage } from '../../renderable/flash-message';
 import Severity from '../../renderable/severity';
 import Router from '../../router';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ModalElement } from '@typo3/backend/modal';
+import type MessageInterface from '../../message-interface';
 
 enum Identifiers {
   output = '.t3js-coreUpdate-output',
@@ -32,11 +32,11 @@ type ActionItem = {
   loadingMessage: string;
   finishMessage: string;
   nextActionName: string;
-}
+};
 
 type ActionQueue = {
   [k: string]: ActionItem;
-}
+};
 
 class CoreUpdate extends AbstractInteractableModule {
   private readonly actionQueue: ActionQueue = {
@@ -85,7 +85,7 @@ class CoreUpdate extends AbstractInteractableModule {
   /**
    * Fetching the templates out of the DOM
    */
-  public initialize(currentModal: ModalElement): void {
+  public override initialize(currentModal: ModalElement): void {
     super.initialize(currentModal);
 
     this.loadModuleFrameAgnostic('@typo3/install/renderable/flash-message.js').then(async (): Promise<void> => {
@@ -214,7 +214,7 @@ class CoreUpdate extends AbstractInteractableModule {
    * Remove an enabled loading message
    */
   private removeLoadingMessage(): void {
-    this.findInModal(Identifiers.output).querySelector('typo3-backend-progress-bar').remove();
+    this.findInModal(Identifiers.output).querySelector('typo3-install-flashmessage')?.remove();
   }
 
   /**

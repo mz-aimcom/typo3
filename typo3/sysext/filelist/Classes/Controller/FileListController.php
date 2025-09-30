@@ -53,6 +53,7 @@ use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\Search\FileSearchDemand;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Resource\Utility\ListUtility;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\File\ExtendedFileUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -62,6 +63,7 @@ use TYPO3\CMS\Filelist\FileList;
 use TYPO3\CMS\Filelist\Matcher\Matcher;
 use TYPO3\CMS\Filelist\Matcher\ResourceFileTypeMatcher;
 use TYPO3\CMS\Filelist\Matcher\ResourceFolderTypeMatcher;
+use TYPO3\CMS\Filelist\Type\SortDirection;
 use TYPO3\CMS\Filelist\Type\ViewMode;
 
 /**
@@ -94,6 +96,7 @@ class FileListController implements LoggerAwareInterface
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly BackendViewFactory $viewFactory,
         protected readonly ResponseFactoryInterface $responseFactory,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -135,13 +138,13 @@ class FileListController implements LoggerAwareInterface
                         );
                     }
                     // Disallow the rendering of the processing folder (e.g. could be called manually)
-                    if ($this->folderObject instanceof Folder && $storage->isProcessingFolder($this->folderObject)) {
+                    if ($storage->isProcessingFolder($this->folderObject)) {
                         $this->folderObject = $storage->getRootLevelFolder();
                     }
                 }
             } else {
-                // Take the first object of the first storage
-                $fileStorages = $backendUser->getFileStorages();
+                // Take the first available storage
+                $fileStorages = array_filter($backendUser->getFileStorages(), static fn(ResourceStorage $storage) => $storage->isBrowsable());
                 $fileStorage = reset($fileStorages);
                 if ($fileStorage) {
                     $this->folderObject = $fileStorage->getRootLevelFolder();
@@ -217,6 +220,8 @@ class FileListController implements LoggerAwareInterface
         $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/file-list-actions.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/file-list-rename-handler.js');
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_core.xlf', 'file_rename');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/file-list-replace-handler.js');
+        $this->pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_core.xlf', 'file_replace');
 
         $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/file-delete.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/context-menu.js');
@@ -349,7 +354,7 @@ class FileListController implements LoggerAwareInterface
                 $fileProcessor = GeneralUtility::makeInstance(ExtendedFileUtility::class);
                 $fileProcessor->setActionPermissions();
                 $fileProcessor->setExistingFilesConflictMode($this->overwriteExistingFiles);
-                $fileProcessor->start($FILE);
+                $fileProcessor->start($FILE, []);
                 $fileProcessor->processData();
                 // Clean & Save clipboard state
                 $this->filelist->clipObj->cleanCurrent();
@@ -361,10 +366,14 @@ class FileListController implements LoggerAwareInterface
         $this->filelist->start(
             $this->folderObject,
             MathUtility::forceIntegerInRange($this->currentPage, 1, 100000),
-            (string)$this->moduleData->get('sort'),
-            (bool)$this->moduleData->get('reverse')
+            (string)($this->moduleData->get('sortField') ?: 'name'),
+            SortDirection::tryFrom($this->moduleData->get('sortDirection') ?? '') ?? SortDirection::ASCENDING
         );
-        $this->filelist->setColumnsToRender($this->getBackendUser()->getModuleData('list/displayFields')['_FILE'] ?? []);
+
+        // Only add selected columns if the feature is enabled
+        if ($this->getBackendUser()->getTSConfig()['options.']['file_list.']['displayColumnSelector'] ?? true) {
+            $this->filelist->setColumnsToRender($this->getBackendUser()->getModuleData('list/displayFields')['_FILE'] ?? []);
+        }
 
         $resourceSelectableMatcher = GeneralUtility::makeInstance(Matcher::class);
         $resourceSelectableMatcher->addMatcher(GeneralUtility::makeInstance(ResourceFileTypeMatcher::class));
@@ -426,8 +435,8 @@ class FileListController implements LoggerAwareInterface
                 'deleteActionConfiguration',
                 GeneralUtility::jsonEncodeForHtmlAttribute([
                     'ok' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.delete'),
-                    'title' => $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:clip_deleteMarked'),
-                    'content' => $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:clip_deleteMarkedWarning'),
+                    'title' => $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:deleteMarked'),
+                    'content' => $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:deleteMarkedWarning'),
                 ]),
             );
 
@@ -537,14 +546,14 @@ class FileListController implements LoggerAwareInterface
                 ->setTag('typo3-backend-column-selector-button')
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.selectColumns'))
                 ->setAttributes([
-                    'data-url' => $this->uriBuilder->buildUriFromRoute(
+                    'data-url' => (string)$this->uriBuilder->buildUriFromRoute(
                         'ajax_show_columns_selector',
-                        ['id' => $this->id, 'table' => '_FILE']
+                        ['table' => '_FILE']
                     ),
-                    'data-target' => $this->filelist->createModuleUri(),
+                    'data-target' => (string)$this->filelist->createModuleUri(),
                     'data-title' => sprintf(
                         $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:showColumnsSelection'),
-                        $lang->sL($GLOBALS['TCA']['sys_file']['ctrl']['title'] ?? ''),
+                        $this->tcaSchemaFactory->get('sys_file')->getTitle($lang->sL(...)),
                     ),
                     'data-button-ok' => $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:updateColumnView'),
                     'data-button-close' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel'),
@@ -552,13 +561,53 @@ class FileListController implements LoggerAwareInterface
                 ])
                 ->setIcon($this->iconFactory->getIcon('actions-options'));
         }
+
+        $sortingButton = $buttonBar->makeDropDownButton()
+            ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting'))
+            ->setIcon($this->iconFactory->getIcon($this->filelist->sortDirection->getIconIdentifier()))
+            ->setShowLabelText(true);
+
+        $sortingModeButtons = [];
+        $sortableFields = $this->filelist->getSortableFields();
+        if (count($sortableFields) > 1) {
+            foreach ($sortableFields as $field) {
+                $label = $this->filelist->getFieldLabel($field);
+
+                $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+                    ->setActive($this->filelist->sortField === $field)
+                    ->setHref($this->filelist->createModuleUri([
+                        'sortField' => $field,
+                        'currentPage' => 0,
+                        'sortDirection' => (int)($this->filelist->sortDirection === SortDirection::DESCENDING),
+                    ]))
+                    ->setLabel($label);
+            }
+
+            $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownDivider::class);
+        }
+        $defaultSortingDirectionParams = ['sortField' => $this->filelist->sortField, 'currentPage' => 0];
+        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+            ->setActive($this->filelist->sortDirection === SortDirection::ASCENDING)
+            ->setHref($this->filelist->createModuleUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::ASCENDING->value])))
+            ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.asc'));
+        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+            ->setActive($this->filelist->sortDirection === SortDirection::DESCENDING)
+            ->setHref($this->filelist->createModuleUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::DESCENDING->value])))
+            ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.desc'));
+
+        foreach ($sortingModeButtons as $sortingModeButton) {
+            $sortingButton->addItem($sortingModeButton);
+        }
+
+        $buttonBar->addButton($sortingButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+
         $viewModeButton = $buttonBar->makeDropDownButton()
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
             ->setShowLabelText(true);
         foreach ($viewModeItems as $viewModeItem) {
             $viewModeButton->addItem($viewModeItem);
         }
-        $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+        $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 3);
 
         // Level up
         try {
@@ -566,7 +615,6 @@ class FileListController implements LoggerAwareInterface
             $parentFolder = $this->folderObject->getParentFolder();
             if ($currentStorage->isWithinFileMountBoundaries($parentFolder)
                 && $parentFolder->getIdentifier() !== $this->folderObject->getIdentifier()
-                && $parentFolder instanceof Folder
             ) {
                 $levelUpButton = $buttonBar->makeLinkButton()
                     ->setDataAttributes([
@@ -652,8 +700,7 @@ class FileListController implements LoggerAwareInterface
             $elFromTable = $this->filelist->clipObj->elFromTable('_FILE');
             if (!empty($elFromTable)) {
                 $addPasteButton = true;
-                $elToConfirm = [];
-                foreach ($elFromTable as $key => $element) {
+                foreach ($elFromTable as $element) {
                     $clipBoardElement = $this->resourceFactory->retrieveFileOrFolderObject($element);
                     if ($clipBoardElement instanceof Folder && $clipBoardElement->getStorage()->isWithinFolder(
                         $clipBoardElement,
@@ -662,11 +709,10 @@ class FileListController implements LoggerAwareInterface
                     ) {
                         $addPasteButton = false;
                     }
-                    $elToConfirm[$key] = $clipBoardElement->getName();
                 }
                 if ($addPasteButton) {
                     $confirmText = $this->filelist->clipObj
-                        ->confirmMsgText('_FILE', $this->folderObject->getReadablePath(), 'into', $elToConfirm);
+                        ->confirmMsgText('_FILE', $this->folderObject->getReadablePath(), 'into');
                     $pastButtonTitle = $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:clip_paste');
                     $pasteButton = $buttonBar->makeLinkButton()
                         ->setHref($this->filelist->clipObj

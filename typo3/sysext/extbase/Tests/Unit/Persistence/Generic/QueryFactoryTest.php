@@ -19,7 +19,6 @@ namespace TYPO3\CMS\Extbase\Tests\Unit\Persistence\Generic;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use Psr\Container\ContainerInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
@@ -33,49 +32,33 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class QueryFactoryTest extends UnitTestCase
 {
-    private string $className = 'Vendor\\Ext\\Domain\\Model\\ClubMate';
-
     public static function getStaticAndRootLevelAndExpectedResult(): array
     {
         return [
-            'Respect storage page is set when entity is neither marked as static nor as rootLevel.' => [false, false, true],
-            'Respect storage page is set when entity is marked as static and rootLevel.' => [true, true, false],
-            'Respect storage page is set when entity is marked as static but not rootLevel.' => [true, false, false],
-            'Respect storage page is set when entity is not marked as static but as rootLevel.' => [false, true, false],
+            'Respect storage page is set when entity is not marked with rootLevel.' => [false, true],
+            'Respect storage page is set when entity is marked with rootLevel.' => [true, false],
         ];
     }
 
     #[DataProvider('getStaticAndRootLevelAndExpectedResult')]
     #[Test]
-    public function createDoesNotRespectStoragePageIfStaticOrRootLevelIsTrue(bool $static, bool $rootLevel, bool $expectedResult): void
+    public function createDoesNotRespectStoragePageIfStaticOrRootLevelIsTrue(bool $rootLevel, bool $expectedResult): void
     {
-        $container = $this->createMock(ContainerInterface::class);
-        $dataMap = $this->getMockBuilder(DataMap::class)
-            ->onlyMethods(['getIsStatic', 'getRootLevel'])
-            ->setConstructorArgs(['Vendor\\Ext\\Domain\\Model\\ClubMate', 'tx_ext_domain_model_clubmate'])
-            ->getMock();
+        $className = \TYPO3\CMS\Extbase\Domain\Model\Category::class;
+        $dataMap = new DataMap(
+            className: $className,
+            tableName: 'sys_category',
+            rootLevel: $rootLevel,
+        );
         $dataMapFactoryMock = $this->createMock(DataMapFactory::class);
         $dataMapFactoryMock->method('buildDataMap')->willReturn($dataMap);
-        $queryFactory = new QueryFactory(
-            $this->createMock(ConfigurationManagerInterface::class),
-            $dataMapFactoryMock,
-            $container
-        );
-        $dataMap->method('getIsStatic')->willReturn($static);
-        $dataMap->method('getRootLevel')->willReturn($rootLevel);
+        $subject = new QueryFactory($this->createMock(ConfigurationManagerInterface::class), $dataMapFactoryMock);
         $query = $this->createMock(QueryInterface::class);
-        $querySettings = new Typo3QuerySettings(
-            new Context(),
-            $this->createMock(ConfigurationManagerInterface::class)
-        );
+        $querySettings = new Typo3QuerySettings(new Context(), $this->createMock(ConfigurationManagerInterface::class));
         GeneralUtility::addInstance(QuerySettingsInterface::class, $querySettings);
-        $container->method('has')->willReturn(true);
-        $container->expects(self::once())->method('get')->with(QueryInterface::class)->willReturn($query);
-        $query->expects(self::once())->method('setQuerySettings')->with($querySettings);
-        $queryFactory->create($this->className);
-        self::assertSame(
-            $expectedResult,
-            $querySettings->getRespectStoragePage()
-        );
+        GeneralUtility::addInstance(QueryInterface::class, $query);
+        $query->expects($this->once())->method('setQuerySettings')->with($querySettings);
+        $subject->create($className);
+        self::assertSame($expectedResult, $querySettings->getRespectStoragePage());
     }
 }

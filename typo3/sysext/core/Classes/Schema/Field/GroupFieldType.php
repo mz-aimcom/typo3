@@ -19,10 +19,7 @@ namespace TYPO3\CMS\Core\Schema\Field;
 
 use TYPO3\CMS\Core\Schema\RelationshipType;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class GroupFieldType extends AbstractFieldType implements FieldTypeInterface, RelationalFieldTypeInterface
+final readonly class GroupFieldType extends AbstractFieldType implements RelationalFieldTypeInterface
 {
     public function __construct(
         protected string $name,
@@ -35,6 +32,11 @@ final readonly class GroupFieldType extends AbstractFieldType implements FieldTy
         return 'group';
     }
 
+    public function isNullable(): false
+    {
+        return false;
+    }
+
     public function getRelations(): array
     {
         return $this->relations;
@@ -45,8 +47,13 @@ final readonly class GroupFieldType extends AbstractFieldType implements FieldTy
         return RelationshipType::fromTcaConfiguration($this->configuration);
     }
 
-    public static function __set_state(array $state): self
+    public function isSearchable(): false
     {
-        return new self(...$state);
+        return false;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

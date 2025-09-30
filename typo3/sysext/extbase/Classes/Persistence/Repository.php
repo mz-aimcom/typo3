@@ -15,10 +15,14 @@
 
 namespace TYPO3\CMS\Extbase\Persistence;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Cache\CacheTag;
+use TYPO3\CMS\Core\Cache\Event\AddCacheTagEvent;
+use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\ClassNamingUtility;
 use TYPO3\CMS\Extbase\Persistence\Exception\IllegalObjectTypeException;
-use TYPO3\CMS\Extbase\Persistence\Generic\Exception\UnsupportedMethodException;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SelectorInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\QuerySettingsInterface;
 
 /**
@@ -28,10 +32,9 @@ use TYPO3\CMS\Extbase\Persistence\Generic\QuerySettingsInterface;
  */
 class Repository implements RepositoryInterface, SingletonInterface
 {
-    /**
-     * @var PersistenceManagerInterface
-     */
-    protected $persistenceManager;
+    protected PersistenceManagerInterface $persistenceManager;
+    protected EventDispatcherInterface $eventDispatcher;
+    protected bool $autoTagging;
 
     /**
      * @var string
@@ -55,6 +58,16 @@ class Repository implements RepositoryInterface, SingletonInterface
     public function injectPersistenceManager(PersistenceManagerInterface $persistenceManager)
     {
         $this->persistenceManager = $persistenceManager;
+    }
+
+    public function injectEventDispatcher(EventDispatcherInterface $eventDispatcher): void
+    {
+        $this->eventDispatcher = $eventDispatcher;
+    }
+
+    public function injectFeatures(Features $features): void
+    {
+        $this->autoTagging = $features->isFeatureEnabled('frontend.cache.autoTagging');
     }
 
     /**
@@ -119,7 +132,9 @@ class Repository implements RepositoryInterface, SingletonInterface
      */
     public function findAll()
     {
-        return $this->createQuery()->execute();
+        $query = $this->createQuery();
+        $this->addTableToCacheTags($query);
+        return $query->execute();
     }
 
     /**
@@ -129,7 +144,9 @@ class Repository implements RepositoryInterface, SingletonInterface
      */
     public function countAll()
     {
-        return $this->createQuery()->execute()->count();
+        $query = $this->createQuery();
+        $this->addTableToCacheTags($query);
+        return $query->execute()->count();
     }
 
     /**
@@ -217,55 +234,6 @@ class Repository implements RepositoryInterface, SingletonInterface
     }
 
     /**
-     * Dispatches magic methods (findBy[Property]())
-     *
-     * @param non-empty-string $methodName The name of the magic method
-     * @param array<int, mixed> $arguments The arguments of the magic method
-     * @throws UnsupportedMethodException
-     * @return mixed
-     * @deprecated since v12, will be removed in v14, use {@see self::findBy()}, {@see self::findOneBy()} and {@see self::count()} instead
-     */
-    public function __call($methodName, $arguments)
-    {
-        if (str_starts_with($methodName, 'findBy') && strlen($methodName) > 7) {
-            trigger_error(
-                'Usage of magic method ' . static::class . '->findBy[Property]() is deprecated and will be removed in TYPO3 v14.0, use method findBy() instead.',
-                E_USER_DEPRECATED
-            );
-            $propertyName = lcfirst(substr($methodName, 6));
-            $query = $this->createQuery();
-            $result = $query->matching($query->equals($propertyName, $arguments[0]))->execute();
-            return $result;
-        }
-        if (str_starts_with($methodName, 'findOneBy') && strlen($methodName) > 10) {
-            trigger_error(
-                'Usage of magic method ' . static::class . '->findOneBy[Property]() is deprecated and will be removed in TYPO3 v14.0, use method findOneBy() instead.',
-                E_USER_DEPRECATED
-            );
-            $propertyName = lcfirst(substr($methodName, 9));
-            $query = $this->createQuery();
-
-            $result = $query->matching($query->equals($propertyName, $arguments[0]))->setLimit(1)->execute();
-            if ($result instanceof QueryResultInterface) {
-                return $result->getFirst();
-            }
-            if (is_array($result)) {
-                return $result[0] ?? null;
-            }
-        } elseif (str_starts_with($methodName, 'countBy') && strlen($methodName) > 8) {
-            trigger_error(
-                'Usage of magic method ' . static::class . '->countBy[Property]() is deprecated and will be removed in TYPO3 v14.0, use method count() instead.',
-                E_USER_DEPRECATED
-            );
-            $propertyName = lcfirst(substr($methodName, 7));
-            $query = $this->createQuery();
-            $result = $query->matching($query->equals($propertyName, $arguments[0]))->execute()->count();
-            return $result;
-        }
-        throw new UnsupportedMethodException('The method "' . $methodName . '" is not supported by the repository.', 1233180480);
-    }
-
-    /**
      * @phpstan-param array<non-empty-string, mixed> $criteria
      * @phpstan-param array<non-empty-string, QueryInterface::ORDER_*>|null $orderBy
      * @phpstan-param 0|positive-int|null $limit
@@ -278,6 +246,9 @@ class Repository implements RepositoryInterface, SingletonInterface
         $query = $this->createQuery();
         $constraints = [];
         foreach ($criteria as $propertyName => $propertyValue) {
+            if (!is_string($propertyName)) {
+                throw new \RuntimeException('Repository::findBy() expects an array with string keys as first argument', 1741806517);
+            }
             $constraints[] = $query->equals($propertyName, $propertyValue);
         }
 
@@ -299,6 +270,7 @@ class Repository implements RepositoryInterface, SingletonInterface
             $query->setOffset($offset);
         }
 
+        $this->addStorageCacheTags($query);
         return $query->execute();
     }
 
@@ -329,5 +301,46 @@ class Repository implements RepositoryInterface, SingletonInterface
     protected function getRepositoryClassName()
     {
         return static::class;
+    }
+
+    /**
+     * Add the tablename to the cache tags, depending on the storage page settings.
+     */
+    protected function addTableToCacheTags(QueryInterface $query): void
+    {
+        if (!$this->autoTagging) {
+            return;
+        }
+        $storagePageIds = $query->getQuerySettings()->getStoragePageIds();
+        if (empty($storagePageIds) || $query->getQuerySettings()->getRespectStoragePage() === false) {
+            $source = $query->getSource();
+            if ($source instanceof SelectorInterface) {
+                $this->eventDispatcher->dispatch(
+                    new AddCacheTagEvent(new CacheTag($source->getSelectorName()))
+                );
+            }
+        } else {
+            $this->addStorageCacheTags($query);
+        }
+    }
+
+    /**
+     * Add the combination of tablename and storage pid as cache tag.
+     */
+    protected function addStorageCacheTags(QueryInterface $query): void
+    {
+        if (!$this->autoTagging) {
+            return;
+        }
+        $source = $query->getSource();
+        if ($source instanceof SelectorInterface) {
+            $tableName = $source->getSelectorName();
+            $storagePageIds = $query->getQuerySettings()->getStoragePageIds();
+            foreach ($storagePageIds as $storagePageId) {
+                $this->eventDispatcher->dispatch(
+                    new AddCacheTagEvent(new CacheTag(sprintf('%s_pid_%s', $tableName, $storagePageId)))
+                );
+            }
+        }
     }
 }

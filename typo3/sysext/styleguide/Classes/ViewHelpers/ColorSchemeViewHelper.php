@@ -23,12 +23,11 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
- * ViewHelper for rendering color schemes
+ * ViewHelper for rendering color schemes.
  *
- * Examples
- * ========
- *
+ * ```
  *    <sg:colorScheme>your code</sg:colorScheme>
+ * ```
  *
  * @internal
  */
@@ -44,20 +43,22 @@ final class ColorSchemeViewHelper extends AbstractViewHelper
      */
     protected $escapeChildren = false;
 
-    protected PageRenderer $pageRenderer;
-
-    public function injectPageRenderer(PageRenderer $pageRenderer): void
-    {
-        $this->pageRenderer = $pageRenderer;
-    }
+    public function __construct(
+        private readonly PageRenderer $pageRenderer,
+    ) {}
 
     public function render(): string
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/styleguide/element/theme-switcher-element.js');
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:styleguide/Resources/Private/Language/locallang.xlf', 'colorScheme.');
+        $this->pageRenderer->addInlineLanguageLabelArray([
+            'colorScheme.selector.label' => $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:colorScheme.selector.label'),
+            'colorScheme.auto' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang.xlf:colorScheme.auto'),
+            'colorScheme.light' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang.xlf:colorScheme.light'),
+            'colorScheme.dark' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang.xlf:colorScheme.dark'),
+        ]);
 
         $content = $this->renderChildren();
-        $defaultScheme = 'light';
+        $defaultScheme = $GLOBALS['BE_USER']->uc['colorScheme'] ?? 'auto';
         $id = StringUtility::getUniqueId('styleguide-example-');
 
         $markup = [];
@@ -71,7 +72,7 @@ final class ColorSchemeViewHelper extends AbstractViewHelper
         return implode('', $markup);
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

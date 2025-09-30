@@ -560,56 +560,73 @@ return [
     'TYPO3\CMS\Core\Imaging\Icon::SIZE_DEFAULT' => [
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\Icon::SIZE_SMALL' => [
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\Icon::SIZE_MEDIUM' => [
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\Icon::SIZE_LARGE' => [
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\Icon::SIZE_MEGA' => [
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_UNKNOWN' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_TEXT' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_IMAGE' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_AUDIO' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_VIDEO' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Resource\AbstractFile::FILETYPE_APPLICATION' => [
         'restFiles' => [
             'Deprecation-102032-AbstractFileConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Extbase\Utility\ExtensionUtility::PLUGIN_TYPE_PLUGIN' => [
+        'restFiles' => [
+            'Deprecation-105076-PluginContentElementAndPluginSubTypes.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
 ];

@@ -85,7 +85,7 @@ class SwitchUserController
         $currentUser->writeUC();
 
         // Write user switch to log
-        $currentUser->writelog(Type::LOGIN, 2, 0, 1, 'User %s switched to user %s (be_users:%s)', [
+        $currentUser->writelog(Type::LOGIN, 2, 0, null, 'User %s switched to user %s (be_users:%s)', [
             $currentUser->getUserName() ?? '',
             $targetUser['username'] ?? '',
             $targetUserId,
@@ -108,7 +108,7 @@ class SwitchUserController
 
         return $this->jsonResponse([
             'success' => true,
-            'url' => $this->uriBuilder->buildUriFromRoute('main'),
+            'url' => (string)$this->uriBuilder->buildUriFromRoute('main'),
         ]);
     }
 
@@ -134,7 +134,7 @@ class SwitchUserController
 
         return $this->jsonResponse([
             'success' => true,
-            'url' => $this->uriBuilder->buildUriFromRoute('main'),
+            'url' => (string)$this->uriBuilder->buildUriFromRoute('main'),
         ]);
     }
 

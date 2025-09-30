@@ -43,14 +43,6 @@ class DrawingConfiguration
     protected bool $allowInconsistentLanguageHandling;
 
     /**
-     * Determines whether rendering should happen with a visually aligned
-     * connection between default language and translation. When rendered
-     * with this flag enabled, any translated versions are vertically
-     * aligned so they are rendered in the same visual row as the original.
-     */
-    protected bool $defaultLanguageBinding;
-
-    /**
      * Key => "Language ID", Value "Label of language"
      */
     protected array $languageColumns = [];
@@ -85,7 +77,6 @@ class DrawingConfiguration
     {
         $obj = new self();
         $obj->pageViewMode = $pageViewMode;
-        $obj->defaultLanguageBinding = !empty($pageTsConfig['mod.']['web_layout.']['defLangBinding']);
         $obj->allowInconsistentLanguageHandling = (bool)($pageTsConfig['mod.']['web_layout.']['allowInconsistentLanguageHandling'] ?? false);
         $obj->shouldHideRestrictedColumns = (bool)($pageTsConfig['mod.']['web_layout.']['hideRestrictedCols'] ?? false);
         $availableColumnPositionsFromBackendLayout = array_unique($backendLayout->getColumnPositionNumbers());
@@ -96,8 +87,8 @@ class DrawingConfiguration
         } else {
             $obj->activeColumns = $availableColumnPositionsFromBackendLayout;
         }
-        $obj->allowTranslateModeForTranslations = $pageTsConfig['mod.']['web_layout.']['localization.']['enableTranslate'] ?? true;
-        $obj->allowCopyModeForTranslations = $pageTsConfig['mod.']['web_layout.']['localization.']['enableCopy'] ?? true;
+        $obj->allowTranslateModeForTranslations = (bool)($pageTsConfig['mod.']['web_layout.']['localization.']['enableTranslate'] ?? true);
+        $obj->allowCopyModeForTranslations = (bool)($pageTsConfig['mod.']['web_layout.']['localization.']['enableCopy'] ?? true);
 
         return $obj;
     }
@@ -115,11 +106,6 @@ class DrawingConfiguration
     public function getAllowInconsistentLanguageHandling(): bool
     {
         return $this->allowInconsistentLanguageHandling;
-    }
-
-    public function getDefaultLanguageBinding(): bool
-    {
-        return $this->defaultLanguageBinding;
     }
 
     public function isLanguageComparisonMode(): bool

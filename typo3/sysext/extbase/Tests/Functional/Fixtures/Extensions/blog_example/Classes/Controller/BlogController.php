@@ -21,10 +21,8 @@ use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Extbase\Annotation\IgnoreValidation;
 use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
-use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapFactory;
-use TYPO3\CMS\Extbase\Property\Exception;
 use TYPO3\CMS\Extbase\Reflection\ObjectAccess;
 use TYPO3Tests\BlogExample\Domain\Model\Blog;
 use TYPO3Tests\BlogExample\Domain\Model\Post;
@@ -55,6 +53,11 @@ class BlogController extends ActionController
         return $this->htmlResponse($blog ? $blog->getTitle() : '');
     }
 
+    public function testSingleAction(Blog $blog): ResponseInterface
+    {
+        return $this->htmlResponse($blog->getTitle());
+    }
+
     public function testFormAction(): ResponseInterface
     {
         return $this->htmlResponse('testFormAction');
@@ -80,21 +83,6 @@ class BlogController extends ActionController
     }
 
     /**
-     * @throws \RuntimeException
-     */
-    public function processRequest(RequestInterface $request): ResponseInterface
-    {
-        try {
-            return parent::processRequest($request);
-        } catch (Exception $exception) {
-            throw new \RuntimeException(
-                $this->getRuntimeIdentifier() . ': ' . $exception->getMessage() . ' (' . $exception->getCode() . ')',
-                1476122222
-            );
-        }
-    }
-
-    /**
      * Disable the default error flash message, otherwise we get an error because the flash message
      * session handling is not available during functional tests.
      */
@@ -116,15 +104,14 @@ class BlogController extends ActionController
 
         foreach ($iterator as $entity) {
             $dataMap = $this->dataMapFactory->buildDataMap(get_class($entity));
-            $tableName = $dataMap->getTableName();
-            $identifier = $tableName . ':' . $entity->getUid();
+            $identifier = $dataMap->tableName . ':' . $entity->getUid();
             $properties = ObjectAccess::getGettableProperties($entity);
 
             $structureItem = [];
             foreach ($properties as $propertyName => $propertyValue) {
                 $columnMap = $dataMap->getColumnMap($propertyName);
                 if ($columnMap !== null) {
-                    $propertyName = $columnMap->getColumnName();
+                    $propertyName = $columnMap->columnName;
                 }
                 if ($propertyValue instanceof \Iterator) {
                     $structureItem[$propertyName] = $this->getStructure($propertyValue);

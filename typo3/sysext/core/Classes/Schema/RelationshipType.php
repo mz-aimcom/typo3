@@ -17,9 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
 enum RelationshipType: string
 {
     // A direct relation, e.g. sys_file.metadata => sys_file_metadata
@@ -72,9 +69,14 @@ enum RelationshipType: string
         return self::Undefined;
     }
 
-    public function isToOne(): bool
+    public function hasOne(): bool
     {
         return in_array($this, [self::OneToOne, self::ManyToOne], true);
+    }
+
+    public function hasMany(): bool
+    {
+        return in_array($this, [self::ManyToMany, self::OneToMany, self::List], true);
     }
 
     public function isSingularRelationship(): bool

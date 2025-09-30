@@ -12,7 +12,8 @@ Description
 ===========
 
 Instead of having to use custom route aspect mappers, implementing
-:php:`StaticMappableAspectInterface`, to avoid having `&cHash=` signatures
+:php:`\TYPO3\CMS\Core\Routing\Aspect\StaticMappableAspectInterface`,
+to avoid having `&cHash=` signatures
 being applied to the generated URL, variables now can be simply declared
 `static` in the corresponding route enhancer configuration.
 
@@ -23,7 +24,7 @@ By using the new `static` route configuration directive, custom aspect
 mapper implementations can be avoided. However, static route variables
 are only applied for a particular variable name if
 
- * there is not other aspect mapper configured - aspect mappers are
+ * there is no aspect mapper configured - aspect mappers are
    considered more specific and will take precedence
  * there is a companion `requirements` definition which narrows the
    set of possible values, and should be as restrictive as possible

@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, TemplateResult, LitElement } from 'lit';
+import { html, css, type TemplateResult, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import Severity from '@typo3/backend/severity';
@@ -33,7 +33,7 @@ enum Selectors {
  */
 @customElement('typo3-recordlist-record-download-button')
 export class RecordDownloadButton extends LitElement {
-  static styles = [css`:host { cursor: pointer; appearance: button; }`];
+  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
   @property({ type: String }) url: string;
   @property({ type: String }) subject: string;
   @property({ type: String }) ok: string;
@@ -53,7 +53,7 @@ export class RecordDownloadButton extends LitElement {
     });
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     if (!this.hasAttribute('role')) {
       this.setAttribute('role', 'button');
     }
@@ -62,7 +62,7 @@ export class RecordDownloadButton extends LitElement {
     }
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<slot></slot>`;
   }
 

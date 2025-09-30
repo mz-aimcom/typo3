@@ -24,6 +24,7 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Context\Context;
@@ -32,6 +33,7 @@ use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScriptFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
+use TYPO3\CMS\Frontend\Cache\MetaDataState;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Frontend\Event\AfterTypoScriptDeterminedEvent;
 use TYPO3\CMS\Frontend\Event\BeforePageCacheIdentifierIsHashedEvent;
@@ -124,11 +126,20 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
             $controller->config['pageTitleCache'] = $pageCacheRow['pageTitleCache'];
             $controller->content = $pageCacheRow['content'];
             $controller->setContentType($pageCacheRow['contentType']);
-            $controller->cacheExpires = $pageCacheRow['expires'];
-            $controller->pageCacheTags = $pageCacheRow['cacheTags'];
             $controller->cacheGenerated = $pageCacheRow['tstamp'];
             $controller->pageContentWasLoadedFromCache = true;
             $pageContentWasLoadedFromCache = true;
+
+            // Restore the current tags and add them to the CacheTageCollector
+            $cacheDataCollector = $request->getAttribute('frontend.cache.collector');
+            $lifetime = $pageCacheRow['expires'] - $GLOBALS['EXEC_TIME'];
+            $cacheTags = array_map(fn(string $cacheTag) => new CacheTag($cacheTag, $lifetime), $pageCacheRow['cacheTags'] ?? []);
+            $cacheDataCollector->addCacheTags(...$cacheTags);
+
+            // Restore meta-data state
+            if (is_array($pageCacheRow['metaDataState'] ?? null)) {
+                GeneralUtility::makeInstance(MetaDataState::class)->updateState($pageCacheRow['metaDataState']);
+            }
         }
 
         try {
@@ -158,7 +169,7 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
                 $dateFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'];
                 $timeFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'];
                 $controller->debugInformationHeader = 'Cached page generated ' . date($dateFormat . ' ' . $timeFormat, $controller->cacheGenerated)
-                    . '. Expires ' . date($dateFormat . ' ' . $timeFormat, $controller->cacheExpires);
+                    . '. Expires ' . date($dateFormat . ' ' . $timeFormat, $pageCacheRow['expires']);
             }
             if ($setupConfigAst->getChildByName('no_cache')?->getValue()) {
                 // Disable cache if config.no_cache is set!

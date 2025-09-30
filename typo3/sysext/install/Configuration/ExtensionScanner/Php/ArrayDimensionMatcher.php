@@ -1039,11 +1039,13 @@ return [
     '$GLOBALS[\'TYPO3_CONF_VARS\'][\'BE\'][\'defaultPageTSconfig\']' => [
         'restFiles' => [
             'Deprecation-101799-ExtensionManagementUtilityaddPageTSConfig.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     '$GLOBALS[\'TYPO3_CONF_VARS\'][\'BE\'][\'defaultUserTSconfig\']' => [
         'restFiles' => [
             'Deprecation-101807-ExtensionManagementUtilityaddUserTSConfig.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     '$GLOBALS[\'TCA\'][\'someTable\'][\'types\'][\'bitmask_excludelist_bits\']' => [
@@ -1091,6 +1093,7 @@ return [
             'Breaking-102806-HooksInPageRepositoryRemoved.rst',
             'Deprecation-102806-InterfacesForPageRepositoryHooks.rst',
             'Feature-102806-BeforePageIsRetrievedEventInPageRepository.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\TYPO3\CMS\Core\Domain\PageRepository::class][\'init\']' => [
@@ -1098,6 +1101,7 @@ return [
             'Breaking-102806-HooksInPageRepositoryRemoved.rst',
             'Deprecation-102806-InterfacesForPageRepositoryHooks.rst',
             'Feature-102806-BeforePageIsRetrievedEventInPageRepository.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'tslib/class.tslib_content_content.php\'][\'modifyDBRow\']' => [
@@ -1193,12 +1197,95 @@ return [
         'restFiles' => [
             'Deprecation-102337-DeprecateHooksForRecordDownload.rst',
             'Feature-102337-IntroducePSR14EventModifyRecordListDownloadData.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'TYPO3\CMS\Recordlist\RecordList\DatabaseRecordList\'][\'customizeCsvRow\']' => [
         'restFiles' => [
             'Deprecation-102337-DeprecateHooksForRecordDownload.rst',
             'Feature-102337-IntroducePSR14EventModifyRecordListDownloadData.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeFormCreate\']' => [
+        'restFiles' => [
+            'Breaking-107343-RemovedBeforeFormCreateHook.rst',
+            'Feature-107343-IntroducePSR14BeforeFormIsCreatedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeFormSave\']' => [
+        'restFiles' => [
+            'Breaking-107388-RemovedBeforeFormSaveHook.rst',
+            'Feature-107388-IntroducePSR14BeforeFormIsSavedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeFormDelete\']' => [
+        'restFiles' => [
+            'Breaking-107382-RemovedBeforeFormDeleteHook.rst',
+            'Feature-107382-IntroducePSR14BeforeFormIsDeletedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeFormDuplicate\']' => [
+        'restFiles' => [
+            'Breaking-107380-RemovedBeforeFormDuplicateHook.rst',
+            'Feature-107380-IntroducePSR14BeforeFormIsDuplicatedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'lang\'][\'parser\']' => [
+        'restFiles' => [
+            'Breaking-107436-LocalizationSystemChanges.rst',
+            'Deprecation-107436-LocalizationParsers.rst',
+            'Feature-107436-SymfonyTranslationIntegration.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'lang\'][\'requireApprovedLocalizations\']' => [
+        'restFiles' => [
+            'Breaking-107436-LocalizationSystemChanges.rst',
+            'Deprecation-107436-LocalizationParsers.rst',
+            'Feature-107436-SymfonyTranslationIntegration.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'lang\'][\'format\']' => [
+        'restFiles' => [
+            'Breaking-107436-LocalizationSystemChanges.rst',
+            'Deprecation-107436-LocalizationParsers.rst',
+            'Feature-107436-SymfonyTranslationIntegration.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'locallangXMLOverride\']' => [
+        'restFiles' => [
+            'Breaking-107436-LocalizationSystemChanges.rst',
+            'Deprecation-107436-LocalizationParsers.rst',
+            'Feature-107436-SymfonyTranslationIntegration.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'EXTCONF\'][\'lang\'][\'availableLanguages\']' => [
+        'restFiles' => [
+            'Breaking-107436-LocalizationSystemChanges.rst',
+            'Deprecation-107436-LocalizationParsers.rst',
+            'Feature-107436-SymfonyTranslationIntegration.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'initializeFormElement\']' => [
+        'restFiles' => [
+            'Breaking-107518-RemovedInitializeFormElementHook.rst',
+            'Feature-107518-IntroducePSR14BeforeRenderableIsAddedToFormEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeRemoveFromParentRenderable\']' => [
+        'restFiles' => [
+            'Breaking-107528-RemovedBeforeRemoveFromParentRenderableHook.rst',
+            'Feature-107528-IntroducePSR14BeforeRenderableIsRemovedFromFormEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'scheduler\'][\'tasks\'][\'TYPO3\CMS\Scheduler\Task\TableGarbageCollectionTask\'][\'options\'][\'tables\']' => [
+        'restFiles' => [
+            'Deprecation-107550-TableGarbageCollectionTaskConfigurationViaGlobals.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'scheduler\'][\'tasks\'][\'TYPO3\CMS\Scheduler\Task\IpAnonymizationTask\'][\'options\'][\'tables\']' => [
+        'restFiles' => [
+            'Deprecation-107562-IpAnonymizationTaskConfigurationViaGlobals.rst',
         ],
     ],
 ];

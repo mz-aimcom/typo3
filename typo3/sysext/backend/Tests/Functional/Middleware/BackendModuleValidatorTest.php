@@ -33,6 +33,7 @@ use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -46,7 +47,7 @@ final class BackendModuleValidatorTest extends FunctionalTestCase
     {
         parent::setUp();
 
-        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users_core.csv');
         $backendUser = $this->setUpBackendUser(1);
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($backendUser);
 
@@ -54,6 +55,7 @@ final class BackendModuleValidatorTest extends FunctionalTestCase
             $this->get(UriBuilder::class),
             $this->get(ModuleProvider::class),
             $this->get(FlashMessageService::class),
+            $this->get(TcaSchemaFactory::class),
         );
         $this->request = new ServerRequest('/some/uri');
         $this->requestHandler = new class () implements RequestHandlerInterface {
@@ -68,6 +70,36 @@ final class BackendModuleValidatorTest extends FunctionalTestCase
                     ->withHeader('X-ModuleData-reverse', (string)($request->getAttribute('moduleData')?->get('reverse') ?? '0'));
             }
         };
+    }
+
+    #[Test]
+    public function processReturnsForbiddenResponseIfModuleInheritanceAccessCheckFails(): void
+    {
+        $this->setUpBackendUser(2);
+
+        $GLOBALS['TYPO3_REQUEST'] = $request = $this->request->withAttribute(
+            'route',
+            new Route('/some/route', ['inheritAccessFromModule' => 'web_layout']),
+        );
+
+        $response = $this->subject->process($request, $this->requestHandler);
+
+        self::assertSame(403, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function processReturnsOkResponseIfModuleInheritanceAccessCheckIsSuccessful(): void
+    {
+        $this->setUpBackendUser(3);
+
+        $GLOBALS['TYPO3_REQUEST'] = $request = $this->request->withAttribute(
+            'route',
+            new Route('/some/route', ['inheritAccessFromModule' => 'web_layout']),
+        );
+
+        $response = $this->subject->process($request, $this->requestHandler);
+
+        self::assertSame(200, $response->getStatusCode());
     }
 
     #[Test]

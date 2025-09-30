@@ -21,11 +21,13 @@ use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Log\LogManager;
+use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
 use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
-use TYPO3\CMS\Core\Resource\File as File;
+use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileReference as CoreFileReference;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Resource\ResourceInstructionTrait;
 use TYPO3\CMS\Core\Resource\Security\FileNameValidator;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
@@ -46,6 +48,8 @@ use TYPO3\CMS\Form\Slot\ResourcePublicationSlot;
  */
 class UploadedFileReferenceConverter extends AbstractTypeConverter
 {
+    use ResourceInstructionTrait;
+
     /**
      * Folder where the file upload should go to (including storage).
      */
@@ -74,9 +78,9 @@ class UploadedFileReferenceConverter extends AbstractTypeConverter
     /**
      * One of 'cancel', 'replace', 'rename'
      *
-     * @var string
+     * @var DuplicationBehavior
      */
-    protected $defaultConflictMode = 'rename';
+    protected $defaultConflictMode = DuplicationBehavior::RENAME;
 
     /**
      * @var PseudoFileReference[]
@@ -202,7 +206,7 @@ class UploadedFileReferenceConverter extends AbstractTypeConverter
         $seed = $configuration->getConfigurationValue(self::class, self::CONFIGURATION_UPLOAD_SEED)
             ?: GeneralUtility::makeInstance(Random::class)->generateRandomHexString(40);
         $uploadFolderId = $configuration->getConfigurationValue(self::class, self::CONFIGURATION_UPLOAD_FOLDER) ?: $this->defaultUploadFolder;
-        $conflictMode = $configuration->getConfigurationValue(self::class, self::CONFIGURATION_UPLOAD_CONFLICT_MODE) ?: $this->defaultConflictMode;
+        $conflictMode = DuplicationBehavior::tryFrom($configuration->getConfigurationValue(self::class, self::CONFIGURATION_UPLOAD_CONFLICT_MODE)) ?? $this->defaultConflictMode;
         $pseudoFile = GeneralUtility::makeInstance(PseudoFile::class, $uploadInfo);
 
         $validators = $configuration->getConfigurationValue(self::class, self::CONFIGURATION_FILE_VALIDATORS);
@@ -220,8 +224,10 @@ class UploadedFileReferenceConverter extends AbstractTypeConverter
         $uploadFolder = $this->provideUploadFolder($uploadFolderId);
         // current folder name, derived from public random seed (`formSession`)
         $currentName = 'form_' . $this->hashService->hmac($seed, self::class);
-        $uploadFolder = $this->provideTargetFolder($uploadFolder, $currentName);
         // sub-folder in $uploadFolder with 160 bit of derived entropy (.../form_<40-chars-hash>/actual.file)
+        $uploadFolder = $this->provideTargetFolder($uploadFolder, $currentName);
+        // allow skipping the consistency check, since custom validators have already been executed
+        $this->skipResourceConsistencyCheckForUploads($uploadFolder->getStorage(), $uploadInfo);
         /** @var File $uploadedFile */
         $uploadedFile = $uploadFolder->addUploadedFile($uploadInfo, $conflictMode);
 

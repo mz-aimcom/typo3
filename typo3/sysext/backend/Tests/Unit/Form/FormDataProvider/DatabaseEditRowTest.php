@@ -22,9 +22,9 @@ use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Form\Exception\DatabaseRecordException;
 use TYPO3\CMS\Backend\Form\Exception\DatabaseRecordWorkspaceDeletePlaceholderException;
 use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseEditRow;
-use TYPO3\CMS\Core\Database\Connection;
-use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Tests\Unit\Database\Mocks\MockPlatform\MockMySQLPlatform;
+use TYPO3\CMS\Core\Schema\Field\FieldCollection;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -35,7 +35,9 @@ final class DatabaseEditRowTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $tcaSchemaFactoryMock = $this->createMock(TcaSchemaFactory::class);
         $this->subject = $this->getMockBuilder(DatabaseEditRow::class)
+            ->setConstructorArgs([$tcaSchemaFactoryMock])
             ->onlyMethods(['getDatabaseRow'])
             ->getMock();
     }
@@ -43,6 +45,7 @@ final class DatabaseEditRowTest extends UnitTestCase
     #[Test]
     public function addDataRetrievesRecordInformationFromDatabase(): void
     {
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
         $input = [
             'tableName' => 'tt_content',
             'command' => 'edit',
@@ -52,8 +55,7 @@ final class DatabaseEditRowTest extends UnitTestCase
             'uid' => 10,
             'pid' => 123,
         ];
-        $this->subject->expects(self::once())->method('getDatabaseRow')->willReturn($resultRow);
-
+        $this->subject->expects($this->once())->method('getDatabaseRow')->willReturn($resultRow);
         $result = $this->subject->addData($input);
 
         self::assertSame($resultRow, $result['databaseRow']);
@@ -62,6 +64,7 @@ final class DatabaseEditRowTest extends UnitTestCase
     #[Test]
     public function addDataThrowsExceptionIfRetrievedRowHasNoPid(): void
     {
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
         $input = [
             'tableName' => 'tt_content',
             'command' => 'edit',
@@ -70,7 +73,7 @@ final class DatabaseEditRowTest extends UnitTestCase
         $resultRow = [
             'uid' => 10,
         ];
-        $this->subject->expects(self::once())->method('getDatabaseRow')->willReturn($resultRow);
+        $this->subject->expects($this->once())->method('getDatabaseRow')->willReturn($resultRow);
 
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1437663061);
@@ -101,7 +104,7 @@ final class DatabaseEditRowTest extends UnitTestCase
             'command' => 'edit',
             'vanillaUid' => 10,
         ];
-        $this->subject->expects(self::once())->method('getDatabaseRow')->willReturn([]);
+        $this->subject->expects($this->once())->method('getDatabaseRow')->willReturn([]);
 
         $this->expectException(DatabaseRecordException::class);
         $this->expectExceptionCode(1437656081);
@@ -117,7 +120,7 @@ final class DatabaseEditRowTest extends UnitTestCase
             'command' => 'edit',
             'vanillaUid' => 10,
         ];
-        $this->subject->expects(self::once())->method('getDatabaseRow')->willReturn([]);
+        $this->subject->expects($this->once())->method('getDatabaseRow')->willReturn([]);
 
         try {
             $this->subject->addData($input);
@@ -130,16 +133,18 @@ final class DatabaseEditRowTest extends UnitTestCase
     #[Test]
     public function addDataThrowsWorkspaceDeletePlaceholderExceptionWithDeletePlaceholderRecord(): void
     {
-        $connectionMock = $this->getMockBuilder(Connection::class)->disableOriginalConstructor()->getMock();
-        $connectionMock->method('getDatabasePlatform')->willReturn(new MockMySQLPlatform());
-        $connectionPoolMock = $this->getMockBuilder(ConnectionPool::class)->disableOriginalConstructor()->getMock();
-        $connectionPoolMock->method('getConnectionForTable')->willReturn($connectionMock);
-        $connectionPoolMock->method('getConnectionByName')->willReturn($connectionMock);
-        GeneralUtility::addInstance(ConnectionPool::class, $connectionPoolMock);
-
         $this->expectException(DatabaseRecordWorkspaceDeletePlaceholderException::class);
         $this->expectExceptionCode(1608658396);
-        $GLOBALS['TCA']['tt_content']['ctrl']['versioningWS'] = 1;
+        $tcaSchemaFactoryMock = $this->createMock(TcaSchemaFactory::class);
+        $tcaSchemaFactoryMock->method('has')->with('tt_content')->willReturn(true);
+        $tcaSchemaFactoryMock->method('get')->with('tt_content')->willReturn(
+            new TcaSchema('tt_content', new FieldCollection([]), ['versioningWS' => true])
+        );
+        $this->subject = $this->getMockBuilder(DatabaseEditRow::class)
+            ->setConstructorArgs([$tcaSchemaFactoryMock])
+            ->onlyMethods(['getDatabaseRow'])
+            ->getMock();
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
         $input = [
             'tableName' => 'tt_content',
             'command' => 'edit',
@@ -150,7 +155,7 @@ final class DatabaseEditRowTest extends UnitTestCase
             'pid' => 123,
             't3ver_state' => 2,
         ];
-        $this->subject->expects(self::once())->method('getDatabaseRow')->willReturn($resultRow);
+        $this->subject->expects($this->once())->method('getDatabaseRow')->willReturn($resultRow);
         $this->subject->addData($input);
     }
 
@@ -169,7 +174,7 @@ final class DatabaseEditRowTest extends UnitTestCase
             'databaseRow' => $virtualRow,
         ];
         $resultRow = $virtualRow;
-        $this->subject->expects(self::never())->method('getDatabaseRow');
+        $this->subject->expects($this->never())->method('getDatabaseRow');
 
         $result = $this->subject->addData($input);
 

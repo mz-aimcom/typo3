@@ -17,8 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\DataScenarios\CategoryManyToMany;
 
+use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Tests\Functional\DataScenarios\AbstractDataHandlerActionTestCase;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
 {
@@ -34,6 +37,10 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
     protected const VALUE_CategoryIdThird = 30;
     protected const VALUE_CategoryIdFourth = 31;
 
+    protected const VALUE_LanguageId = 1;
+    protected const VALUE_LanguageIdSecond = 2;
+
+    protected const TABLE_Page = 'pages';
     protected const TABLE_Content = 'tt_content';
     protected const TABLE_Category = 'sys_category';
 
@@ -44,6 +51,16 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Show copied pages records in frontend request
+        $GLOBALS['TCA']['pages']['ctrl']['hideAtCopy'] = false;
+        // Show copied tt_content records in frontend request
+        $GLOBALS['TCA']['tt_content']['ctrl']['hideAtCopy'] = false;
+        // Prepend label for localized sys_category records
+        $GLOBALS['TCA']['sys_category']['columns']['title']['l10n_mode'] = 'prefixLangTitle';
+        // Prepend label for copied sys_category records
+        $GLOBALS['TCA']['sys_category']['ctrl']['prependAtCopy'] = 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.prependAtCopy';
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
         $this->importCSVDataSet(static::SCENARIO_DataSet);
         $this->writeSiteConfiguration(
             'test',
@@ -61,9 +78,9 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
     {
         $this->actionService->modifyReferences(
             self::TABLE_Content,
-            self::VALUE_ContentIdLast,
+            self::VALUE_ContentIdFirst,
             self::FIELD_Categories,
-            [self::VALUE_CategoryIdThird]
+            [self::VALUE_CategoryIdFirst, self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdFourth]
         );
     }
 
@@ -73,27 +90,7 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
             self::TABLE_Content,
             self::VALUE_ContentIdLast,
             self::FIELD_Categories,
-            [self::VALUE_CategoryIdThird, self::VALUE_CategoryIdFourth]
-        );
-    }
-
-    public function addCategoryRelationToExisting(): void
-    {
-        $this->actionService->modifyReferences(
-            self::TABLE_Content,
-            self::VALUE_ContentIdFirst,
-            self::FIELD_Categories,
-            [self::VALUE_CategoryIdFirst, self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird]
-        );
-    }
-
-    public function addCategoryRelationsToExisting(): void
-    {
-        $this->actionService->modifyReferences(
-            self::TABLE_Content,
-            self::VALUE_ContentIdFirst,
-            self::FIELD_Categories,
-            [self::VALUE_CategoryIdFirst, self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird, self::VALUE_CategoryIdFourth]
+            [self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird, self::VALUE_CategoryIdFourth, self::VALUE_CategoryIdFirst]
         );
     }
 
@@ -121,7 +118,7 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
             self::TABLE_Content,
             self::VALUE_ContentIdLast,
             self::FIELD_Categories,
-            [$this->recordIds['newCategoryId']]
+            [self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird, $this->recordIds['newCategoryId']]
         );
     }
 
@@ -146,16 +143,6 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         );
     }
 
-    public function addAndDeleteCategoryRelationsOnExisting(): void
-    {
-        $this->actionService->modifyReferences(
-            self::TABLE_Content,
-            self::VALUE_ContentIdFirst,
-            self::FIELD_Categories,
-            [self::VALUE_CategoryIdFirst, self::VALUE_CategoryIdThird]
-        );
-    }
-
     public function modifyReferencingContentElement(): void
     {
         $this->actionService->modifyRecord(
@@ -174,10 +161,26 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         );
     }
 
+    public function modifyBothOfRelation(): void
+    {
+        $this->actionService->modifyRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst, ['title' => 'Testing #1']);
+        $this->actionService->modifyRecord(self::TABLE_Content, self::VALUE_ContentIdFirst, ['header' => 'Testing #1']);
+    }
+
     public function moveContentAndCategoryRelationToDifferentPage(): void
     {
         $this->actionService->moveRecord(self::TABLE_Content, self::VALUE_ContentIdFirst, self::VALUE_TargetPageId);
         $this->actionService->moveRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst, self::VALUE_TargetPageId);
+    }
+
+    public function changeCategoryRelationSorting(): void
+    {
+        $this->actionService->modifyReferences(
+            self::TABLE_Content,
+            self::VALUE_ContentIdFirst,
+            self::FIELD_Categories,
+            [self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdFirst]
+        );
     }
 
     public function changeContentAndCategorySorting(): void
@@ -204,5 +207,158 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
             self::FIELD_Categories,
             []
         );
+    }
+
+    public function deleteCategoryOfRelation(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst);
+    }
+
+    public function deleteCategoryThenHardDeleteCategory(): void
+    {
+        // Soft-delete the category
+        $this->actionService->deleteRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst);
+        // Now hard delete that category. Recycler can trigger this.
+        /** @var DataHandler $dataHandler */
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Category, self::VALUE_CategoryIdFirst, true, true);
+    }
+
+    public function deleteContentOfRelation(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+    }
+
+    public function deleteContentThenHardDeleteContent(): void
+    {
+        // Soft-delete content
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+        // Now hard delete content. Recycler can trigger this.
+        /** @var DataHandler $dataHandler */
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Content, self::VALUE_ContentIdLast, true, true);
+    }
+
+    public function deleteContentOfRelationWithoutSoftDelete(): void
+    {
+        unset($GLOBALS['TCA'][self::TABLE_Content]['ctrl']['delete']);
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $newTableIds = $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+        // Usually this is the record ID itself, but when in a workspace, the ID is the one from the versioned record
+        $this->recordIds['deletedRecordId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast] ?? self::VALUE_ContentIdLast;
+    }
+
+    public function copyContentOfRelation(): void
+    {
+        $newTableIds = $this->actionService->copyRecord(self::TABLE_Content, self::VALUE_ContentIdFirst, self::VALUE_PageId);
+        $this->recordIds['newContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdFirst];
+    }
+
+    public function copyCategoryOfRelation(): void
+    {
+        $newTableIds = $this->actionService->copyRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst, 0);
+        $this->recordIds['newCategoryId'] = $newTableIds[self::TABLE_Category][self::VALUE_CategoryIdFirst];
+    }
+
+    /**
+     * See DataSet/copyContentToLanguageOfRelation.csv
+     */
+    public function copyContentToLanguageOfRelation(): void
+    {
+        $newTableIds = $this->actionService->copyRecordToLanguage(self::TABLE_Content, self::VALUE_ContentIdFirst, self::VALUE_LanguageId);
+        $this->recordIds['newContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdFirst];
+    }
+
+    /**
+     * See DataSet/copyCategoryToLanguageOfRelation.csv
+     * @todo: This action does not copy the relations with it (at least in workspaces), and should be re-evaluated
+     */
+    public function copyCategoryToLanguageOfRelation(): void
+    {
+        $newTableIds = $this->actionService->copyRecordToLanguage(self::TABLE_Category, self::VALUE_CategoryIdFirst, self::VALUE_LanguageId);
+        $this->recordIds['newCategoryId'] = $newTableIds[self::TABLE_Category][self::VALUE_CategoryIdFirst];
+    }
+
+    public function copyPage(): void
+    {
+        $newTableIds = $this->actionService->copyRecord(self::TABLE_Page, self::VALUE_PageId, self::VALUE_TargetPageId);
+        $this->recordIds['newPageId'] = $newTableIds[self::TABLE_Page][self::VALUE_PageId];
+        $this->recordIds['newContentIdFirst'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdFirst];
+        $this->recordIds['newContentIdLast'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    public function localizeCategoryOfRelation(): void
+    {
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst, self::VALUE_LanguageId);
+        $this->recordIds['localizedCategoryId'] = $localizedTableIds[self::TABLE_Category][self::VALUE_CategoryIdFirst];
+    }
+
+    public function localizeContentOfRelation(): void
+    {
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $localizedTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    public function localizeContentOfRelationAndAddCategoryWithLanguageSynchronization(): void
+    {
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_Categories]['config']['behaviour']['allowLanguageSynchronization'] = true;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $localizedTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+        $this->actionService->modifyReferences(
+            self::TABLE_Content,
+            self::VALUE_ContentIdLast,
+            self::FIELD_Categories,
+            [self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird, self::VALUE_CategoryIdFourth]
+        );
+    }
+
+    public function localizeContentChainOfRelationAndAddCategoryWithLanguageSynchronization(): void
+    {
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_Categories]['config']['behaviour']['allowLanguageSynchronization'] = true;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $localizedTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, $this->recordIds['localizedContentId'], self::VALUE_LanguageIdSecond);
+        $this->recordIds['localizedContentIdSecond'] = $localizedTableIds[self::TABLE_Content][$this->recordIds['localizedContentId']];
+        $this->actionService->modifyRecord(
+            self::TABLE_Content,
+            $this->recordIds['localizedContentIdSecond'],
+            ['l10n_state' => [self::FIELD_Categories => 'source']]
+        );
+        $this->actionService->modifyReferences(
+            self::TABLE_Content,
+            self::VALUE_ContentIdLast,
+            self::FIELD_Categories,
+            [self::VALUE_CategoryIdSecond, self::VALUE_CategoryIdThird, self::VALUE_CategoryIdFourth]
+        );
+    }
+
+    public function localizeContentOfRelationWithLanguageSynchronization(): void
+    {
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_Categories]['config']['behaviour']['allowLanguageSynchronization'] = true;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $localizedTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    public function localizeContentOfRelationWithLanguageExclude(): void
+    {
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_Categories]['config']['l10n_mode'] = 'exclude';
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $localizedTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $localizedTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    public function moveContentOfRelationToDifferentPage(): void
+    {
+        $this->actionService->moveRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_TargetPageId);
+    }
+
+    public function modifyCategoryOfRelation(): void
+    {
+        $this->actionService->modifyRecord(self::TABLE_Category, self::VALUE_CategoryIdFirst, ['title' => 'Testing #1']);
     }
 }

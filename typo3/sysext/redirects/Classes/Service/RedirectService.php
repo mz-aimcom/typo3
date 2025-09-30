@@ -43,6 +43,7 @@ use TYPO3\CMS\Frontend\Cache\CacheInstruction;
 use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\Frontend\Page\PageInformationFactory;
 use TYPO3\CMS\Frontend\Typolink\AbstractTypolinkBuilder;
+use TYPO3\CMS\Frontend\Typolink\TypolinkBuilderInterface;
 use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
 use TYPO3\CMS\Redirects\Event\BeforeRedirectMatchDomainEvent;
 
@@ -51,18 +52,19 @@ use TYPO3\CMS\Redirects\Event\BeforeRedirectMatchDomainEvent;
  *
  * @internal due to some possible refactorings
  */
-class RedirectService
+readonly class RedirectService
 {
     public function __construct(
-        private readonly RedirectCacheService $redirectCacheService,
-        private readonly LinkService $linkService,
-        private readonly SiteFinder $siteFinder,
-        private readonly EventDispatcherInterface $eventDispatcher,
-        private readonly PageInformationFactory $pageInformationFactory,
-        private readonly FrontendTypoScriptFactory $frontendTypoScriptFactory,
+        private RedirectCacheService $redirectCacheService,
+        private LinkService $linkService,
+        private SiteFinder $siteFinder,
+        private EventDispatcherInterface $eventDispatcher,
+        private PageInformationFactory $pageInformationFactory,
+        private FrontendTypoScriptFactory $frontendTypoScriptFactory,
         #[Autowire(service: 'cache.typoscript')]
-        private readonly PhpFrontend $typoScriptCache,
-        private readonly LoggerInterface $logger,
+        private PhpFrontend $typoScriptCache,
+        private LoggerInterface $logger,
+        private TypoLinkCodecService $typoLinkCodecService,
     ) {}
 
     /**
@@ -223,14 +225,12 @@ class RedirectService
                     // all set up, nothing to do
                     break;
                 case LinkService::TYPE_FILE:
-                    /** @var File $file */
                     $file = $linkDetails['file'];
                     if ($file instanceof File) {
                         $linkDetails['url'] = $file->getPublicUrl();
                     }
                     break;
                 case LinkService::TYPE_FOLDER:
-                    /** @var Folder $folder */
                     $folder = $linkDetails['folder'];
                     if ($folder instanceof Folder) {
                         $linkDetails['url'] = $folder->getPublicUrl();
@@ -264,7 +264,7 @@ class RedirectService
         $uri = $request->getUri();
         $queryParams = $request->getQueryParams();
         $this->logger->debug('Found a redirect to process', ['redirect' => $matchedRedirect]);
-        $linkParameterParts = GeneralUtility::makeInstance(TypoLinkCodecService::class)->decode((string)$matchedRedirect['target']);
+        $linkParameterParts = $this->typoLinkCodecService->decode((string)$matchedRedirect['target']);
         $redirectTarget = $linkParameterParts['url'];
         $linkDetails = $this->resolveLinkDetailsFromLinkTarget($redirectTarget);
         $this->logger->debug('Resolved link details for redirect', ['details' => $linkDetails]);
@@ -286,6 +286,10 @@ class RedirectService
             }
             if ($matchedRedirect['keep_query_parameters']) {
                 $url = $this->addQueryParams($queryParams, $url);
+            }
+
+            if (!$url->getHost()) {
+                $url = $url->withHost($uri->getHost());
             }
             return $url;
         }
@@ -345,17 +349,11 @@ class RedirectService
         if ($site === null || $site instanceof NullSite) {
             return null;
         }
+        $builderType = $GLOBALS['TYPO3_CONF_VARS']['FE']['typolinkBuilder'][$linkDetails['type']];
         $controller = $this->bootFrontendController($site, $queryParams, $originalRequest);
-        $linkBuilder = GeneralUtility::makeInstance(
-            $GLOBALS['TYPO3_CONF_VARS']['FE']['typolinkBuilder'][$linkDetails['type']],
-            $controller->cObj,
-            $controller
-        );
-        if (!$linkBuilder instanceof AbstractTypolinkBuilder) {
-            // @todo: Add a proper interface.
-            throw new \RuntimeException('Single link builder must extend AbstractTypolinkBuilder', 1646504471);
-        }
-        try {
+        if ($builderType && is_subclass_of($builderType, TypolinkBuilderInterface::class)) {
+            /** @var TypolinkBuilderInterface $linkBuilder */
+            $linkBuilder = GeneralUtility::makeInstance($builderType);
             $configuration = [
                 'parameter' => (string)$redirectRecord['target'],
                 'forceAbsoluteUrl' => true,
@@ -367,12 +365,41 @@ class RedirectService
             if ($redirectRecord['keep_query_parameters']) {
                 $configuration['additionalParams'] = HttpUtility::buildQueryString($queryParams, '&');
             }
-            $result = $linkBuilder->build($linkDetails, '', '', $configuration);
-            $this->cleanupTSFE();
-            return new Uri($result->getUrl());
-        } catch (UnableToLinkException $e) {
-            $this->cleanupTSFE();
-            return null;
+            $request = $originalRequest->withAttribute('currentContentObject', $controller->cObj);
+            try {
+                $result = $linkBuilder->buildLink($linkDetails, $configuration, $request);
+                $this->cleanupTSFE();
+                return new Uri($result->getUrl());
+            } catch (UnableToLinkException $e) {
+                $this->cleanupTSFE();
+                return null;
+            }
+        } else {
+            // @deprecated since TYPO3 v14.0, will be removed in TYPO3 v15.0 - however this code is kept without
+            // a trigger_error() to not SPAM deprecation logs via redirects.
+            if (!is_subclass_of($builderType, AbstractTypolinkBuilder::class)) {
+                throw new \RuntimeException('Single link builder must extend AbstractTypolinkBuilder', 1646504471);
+            }
+            $linkBuilder = GeneralUtility::makeInstance($builderType);
+            try {
+                $configuration = [
+                    'parameter' => (string)$redirectRecord['target'],
+                    'forceAbsoluteUrl' => true,
+                    'linkAccessRestrictedPages' => true,
+                ];
+                if ($redirectRecord['force_https']) {
+                    $configuration['forceAbsoluteUrl.']['scheme'] = 'https';
+                }
+                if ($redirectRecord['keep_query_parameters']) {
+                    $configuration['additionalParams'] = HttpUtility::buildQueryString($queryParams, '&');
+                }
+                $result = $linkBuilder->_build($linkDetails, '', '', $configuration, $originalRequest, $controller->cObj);
+                $this->cleanupTSFE();
+                return new Uri($result->getUrl());
+            } catch (UnableToLinkException $e) {
+                $this->cleanupTSFE();
+                return null;
+            }
         }
     }
 
@@ -416,8 +443,10 @@ class RedirectService
             $expressionMatcherVariables,
             $this->typoScriptCache,
         );
+        // Note, that we need the full TypoScript setup array, which is required for links created by
+        // DatabaseRecordLinkBuilder. This should be kept in mind when TSFE will be removed in v14.
         $frontendTypoScript = $this->frontendTypoScriptFactory->createSetupConfigOrFullSetup(
-            false,
+            true,
             $frontendTypoScript,
             $site,
             $pageInformation->getSysTemplateRows(),
@@ -464,7 +493,7 @@ class RedirectService
                 // Unsafe regexp captching group may lead to adding query parameters to result url, which we need
                 // to prevent here, thus throwing everything beginning with ? away
                 if (str_contains($val, '?')) {
-                    $val = explode('?', $val, 2)[0] ?? '';
+                    $val = explode('?', $val, 2)[0];
                     $this->logger->warning(
                         sprintf(
                             'Unsafe captching group regex in redirect #%s, including query parameters in matched group',

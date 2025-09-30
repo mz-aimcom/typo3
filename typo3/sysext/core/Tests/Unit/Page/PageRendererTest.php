@@ -39,7 +39,7 @@ final class PageRendererTest extends UnitTestCase
         parent::setUp();
         $importMapMock = $this->createMock(ImportMap::class);
         $importMapMock->method('render')
-            ->with(self::isType('string'), self::isInstanceOf(ConsumableNonce::class))
+            ->with(self::isString(), self::isInstanceOf(ConsumableNonce::class))
             ->willReturn('');
         $importMapFactoryMock = $this->createMock(ImportMapFactory::class);
         $importMapFactoryMock->method('create')->willReturn($importMapMock);
@@ -54,7 +54,7 @@ final class PageRendererTest extends UnitTestCase
             ->onlyMethods(['reset', 'prepareRendering', 'renderJavaScriptAndCss', 'getPreparedMarkerArray', 'getTemplate'])
             ->getMock();
 
-        $pageRenderer->expects(self::once())->method('reset');
+        $pageRenderer->expects($this->once())->method('reset');
         GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
         $pageRenderer->render();
     }

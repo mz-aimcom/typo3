@@ -78,6 +78,34 @@ final class ActionTest extends AbstractActionTestCase
     }
 
     #[Test]
+    public function deleteParentContentWithoutSoftDelete(): void
+    {
+        parent::deleteParentContentWithoutSoftDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentWithoutSoftDelete.csv');
+    }
+
+    #[Test]
+    public function deleteParentContentThenHardDeleteParentContent(): void
+    {
+        parent::deleteParentContentThenHardDeleteParentContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentThenHardDeleteParentContent.csv');
+    }
+
+    #[Test]
+    public function deleteParentContentWithMultipleChildrenThenHardDeleteParentContent(): void
+    {
+        parent::deleteParentContentWithMultipleChildrenThenHardDeleteParentContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentWithMultipleChildrenThenHardDeleteParentContent.csv');
+    }
+
+    #[Test]
+    public function deleteParentContentWithoutCascadingDelete(): void
+    {
+        parent::deleteParentContentWithoutCascadingDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentWithoutCascadingDelete.csv');
+    }
+
+    #[Test]
     public function copyParentContent(): void
     {
         parent::copyParentContent();
@@ -101,6 +129,16 @@ final class ActionTest extends AbstractActionTestCase
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
+    }
+
+    #[Test]
+    public function copyParentContentToDifferentLanguageWAllChildren(): void
+    {
+        // Create translated page first
+        $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        // Use DH "copy"
+        parent::copyParentContentToDifferentLanguageWAllChildren();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyParentContentToDiffLanguageWAllChildren.csv');
     }
 
     #[Test]

@@ -26,11 +26,13 @@ use TYPO3\CMS\Core\Error\PageErrorHandler\InvalidPageErrorHandlerException;
 use TYPO3\CMS\Core\Error\PageErrorHandler\PageContentErrorHandler;
 use TYPO3\CMS\Core\Error\PageErrorHandler\PageErrorHandlerInterface;
 use TYPO3\CMS\Core\Error\PageErrorHandler\PageErrorHandlerNotConfiguredException;
+use TYPO3\CMS\Core\Error\PageErrorHandler\RedirectLoginErrorHandler;
 use TYPO3\CMS\Core\ExpressionLanguage\Resolver;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Routing\PageRouter;
 use TYPO3\CMS\Core\Routing\RouterInterface;
+use TYPO3\CMS\Core\Site\Set\SetError;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -43,6 +45,7 @@ class Site implements SiteInterface
     protected const ERRORHANDLER_TYPE_PAGE = 'Page';
     protected const ERRORHANDLER_TYPE_FLUID = 'Fluid';
     protected const ERRORHANDLER_TYPE_PHP = 'PHP';
+    protected const ERRORHANDLER_TYPE_LOGIN_REDIRECT = 'LoginRedirect';
 
     /**
      * @var string
@@ -66,6 +69,12 @@ class Site implements SiteInterface
     protected $configuration;
 
     /**
+     * Raw attributes for this site
+     * @var array
+     */
+    protected $rawConfiguration;
+
+    /**
      * @var array<LanguageRef, SiteLanguage>
      */
     protected $languages;
@@ -74,6 +83,11 @@ class Site implements SiteInterface
      * @var list<string>
      */
     protected array $sets;
+
+    /**
+     * @var array<string, array{error: SetError, name: string, context: string}>
+     */
+    public array $invalidSets = [];
 
     /**
      * @var array
@@ -94,11 +108,13 @@ class Site implements SiteInterface
         $this->identifier = $identifier;
         $this->rootPageId = $rootPageId;
         if ($settings === null) {
-            $settings = new SiteSettings($configuration['settings'] ?? []);
+            // @todo deprecate null settings argument
+            $settings = SiteSettings::createFromSettingsTree($configuration['settings'] ?? []);
         }
         $this->settings = $settings;
         $this->typoscript = $typoscript;
         $this->tsConfig = $tsConfig;
+        $this->rawConfiguration = $configuration;
         // Merge settings back in configuration for backwards-compatibility
         $configuration['settings'] = $this->settings->getAll();
         $this->configuration = $configuration;
@@ -255,6 +271,9 @@ class Site implements SiteInterface
         if (isset($this->languages[$languageId])) {
             return $this->languages[$languageId];
         }
+        // @todo: Turn this into a specific exception to avoid catching \InvalidArgumentException
+        //        since there is no hasLanguageById() or similar and some core places already
+        //        call this method and try-catch global \InvalidArgumentException, which is bad practice.
         throw new \InvalidArgumentException(
             'Language ' . $languageId . ' does not exist on site ' . $this->identifier . '.',
             1522960188
@@ -305,6 +324,8 @@ class Site implements SiteInterface
                 return GeneralUtility::makeInstance(FluidPageErrorHandler::class, $statusCode, $errorHandlerConfiguration);
             case self::ERRORHANDLER_TYPE_PAGE:
                 return GeneralUtility::makeInstance(PageContentErrorHandler::class, $statusCode, $errorHandlerConfiguration);
+            case self::ERRORHANDLER_TYPE_LOGIN_REDIRECT:
+                return GeneralUtility::makeInstance(RedirectLoginErrorHandler::class, $statusCode, $errorHandlerConfiguration);
             case self::ERRORHANDLER_TYPE_PHP:
                 $handler = GeneralUtility::makeInstance($errorHandlerConfiguration['errorPhpClassFQCN'], $statusCode, $errorHandlerConfiguration);
                 // Check if the interface is implemented
@@ -322,6 +343,11 @@ class Site implements SiteInterface
     public function getConfiguration(): array
     {
         return $this->configuration;
+    }
+
+    public function getRawConfiguration(): array
+    {
+        return $this->rawConfiguration;
     }
 
     public function getSettings(): SiteSettings

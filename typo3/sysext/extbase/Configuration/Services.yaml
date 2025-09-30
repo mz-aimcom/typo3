@@ -31,15 +31,8 @@ services:
     factory: ['@TYPO3\CMS\Core\Cache\CacheManager', 'getCache']
     arguments: ['extbase']
 
-  TYPO3\CMS\Extbase\Mvc\View\GenericViewResolver: ~
-  TYPO3\CMS\Extbase\Mvc\View\ViewResolverInterface: '@TYPO3\CMS\Extbase\Mvc\View\GenericViewResolver'
-
   TYPO3\CMS\Extbase\Persistence\ClassesConfiguration:
     factory: ['@TYPO3\CMS\Extbase\Persistence\ClassesConfigurationFactory', 'createClassesConfiguration']
-
-  TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapFactory:
-    arguments:
-      $baseCacheIdentifier: '@=service("TYPO3\\CMS\\Core\\Package\\Cache\\PackageDependentCacheIdentifier").toString()'
 
   # Content Object for Extbase Plugins
   TYPO3\CMS\Extbase\ContentObject\ExtbasePluginContentObject:
@@ -124,6 +117,13 @@ services:
         priority: 10
         target: TYPO3\CMS\Core\Type\TypeInterface
         sources: string, integer, float, boolean, array
+
+  TYPO3\CMS\Extbase\Property\TypeConverter\CountryConverter:
+    tags:
+      - name: extbase.type_converter
+        priority: 10
+        target: TYPO3\CMS\Core\Country\Country
+        sources: string
 
   # Experimental FAL<->extbase converter
   TYPO3\CMS\Extbase\Property\TypeConverter\FileConverter:

@@ -31,10 +31,13 @@ use TYPO3\CMS\Backend\Routing\RouteRedirect;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Http\RedirectResponse;
+use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -51,6 +54,7 @@ class BackendModuleValidator implements MiddlewareInterface
         protected readonly UriBuilder $uriBuilder,
         protected readonly ModuleProvider $moduleProvider,
         protected readonly FlashMessageService $flashMessageService,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -65,10 +69,19 @@ class BackendModuleValidator implements MiddlewareInterface
         $inaccessibleSubModule = null;
         $ensureToPersistUserSettings = false;
         $backendUser = $GLOBALS['BE_USER'] ?? null;
-        if (!$backendUser
-            || !$route->hasOption('module')
-            || !(($module = $route->getOption('module')) instanceof ModuleInterface)
-        ) {
+
+        if (!$backendUser) {
+            return $handler->handle($request);
+        }
+
+        // Exit if access to module was denied using module access inheritance check
+        $inheritAccessFromModule = $route->getOption('inheritAccessFromModule');
+        if ($inheritAccessFromModule !== null && !$this->moduleProvider->accessGranted($inheritAccessFromModule, $backendUser)) {
+            return new Response(null, 403);
+        }
+
+        $module = $route->getOption('module');
+        if (!$module instanceof ModuleInterface) {
             return $handler->handle($request);
         }
 
@@ -226,7 +239,14 @@ class BackendModuleValidator implements MiddlewareInterface
             // Check page access
             if (!is_array(BackendUtility::readPageAccess($id, $permClause))) {
                 // Check if page has been deleted
-                $deleteField = $GLOBALS['TCA']['pages']['ctrl']['delete'];
+                if (!$this->tcaSchemaFactory->has('pages')) {
+                    throw new \RuntimeException('You don\'t have access to this page', 1289918924);
+                }
+                $schema = $this->tcaSchemaFactory->get('pages');
+                if (!$schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+                    throw new \RuntimeException('You don\'t have access to this page', 1289919924);
+                }
+                $deleteField = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
                 $pageInfo = BackendUtility::getRecord('pages', $id, $deleteField, $permClause ? ' AND ' . $permClause : '', false);
                 if (!($pageInfo[$deleteField] ?? false)) {
                     throw new \RuntimeException('You don\'t have access to this page', 1289917924);

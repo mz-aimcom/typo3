@@ -11,13 +11,12 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import '@typo3/backend/element/spinner-element';
 import Viewport from '@typo3/backend/viewport';
-import { ModuleStateStorage } from '@typo3/backend/storage/module-state-storage';
 import { Sizes } from '@typo3/backend/enum/icon-types';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 enum Selectors {
   containerSelector = '#typo3-cms-opendocs-backend-toolbaritems-opendocstoolbaritem',
@@ -94,8 +93,6 @@ class OpendocsMenu {
 
     new RegularEvent('click', (e: Event, entry: HTMLElement): void => {
       e.preventDefault();
-
-      ModuleStateStorage.updateWithCurrentMount('web', entry.dataset.pid, true);
       const router = document.querySelector('typo3-backend-module-router');
       router.setAttribute('endpoint', entry.getAttribute('href'));
     }).delegateTo(containerElement, Selectors.entrySelector);

@@ -186,7 +186,7 @@ final class LocalDriverTest extends FunctionalTestCase
         ];
         $subject = $this->getAccessibleMock(LocalDriver::class, ['sanitizeFilename'], [$driverConfiguration]);
         $subject->processConfiguration();
-        $subject->expects(self::exactly(2))
+        $subject->expects($this->exactly(2))
             ->method('sanitizeFileName')
             ->willReturn(
                 'sanitized'
@@ -199,7 +199,7 @@ final class LocalDriverTest extends FunctionalTestCase
     public function determineBaseUrlUrlEncodesUriParts(): void
     {
         $subject = $this->getAccessibleMock(LocalDriver::class, ['hasCapability'], [], '', false);
-        $subject->expects(self::once())
+        $subject->expects($this->once())
             ->method('hasCapability')
             ->with(Capabilities::CAPABILITY_PUBLIC)
             ->willReturn(
@@ -714,20 +714,12 @@ final class LocalDriverTest extends FunctionalTestCase
     {
         $expectedMd5Hash = '8c67dbaf0ba22f2e7fbc26413b86051b';
         $expectedSha1Hash = 'a60cd808ba7a0bcfa37fa7f3fb5998e1b8dbcd9d';
+        $expectedSha256Hash = '29af08cbe576f38fc22803a03d083b1228321a5b617935a024c678ff985225d2';
         file_put_contents($this->baseDirectory . '/hashFile', '68b329da9893e34099c7d8ad5cb9c940');
         $subject = $this->getDefaultInitializedSubject();
-        self::assertEquals($expectedSha1Hash, $subject->hash('/hashFile', 'sha1'));
         self::assertEquals($expectedMd5Hash, $subject->hash('/hashFile', 'md5'));
-    }
-
-    #[Test]
-    public function hashingWithUnsupportedAlgorithmFails(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionCode(1304964032);
-        file_put_contents($this->baseDirectory . '/hashFile', '68b329da9893e34099c7d8ad5cb9c940');
-        $subject = $this->getDefaultInitializedSubject();
-        $subject->hash('/hashFile', StringUtility::getUniqueId('uri_'));
+        self::assertEquals($expectedSha1Hash, $subject->hash('/hashFile', 'sha1'));
+        self::assertEquals($expectedSha256Hash, $subject->hash('/hashFile', 'sha256'));
     }
 
     #[Test]
@@ -740,7 +732,7 @@ final class LocalDriverTest extends FunctionalTestCase
         ];
         $subject = $this->getAccessibleMock(LocalDriver::class, ['copyFileToTemporaryPath'], [$driverConfiguration]);
         $subject->processConfiguration();
-        $subject->expects(self::once())->method('copyFileToTemporaryPath')->willReturn('');
+        $subject->expects($this->once())->method('copyFileToTemporaryPath')->willReturn('');
         $subject->getFileForLocalProcessing('/someDir/someFile');
     }
 
@@ -915,7 +907,6 @@ final class LocalDriverTest extends FunctionalTestCase
         file_put_contents($this->baseDirectory . '/sourceFolder/subFolder/file', 'asdfg');
         $subject = $this->getDefaultInitializedSubject();
         $mappingInformation = $subject->renameFolder('/sourceFolder/', 'newFolder');
-        self::assertIsArray($mappingInformation);
         self::assertEquals('/newFolder/', $mappingInformation['/sourceFolder/']);
         self::assertEquals('/newFolder/file2', $mappingInformation['/sourceFolder/file2']);
         self::assertEquals('/newFolder/subFolder/file', $mappingInformation['/sourceFolder/subFolder/file']);
@@ -934,8 +925,8 @@ final class LocalDriverTest extends FunctionalTestCase
         ];
         $subject = $this->getAccessibleMock(LocalDriver::class, ['createIdentifierMap'], [$driverConfiguration]);
         $subject->processConfiguration();
-        $subject->expects(self::atLeastOnce())->method('createIdentifierMap')->will(
-            self::throwException(
+        $subject->expects($this->atLeastOnce())->method('createIdentifierMap')->will(
+            $this->throwException(
                 new FileOperationErrorException('testing', 1476045666)
             )
         );
@@ -1104,16 +1095,10 @@ final class LocalDriverTest extends FunctionalTestCase
     /**
      * Every array splits into:
      * - String value fileName
-     * - String value charset (none = '', utf-8, latin1, etc.)
      * - Expected result (cleaned fileName)
      */
     public static function sanitizeFileNameNonUTF8FilesystemDataProvider(): array
     {
-        // Generate string containing all characters for the iso8859-1 charset, charcode greater than 127
-        $iso88591GreaterThan127 = '';
-        for ($i = 0xA0; $i <= 0xFF; $i++) {
-            $iso88591GreaterThan127 .= chr($i);
-        }
         // Generate string containing all characters for the utf-8 Latin-1 Supplement (U+0080 to U+00FF)
         // without U+0080 to U+009F: control characters
         // Based on http://www.utf8-chartable.de/unicode-utf8-table.pl
@@ -1135,70 +1120,34 @@ final class LocalDriverTest extends FunctionalTestCase
 
         return [
             // Characters ordered by ASCII table
-            'allowed characters iso-8859-1' => [
-                '-.0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz',
-                'iso-8859-1',
-                '-.0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz',
-            ],
-            // Characters ordered by ASCII table
             'allowed characters utf-8' => [
                 '-.0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz',
-                'utf-8',
                 '-.0123456789@ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz',
-            ],
-            // Characters ordered by ASCII table (except for space-character, because space-character ist trimmed)
-            'replace special characters with _ (not allowed characters) iso-8859-1' => [
-                '! "#$%&\'()*+,/:;<=>?[\\]^`{|}~',
-                'iso-8859-1',
-                '_____________________________',
             ],
             // Characters ordered by ASCII table (except for space-character, because space-character ist trimmed)
             'replace special characters with _ (not allowed characters) utf-8' => [
                 '! "#$%&\'()*+,/:;<=>?[\\]^`{|}~',
-                'utf-8',
                 '_____________________________',
-            ],
-            'iso-8859-1 (code > 127)' => [
-                // http://de.wikipedia.org/wiki/ISO_8859-1
-                // chr(0xA0) = NBSP (no-break space) => gets trimmed
-                $iso88591GreaterThan127,
-                'iso-8859-1',
-                '_centpound_yen____c_a_____R_____-23_u___1o__1_41_23_4_AAAAAEAAAECEEEEIIIIDNOOOOOExOEUUUUEYTHssaaaaaeaaaeceeeeiiiidnoooooe_oeuuuueythy',
             ],
             'utf-8 (Latin-1 Supplement)' => [
                 // chr(0xC2) . chr(0x0A) = NBSP (no-break space) => gets trimmed
                 $utf8Latin1Supplement,
-                'utf-8',
                 '_centpound__yen______c_a_______R_______-23__u_____1o__1_41_23_4_AAAAAEAAAECEEEEIIIIDNOOOOOExOEUUUUEYTHssaaaaaeaaaeceeeeiiiidnoooooe_oeuuuueythy',
             ],
             'utf-8 (Latin-1 Extended A)' => [
                 $utf8Latin1ExtendedA,
-                'utf-8',
                 'AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIiIJijJjKk__LlLlLlL_l_LlNnNnNn_n____OOooOoOoOEoeRrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs',
             ],
             'utf-8 but not in NFC (Canonical Composition)' => [
                 hex2bin('667275cc88686e65757a6569746c696368656e'),
-                'utf-8',
                 'fruehneuzeitlichen',
-            ],
-            'trim leading and tailing spaces iso-8859-1' => [
-                ' test.txt  ',
-                'iso-8859-1',
-                'test.txt',
             ],
             'trim leading and tailing spaces utf-8' => [
                 ' test.txt  ',
-                'utf-8',
-                'test.txt',
-            ],
-            'remove tailing dot iso-8859-1' => [
-                'test.txt.',
-                'iso-8859-1',
                 'test.txt',
             ],
             'remove tailing dot utf-8' => [
                 'test.txt.',
-                'utf-8',
                 'test.txt',
             ],
         ];
@@ -1206,11 +1155,11 @@ final class LocalDriverTest extends FunctionalTestCase
 
     #[DataProvider('sanitizeFileNameNonUTF8FilesystemDataProvider')]
     #[Test]
-    public function sanitizeFileNameNonUTF8Filesystem(string $fileName, string $charset, string $expectedResult): void
+    public function sanitizeFileNameNonUTF8Filesystem(string $fileName, string $expectedResult): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['UTF8filesystem'] = 0;
         $subject = $this->getDefaultInitializedSubject();
-        self::assertEquals($expectedResult, $subject->sanitizeFileName($fileName, $charset));
+        self::assertEquals($expectedResult, $subject->sanitizeFileName($fileName));
     }
 
     #[Test]

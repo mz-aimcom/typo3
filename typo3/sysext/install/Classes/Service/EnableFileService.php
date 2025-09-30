@@ -55,6 +55,7 @@ class EnableFileService
     {
         $installEnableFilePath = self::getInstallToolEnableFilePath();
         if (!is_file($installEnableFilePath)) {
+            GeneralUtility::mkdir_deep(dirname($installEnableFilePath));
             $result = touch($installEnableFilePath);
         } else {
             $result = true;
@@ -165,7 +166,7 @@ class EnableFileService
      */
     public static function getStaticLocationForInstallToolEnableFileDirectory(): string
     {
-        return Environment::isComposerMode() ? 'var/transient/' : 'config/';
+        return Environment::isComposerMode() ? 'var/transient/' : 'typo3conf/';
     }
 
     public static function getBestLocationForInstallToolEnableFile(): string

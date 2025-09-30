@@ -17,28 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Beuser\ViewHelpers;
 
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconProvider\SvgIconProvider;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Render permission icon group (user / group / others) of the "Access" module.
+ * ViewHelper to render a permission icon group (user / group / others) of the "Access" module,
+ * using native PHP instead of Fluid for performance reasons.
  *
- * Most of that could be done in fluid directly, but this ViewHelper
- * is much better performance wise.
+ * ```
+ *   <beuser:permissions permission="{data.row.perms_user}" scope="user" pageId="{data.row.uid}" />
+ * ```
  *
  * @internal
  */
 final class PermissionsViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
-    protected const MASKS = [1, 16, 2, 4, 8];
+    private const MASKS = [1, 16, 2, 4, 8];
 
     /**
      * As this ViewHelper renders HTML, the output must not be escaped.
@@ -47,7 +46,11 @@ final class PermissionsViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
-    protected static array $cachePermissionLabels = [];
+    public function __construct(
+        private readonly IconFactory $iconFactory,
+        #[Autowire(service: 'cache.runtime')]
+        private readonly FrontendInterface $cachePermissionLabels
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -56,16 +59,11 @@ final class PermissionsViewHelper extends AbstractViewHelper
         $this->registerArgument('pageId', 'int', 'Page ID to evaluate permission for', true);
     }
 
-    /**
-     * @param array{permission: int, scope: string, pageId: int} $arguments
-     */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-
         $icon = '';
         foreach (self::MASKS as $mask) {
-            if ($arguments['permission'] & $mask) {
+            if ($this->arguments['permission'] & $mask) {
                 $iconIdentifier = 'actions-check';
                 $iconClass = 'text-success';
                 $mode = 'delete';
@@ -75,34 +73,34 @@ final class PermissionsViewHelper extends AbstractViewHelper
                 $mode = 'add';
             }
 
-            $label = self::resolvePermissionLabel($mask);
+            $label = $this->resolvePermissionLabel($mask);
             $icon .= '<button'
-                . ' aria-label="' . htmlspecialchars($label) . ', ' . htmlspecialchars($mode) . ', ' . htmlspecialchars($arguments['scope']) . '"'
+                . ' aria-label="' . htmlspecialchars($label) . ', ' . htmlspecialchars($mode) . ', ' . htmlspecialchars($this->arguments['scope']) . '"'
                 . ' title="' . htmlspecialchars($label) . '"'
-                . ' data-page="' . htmlspecialchars((string)$arguments['pageId']) . '"'
-                . ' data-permissions="' . htmlspecialchars((string)$arguments['permission']) . '"'
-                . ' data-who="' . htmlspecialchars($arguments['scope']) . '"'
+                . ' data-page="' . htmlspecialchars((string)$this->arguments['pageId']) . '"'
+                . ' data-permissions="' . htmlspecialchars((string)$this->arguments['permission']) . '"'
+                . ' data-who="' . htmlspecialchars($this->arguments['scope']) . '"'
                 . ' data-bits="' . htmlspecialchars((string)$mask) . '"'
                 . ' data-mode="' . htmlspecialchars($mode) . '"'
                 . ' class="btn btn-default btn-icon btn-borderless change-permission ' . htmlspecialchars($iconClass) . '">'
-                . $iconFactory->getIcon($iconIdentifier, IconSize::SMALL)->render(SvgIconProvider::MARKUP_IDENTIFIER_INLINE)
+                . $this->iconFactory->getIcon($iconIdentifier, IconSize::SMALL)->render(SvgIconProvider::MARKUP_IDENTIFIER_INLINE)
                 . '</button>';
         }
-
         return $icon;
     }
 
-    protected static function resolvePermissionLabel(int $mask): string
+    private function resolvePermissionLabel(int $mask): string
     {
-        if (!isset(self::$cachePermissionLabels[$mask])) {
-            self::$cachePermissionLabels[$mask] = htmlspecialchars(self::getLanguageService()->sL(
+        $cacheIdentifier = 'beuser-viewhelper-permission_' . $mask;
+        if (!$this->cachePermissionLabels->has($cacheIdentifier)) {
+            $this->cachePermissionLabels->set($cacheIdentifier, htmlspecialchars($this->getLanguageService()->sL(
                 'LLL:EXT:beuser/Resources/Private/Language/locallang_mod_permission.xlf:' . $mask,
-            ));
+            )));
         }
-        return self::$cachePermissionLabels[$mask];
+        return $this->cachePermissionLabels->get($cacheIdentifier);
     }
 
-    protected static function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

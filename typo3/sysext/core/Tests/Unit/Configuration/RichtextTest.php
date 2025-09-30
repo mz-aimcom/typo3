@@ -19,11 +19,30 @@ namespace TYPO3\CMS\Core\Tests\Unit\Configuration;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Configuration\Event\AfterRichtextConfigurationPreparedEvent;
 use TYPO3\CMS\Core\Configuration\Richtext;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\RteCKEditor\Configuration\CKEditor5Migrator;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class RichtextTest extends UnitTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $eventDispatcher = new class () implements EventDispatcherInterface {
+            public function dispatch(object $event)
+            {
+                if ($event instanceof AfterRichtextConfigurationPreparedEvent) {
+                    $event->setConfiguration((new CKEditor5Migrator($event->getConfiguration()))->get());
+                }
+                return $event;
+            }
+        };
+        GeneralUtility::addInstance(EventDispatcherInterface::class, $eventDispatcher);
+    }
+
     #[Test]
     public function getConfigurationUsesOverruleModeFromType(): void
     {
@@ -71,7 +90,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -119,7 +138,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -155,7 +174,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -230,7 +249,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -316,7 +335,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -416,7 +435,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }
@@ -451,8 +470,8 @@ final class RichtextTest extends UnitTestCase
             '',
             false
         );
-        $subject->expects(self::once())->method('loadConfigurationFromPreset')->with($presetKey)->willReturn($preset);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with($pageId)->willReturn($pageTsConfigArray);
+        $subject->expects($this->once())->method('loadConfigurationFromPreset')->with($presetKey)->willReturn($preset);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with($pageId)->willReturn($pageTsConfigArray);
 
         $output = $subject->getConfiguration('tt_content', 'bodytext', $pageId, 'textmedia', $pageTsConfigArray);
 
@@ -804,7 +823,7 @@ final class RichtextTest extends UnitTestCase
         // Accessible mock to $subject since getRtePageTsConfigOfPid calls BackendUtility::getPagesTSconfig()
         // which can't be mocked in a sane way
         $subject = $this->getAccessibleMock(Richtext::class, ['getRtePageTsConfigOfPid'], [], '', false);
-        $subject->expects(self::once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
+        $subject->expects($this->once())->method('getRtePageTsConfigOfPid')->with(42)->willReturn($pageTsConfig);
         $output = $subject->getConfiguration('aTable', 'aField', 42, 'textmedia', $fieldConfig);
         self::assertSame($expected, $output);
     }

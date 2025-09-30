@@ -165,7 +165,7 @@ class NumberElement extends AbstractFormElement
             $valuePickerHtml[] = '<select ' . GeneralUtility::implodeAttributes($valuePickerAttributes, true) . '>';
             $valuePickerHtml[] = '<option></option>';
             foreach ($config['valuePicker']['items'] as $item) {
-                $valuePickerHtml[] = '<option value="' . htmlspecialchars((string)$item[1]) . '">' . htmlspecialchars($languageService->sL($item[0])) . '</option>';
+                $valuePickerHtml[] = '<option value="' . htmlspecialchars((string)$item['value']) . '">' . htmlspecialchars($languageService->sL($item['label'])) . '</option>';
             }
             $valuePickerHtml[] = '</select>';
             $valuePickerHtml[] = '</typo3-formengine-valuepicker>';
@@ -187,9 +187,9 @@ class NumberElement extends AbstractFormElement
             ];
             $rangeAttributes = [
                 'type' => 'range',
-                'class' => 'slider',
-                'min' => (string)(int)($config['range']['lower'] ?? 0),
-                'max' => (string)(int)($config['range']['upper'] ?? 10000),
+                'class' => 'form-range-input',
+                'min' => (string)(float)($config['range']['lower'] ?? 0),
+                'max' => (string)(float)($config['range']['upper'] ?? 10000),
                 'step' => (string)($config['slider']['step'] ?? 1),
                 'style' => 'width: ' . (int)($config['slider']['width'] ?? 400) . 'px',
                 'title' => (string)$itemValue,
@@ -197,7 +197,7 @@ class NumberElement extends AbstractFormElement
             ];
 
             $valueSliderHtml[] = '<typo3-formengine-valueslider ' . GeneralUtility::implodeAttributes($valueSliderConfiguration, true) . '>';
-            $valueSliderHtml[] = '<div class="slider-wrapper">';
+            $valueSliderHtml[] = '<div class="form-range">';
             $valueSliderHtml[] = '<input ' . GeneralUtility::implodeAttributes($rangeAttributes, true) . '>';
             $valueSliderHtml[] = '</div>';
             $valueSliderHtml[] = '</typo3-formengine-valuepicker>';
@@ -214,10 +214,10 @@ class NumberElement extends AbstractFormElement
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldWizardResult, false);
 
         if (isset($config['range']['lower'])) {
-            $attributes['min'] = (string)(int)$config['range']['lower'];
+            $attributes['min'] = (string)(float)$config['range']['lower'];
         }
         if (isset($config['range']['upper'])) {
-            $attributes['max'] = (string)(int)$config['range']['upper'];
+            $attributes['max'] = (string)(float)$config['range']['upper'];
         }
 
         if ($format === 'decimal') {
@@ -233,11 +233,13 @@ class NumberElement extends AbstractFormElement
         $mainFieldHtml[] =      '</div>';
         if (!empty($valuePickerHtml) || !empty($valueSliderHtml) || !empty($fieldControlHtml)) {
             $mainFieldHtml[] =      '<div class="form-wizards-item-aside form-wizards-item-aside--field-control">';
-            $mainFieldHtml[] =          '<div class="btn-group">';
-            $mainFieldHtml[] =              implode(LF, $valuePickerHtml);
-            $mainFieldHtml[] =              implode(LF, $valueSliderHtml);
-            $mainFieldHtml[] =              $fieldControlHtml;
-            $mainFieldHtml[] =          '</div>';
+            if (!empty($valuePickerHtml)) {
+                $mainFieldHtml[] = '<div class="btn-group">' . implode(LF, $valuePickerHtml) . '</div>';
+            }
+            $mainFieldHtml[] = implode(LF, $valueSliderHtml);
+            if (!empty($fieldControlHtml)) {
+                $mainFieldHtml[] = '<div class="btn-group">' . $fieldControlHtml . '</div>';
+            }
             $mainFieldHtml[] =      '</div>';
         }
         if (!empty($fieldWizardHtml)) {

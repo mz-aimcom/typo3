@@ -18,7 +18,6 @@ namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
 use TYPO3\CMS\Backend\Form\Processor\SelectItemProcessor;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
@@ -26,6 +25,10 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  */
 class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInterface
 {
+    public function __construct(
+        private readonly SelectItemProcessor $selectItemProcessor,
+    ) {}
+
     /**
      * Resolve select items
      *
@@ -34,7 +37,6 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
      */
     public function addData(array $result)
     {
-        $selectItemProcessor = GeneralUtility::makeInstance(SelectItemProcessor::class);
         $table = $result['tableName'];
 
         foreach ($result['processedTca']['columns'] as $fieldName => $fieldConfig) {
@@ -121,7 +123,7 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
             // Keys may contain table names, so a numeric array is created
             $fieldConfig['config']['items'] = array_values($fieldConfig['config']['items']);
 
-            $fieldConfig['config']['items'] = $selectItemProcessor->groupAndSortItems(
+            $fieldConfig['config']['items'] = $this->selectItemProcessor->groupAndSortItems(
                 $fieldConfig['config']['items'],
                 $fieldConfig['config']['itemGroups'] ?? [],
                 $fieldConfig['config']['sortItems'] ?? []
@@ -149,7 +151,7 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
     {
         // Early return if there are no items or invalid values should not be displayed
         if (empty($fieldConf['config']['items'])
-            || $fieldConf['config']['renderType'] !== 'selectSingle'
+            || ($fieldConf['config']['renderType'] ?? '') !== 'selectSingle'
             || ($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['disableNoMatchingValueElement'] ?? false)
             || ($fieldConf['config']['disableNoMatchingValueElement'] ?? false)
         ) {
@@ -199,6 +201,6 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
      */
     protected function isTargetRenderType(array $fieldConfig)
     {
-        return $fieldConfig['config']['renderType'] !== 'selectTree';
+        return ($fieldConfig['config']['renderType'] ?? '') !== 'selectTree';
     }
 }

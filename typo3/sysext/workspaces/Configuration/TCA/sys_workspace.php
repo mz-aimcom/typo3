@@ -49,7 +49,7 @@ return [
             ],
         ],
         'db_mountpoints' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:db_mountpoints',
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:page_tree_entry_points',
             'config' => [
                 'type' => 'group',
                 'allowed' => 'pages',
@@ -73,14 +73,6 @@ return [
             'label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.publish_time',
             'config' => [
                 'type' => 'datetime',
-                'default' => 0,
-            ],
-        ],
-        'freeze' => [
-            'label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.freeze',
-            'config' => [
-                'type' => 'check',
-                'renderType' => 'checkboxToggle',
                 'default' => 0,
             ],
         ],
@@ -113,14 +105,11 @@ return [
         ],
         'stagechg_notification' => [
             'label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.stagechg_notification',
+            'description' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.stagechg_notification.description',
             'config' => [
-                'type' => 'select',
-                'renderType' => 'selectSingle',
-                'items' => [
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.stagechg_notification.0', 'value' => 0],
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.stagechg_notification.1', 'value' => 1],
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.stagechg_notification.10', 'value' => 10],
-                ],
+                'type' => 'check',
+                'renderType' => 'checkboxToggle',
+                'default' => 1,
             ],
         ],
         'custom_stages' => [
@@ -166,7 +155,6 @@ return [
                 'items' => [
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.owners'],
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.members'],
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.editors'],
                 ],
                 'default' => 2,
                 'cols' => 1,
@@ -202,7 +190,6 @@ return [
                 'items' => [
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.owners'],
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.members'],
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.editors'],
                 ],
                 'default' => 1,
                 'cols' => 1,
@@ -238,7 +225,6 @@ return [
                 'items' => [
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.owners'],
                     ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.members'],
-                    ['label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:sys_workspace.preselection.editors'],
                 ],
                 'default' => 3,
                 'cols' => 1,
@@ -246,9 +232,6 @@ return [
         ],
     ],
     'palettes' => [
-        'main' => [
-            'showitem' => 'title,freeze',
-        ],
         'memberlist' => [
             'label' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:tabs.users',
             'showitem' => 'adminusers,members',
@@ -269,7 +252,7 @@ return [
     'types' => [
         '0' => ['showitem' => '
             --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
-                --palette--;;main,
+                title,
                 stagechg_notification,
                 --palette--;;memberlist,
             --div--;LLL:EXT:workspaces/Resources/Private/Language/locallang_db.xlf:tabs.internal_stages,

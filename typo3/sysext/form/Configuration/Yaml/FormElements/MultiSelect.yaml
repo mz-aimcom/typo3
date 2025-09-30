@@ -36,7 +36,6 @@ prototypes:
               enableDeleteRow: true
               removeLastAvailableRowFlashMessageTitle: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageTitle
               removeLastAvailableRowFlashMessageMessage: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageMessage
-              shouldShowPreselectedValueColumn: multiple
               multiSelection: true
             600:
               identifier: autocomplete
@@ -158,23 +157,16 @@ prototypes:
                     identifier: removeButton
                     templateName: Inspector-RemoveElementEditor
           label: formEditor.elements.MultiSelect.label
+          description: formEditor.elements.MultiSelect.description
           group: select
           groupSorting: 500
           iconIdentifier: form-multi-select
         implementationClassName: TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement
         properties:
-          containerClassAttribute: input
-          elementClassAttribute: xlarge
-          elementErrorClassAttribute: error
-        variants:
-          -
-            identifier: template-variant
-            condition: 'getRootFormProperty("renderingOptions.templateVariant") == "version2"'
-            properties:
-              containerClassAttribute: 'form-element form-element-multiselect mb-3'
-              elementClassAttribute: 'form-select xlarge'
-              elementErrorClassAttribute: ~
-              labelClassAttribute: form-label
+          containerClassAttribute: 'form-element form-element-multiselect mb-3'
+          elementClassAttribute: 'form-select xlarge'
+          elementErrorClassAttribute: ~
+          labelClassAttribute: form-label
     formEditor:
       formEditorPartials:
         FormElement-MultiSelect: Stage/SelectTemplate

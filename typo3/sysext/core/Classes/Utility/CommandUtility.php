@@ -108,9 +108,15 @@ class CommandUtility
             return false;
         }
 
-        $output = explode(PHP_EOL, $process->getOutput());
+        $processOutput = $process->getOutput();
+        if (str_ends_with($processOutput, PHP_EOL)) {
+            // Last \n is ignored by PHP exec(): https://github.com/php/php-src/blob/b675db4c56dd0de4ea1f5195d587ed90f0096ed8/ext/standard/exec.c#L148
+            $processOutput = substr($processOutput, 0, -1);
+        }
+        $output = explode(PHP_EOL, $processOutput);
 
-        return $output[count($output) - 1] ?? '';
+        return rtrim(strrchr($processOutput, PHP_EOL) ?: $processOutput);
+
     }
 
     /**
@@ -160,6 +166,11 @@ class CommandUtility
             } else {
                 $parameters = str_replace('###SkipStripProfile###', '', $parameters);
             }
+
+            // When converting images that have background transparency, this needs to be not filled,
+            // but preserved, so that e.g. conversion from SVG into PNG/JPG contains transparency info.
+            // Without this option, the default background color for conversions is white (https://imagemagick.org/script/command-line-options.php#background)
+            $parameters = '-background none ' . $parameters;
         }
         // Add -auto-orient on convert so IM/GM respects the image orient
         if ($parameters && $command === 'convert') {

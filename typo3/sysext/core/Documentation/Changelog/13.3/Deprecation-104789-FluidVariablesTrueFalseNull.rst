@@ -19,7 +19,7 @@ named `true`, `false` and `null` are no longer allowed.
 Impact
 ======
 
-Usage of `true`, `false` or `null` as variable name will throw
+Assigning variables with name `true`, `false` or `null` will throw
 an exception in Fluid v4. In preparation of this change, Fluid v2.15 logs a
 deprecation level error message if any of these variable names are used.
 
@@ -34,7 +34,7 @@ This should rarely happen, as it would involve using :php:`$view->assign('true',
 Migration
 =========
 
-Template code using these variables should be adjusted to use diffferent variable names.
+Template code using these variables should be adjusted to use different variable names.
 In Fluid v4, the variables will contain their matching PHP counterparts.
 
 .. index:: Fluid, NotScanned, ext:fluid

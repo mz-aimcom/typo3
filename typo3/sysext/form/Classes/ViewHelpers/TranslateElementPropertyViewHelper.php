@@ -17,14 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\ViewHelpers;
 
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
 use TYPO3\CMS\Form\Service\TranslationService;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
  * Translate form element properties.
@@ -33,7 +30,9 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
  */
 final class TranslateElementPropertyViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
+    public function __construct(
+        private readonly TranslationService $translationService
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -44,22 +43,17 @@ final class TranslateElementPropertyViewHelper extends AbstractViewHelper
 
     /**
      * Return array element by key.
-     *
-     * @return string|array
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext)
+    public function render(): array|null|string
     {
-        self::assertArgumentTypes($arguments);
-
-        $element = $arguments['element'];
-
+        self::assertArgumentTypes($this->arguments);
+        $element = $this->arguments['element'];
         $property = null;
-        if (!empty($arguments['property'])) {
-            $property = $arguments['property'];
-        } elseif (!empty($arguments['renderingOptionProperty'])) {
-            $property = $arguments['renderingOptionProperty'];
+        if (!empty($this->arguments['property'])) {
+            $property = $this->arguments['property'];
+        } elseif (!empty($this->arguments['renderingOptionProperty'])) {
+            $property = $this->arguments['renderingOptionProperty'];
         }
-
         if (empty($property)) {
             $propertyParts = [];
         } elseif (is_array($property)) {
@@ -67,16 +61,14 @@ final class TranslateElementPropertyViewHelper extends AbstractViewHelper
         } else {
             $propertyParts = [$property];
         }
-
         /** @var FormRuntime $formRuntime */
-        $formRuntime = $renderingContext
+        $formRuntime = $this->renderingContext
             ->getViewHelperVariableContainer()
             ->get(RenderRenderableViewHelper::class, 'formRuntime');
-
-        return GeneralUtility::makeInstance(TranslationService::class)->translateFormElementValue($element, $propertyParts, $formRuntime);
+        return $this->translationService->translateFormElementValue($element, $propertyParts, $formRuntime);
     }
 
-    protected static function assertArgumentTypes(array $arguments)
+    private static function assertArgumentTypes(array $arguments): void
     {
         foreach (['property', 'renderingOptionProperty'] as $argumentName) {
             if (

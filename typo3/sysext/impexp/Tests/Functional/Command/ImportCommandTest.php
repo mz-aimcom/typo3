@@ -33,7 +33,7 @@ final class ImportCommandTest extends AbstractImportExportTestCase
     {
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Not enough arguments (missing: "file")');
-        $tester = new CommandTester(new ImportCommand(new Import()));
+        $tester = new CommandTester($this->get(ImportCommand::class));
         $tester->execute([], []);
     }
 
@@ -41,7 +41,7 @@ final class ImportCommandTest extends AbstractImportExportTestCase
     public function importCommandRequiresFileArgumentOnly(): void
     {
         $filePath = 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/sys_news.xml';
-        $tester = new CommandTester(new ImportCommand(new Import()));
+        $tester = new CommandTester($this->get(ImportCommand::class));
         $tester->execute(['file' => $filePath], []);
         self::assertEquals(0, $tester->getStatusCode());
     }
@@ -63,20 +63,19 @@ final class ImportCommandTest extends AbstractImportExportTestCase
         ];
 
         $importMock = $this->getAccessibleMock(Import::class, [
-            'setPid', 'setUpdate', 'setGlobalIgnorePid', 'setForceAllUids', 'setEnableLogging', 'loadFile',
-            'setImportMode',
-        ]);
+            'setPid', 'setUpdate', 'setGlobalIgnorePid', 'setForceAllUids', 'setEnableLogging', 'loadFile', 'setImportMode',
+        ], [], '', false);
 
-        $importMock->expects(self::once())->method('setPid')->with(self::equalTo(3));
-        $importMock->expects(self::once())->method('setUpdate')->with(self::equalTo(false));
-        $importMock->expects(self::once())->method('setGlobalIgnorePid')->with(self::equalTo(false));
-        $importMock->expects(self::once())->method('setForceAllUids')->with(self::equalTo(false));
-        $importMock->expects(self::once())->method('setEnableLogging')->with(self::equalTo(false));
-        $importMock->expects(self::once())->method('setImportMode')->with(self::equalTo([
+        $importMock->expects($this->once())->method('setPid')->with(self::equalTo(3));
+        $importMock->expects($this->once())->method('setUpdate')->with(self::equalTo(false));
+        $importMock->expects($this->once())->method('setGlobalIgnorePid')->with(self::equalTo(false));
+        $importMock->expects($this->once())->method('setForceAllUids')->with(self::equalTo(false));
+        $importMock->expects($this->once())->method('setEnableLogging')->with(self::equalTo(false));
+        $importMock->expects($this->once())->method('setImportMode')->with(self::equalTo([
             'tt_content:1' => Import::IMPORT_MODE_EXCLUDE,
             'pages:789' => Import::IMPORT_MODE_FORCE_UID,
         ]));
-        $importMock->expects(self::once())->method('loadFile')->with(self::equalTo('EXT:impexp/Tests/Functional/Fixtures/XmlImports/sys_news.xml'));
+        $importMock->expects($this->once())->method('loadFile')->with(self::equalTo('EXT:impexp/Tests/Functional/Fixtures/XmlImports/sys_news.xml'));
 
         $tester = new CommandTester(new ImportCommand($importMock));
         $tester->execute($input);
@@ -134,7 +133,7 @@ final class ImportCommandTest extends AbstractImportExportTestCase
     #[Test]
     public function importCommandFails(array $input, string $expected): void
     {
-        $tester = new CommandTester(new ImportCommand(new Import()));
+        $tester = new CommandTester($this->get(ImportCommand::class));
         $tester->execute(
             $input,
             ['verbosity' => Output::VERBOSITY_VERBOSE]

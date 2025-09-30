@@ -17,14 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class PasswordFieldType extends AbstractFieldType implements FieldTypeInterface
+final readonly class PasswordFieldType extends AbstractFieldType
 {
     public function getType(): string
     {
         return 'password';
+    }
+
+    public function isSearchable(): false
+    {
+        return false;
     }
 
     public function isHashed(): bool
@@ -32,8 +34,8 @@ final readonly class PasswordFieldType extends AbstractFieldType implements Fiel
         return $this->configuration['hashed'] ?? true;
     }
 
-    public static function __set_state(array $state): self
+    public function getSoftReferenceKeys(): false
     {
-        return new self(...$state);
+        return false;
     }
 }

@@ -21,7 +21,6 @@ use Symfony\Component\ExpressionLanguage\ExpressionFunction;
 use Symfony\Component\ExpressionLanguage\ExpressionFunctionProviderInterface;
 use TYPO3\CMS\Core\Site\Entity\SiteInterface;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 
 /**
  * Functions available in 'TypoScript' context. Note these rely on variables
@@ -37,32 +36,11 @@ class Typo3ConditionFunctionsProvider implements ExpressionFunctionProviderInter
     public function getFunctions(): array
     {
         return [
-            $this->getTSFEFunction(),
             $this->getSessionFunction(),
             $this->getSiteFunction(),
             $this->getSiteLanguageFunction(),
+            $this->getLocaleFunction(),
         ];
-    }
-
-    protected function getTSFEFunction(): ExpressionFunction
-    {
-        // @todo: This should probably vanish mid-term: TSFE is shrinking and calling
-        //        properties on this object is risky and becomes more and more problematic.
-        return new ExpressionFunction(
-            'getTSFE',
-            static fn() => null, // Not implemented, we only use the evaluator
-            static function ($arguments) {
-                // @todo: b/w compat layer. This will later log a deprecation log entry when
-                //        for instance tsfe->id is being actively deprecated. When this happens,
-                //        an alternative should be documented to for instance retrieve the current
-                //        page uid from PageInformation - request attribute 'frontend.page.information'.
-                if (($arguments['tsfe'] ?? null) instanceof TypoScriptFrontendController) {
-                    return $arguments['tsfe'];
-                }
-                // If TSFE is not given as argument, return null.
-                return null;
-            }
-        );
     }
 
     protected function getSessionFunction(): ExpressionFunction
@@ -122,6 +100,21 @@ class Typo3ConditionFunctionsProvider implements ExpressionFunctionProviderInter
                     if (method_exists($siteLanguage, $methodName)) {
                         return $siteLanguage->$methodName();
                     }
+                }
+                return null;
+            }
+        );
+    }
+
+    protected function getLocaleFunction(): ExpressionFunction
+    {
+        return new ExpressionFunction(
+            'locale',
+            static fn() => null, // Not implemented, we only use the evaluator
+            static function (array $arguments) {
+                $siteLanguage = $arguments['siteLanguage'] ?? null;
+                if ($siteLanguage instanceof SiteLanguage) {
+                    return $siteLanguage->getLocale();
                 }
                 return null;
             }

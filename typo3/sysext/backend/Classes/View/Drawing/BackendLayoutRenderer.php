@@ -34,6 +34,7 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\Exception\UndefinedSchemaException;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\View\ViewInterface;
 
 /**
  * Backend Layout Renderer
@@ -54,7 +55,7 @@ class BackendLayoutRenderer
     public function getGridForPageLayoutContext(PageLayoutContext $context): Grid
     {
         $recordIdentityMap = $context->getRecordIdentityMap();
-        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class, $context);
+        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class);
         $grid = GeneralUtility::makeInstance(Grid::class, $context);
         if ($context->getDrawingConfiguration()->isLanguageComparisonMode()) {
             $languageId = $context->getSiteLanguage()->getLanguageId();
@@ -69,15 +70,13 @@ class BackendLayoutRenderer
                 $columnObject = GeneralUtility::makeInstance(GridColumn::class, $context, $column);
                 $rowObject->addColumn($columnObject);
                 if (isset($column['colPos'])) {
-                    $records = $contentFetcher->getContentRecordsPerColumn((int)$column['colPos'], $languageId);
+                    $records = $contentFetcher->getContentRecordsPerColumn($context, (int)$column['colPos'], $languageId);
                     foreach ($records as $contentRecord) {
-                        // @todo: ideally we hand in the record object into the GridColumnItem in the future
-                        if (!$recordIdentityMap->hasIdentifier('tt_content', (int)($contentRecord['uid'] ?? null))) {
-                            try {
-                                $recordObject = $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $contentRecord);
-                                $recordIdentityMap->add($recordObject);
-                            } catch (UndefinedSchemaException) {
-                            }
+                        // @todo: ideally we hand in the record object into the GridColumnItem in the future - For now
+                        //        we just call record factory to create the record and store it in the identity map.
+                        try {
+                            $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $contentRecord, null, $recordIdentityMap);
+                        } catch (UndefinedSchemaException) {
                         }
                         $columnItem = GeneralUtility::makeInstance(GridColumnItem::class, $context, $columnObject, $contentRecord);
                         $columnObject->addItem($columnItem);
@@ -89,13 +88,9 @@ class BackendLayoutRenderer
         return $grid;
     }
 
-    /**
-     * @param bool $renderUnused If true, renders the bottom column with unused records
-     */
-    public function drawContent(ServerRequestInterface $request, PageLayoutContext $pageLayoutContext, bool $renderUnused = true): string
+    protected function createView(ServerRequestInterface $request, PageLayoutContext $pageLayoutContext): ViewInterface
     {
         $backendUser = $this->getBackendUser();
-        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class, $pageLayoutContext);
 
         $view = $this->backendViewFactory->create($request);
         $view->assignMultiple([
@@ -104,13 +99,18 @@ class BackendLayoutRenderer
             'allowEditContent' => $backendUser->check('tables_modify', 'tt_content'),
             'maxTitleLength' => $backendUser->uc['titleLen'] ?? 20,
         ]);
+        return $view;
+    }
+
+    /**
+     * @param bool $renderUnused If true, renders the bottom column with unused records
+     */
+    public function drawContent(ServerRequestInterface $request, PageLayoutContext $pageLayoutContext, bool $renderUnused = true): string
+    {
+        $view = $this->createView($request, $pageLayoutContext);
 
         if ($pageLayoutContext->getDrawingConfiguration()->isLanguageComparisonMode()) {
-            if ($pageLayoutContext->getDrawingConfiguration()->getDefaultLanguageBinding()) {
-                $view->assign('languageColumns', $this->getLanguageColumnsWithDefLangBindingForPageLayoutContext($pageLayoutContext));
-            } else {
-                $view->assign('languageColumns', $this->getLanguageColumnsForPageLayoutContext($pageLayoutContext));
-            }
+            $view->assign('languageColumns', $this->getLanguageColumnsForPageLayoutContext($pageLayoutContext));
         } else {
             $context = $pageLayoutContext;
             // Check if we have to use a localized context for grid creation
@@ -124,90 +124,68 @@ class BackendLayoutRenderer
                     // localized page record use this context for grid creation.
                     $context = $localizedContext;
                 }
+            } elseif ($pageLayoutContext->getDrawingConfiguration()->getSelectedLanguageId() === -1) {
+                // In case we are not in language comparison mode and all-language is given,
+                // we fall back to the default language to prevent an empty grid.
+                $context->getDrawingConfiguration()->setSelectedLanguageId($context->getSiteLanguage()->getLanguageId());
             }
-            $grid  = $this->getGridForPageLayoutContext($context);
+            $grid = $this->getGridForPageLayoutContext($context);
             $view->assign('grid', $grid);
             $view->assign('gridColumns', array_fill(1, $grid->getContext()->getBackendLayout()->getColCount(), null));
         }
 
         $rendered = $view->render('PageLayout/PageLayout');
         if ($renderUnused) {
-            $unusedRecords = $contentFetcher->getUnusedRecords();
-
-            if (!empty($unusedRecords)) {
-                $unusedElementsMessage = GeneralUtility::makeInstance(
-                    FlashMessage::class,
-                    $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarning'),
-                    $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarningTitle'),
-                    ContextualFeedbackSeverity::WARNING
-                );
-                $service = GeneralUtility::makeInstance(FlashMessageService::class);
-                $queue = $service->getMessageQueueByIdentifier();
-                $queue->addMessage($unusedElementsMessage);
-
-                $unusedGrid = GeneralUtility::makeInstance(Grid::class, $pageLayoutContext);
-                $unusedRow = GeneralUtility::makeInstance(GridRow::class, $pageLayoutContext);
-                $unusedColumn = GeneralUtility::makeInstance(GridColumn::class, $pageLayoutContext, ['name' => 'unused']);
-
-                $unusedGrid->addRow($unusedRow);
-                $unusedRow->addColumn($unusedColumn);
-
-                foreach ($unusedRecords as $unusedRecord) {
-                    $item = GeneralUtility::makeInstance(GridColumnItem::class, $pageLayoutContext, $unusedColumn, $unusedRecord);
-                    $unusedColumn->addItem($item);
-                }
-
-                $view->assign('grid', $unusedGrid);
-                $view->assign('gridColumns', null);
-                $rendered .= $view->render('PageLayout/UnusedRecords');
-            }
+            $rendered .= $this->renderUnused($request, $pageLayoutContext);
         }
         return $rendered;
     }
 
-    /**
-     * @return LanguageColumn[]
-     */
-    protected function getLanguageColumnsForPageLayoutContext(PageLayoutContext $context): iterable
+    protected function renderUnused(ServerRequestInterface $request, PageLayoutContext $pageLayoutContext): string
     {
-        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class, $context);
-        $languageColumns = [];
-        foreach ($context->getLanguagesToShow() as $siteLanguage) {
-            $localizedLanguageId = $siteLanguage->getLanguageId();
-            if ($localizedLanguageId === -1) {
-                continue;
-            }
-            if ($localizedLanguageId > 0) {
-                $localizedContext = $context->cloneForLanguage($siteLanguage);
-                if (!$localizedContext->getLocalizedPageRecord()) {
-                    continue;
-                }
-            } else {
-                $localizedContext = $context;
-            }
-            $translationInfo = $contentFetcher->getTranslationData(
-                $contentFetcher->getFlatContentRecords($localizedLanguageId),
-                $localizedContext->getSiteLanguage()->getLanguageId()
-            );
-            $languageColumnObject = GeneralUtility::makeInstance(
-                LanguageColumn::class,
-                $localizedContext,
-                $this->getGridForPageLayoutContext($localizedContext),
-                $translationInfo
-            );
-            $languageColumns[] = $languageColumnObject;
+        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class);
+        $view = $this->createView($request, $pageLayoutContext);
+        $unusedRecords = $contentFetcher->getUnusedRecords($pageLayoutContext);
+
+        if (empty($unusedRecords)) {
+            return '';
         }
-        return $languageColumns;
+        $unusedElementsMessage = GeneralUtility::makeInstance(
+            FlashMessage::class,
+            $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarning'),
+            $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarningTitle'),
+            ContextualFeedbackSeverity::WARNING
+        );
+        $service = GeneralUtility::makeInstance(FlashMessageService::class);
+        $queue = $service->getMessageQueueByIdentifier();
+        $queue->addMessage($unusedElementsMessage);
+
+        $unusedGrid = GeneralUtility::makeInstance(Grid::class, $pageLayoutContext);
+        $unusedRow = GeneralUtility::makeInstance(GridRow::class, $pageLayoutContext);
+        $unusedColumn = GeneralUtility::makeInstance(GridColumn::class, $pageLayoutContext, ['name' => 'unused']);
+
+        $unusedGrid->addRow($unusedRow);
+        $unusedRow->addColumn($unusedColumn);
+
+        foreach ($unusedRecords as $unusedRecord) {
+            $item = GeneralUtility::makeInstance(GridColumnItem::class, $pageLayoutContext, $unusedColumn, $unusedRecord);
+            $unusedColumn->addItem($item);
+        }
+
+        $view->assign('grid', $unusedGrid);
+        $view->assign('gridColumns', null);
+        return $view->render('PageLayout/UnusedRecords');
     }
 
-    protected function getLanguageColumnsWithDefLangBindingForPageLayoutContext(PageLayoutContext $context): iterable
+    protected function getLanguageColumnsForPageLayoutContext(PageLayoutContext $context): iterable
     {
-        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class, $context);
+        $contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class);
         $languageColumns = [];
 
         // default language
         $translationInfo = $contentFetcher->getTranslationData(
-            $contentFetcher->getFlatContentRecords(0),
+            $context,
+            $contentFetcher->getFlatContentRecords($context, 0),
             0
         );
 
@@ -229,11 +207,12 @@ class BackendLayoutRenderer
             }
 
             $translationInfo = $contentFetcher->getTranslationData(
-                $contentFetcher->getFlatContentRecords($localizedLanguageId),
+                $context,
+                $contentFetcher->getFlatContentRecords($context, $localizedLanguageId),
                 $localizedContext->getSiteLanguage()->getLanguageId()
             );
 
-            $translatedRows = $contentFetcher->getFlatContentRecords($localizedLanguageId);
+            $translatedRows = $contentFetcher->getFlatContentRecords($context, $localizedLanguageId);
 
             foreach ($defaultLanguageColumnObject->getGrid()->getRows() as $rows) {
                 foreach ($rows->getColumns() as $column) {

@@ -88,6 +88,23 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
+    public function deleteParentContentWithoutSoftDelete(): void
+    {
+        parent::deleteParentContentWithoutSoftDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentWithoutSoftDelete.csv');
+    }
+
+    #[Test]
+    public function deleteParentContentWithoutCascadingDelete(): void
+    {
+        // @todo: TCA 'enableCascadingDelete' = false is *not* honored in workspaces. There
+        //        are follow-up issues with discard and publish, their tests should be added
+        //        when fixing this.
+        parent::deleteParentContentWithoutCascadingDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentWithoutCascadingDelete.csv');
+    }
+
+    #[Test]
     public function copyParentContent(): void
     {
         parent::copyParentContent();
@@ -117,6 +134,16 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
+    }
+
+    #[Test]
+    public function copyParentContentToDifferentLanguageWAllChildren(): void
+    {
+        // Create translated page first
+        $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        // Use DH "copy"
+        parent::copyParentContentToDifferentLanguageWAllChildren();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyParentContentToDiffLanguageWAllChildren.csv');
     }
 
     #[Test]

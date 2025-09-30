@@ -17,18 +17,40 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class UuidFieldType extends AbstractFieldType implements FieldTypeInterface
+final readonly class UuidFieldType extends AbstractFieldType
 {
     public function getType(): string
     {
         return 'uuid';
     }
 
-    public static function __set_state(array $state): self
+    public function isSearchable(): bool
     {
-        return new self(...$state);
+        return (bool)($this->configuration['searchable'] ?? true);
+    }
+
+    public function getVersion(): int
+    {
+        return in_array($this->configuration['version'] ?? 0, [4, 6, 7], true) ? $this->configuration['version'] : 4;
+    }
+
+    public function isNullable(): false
+    {
+        return false;
+    }
+
+    public function getDefaultValue(): string
+    {
+        return '';
+    }
+
+    public function hasDefaultValue(): true
+    {
+        return true;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

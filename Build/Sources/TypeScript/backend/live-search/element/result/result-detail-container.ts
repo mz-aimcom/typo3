@@ -12,9 +12,9 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import './item/action/action-container';
-import { ResultItemInterface } from './item/item';
+import type { ResultItemInterface } from './item/item';
 
 export const componentName = 'typo3-backend-live-search-result-item-detail-container';
 
@@ -22,12 +22,12 @@ export const componentName = 'typo3-backend-live-search-result-item-detail-conta
 export class ResultDetailContainer extends LitElement {
   @property({ type: Object, attribute: false }) resultItem: ResultItemInterface|null = null;
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
-  protected render(): TemplateResult | symbol {
+  protected override render(): TemplateResult | symbol {
     if (this.resultItem === null) {
       return nothing;
     }

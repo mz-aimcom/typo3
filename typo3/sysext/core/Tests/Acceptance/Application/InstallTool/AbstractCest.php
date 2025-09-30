@@ -29,11 +29,17 @@ class AbstractCest
 
     public function _before(ApplicationTester $I): void
     {
-        $I->amOnPage('typo3/install.php');
+        $I->amOnPage('?__typo3_install');
     }
 
     public function _after(ApplicationTester $I): void
     {
+        // Make sure any open modal gets closed
+        if ($I->tryToSeeElement('.modal-dialog')) {
+            $I->click('.t3js-modal-close');
+            $I->waitForElementNotVisible('.modal-dialog');
+        }
+
         $I->click('Logout');
         // Make sure logout has finished
         $I->waitForText('The Install Tool is locked', 20);

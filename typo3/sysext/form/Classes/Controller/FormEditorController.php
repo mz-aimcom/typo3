@@ -18,11 +18,13 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\Controller;
 
 use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -33,19 +35,22 @@ use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
+use TYPO3\CMS\Core\View\ViewFactoryData;
+use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
-use TYPO3\CMS\Fluid\View\TemplateView;
 use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinitionConversionService;
 use TYPO3\CMS\Form\Domain\Exception\RenderingException;
 use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
+use TYPO3\CMS\Form\Event\BeforeFormIsSavedEvent;
 use TYPO3\CMS\Form\Exception;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Form\Mvc\Persistence\Exception\PersistenceManagerException;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
+use TYPO3\CMS\Form\Service\DatabaseService;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3\CMS\Form\Type\FormDefinitionArray;
 
@@ -57,6 +62,8 @@ use TYPO3\CMS\Form\Type\FormDefinitionArray;
  */
 class FormEditorController extends ActionController
 {
+    use AllowedMethodsTrait;
+
     protected const JS_MODULE_NAMES = ['app', 'mediator', 'viewModel'];
 
     public function __construct(
@@ -70,6 +77,9 @@ class FormEditorController extends ActionController
         protected readonly ConfigurationService $configurationService,
         protected readonly UriBuilder $coreUriBuilder,
         protected readonly ArrayFormFactory $arrayFormFactory,
+        protected readonly ViewFactoryInterface $viewFactory,
+        protected readonly DatabaseService $databaseService,
+        protected readonly CacheManager $cacheManager,
     ) {}
 
     /**
@@ -169,6 +179,7 @@ class FormEditorController extends ActionController
      */
     protected function initializeSaveFormAction(): void
     {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
         $this->defaultViewObjectName = JsonView::class;
     }
 
@@ -178,15 +189,11 @@ class FormEditorController extends ActionController
     protected function saveFormAction(string $formPersistenceIdentifier, FormDefinitionArray $formDefinition): ResponseInterface
     {
         $formDefinition = $formDefinition->getArrayCopy();
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['beforeFormSave'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'beforeFormSave')) {
-                $formDefinition = $hookObj->beforeFormSave(
-                    $formPersistenceIdentifier,
-                    $formDefinition
-                );
-            }
-        }
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeFormIsSavedEvent($formPersistenceIdentifier, $formDefinition),
+        );
+        $formPersistenceIdentifier = $event->formPersistenceIdentifier;
+        $formDefinition = $event->form;
         $response = [
             'status' => 'success',
         ];
@@ -196,6 +203,7 @@ class FormEditorController extends ActionController
                 throw new PersistenceManagerException(sprintf('Save "%s" is not allowed', $formPersistenceIdentifier), 1614500663);
             }
             $this->formPersistenceManager->save($formPersistenceIdentifier, $formDefinition, $formSettings);
+            $this->flushPageCache($formPersistenceIdentifier);
             $prototypeConfiguration = $this->configurationService->getPrototypeConfiguration($formDefinition['prototypeName']);
             $formDefinition = $this->transformFormDefinitionForFormEditor($prototypeConfiguration, $formDefinition);
             $response['formDefinition'] = $formDefinition;
@@ -272,12 +280,12 @@ class FormEditorController extends ActionController
      * Prepare the formElements.*.formEditor section from the YAML settings.
      * Sort all formElements into groups and add additional data.
      */
-    protected function getInsertRenderablesPanelConfiguration(array $prototypeConfiguration, array $formElementsDefinition): array
+    protected function getInsertRenderablesPanelConfiguration(array $prototypeConfiguration, array $formElementsDefinition, bool $isInsertPages = false): array
     {
-        /** @var array<string, list<array<string, array{key: string, cssKey: string, label: string, sorting: int, iconIdentifier: string}>>> $formElementsByGroup */
+        /** @var array<string, list<array<string, array{key: string, cssKey: string, label: string, description: string, sorting: int, iconIdentifier: string}>>> $formElementsByGroup */
         $formElementsByGroup = [];
         foreach ($formElementsDefinition as $formElementName => $formElementConfiguration) {
-            if (!isset($formElementConfiguration['group'])) {
+            if (!isset($formElementConfiguration['group']) || ($isInsertPages && $formElementConfiguration['group'] !== 'page') || (!$isInsertPages && $formElementConfiguration['group'] === 'page')) {
                 continue;
             }
             if (!isset($formElementsByGroup[$formElementConfiguration['group']])) {
@@ -288,11 +296,13 @@ class FormEditorController extends ActionController
                 $prototypeConfiguration['formEditor']['translationFiles'] ?? []
             );
             $formElementsByGroup[$formElementConfiguration['group']][] = [
-                'key' => $formElementName,
-                'cssKey' => preg_replace('/[^a-z0-9]/', '-', strtolower($formElementName)),
+                'identifier' => $formElementName,
                 'label' => $formElementConfiguration['label'],
+                'description' => $formElementConfiguration['description'] ?? '',
+                'requestType' => 'event',
+                'event' => 'typo3:form:insert-element-click',
                 'sorting' => $formElementConfiguration['groupSorting'],
-                'iconIdentifier' => $formElementConfiguration['iconIdentifier'],
+                'icon' => $formElementConfiguration['iconIdentifier'],
             ];
         }
         $formGroups = [];
@@ -307,9 +317,9 @@ class FormEditorController extends ActionController
                 $groupConfiguration,
                 $prototypeConfiguration['formEditor']['translationFiles'] ?? []
             );
-            $formGroups[] = [
-                'key' => $groupName,
-                'elements' => $formElementsByGroup[$groupName],
+            $formGroups[$groupName] = [
+                'identifier' => $groupName,
+                'items' => $formElementsByGroup[$groupName],
                 'label' => $groupConfiguration['label'],
             ];
         }
@@ -354,18 +364,10 @@ class FormEditorController extends ActionController
         $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $getVars = $request->getArguments();
         if (isset($getVars['action']) && $getVars['action'] === 'index') {
-            $newPageButton = $buttonBar->makeInputButton()
-                ->setDataAttributes(['action' => 'formeditor-new-page', 'identifier' => 'headerNewPage'])
-                ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.new_page_button'))
-                ->setName('formeditor-new-page')
-                ->setValue('new-page')
-                ->setClasses('t3-form-element-new-page-button hidden')
-                ->setIcon($this->iconFactory->getIcon('actions-page-new', IconSize::SMALL));
-            $buttonBar->addButton($newPageButton);
             $closeButton = $buttonBar->makeLinkButton()
                 ->setDataAttributes(['identifier' => 'closeButton'])
                 ->setHref((string)$this->coreUriBuilder->buildUriFromRoute('web_FormFormbuilder'))
-                ->setClasses('t3-form-element-close-form-button hidden')
+                ->setClasses('formeditor-element-close-form-button hidden')
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
                 ->setShowLabelText(true)
                 ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
@@ -375,25 +377,16 @@ class FormEditorController extends ActionController
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.save_button'))
                 ->setName('formeditor-save-form')
                 ->setValue('save')
-                ->setClasses('t3-form-element-save-form-button hidden')
+                ->setClasses('formeditor-element-save-form-button hidden')
                 ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
                 ->setShowLabelText(true);
             $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
-            $formSettingsButton = $buttonBar->makeInputButton()
-                ->setDataAttributes(['identifier' => 'formSettingsButton'])
-                ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.form_settings_button'))
-                ->setName('formeditor-form-settings')
-                ->setValue('settings')
-                ->setClasses('t3-form-element-form-settings-button hidden')
-                ->setIcon($this->iconFactory->getIcon('actions-system-extension-configure', IconSize::SMALL))
-                ->setShowLabelText(true);
-            $buttonBar->addButton($formSettingsButton, ButtonBar::BUTTON_POSITION_LEFT, 4);
             $undoButton = $buttonBar->makeInputButton()
                 ->setDataAttributes(['identifier' => 'undoButton'])
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.undo_button'))
                 ->setName('formeditor-undo-form')
                 ->setValue('undo')
-                ->setClasses('t3-form-element-undo-form-button hidden disabled')
+                ->setClasses('formeditor-element-undo-form-button hidden disabled')
                 ->setIcon($this->iconFactory->getIcon('actions-edit-undo', IconSize::SMALL));
             $buttonBar->addButton($undoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
             $redoButton = $buttonBar->makeInputButton()
@@ -401,7 +394,7 @@ class FormEditorController extends ActionController
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.redo_button'))
                 ->setName('formeditor-redo-form')
                 ->setValue('redo')
-                ->setClasses('t3-form-element-redo-form-button hidden disabled')
+                ->setClasses('formeditor-element-redo-form-button hidden disabled')
                 ->setIcon($this->iconFactory->getIcon('actions-edit-redo', IconSize::SMALL));
             $buttonBar->addButton($redoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
         }
@@ -424,13 +417,19 @@ class FormEditorController extends ActionController
         if (!isset($fluidConfiguration['partialRootPaths']) || !is_array($fluidConfiguration['partialRootPaths'])) {
             throw new RenderingException('The option partialRootPaths must be set.', 1480294722);
         }
-        $insertRenderablesPanelConfiguration = $this->getInsertRenderablesPanelConfiguration($prototypeConfiguration, $formEditorDefinitions['formElements']);
-        $view = GeneralUtility::makeInstance(TemplateView::class);
-        $view->getRenderingContext()->setAttribute(ServerRequestInterface::class, $this->request);
-        $view->getRenderingContext()->getTemplatePaths()->fillFromConfigurationArray($fluidConfiguration);
-        $view->setTemplatePathAndFilename($fluidConfiguration['templatePathAndFilename']);
+
+        $elementsCategories = $this->getInsertRenderablesPanelConfiguration($prototypeConfiguration, $formEditorDefinitions['formElements']);
+        $pagesCategories = $this->getInsertRenderablesPanelConfiguration($prototypeConfiguration, $formEditorDefinitions['formElements'], true);
+        $viewFactoryData = new ViewFactoryData(
+            templatePathAndFilename: $fluidConfiguration['templatePathAndFilename'],
+            partialRootPaths: $fluidConfiguration['partialRootPaths'],
+            layoutRootPaths: $fluidConfiguration['layoutRootPaths'],
+            request: $this->request,
+        );
+        $view = $this->viewFactory->create($viewFactoryData);
         $view->assignMultiple([
-            'insertRenderablesPanelConfiguration' => $insertRenderablesPanelConfiguration,
+            'elementsCategoriesJson' => GeneralUtility::jsonEncodeForHtmlAttribute($elementsCategories, false),
+            'pagesCategoriesJson' => GeneralUtility::jsonEncodeForHtmlAttribute($pagesCategories, false),
             'formEditorPartials' => $formEditorPartials,
         ]);
         return $view->render();
@@ -612,6 +611,23 @@ class FormEditorController extends ActionController
             $formDefinition['finishers'][$i] = $finisherConfiguration;
         }
         return $formDefinition;
+    }
+
+    protected function flushPageCache(string $formPersistenceIdentifier): void
+    {
+        $pageIdList = [];
+        $referenceRows = $this->databaseService->getReferencesByPersistenceIdentifier($formPersistenceIdentifier);
+        foreach ($referenceRows as $referenceRow) {
+            $record = BackendUtility::getRecord($referenceRow['tablename'], $referenceRow['recuid']);
+            if (!$record) {
+                continue;
+            }
+            $pageIdList[] = $record['pid'];
+        }
+
+        foreach (array_unique($pageIdList) as $pageId) {
+            $this->cacheManager->flushCachesInGroupByTag('pages', 'pageId_' . $pageId);
+        }
     }
 
     protected function getLanguageService(): LanguageService

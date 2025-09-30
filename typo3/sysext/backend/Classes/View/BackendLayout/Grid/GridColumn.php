@@ -23,6 +23,8 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\Event\AfterSectionMarkupGeneratedEvent;
 use TYPO3\CMS\Backend\View\Event\BeforeSectionMarkupGeneratedEvent;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -52,6 +54,7 @@ class GridColumn extends AbstractGridObject
     protected readonly string $icon;
     protected readonly int $colSpan;
     protected readonly int $rowSpan;
+    protected readonly ?string $identifier;
     private readonly EventDispatcherInterface $eventDispatcher;
 
     /**
@@ -68,6 +71,7 @@ class GridColumn extends AbstractGridObject
         $this->icon = (string)($definition['icon'] ?? '');
         $this->colSpan = (int)($definition['colspan'] ?? 1);
         $this->rowSpan = (int)($definition['rowspan'] ?? 1);
+        $this->identifier = isset($definition['identifier']) ? (string)$definition['identifier'] : null;
         $this->eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
     }
 
@@ -128,6 +132,16 @@ class GridColumn extends AbstractGridObject
         return $this->rowSpan;
     }
 
+    public function getIdentifier(): ?string
+    {
+        return $this->identifier;
+    }
+
+    public function getIdentifierCleaned(): string
+    {
+        return strtolower((string)preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$this->identifier));
+    }
+
     /**
      * @return int[]
      */
@@ -157,8 +171,8 @@ class GridColumn extends AbstractGridObject
                     implode(',', $this->getAllContainedItemUids()) => 'edit',
                 ],
             ],
-            'recTitle' => rawurlencode(BackendUtility::getRecordTitle('pages', $pageRecord, true)),
-            'returnUrl' => rawurlencode($this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri()),
+            'recTitle' => BackendUtility::getRecordTitle('pages', $pageRecord, true),
+            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
         ]);
     }
 
@@ -231,9 +245,12 @@ class GridColumn extends AbstractGridObject
             return true;
         }
         $pageRecord = $this->context->getPageRecord();
-        return !$pageRecord['editlock']
-            && $this->getBackendUser()->doesUserHaveAccess($pageRecord, Permission::CONTENT_EDIT)
-            && $this->getBackendUser()->checkLanguageAccess($this->context->getSiteLanguage());
+        return $this->getBackendUser()->doesUserHaveAccess($pageRecord, Permission::CONTENT_EDIT)
+            && $this->getBackendUser()->checkLanguageAccess($this->context->getSiteLanguage())
+            && (
+                !($pagesSchema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
+                || !($pageRecord[$pagesSchema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
+            );
     }
 
     /**

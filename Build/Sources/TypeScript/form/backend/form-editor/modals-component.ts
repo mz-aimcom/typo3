@@ -16,7 +16,7 @@
  */
 import $ from 'jquery';
 import * as Helper from '@typo3/form/backend/form-editor/helper';
-import Modal, { Button } from '@typo3/backend/modal';
+import Modal, { type Button } from '@typo3/backend/modal';
 import Severity from '@typo3/backend/severity';
 import type {
   FormEditor,
@@ -199,10 +199,8 @@ function insertElementsModalSetup(
     }
   }
 
-  $('a', modalContent).on('click', function(this: HTMLElement) {
-    getPublisherSubscriber().publish(publisherTopicName, [$(this).data(getHelper().getDomElementDataAttribute('elementType'))]);
-    $('a', modalContent).off();
-    Modal.currentModal.hideModal();
+  $(modalContent).on('typo3:form:insert-element-click', function(e: Event) {
+    getPublisherSubscriber().publish(publisherTopicName, [(<CustomEvent> e).detail.item.identifier]);
   });
 }
 
@@ -355,11 +353,11 @@ export function showInsertElementsModal(
     const html = $(template.html());
     insertElementsModalSetup(html, publisherTopicName, configuration);
 
-    Modal.show(
-      getFormElementDefinition(getRootFormElement(), 'modalInsertElementsDialogTitle'),
-      $(html),
-      Severity.info
-    );
+    Modal.advanced({
+      title: getFormElementDefinition(getRootFormElement(), 'modalInsertElementsDialogTitle'),
+      size: Modal.sizes.large,
+      content: $(html),
+    });
   }
 }
 
@@ -371,11 +369,11 @@ export function showInsertPagesModal(
     const html = $(template.html());
     insertElementsModalSetup(html, publisherTopicName);
 
-    Modal.show(
-      getFormElementDefinition(getRootFormElement(), 'modalInsertPagesDialogTitle'),
-      $(html),
-      Severity.info
-    );
+    Modal.advanced({
+      title: getFormElementDefinition(getRootFormElement(), 'modalInsertPagesDialogTitle'),
+      size: Modal.sizes.small,
+      content: $(html),
+    });
   }
 }
 

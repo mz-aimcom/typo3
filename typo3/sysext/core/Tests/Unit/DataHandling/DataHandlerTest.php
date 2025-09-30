@@ -23,7 +23,6 @@ use PHPUnit\Framework\MockObject\MockObject;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
-use Symfony\Component\VarDumper\Cloner\Data;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -32,7 +31,6 @@ use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\DataHandling\DataHandlerCheckModifyAccessListHookInterface;
 use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
@@ -68,9 +66,9 @@ final class DataHandlerTest extends UnitTestCase
     {
         parent::setUp();
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isType('string'))->willReturn(false);
+        $cacheMock->method('has')->with(self::isString())->willReturn(false);
         $this->tcaSchemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder(),
+            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
             new FieldTypeFactory(),
             '',
             $cacheMock
@@ -97,23 +95,17 @@ final class DataHandlerTest extends UnitTestCase
     }
 
     #[Test]
-    public function fixtureCanBeCreated(): void
-    {
-        self::assertInstanceOf(DataHandler::class, $this->subject);
-    }
-
-    #[Test]
     public function adminIsAllowedToModifyNonAdminTable(): void
     {
         $this->subject->admin = true;
-        self::assertTrue($this->subject->checkModifyAccessList('tt_content'));
+        self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
     public function nonAdminIsNorAllowedToModifyNonAdminTable(): void
     {
         $this->subject->admin = false;
-        self::assertFalse($this->subject->checkModifyAccessList('tt_content'));
+        self::assertFalse($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
@@ -121,21 +113,21 @@ final class DataHandlerTest extends UnitTestCase
     {
         $this->subject->admin = false;
         $this->backendUserMock->groupData['tables_modify'] = 'tt_content';
-        self::assertTrue($this->subject->checkModifyAccessList('tt_content'));
+        self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
     public function adminIsAllowedToModifyAdminTable(): void
     {
         $this->subject->admin = true;
-        self::assertTrue($this->subject->checkModifyAccessList('be_users'));
+        self::assertTrue($this->subject->_call('checkModifyAccessList', 'be_users'));
     }
 
     #[Test]
     public function nonAdminIsNotAllowedToModifyAdminTable(): void
     {
         $this->subject->admin = false;
-        self::assertFalse($this->subject->checkModifyAccessList('be_users'));
+        self::assertFalse($this->subject->_call('checkModifyAccessList', 'be_users'));
     }
 
     #[Test]
@@ -152,7 +144,7 @@ final class DataHandlerTest extends UnitTestCase
         $this->subject->admin = false;
         $this->backendUserMock->groupData['tables_modify'] = $tableName;
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
-        self::assertFalse($this->subject->checkModifyAccessList($tableName));
+        self::assertFalse($this->subject->_call('checkModifyAccessList', $tableName));
     }
 
     public static function checkValueForDatetimeDataProvider(): array
@@ -162,8 +154,24 @@ final class DataHandlerTest extends UnitTestCase
             'timestamp is passed through, as it is UTC' => [
                 1457103519, 'Europe/Berlin', 1457103519,
             ],
-            'ISO date is interpreted as local date and is output as correct timestamp' => [
-                '2017-06-07T00:10:00Z', 'Europe/Berlin', 1496787000,
+            'unqualified ISO local is interpreted as local date and is output as correct timestamp' => [
+                // 1496787000 = 1496794200 - 2 * 3600
+                '2017-06-07T00:10:00', 'Europe/Berlin', 1496787000,
+            ],
+            'qualified ISO date with 0 (Z) offset is respected and is output as correct timestamp' => [
+                '2017-06-07T00:10:00Z', 'Europe/Berlin', 1496794200,
+            ],
+            'qualified ISO date with 0 offset is respected and is output as correct timestamp' => [
+                '2017-06-07T00:10:00+00:00', 'Europe/Berlin', 1496794200,
+            ],
+            'qualified ISO date with 2 hour offset is respected and is output as correct timestamp' => [
+                '2017-06-07T02:10:00+02:00', 'Europe/Berlin', 1496794200,
+            ],
+            'qualified ISO date with 4 hour offset is respected and is output as correct timestamp' => [
+                '2017-06-07T04:10:00+04:00', 'Europe/Berlin', 1496794200,
+            ],
+            'qualified ISO date with -2 hour offset is respected and is output as correct timestamp' => [
+                '2017-06-06T22:10:00-02:00', 'Europe/Berlin', 1496794200,
             ],
         ];
     }
@@ -175,7 +183,7 @@ final class DataHandlerTest extends UnitTestCase
         $oldTimezone = date_default_timezone_get();
         date_default_timezone_set($serverTimezone);
 
-        $output =  $this->subject->_call('checkValueForDatetime', $input, ['type' => 'datetime']);
+        $output = $this->subject->_call('checkValueForDatetime', $input, ['type' => 'datetime']);
 
         // set before the assertion is performed, so it is restored even for failing tests
         date_default_timezone_set($oldTimezone);
@@ -234,7 +242,7 @@ final class DataHandlerTest extends UnitTestCase
     {
         $event = new EnrichPasswordValidationContextDataEvent(new ContextData(), [], '');
         $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
-        $eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
         $constructorArguments = [
             $eventDispatcher,
             $this->createMock(CacheManager::class),
@@ -365,7 +373,7 @@ final class DataHandlerTest extends UnitTestCase
             ],
             '"-0.5" is interpreted correctly as -0.5 but is lower than 0 and set to 0' => [
                 '-0.5',
-                0,
+                0.0,
             ],
             '"0.5" is interpreted correctly as 0.5 and is equal to 0.5' => [
                 '0.5',
@@ -375,16 +383,16 @@ final class DataHandlerTest extends UnitTestCase
                 '39.9',
                 '39.90',
             ],
-            '"42.3" is interpreted correctly as 42.3 but is greater then 42 and set to 42' => [
-                '42.3',
-                42,
+            '"43.3" is interpreted correctly as 43.3 but is greater then 42 and set to 42' => [
+                '43.3',
+                42.0,
             ],
         ];
     }
 
     #[DataProvider('inputValuesRangeDoubleDataProvider')]
     #[Test]
-    public function inputValueCheckRespectsRightLowerAndUpperLimitForDouble(string $value, string|int $expectedReturnValue): void
+    public function inputValueCheckRespectsRightLowerAndUpperLimitForDouble(string $value, string|int|float $expectedReturnValue): void
     {
         $tcaFieldConf = [
             'type' => 'number',
@@ -400,7 +408,7 @@ final class DataHandlerTest extends UnitTestCase
 
     #[DataProvider('inputValuesRangeDoubleDataProvider')]
     #[Test]
-    public function inputValueCheckRespectsRightLowerAndUpperLimitWithDefaultValueForDouble(string $value, string|int $expectedReturnValue): void
+    public function inputValueCheckRespectsRightLowerAndUpperLimitWithDefaultValueForDouble(string $value, string|int|float $expectedReturnValue): void
     {
         $tcaFieldConf = [
             'type' => 'number',
@@ -418,42 +426,65 @@ final class DataHandlerTest extends UnitTestCase
     public static function datetimeValuesDataProvider(): array
     {
         return [
-            'undershot date adjusted' => [
-                '2018-02-28T00:00:00Z',
+            'undershot date adjusted in UTC' => [
+                '2018-02-28T00:00:00',
                 1519862400,
+                'UTC',
             ],
-            'exact lower date accepted' => [
-                '2018-03-01T00:00:00Z',
+            'exact lower date accepted in UTC' => [
+                '2018-03-01T00:00:00',
                 1519862400,
+                'UTC',
             ],
-            'exact upper date accepted' => [
-                '2018-03-31T23:59:59Z',
+            'exact upper date accepted in UTC' => [
+                '2018-03-31T23:59:59',
                 1522540799,
+                'UTC',
             ],
-            'exceeded date adjusted' => [
-                '2018-04-01T00:00:00Z',
+            'exceeded date adjusted in UTC' => [
+                '2018-04-01T00:00:00',
                 1522540799,
+                'UTC',
+            ],
+            'undershot date adjusted in Europe/Berlin' => [
+                '2018-02-28T00:00:00',
+                1519858800,
+                'Europe/Berlin',
+            ],
+            'exact lower date accepted in Europe/Berlin' => [
+                '2018-03-01T00:00:00',
+                1519858800,
+                'Europe/Berlin',
+            ],
+            'exact upper date accepted in Europe/Berlin' => [
+                '2018-03-31T23:59:59',
+                1522533599,
+                'Europe/Berlin',
+            ],
+            'exceeded date adjusted in Europe/Berlin' => [
+                '2018-04-01T00:00:00',
+                1522533599,
+                'Europe/Berlin',
             ],
         ];
     }
 
     #[DataProvider('datetimeValuesDataProvider')]
     #[Test]
-    public function valueCheckRecognizesDatetimeValuesAsIntegerValuesCorrectly(string $value, int $expected): void
+    public function valueCheckRecognizesDatetimeValuesAsIntegerValuesCorrectly(string $value, int $expected, string $timezone): void
     {
         $tcaFieldConf = [
             'type' => 'datetime',
             'range' => [
-                // unix timestamp: 1519862400
-                'lower' => gmmktime(0, 0, 0, 3, 1, 2018),
-                // unix timestamp: 1522540799
-                'upper' => gmmktime(23, 59, 59, 3, 31, 2018),
+                // unix timestamp: 1519862400 if timezone is UTC, 1519858800 if timezone is Europe/Berlin
+                'lower' => \DateTime::createFromFormat('Y-m-d\\TH:i:s', '2018-03-01T00:00:00', new \DateTimeZone($timezone))->getTimestamp(),
+                // unix timestamp: 1522540799 if timezone is UTC, 1522533599 if timezone is Europe/Berlin
+                'upper' => \DateTime::createFromFormat('Y-m-d\\TH:i:s', '2018-03-31T23:59:59', new \DateTimeZone($timezone))->getTimestamp(),
             ],
         ];
 
-        // @todo Switch to UTC since otherwise DataHandler removes timezone offset
         $previousTimezone = date_default_timezone_get();
-        date_default_timezone_set('UTC');
+        date_default_timezone_set($timezone);
 
         $returnValue = $this->subject->_call('checkValueForDatetime', $value, $tcaFieldConf);
 
@@ -465,17 +496,20 @@ final class DataHandlerTest extends UnitTestCase
     public static function inputValueRangeCheckIsIgnoredWhenDefaultIsZeroAndInputValueIsEmptyDataProvider(): array
     {
         return [
-            'Empty string returns the number zero' => [
+            'Empty string returns null if nullable, zero otherwise' => [
                 '',
                 0,
+                null,
             ],
             'Zero returns zero' => [
                 0,
                 0,
+                '2021-07-23 22:00:00',
             ],
             'Zero as a string returns zero' => [
                 '0',
                 0,
+                '2021-07-23 22:00:00',
             ],
         ];
     }
@@ -484,7 +518,8 @@ final class DataHandlerTest extends UnitTestCase
     #[Test]
     public function inputValueRangeCheckIsIgnoredWhenDefaultIsZeroAndInputValueIsEmpty(
         string|int $inputValue,
-        int $expected,
+        int $expectedForTimestampField,
+        ?string $expectedForNativeField,
     ): void {
         $tcaFieldConf = [
             'type' => 'datetime',
@@ -495,27 +530,35 @@ final class DataHandlerTest extends UnitTestCase
         ];
 
         $returnValue = $this->subject->_call('checkValueForDatetime', $inputValue, $tcaFieldConf);
-        self::assertSame($expected, $returnValue['value']);
+        self::assertSame($expectedForTimestampField, $returnValue['value']);
+
+        $returnValue = $this->subject->_call('checkValueForDatetime', $inputValue, [...$tcaFieldConf, 'dbType' => 'datetime']);
+        self::assertSame($expectedForNativeField, $returnValue['value']);
     }
 
-    public static function datetimeValueCheckDbtypeIsIndependentFromTimezoneDataProvider(): array
+    public static function datetimeValueCheckIsIndependentFromTimezoneDataProvider(): array
     {
         return [
             // Values of this kind are passed in from the DateTime control
-            'time from DateTime' => [
-                '1970-01-01T18:54:00Z',
+            'time from ISO8601 LOCALTIME' => [
+                '1970-01-01T18:54:00',
                 'time',
                 '18:54:00',
             ],
-            'date from DateTime' => [
-                '2020-11-25T00:00:00Z',
+            'date from ISO8601 LOCALTIME' => [
+                '2020-11-25T00:00:00',
                 'date',
                 '2020-11-25',
             ],
-            'datetime from DateTime' => [
-                '2020-11-25T18:54:00Z',
+            'datetime from ISO8601 LOCALTIME' => [
+                '2020-11-25T18:54:00',
                 'datetime',
                 '2020-11-25 18:54:00',
+            ],
+            'timestamp from ISO8601 LOCALTIME' => [
+                '1970-01-01T18:54:00',
+                '',
+                64440,
             ],
             // Values of this kind are passed in when a data record is copied
             'time from copying a record' => [
@@ -533,12 +576,71 @@ final class DataHandlerTest extends UnitTestCase
                 'datetime',
                 '2020-11-25 18:54:00',
             ],
+            'timestamp from copying a record' => [
+                '2020-11-25 18:54:00',
+                '',
+                1606326840,
+            ],
+            // Values of this kind are passed in when DataHandler is used as peristence layer/API
+            'time from ISO8601 UTC-0' => [
+                '1970-01-01T18:54:00Z',
+                'time',
+                // Apply time from DateTimeString as-is (no conversion to LOCALTIME!)
+                '18:54:00',
+            ],
+            'date from ISO8601 UTC-0' => [
+                '2020-11-25T00:00:00Z',
+                'date',
+                '2020-11-25',
+            ],
+            'datetime from ISO8601 UTC-0' => [
+                // DateTimeString is persisted as server LOCALTIME
+                '2020-11-25T18:54:00Z',
+                'datetime',
+                // DateTimeString is persisted as server LOCALTIME
+                '2020-11-25 19:54:00',
+            ],
+            'timestamp from ISO8601 UTC-0' => [
+                '2020-11-25T18:54:00Z',
+                '',
+                // timestamp is persisted in UTC
+                1606330440,
+            ],
+
+            'time from ISO8601 UTC+2' => [
+                // DateTimeString is taken as-is (offsets are not shifted!)
+                // @todo this is discussable
+                '1970-01-01T18:54:00+02:00',
+                'time',
+                '18:54:00',
+            ],
+            'date from ISO8601 UTC+2' => [
+                '2020-11-25T00:00:00+02:00',
+                'date',
+                // HEADS UP! Input is UTC+2 that means converted to the server timezone
+                // (Europe/Berlin is CET in November which is +01:00)
+                // that'd be 2020-11-24T23:00:00+01:00,
+                // but we still expect the "intended date" to be honored by DataHandler
+                '2020-11-25',
+            ],
+            'datetime from ISO8601 UTC+2' => [
+                '2020-11-25T18:54:00+02:00',
+                'datetime',
+                // November has +01:00 offset (CET) in Europe/Berlin,
+                // that means the input (+02:00) is off by one hour to the server local time
+                '2020-11-25 17:54:00',
+            ],
+            'timestamp from ISO8601 UTC+2' => [
+                '2020-11-25T18:54:00+02:00',
+                '',
+                1606323240,
+            ],
         ];
     }
 
-    #[DataProvider('datetimeValueCheckDbtypeIsIndependentFromTimezoneDataProvider')]
+    #[DataProvider('datetimeValueCheckIsIndependentFromTimezoneDataProvider')]
     #[Test]
-    public function datetimeValueCheckDbtypeIsIndependentFromTimezone(string $value, string $dbtype, string $expectedOutput): void
+    public function datetimeValueCheckIsIndependentFromTimezone(string $value, string $dbtype, string|int $expectedOutput): void
     {
         $tcaFieldConf = [
             'type' => 'datetime',
@@ -560,29 +662,107 @@ final class DataHandlerTest extends UnitTestCase
     {
         return [
             'Datetime at unix epoch' => [
-                '1970-01-01T00:00:00Z',
+                '1970-01-01T00:00:00',
                 'datetime',
-                false,
+                '1970-01-01 00:00:00',
                 '1970-01-01 00:00:00',
             ],
             'Default datetime' => [
                 '0000-00-00 00:00:00',
                 'datetime',
-                false,
                 null,
+                '0000-00-00 00:00:00',
             ],
             'Default date' => [
                 '0000-00-00',
                 'date',
-                false,
                 null,
+                '0000-00-00',
             ],
             'Default time' => [
                 '00:00:00',
                 'time',
-                false,
+                '00:00:00',
                 '00:00:00',
             ],
+            'Null time' => [
+                null,
+                'time',
+                null,
+                '00:00:00',
+            ],
+            'Minimum mysql datetime' => [
+                '1000-01-01 00:00:00',
+                'datetime',
+                '1000-01-01 00:00:00',
+                '1000-01-01 00:00:00',
+            ],
+            'Maximum mysql datetime' => [
+                '9999-12-31 23:59:59',
+                'datetime',
+                '9999-12-31 23:59:59',
+                '9999-12-31 23:59:59',
+            ],
+        ];
+    }
+
+    #[DataProvider('inputValueCheckNativeDbTypeDataProvider')]
+    #[Test]
+    public function inputValueCheckNativeDbType(
+        ?string $value,
+        string $dbType,
+        ?string $expectedNullableOutput,
+        string $expectedNotNullableOutput
+    ): void {
+        // Explicit nullable
+        $tcaFieldConf = [
+            'input' => [],
+            'dbType' => $dbType,
+            'format' => $dbType,
+            'nullable' => true,
+        ];
+
+        $returnValue = $this->subject->_call('checkValueForDatetime', $value, $tcaFieldConf);
+        self::assertEquals($expectedNullableOutput, $returnValue['value']);
+
+        // Implicit nullable
+        $tcaFieldConf = [
+            'input' => [],
+            'dbType' => $dbType,
+            'format' => $dbType,
+        ];
+
+        $returnValue = $this->subject->_call('checkValueForDatetime', $value, $tcaFieldConf);
+        self::assertEquals($expectedNullableOutput, $returnValue['value']);
+
+        // Not null
+        $tcaFieldConf = [
+            'input' => [],
+            'dbType' => $dbType,
+            'format' => $dbType,
+            'nullable' => false,
+        ];
+
+        $returnValue = $this->subject->_call('checkValueForDatetime', $value, $tcaFieldConf);
+        self::assertEquals($expectedNotNullableOutput, $returnValue['value']);
+    }
+
+    public static function inputValueCheckDatetimeFormatTimeAsTimestampDataProvider(): array
+    {
+        return [
+            'Null on nullable timesec' => [
+                null,
+                'timesec',
+                true,
+                null,
+            ],
+            'Null on not nullable timesec' => [
+                null,
+                'timesec',
+                false,
+                0,
+            ],
+
             'Null on nullable time' => [
                 null,
                 'time',
@@ -593,35 +773,96 @@ final class DataHandlerTest extends UnitTestCase
                 null,
                 'time',
                 false,
-                '00:00:00',
+                0,
             ],
-            'Minimum mysql datetime' => [
-                '1000-01-01 00:00:00',
-                'datetime',
+
+            'timesec as time string' => [
+                '14:38:05',
+                'timesec',
                 false,
-                '1000-01-01 00:00:00',
+                52685,
             ],
-            'Maximum mysql datetime' => [
-                '9999-12-31 23:59:59',
-                'datetime',
+            'timesec as ISO8601 LOCALTIME' => [
+                '1970-01-01T14:38:05',
+                'timesec',
                 false,
-                '9999-12-31 23:59:59',
+                52685,
+            ],
+            'timesec with offset' => [
+                '1970-01-01T14:38:05+04:00',
+                'timesec',
+                false,
+                52685,
+            ],
+            'timesec with offset and invalid date' => [
+                '2024-11-07T14:38:05+04:00',
+                'timesec',
+                false,
+                52685,
+            ],
+
+            'time as time string' => [
+                '14:38:00',
+                'time',
+                false,
+                52680,
+            ],
+            'time as time string with seconds to be ignored' => [
+                '14:38:05',
+                'time',
+                false,
+                52680,
+            ],
+            'time as ISO8601 LOCALTIME' => [
+                '1970-01-01T14:38:00',
+                'time',
+                false,
+                52680,
+            ],
+            'time as ISO8601 LOCALTIME with seconds to be ignored' => [
+                '1970-01-01T14:38:05',
+                'time',
+                false,
+                52680,
+            ],
+            'time with offset' => [
+                '1970-01-01T14:38:00+04:00',
+                'time',
+                false,
+                52680,
+            ],
+            'time with offset and seconds to be ignored' => [
+                '1970-01-01T14:38:05+04:00',
+                'time',
+                false,
+                52680,
+            ],
+            'time with offset and invalid date' => [
+                '2024-11-07T14:38:05+04:00',
+                'time',
+                false,
+                52680,
             ],
         ];
     }
 
-    #[DataProvider('inputValueCheckNativeDbTypeDataProvider')]
+    #[DataProvider('inputValueCheckDatetimeFormatTimeAsTimestampDataProvider')]
     #[Test]
-    public function inputValueCheckNativeDbType(?string $value, string $dbType, bool $nullable, ?string $expectedOutput): void
+    public function inputValueCheckDatetimeFormatTimeAsTimestamp(?string $value, string $format, bool $nullable, ?int $expectedOutput): void
     {
         $tcaFieldConf = [
             'input' => [],
-            'dbType' => $dbType,
-            'format' => $dbType,
+            'format' => $format,
             'nullable' => $nullable,
         ];
 
+        $oldTimezone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Berlin');
+
         $returnValue = $this->subject->_call('checkValueForDatetime', $value, $tcaFieldConf);
+
+        // set before the assertion is performed, so it is restored even for failing tests
+        date_default_timezone_set($oldTimezone);
 
         self::assertEquals($expectedOutput, $returnValue['value']);
     }
@@ -633,7 +874,7 @@ final class DataHandlerTest extends UnitTestCase
         $this->expectExceptionCode(1251892472);
 
         $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_tcemain.php']['checkModifyAccessList'][] = InvalidHookFixture::class;
-        $this->subject->checkModifyAccessList('tt_content');
+        $this->subject->_call('checkModifyAccessList', 'tt_content');
     }
 
     #[Test]
@@ -644,46 +885,17 @@ final class DataHandlerTest extends UnitTestCase
             ->onlyMethods(['checkModifyAccessList'])
             ->setMockClassName($hookClass)
             ->getMock();
-        $hookMock->expects(self::once())->method('checkModifyAccessList');
+        $hookMock->expects($this->once())->method('checkModifyAccessList');
         $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_tcemain.php']['checkModifyAccessList'][] = $hookClass;
         GeneralUtility::addInstance($hookClass, $hookMock);
-        $this->subject->checkModifyAccessList('tt_content');
+        $this->subject->_call('checkModifyAccessList', 'tt_content');
     }
 
     #[Test]
     public function doesCheckModifyAccessListHookModifyAccessAllowed(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_tcemain.php']['checkModifyAccessList'][] = AllowAccessHookFixture::class;
-        self::assertTrue($this->subject->checkModifyAccessList('tt_content'));
-    }
-
-    #[Test]
-    public function processDatamapForFrozenNonZeroWorkspaceReturnsFalse(): void
-    {
-        $constructorArguments = [
-            new NoopEventDispatcher(),
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
-            new PagePermissionAssembler(),
-            $this->tcaSchemaFactory,
-            new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
-            new PasswordHashFactory(),
-            new Random(),
-            new TypoLinkCodecService(new NoopEventDispatcher()),
-            new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
-        ];
-        $subject = $this->getMockBuilder(DataHandler::class)
-            ->onlyMethods([])
-            ->setConstructorArgs($constructorArguments)
-            ->getMock();
-        $this->backendUserMock->workspace = 1;
-        $this->backendUserMock->workspaceRec = ['freeze' => true];
-        $subject->BE_USER = $this->backendUserMock;
-        self::assertFalse($subject->process_datamap());
+        self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     public static function checkValue_flex_procInData_travDSDataProvider(): iterable
@@ -790,20 +1002,20 @@ final class DataHandlerTest extends UnitTestCase
     public function logCallsWriteLogOfBackendUserIfLoggingIsEnabled(): void
     {
         $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->expects(self::once())->method('writelog');
+        $backendUser->expects($this->once())->method('writelog');
         $this->subject->enableLogging = true;
         $this->subject->BE_USER = $backendUser;
-        $this->subject->log('', 23, Action::UNDEFINED, 42, Error::MESSAGE, 'details');
+        $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
     }
 
     #[Test]
     public function logDoesNotCallWriteLogOfBackendUserIfLoggingIsDisabled(): void
     {
         $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->expects(self::never())->method('writelog');
+        $backendUser->expects($this->never())->method('writelog');
         $this->subject->enableLogging = false;
         $this->subject->BE_USER = $backendUser;
-        $this->subject->log('', 23, Action::UNDEFINED, 42, Error::MESSAGE, 'details');
+        $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
     }
 
     #[Test]
@@ -814,7 +1026,7 @@ final class DataHandlerTest extends UnitTestCase
         $this->subject->enableLogging = true;
         $this->subject->errorLog = [];
         $logDetailsUnique = StringUtility::getUniqueId('details');
-        $this->subject->log('', 23, Action::UNDEFINED, 42, Error::USER_ERROR, $logDetailsUnique);
+        $this->subject->log('', 23, Action::UNDEFINED, null, Error::USER_ERROR, $logDetailsUnique);
         self::assertArrayHasKey(0, $this->subject->errorLog);
         self::assertStringEndsWith($logDetailsUnique, $this->subject->errorLog[0]);
     }
@@ -840,7 +1052,7 @@ final class DataHandlerTest extends UnitTestCase
         );
         $subject->start([], [], $this->createMock(BackendUserAuthentication::class), $this->createMock(ReferenceIndexUpdater::class));
         $logDetails = StringUtility::getUniqueId('details');
-        $subject->log('', 23, Action::UNDEFINED, 42, Error::USER_ERROR, '%1$s' . $logDetails . '%2$s', -1, ['foo', 'bar']);
+        $subject->log('', 23, Action::UNDEFINED, null, Error::USER_ERROR, '%1$s' . $logDetails . '%2$s', null, ['foo', 'bar']);
         $expected = 'foo' . $logDetails . 'bar';
         self::assertStringEndsWith($expected, $subject->errorLog[0]);
     }
@@ -866,20 +1078,10 @@ final class DataHandlerTest extends UnitTestCase
         );
         $subject->start([], [], $this->createMock(BackendUserAuthentication::class), $this->createMock(ReferenceIndexUpdater::class));
         $logDetails = 'An error occurred on {table}:{uid} when localizing';
-        $subject->log('', 23, Action::UNDEFINED, 42, Error::USER_ERROR, $logDetails, -1, ['table' => 'tx_sometable', 0 => 'some random value']);
+        $subject->log('', 23, Action::UNDEFINED, null, Error::USER_ERROR, $logDetails, null, ['table' => 'tx_sometable', 0 => 'some random value']);
         // UID is kept as non-replaced, and other properties are not replaced.
         $expected = 'An error occurred on tx_sometable:{uid} when localizing';
         self::assertStringEndsWith($expected, $subject->errorLog[0]);
-    }
-
-    #[DataProvider('equalSubmittedAndStoredValuesAreDeterminedDataProvider')]
-    #[Test]
-    public function equalSubmittedAndStoredValuesAreDetermined(bool $expected, string|int|null $submittedValue, string|int|null $storedValue, string $storedType, bool $allowNull): void
-    {
-        $result = \Closure::bind(function () use ($submittedValue, $storedValue, $storedType, $allowNull) {
-            return $this->isSubmittedValueEqualToStoredValue($submittedValue, $storedValue, $storedType, $allowNull);
-        }, $this->subject, DataHandler::class)();
-        self::assertEquals($expected, $result);
     }
 
     public static function equalSubmittedAndStoredValuesAreDeterminedDataProvider(): array
@@ -1060,45 +1262,14 @@ final class DataHandlerTest extends UnitTestCase
         ];
     }
 
+    #[DataProvider('equalSubmittedAndStoredValuesAreDeterminedDataProvider')]
     #[Test]
-    public function deletePagesOnRootLevelIsDenied(): void
+    public function equalSubmittedAndStoredValuesAreDetermined(bool $expected, string|int|null $submittedValue, string|int|null $storedValue, string $storedType, bool $allowNull): void
     {
-        $dataHandlerMock = $this->getMockBuilder(DataHandler::class)
-            ->onlyMethods(['canDeletePage', 'log'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $dataHandlerMock
-            ->expects(self::never())
-            ->method('canDeletePage');
-        $dataHandlerMock
-            ->expects(self::once())
-            ->method('log')
-            ->with('pages', 0, 3, 0, 2, 'Deleting all pages starting from the root-page is disabled', -1, [], 0);
-        $dataHandlerMock->deletePages(0);
-    }
-
-    #[Test]
-    public function deleteRecord_procBasedOnFieldTypeRespectsEnableCascadingDelete(): void
-    {
-        $table = StringUtility::getUniqueId('foo_');
-        $conf = [
-            'type' => 'inline',
-            'foreign_table' => StringUtility::getUniqueId('foreign_foo_'),
-            'behaviour' => [
-                'enableCascadingDelete' => 0,
-            ],
-        ];
-
-        $mockRelationHandler = $this->createMock(RelationHandler::class);
-        $mockRelationHandler->itemArray = [
-            '1' => ['table' => StringUtility::getUniqueId('bar_'), 'id' => 67],
-        ];
-
-        $mockDataHandler = $this->getAccessibleMock(DataHandler::class, ['getRelationFieldType', 'deleteAction', 'createRelationHandlerInstance'], [], '', false);
-        $mockDataHandler->expects(self::once())->method('getRelationFieldType')->willReturn('field');
-        $mockDataHandler->expects(self::once())->method('createRelationHandlerInstance')->willReturn($mockRelationHandler);
-        $mockDataHandler->expects(self::never())->method('deleteAction');
-        $mockDataHandler->deleteRecord_procBasedOnFieldType($table, 42, 'bar', $conf);
+        $result = \Closure::bind(function () use ($submittedValue, $storedValue, $storedType, $allowNull) {
+            return $this->isSubmittedValueEqualToStoredValue($submittedValue, $storedValue, $storedType, $allowNull);
+        }, $this->subject, DataHandler::class)();
+        self::assertEquals($expected, $result);
     }
 
     public static function checkValue_checkReturnsExpectedValuesDataProvider(): array
@@ -1172,6 +1343,10 @@ final class DataHandlerTest extends UnitTestCase
             '',
             ['value' => []],
         ];
+        yield 'Converts null to array' => [
+            null,
+            ['value' => []],
+        ];
         yield 'Handles invalid JSON' => [
             '_-invalid-_',
             [],
@@ -1188,7 +1363,7 @@ final class DataHandlerTest extends UnitTestCase
 
     #[DataProvider('checkValueForJsonDataProvider')]
     #[Test]
-    public function checkValueForJson(string|array $input, array $expected): void
+    public function checkValueForJson(string|array|null $input, array $expected): void
     {
         self::assertSame(
             $expected,
@@ -1271,6 +1446,15 @@ final class DataHandlerTest extends UnitTestCase
             ],
             'use default value' => [
                 '', ['default' => 13], true, 13,
+            ],
+            'use empty value if available as option' => [
+                '', [
+                    'items' => [
+                        ['label' => 'labelA', 'value' => 'someValue'],
+                        ['default' => 'default', 'value' => ''],
+                    ],
+                    'default' => 'somevalue',
+                ], false, '',
             ],
         ];
     }
@@ -1433,5 +1617,190 @@ final class DataHandlerTest extends UnitTestCase
     public function validateValueForRequiredReturnsExpectedValue(array $tcaFieldConfig, $input, bool $expectation): void
     {
         self::assertSame($expectation, $this->subject->_call('validateValueForRequired', $tcaFieldConfig, $input));
+    }
+
+    #[Test]
+    #[DataProvider('newFieldArrayExpectedValues')]
+    public function newFieldArraySetDefaultValues(string $column, mixed $expected): void
+    {
+        $GLOBALS['TCA'] = [
+            'tx_my_testtable' => [
+                'columns' => [
+                    'slug_1' => [
+                        'config' => [
+                            'type' => 'slug',
+                        ],
+                    ],
+                    'slug_2' => [
+                        'config' => [
+                            'type' => 'slug',
+                            'default' => 'shouldnotbeset',
+                        ],
+                    ],
+                    'uuid_1' => [
+                        'config' => [
+                            'type' => 'uuid',
+                        ],
+                    ],
+                    'uuid_2' => [
+                        'config' => [
+                            'type' => 'uuid',
+                            'default' => 'nosuchconfig',
+                        ],
+                    ],
+                    'input_1' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => 'testdefault',
+                        ],
+                    ],
+                    'input_2' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => 5,
+                        ],
+                    ],
+                    'input_3' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => null,
+                            'nullable' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
+        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        self::assertArrayHasKey($column, $defaultValues);
+        self::assertEquals($expected, $defaultValues[$column]);
+    }
+
+    public static function newFieldArrayExpectedValues(): iterable
+    {
+        yield 'slug column' => [
+            'slug_1',
+            '',
+        ];
+        yield 'slug column (no such config)' => [
+            'slug_2',
+            '',
+        ];
+        yield 'uuid column' => [
+            'uuid_1',
+            '',
+        ];
+        yield 'uuid column (wrong config)' => [
+            'uuid_2',
+            '',
+        ];
+        yield 'input with default string' => [
+            'input_1',
+            'testdefault',
+        ];
+        yield 'input with default integer' => [
+            'input_2',
+            5,
+        ];
+        yield 'input with default null' => [
+            'input_3',
+            null,
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('newFieldArrayExpectedNoValues')]
+    public function newFieldArrayNoDefaultValues(string $column): void
+    {
+        $GLOBALS['TCA'] = [
+            'tx_my_testtable' => [
+                'columns' => [
+                    // invalid configurations
+                    'input_1' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => null,
+                        ],
+                    ],
+                    'input_2' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => null,
+                            'nullable' => false,
+                        ],
+                    ],
+                    'check_1' => [
+                        'config' => [
+                            'type' => 'check',
+                            'default' => null,
+                            'nullable' => true,
+                        ],
+                    ],
+                    'file_1' => [
+                        'config' => [
+                            'type' => 'file',
+                            'default' => 'nosuchconfig',
+                        ],
+                    ],
+                    // valid config to ensure, that an array has been build
+                    'input_3' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => 'test',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
+        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        self::assertEquals('test', $defaultValues['input_3']);
+        self::assertArrayNotHasKey($column, $defaultValues);
+    }
+
+    public static function newFieldArrayExpectedNoValues(): iterable
+    {
+        yield 'input default null without nullable' => [
+            'input_1',
+        ];
+        yield 'input default null with nullable false' => [
+            'input_2',
+        ];
+        yield 'check with nullable true and default true' => [
+            'check_1',
+        ];
+        yield 'file with default value' => [
+            'file_1',
+        ];
+    }
+
+    #[Test]
+    public function newFieldArrayNoTcaTable(): void
+    {
+        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        self::assertEquals([], $defaultValues);
+    }
+
+    #[Test]
+    public function newFieldArrayDefaultValues(): void
+    {
+        $GLOBALS['TCA'] = [
+            'tx_my_testtable' => [
+                'columns' => [
+                    // invalid configurations
+                    'input_1' => [
+                        'config' => [
+                            'type' => 'input',
+                            'default' => null,
+                            'nullable' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
+        $this->subject->defaultValues['tx_my_testtable']['input_1'] = 'foo';
+        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        self::assertEquals('foo', $defaultValues['input_1']);
     }
 }

@@ -18,45 +18,30 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers;
 
 use TYPO3\CMS\Extbase\Utility\DebuggerUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * This ViewHelper generates a HTML dump of the tagged variable.
+ * ViewHelper to generate an HTML readable dump of variables or objects.
+ * The output can be navigated like a nested tree. The output will be put
+ * at the beginning of the HTML response, unless the `inline` attribute is set,
+ * so that the output will be placed at the specific place where it is placed
+ * inside a Fluid template.
  *
- * Examples
- * ========
+ * ```
+ *   <f:debug title="My Title"
+ *         maxDepth="5"
+ *         blacklistedClassNames="{0:'ACME\BlogExample\Domain\Model\Administrator'}"
+ *         blacklistedPropertyNames="{0:'posts'}"
+ *         plainText="true"
+ *         ansiColors="false"
+ *         inline="true">{blogs}
+ *   </f:debug>
+ * ```
  *
- * Simple
- * ------
- *
- * ::
- *
- *    <f:debug>{testVariables.array}</f:debug>
- *
- * foobarbazfoo
- *
- * All Features
- * ------------
- *
- * ::
- *
- *    <f:debug title="My Title" maxDepth="5"
- *        blacklistedClassNames="{0:'Tx_BlogExample_Domain_Model_Administrator'}"
- *        blacklistedPropertyNames="{0:'posts'}"
- *        plainText="true" ansiColors="false"
- *        inline="true"
- *        >
- *            {blogs}
- *        </f:debug>
- *
- * [A HTML view of the var_dump]
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-debug
  */
 final class DebugViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * This prevents double escaping as the output is encoded in DebuggerUtility::var_dump
      *
@@ -85,17 +70,17 @@ final class DebugViewHelper extends AbstractViewHelper
     /**
      * A wrapper for \TYPO3\CMS\Extbase\Utility\DebuggerUtility::var_dump().
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
         return DebuggerUtility::var_dump(
-            $renderChildrenClosure(),
-            $arguments['title'],
-            $arguments['maxDepth'],
-            $arguments['plainText'],
-            $arguments['ansiColors'],
-            $arguments['inline'],
-            $arguments['blacklistedClassNames'],
-            $arguments['blacklistedPropertyNames']
+            $this->renderChildren(),
+            is_scalar($this->arguments['title']) ? (string)$this->arguments['title'] : null,
+            (int)$this->arguments['maxDepth'],
+            (bool)$this->arguments['plainText'],
+            (bool)$this->arguments['ansiColors'],
+            (bool)$this->arguments['inline'],
+            is_array($this->arguments['blacklistedClassNames']) ? $this->arguments['blacklistedClassNames'] : null,
+            is_array($this->arguments['blacklistedPropertyNames']) ? $this->arguments['blacklistedPropertyNames'] : null
         );
     }
 }

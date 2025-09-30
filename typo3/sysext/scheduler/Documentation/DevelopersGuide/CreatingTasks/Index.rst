@@ -1,20 +1,35 @@
-.. include:: /Includes.rst.txt
+:navigation-title: Task development
 
+..  include:: /Includes.rst.txt
+..  _creating-tasks:
 
+================================
+Creating a custom scheduler task
+================================
 
-.. _creating-tasks:
+..  seealso::
+    The preferred method for creating a scheduler task is as a Symfony command.
+    :ref:`Read about how to create and use Symfony commands in TYPO3 here. <t3coreapi:symfony-console-commands>`.
 
-Creating a new task
-^^^^^^^^^^^^^^^^^^^
+..  contents:: Table of contents
 
-The preferred method for creating a scheduler task is as a symfony command.
-:ref:`Read about how to create and use symfony commands in TYPO3 here. <t3coreapi:symfony-console-commands>`
+..  _creating-tasks-registration:
 
+Scheduler task registration
+===========================
 
-.. _serialized-objects:
+Custom scheduler tasks can be registered in
+:file:`EXT:my_extension/ext_localconf.php` in the TYPO3 configuration value
+:php:`$GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['scheduler']['tasks']`:
+
+..  literalinclude:: _codesnippets/_ext_localconf.php.inc
+    :language: php
+    :caption: EXT:my_extension/ext_localconf.php
+
+..  _serialized-objects:
 
 Working with serialized objects
-"""""""""""""""""""""""""""""""
+===============================
 
 When a task is registered with the Scheduler the corresponding object
 instance is serialized and stored in the database (see Appendix A for
@@ -36,14 +51,9 @@ business logic in a separate class, so that the task class itself
 changes as little as possible. The :code:`execute()` should be as
 simple as possible. Consider the following:
 
-::
-
-	class MyTask extends \TYPO3\CMS\Scheduler\Task\AbstractTask {
-		public function execute() {
-			$businessLogic = \TYPO3\CMS\Core\Utility\GeneralUtility::makeInstance(\Vendor\Extension\BusinessLogic::class);
-			$businessLogic->run(arg1, arg2, …);
-		}
-	}
+..  literalinclude:: _codesnippets/_MyTask.php.inc
+    :language: php
+    :caption: packages/my_extension/Classes/MyTask.php
 
 In such a setup the :code:`execute()` is kept to the strict minimum
 and the operations themselves are handled by a separate class.
@@ -52,14 +62,33 @@ Also remember that the constructor is **not** called when
 unserializing an object. If some operations need to be run upon
 unserialization, implement a :code:`__wakeup()` method instead.
 
-
-.. _save-task-state:
+..  _save-task-state:
 
 Saving a task's state
-"""""""""""""""""""""
+=====================
 
 The task's state is saved automatically at the **start** of its
 execution. If you need to save a task's state at some point **during**
 its execution, you can simply call the task's own :code:`save()`
 method.
 
+..  _additional-fields:
+
+Providing additional fields for scheduler task
+==============================================
+
+If the task should provide additional fields for configuration options in
+the backend module, you need to implement a second class, extending
+:php-short:`\TYPO3\CMS\Scheduler\AbstractAdditionalFieldProvider`.
+
+This class needs to be configured in the scheduler task registration:
+
+..  literalinclude:: _codesnippets/_ext_localconf-additional.php.inc
+    :language: php
+    :caption: EXT:my_extension/ext_localconf.php
+
+And implemented to provide the desired fields and their validation:
+
+..  literalinclude:: _codesnippets/_MyTaskAdditional.php.inc
+    :language: php
+    :caption: packages/my_extension/Classes/MyTask.php

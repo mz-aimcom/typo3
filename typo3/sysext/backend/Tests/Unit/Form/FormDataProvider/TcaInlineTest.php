@@ -20,7 +20,10 @@ namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Form\FormDataProvider\TcaInline;
+use TYPO3\CMS\Backend\Form\InlineStackProcessor;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class TcaInlineTest extends UnitTestCase
@@ -52,7 +55,7 @@ final class TcaInlineTest extends UnitTestCase
         ];
 
         $this->beUserMock
-            ->expects(self::atLeastOnce())
+            ->expects($this->atLeastOnce())
             ->method('check')
             ->with(
                 'tables_modify',
@@ -62,7 +65,8 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['children'] = [];
-        self::assertEquals($expected, (new TcaInline())->addData($input));
+        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        self::assertEquals($expected, $subject->addData($input));
     }
 
     #[Test]
@@ -83,7 +87,7 @@ final class TcaInlineTest extends UnitTestCase
         ];
 
         $this->beUserMock
-            ->expects(self::never())
+            ->expects($this->never())
             ->method('check')
             ->with(
                 'tables_modify',
@@ -92,7 +96,8 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['type'] = 'input';
-        self::assertEquals($expected, (new TcaInline())->addData($input));
+        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        self::assertEquals($expected, $subject->addData($input));
     }
 
     #[Test]
@@ -114,7 +119,7 @@ final class TcaInlineTest extends UnitTestCase
         ];
 
         $this->beUserMock
-            ->expects(self::atLeastOnce())
+            ->expects($this->atLeastOnce())
             ->method('check')
             ->with(
                 'tables_modify',
@@ -124,6 +129,7 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['children'] = [];
-        self::assertEquals($expected, (new TcaInline())->addData($input));
+        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        self::assertEquals($expected, $subject->addData($input));
     }
 }

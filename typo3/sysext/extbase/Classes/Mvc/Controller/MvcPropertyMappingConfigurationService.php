@@ -23,7 +23,7 @@ use TYPO3\CMS\Core\Exception\Crypto\InvalidHashStringException;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
-use TYPO3\CMS\Extbase\Property\PropertyMappingConfiguration;
+use TYPO3\CMS\Extbase\Property\PropertyMappingConfigurationInterface;
 use TYPO3\CMS\Extbase\Property\TypeConverter\PersistentObjectConverter;
 use TYPO3\CMS\Extbase\Security\Exception\InvalidArgumentForHashGenerationException;
 use TYPO3\CMS\Extbase\Security\HashScope;
@@ -51,7 +51,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
 {
     protected HashService $hashService;
 
-    public function injectHashService(HashService $hashService)
+    public function injectHashService(HashService $hashService): void
     {
         $this->hashService = $hashService;
     }
@@ -59,13 +59,9 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
     /**
      * Generate a request hash for a list of form fields
      *
-     * @param array $formFieldNames Array of form fields
-     * @param string $fieldNamePrefix
-     *
-     * @return string trusted properties token
-     * @throws \TYPO3\CMS\Extbase\Security\Exception\InvalidArgumentForHashGenerationException
+     * @throws InvalidArgumentForHashGenerationException
      */
-    public function generateTrustedPropertiesToken($formFieldNames, $fieldNamePrefix = '')
+    public function generateTrustedPropertiesToken(array $formFieldNames, string $fieldNamePrefix = ''): string
     {
         $formFieldArray = [];
         foreach ($formFieldNames as $formField) {
@@ -107,12 +103,8 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
 
     /**
      * Encode and hash the form field array
-     *
-     * @param array $formFieldArray form field array to be encoded and hashed
-     *
-     * @return string Hash
      */
-    protected function encodeAndHashFormFieldArray(array $formFieldArray)
+    protected function encodeAndHashFormFieldArray(array $formFieldArray): string
     {
         $encodedFormFieldArray = json_encode($formFieldArray);
         return $this->hashService->appendHmac($encodedFormFieldArray, HashScope::TrustedProperties->prefix());
@@ -124,7 +116,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
      *
      * @throws BadRequestException
      */
-    public function initializePropertyMappingConfigurationFromRequest(Request $request, Arguments $controllerArguments)
+    public function initializePropertyMappingConfigurationFromRequest(Request $request, Arguments $controllerArguments): void
     {
         /** @var ExtbaseRequestParameters $extbaseRequestParameters */
         $extbaseRequestParameters = $request->getAttribute('extbase');
@@ -147,7 +139,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
         }
 
         foreach ($trustedProperties as $propertyName => $propertyConfiguration) {
-            if (!$controllerArguments->hasArgument($propertyName)) {
+            if (!$controllerArguments->hasArgument($propertyName) || !is_array($propertyConfiguration)) {
                 continue;
             }
             $propertyMappingConfiguration = $controllerArguments->getArgument($propertyName)->getPropertyMappingConfiguration();
@@ -161,16 +153,11 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
      * an __identity field, we allow modification of objects; else we allow creation.
      *
      * All other properties are specified as allowed properties.
-     *
-     * @param array $propertyConfiguration
-     * @param \TYPO3\CMS\Extbase\Property\PropertyMappingConfiguration $propertyMappingConfiguration
      */
-    protected function modifyPropertyMappingConfiguration($propertyConfiguration, PropertyMappingConfiguration $propertyMappingConfiguration)
-    {
-        if (!is_array($propertyConfiguration)) {
-            return;
-        }
-
+    protected function modifyPropertyMappingConfiguration(
+        array $propertyConfiguration,
+        PropertyMappingConfigurationInterface $propertyMappingConfiguration
+    ): void {
         if (isset($propertyConfiguration['__identity'])) {
             $propertyMappingConfiguration->setTypeConverterOption(PersistentObjectConverter::class, PersistentObjectConverter::CONFIGURATION_MODIFICATION_ALLOWED, true);
             unset($propertyConfiguration['__identity']);

@@ -23,6 +23,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class NotEmptyValidatorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     #[Test]
     public function notEmptyValidatorReturnsNoErrorForASimpleString(): void
     {
@@ -84,7 +86,7 @@ final class NotEmptyValidatorTest extends FunctionalTestCase
     public function notEmptyValidatorWorksForNotEmptyCountableObjects(): void
     {
         $countableObject = new \SplObjectStorage();
-        $countableObject->attach(new \stdClass());
+        $countableObject->offsetSet(new \stdClass());
         $validator = new NotEmptyValidator();
         $validator->setOptions([]);
         self::assertFalse($validator->validate($countableObject)->hasErrors());

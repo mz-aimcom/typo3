@@ -14,11 +14,11 @@
 import { SeverityEnum } from './enum/severity';
 import $ from 'jquery';
 import { Carousel } from 'bootstrap';
-import Modal, { ModalElement } from './modal';
+import Modal, { type ModalElement } from './modal';
 import Severity from './severity';
 import Icons from './icons';
 import { topLevelModuleImport } from './utility/top-level-module-import';
-import { type Stage } from '@typo3/backend/element/progress-tracker-element';
+import type { Stage } from '@typo3/backend/element/progress-tracker-element';
 
 type SlideCallback = ($slide: JQuery, settings: MultiStepWizardSettings, identifier: string) => void;
 
@@ -295,7 +295,7 @@ class MultiStepWizard {
       } else {
         this.prevSlideChanges($modal);
       }
-    })
+    });
 
     // Event is fired when the carousel has completed its slide transition
     this.setup.$carousel.get(0).addEventListener('slid.bs.carousel', (evt: Event & Carousel.Event): void => {
@@ -347,7 +347,6 @@ class MultiStepWizard {
     this.initializeSlideNextEvent($modal);
 
     const $modalTitle = $modal.find('.modal-title');
-    const $modalFooter = $modal.find('.modal-footer');
     const nextSlideNumber = this.setup.$carousel.data('currentSlide') + 1;
     const currentIndex = this.setup.$carousel.data('currentIndex');
     const nextIndex = currentIndex + 1;
@@ -363,8 +362,8 @@ class MultiStepWizard {
     this.setup.$carousel.data('currentSlide', nextSlideNumber);
     this.setup.$carousel.data('currentIndex', nextIndex);
 
-    const progressTracker = $modalFooter.find('typo3-backend-progress-tracker');
-    progressTracker.attr('active', nextIndex);
+    const progressTracker = $modal.find('typo3-backend-progress-tracker');
+    progressTracker.attr('active', nextIndex + 1);
 
     this.updateCurrentSeverity($modal, currentIndex, nextIndex);
   }
@@ -402,8 +401,8 @@ class MultiStepWizard {
 
     $nextButton.text(top.TYPO3.lang['wizard.button.next']);
 
-    const progressTracker = $modalFooter.find('typo3-backend-progress-tracker');
-    progressTracker.attr('active', nextIndex);
+    const progressTracker = $modal.find('typo3-backend-progress-tracker');
+    progressTracker.attr('active', nextIndex + 1);
 
     this.updateCurrentSeverity($modal, currentIndex, nextIndex);
   }
@@ -449,8 +448,6 @@ class MultiStepWizard {
     const realSlideCount = this.setup.$carousel.find('.carousel-item').length;
     const slideCount = Math.max(1, realSlideCount);
     const initialStep = Math.round(100 / slideCount);
-    const $modal = this.setup.$carousel.closest('.modal');
-    const $modalFooter = $modal.find('.modal-footer');
 
     this.setup.$carousel
       .data('initialStep', initialStep)
@@ -467,7 +464,13 @@ class MultiStepWizard {
           return slide.progressBarTitle;
         });
 
-      $modalFooter.prepend(progressTracker);
+      const modalContent = this.setup.$carousel.get(0).closest('.modal-content');
+      const modalBody = modalContent.querySelector('.modal-body');
+      const modalProgress = document.createElement('div');
+      modalProgress.classList.add('modal-progress');
+      modalProgress.appendChild(progressTracker);
+
+      modalContent.insertBefore(modalProgress, modalBody);
     }
   }
 
@@ -519,7 +522,7 @@ class MultiStepWizard {
       slide.classList.add('carousel-item');
       slide.dataset.bsSlide = currentSlide.identifier;
       slide.dataset.step = i.toString(10);
-      slide.append(slideInner)
+      slide.append(slideInner);
       carouselInner.append(slide);
     }
 

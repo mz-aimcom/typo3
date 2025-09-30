@@ -16,7 +16,6 @@
 namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Form\Event\ModifyEditFormUserAccessEvent;
 use TYPO3\CMS\Backend\Form\Exception\AccessDeniedContentEditException;
 use TYPO3\CMS\Backend\Form\Exception\AccessDeniedEditInternalsException;
@@ -27,35 +26,35 @@ use TYPO3\CMS\Backend\Form\Exception\AccessDeniedPageNewException;
 use TYPO3\CMS\Backend\Form\Exception\AccessDeniedRootNodeException;
 use TYPO3\CMS\Backend\Form\Exception\AccessDeniedTableModifyException;
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 
 /**
  * Determine user permission for action and check them
  */
-#[Autoconfigure(public: true)]
 readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
 {
-    public function __construct(private EventDispatcherInterface $eventDispatcher) {}
+    public function __construct(
+        private EventDispatcherInterface $eventDispatcher,
+        private TcaSchemaFactory $schemaFactory,
+    ) {}
 
     /**
      * Set userPermissionOnPage to result array and check access rights.
      *
      * A couple of different exceptions are thrown here:
      * * If something weird happens a top level SPL exception is thrown.
-     *   This indicates a non recoverable error.
+     *   This indicates a non-recoverable error.
      * * If user has no access to whatever should be done, an exception that
      *   extends from Form\Exception\AccessDeniedException is thrown. This
      *   can be caught by upper level controller code and can be translated
-     *   to a specific error message that is shown to the user depending on
-     *   specific exception that is thrown.
+     *   to a specific error message that is shown to the user.
      *
-     * @param array $result
-     * @return array
      * @throws AccessDeniedException
      */
-    public function addData(array $result)
+    public function addData(array $result): array
     {
         $backendUser = $this->getBackendUser();
 
@@ -76,6 +75,8 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
 
         $exception = null;
         $userPermissionOnPage = new Permission(Permission::NOTHING);
+        $rootLevelCapability = $this->schemaFactory->get($result['tableName'])->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+
         if ($result['command'] === 'new') {
             // A new record is created. Access rights of parent record are important here
             // @todo: In case of new inline child, parentPageRow should probably be the
@@ -98,7 +99,7 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
                         1437745759
                     );
                 }
-            } elseif (BackendUtility::isRootLevelRestrictionIgnored($result['tableName'])) {
+            } elseif ($rootLevelCapability->shallIgnoreRootLevelRestriction()) {
                 // Non admin is creating a record on root node for a table that is actively allowed
                 $userPermissionOnPage->set(Permission::ALL);
             } else {
@@ -131,7 +132,7 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
                         1437679657
                     );
                 }
-            } elseif (BackendUtility::isRootLevelRestrictionIgnored($result['tableName'])) {
+            } elseif ($rootLevelCapability->shallIgnoreRootLevelRestriction()) {
                 // Non admin is editing a record on root node for a table that is actively allowed
                 $userPermissionOnPage->set(Permission::ALL);
             } else {

@@ -18,7 +18,10 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Functional\Schema;
 
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\Field\DateTimeFieldType;
+use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\Field\TextFieldType;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -69,6 +72,7 @@ final class TcaSchemaTest extends FunctionalTestCase
             'space_after_class',
             'sectionIndex',
             'linkToTop',
+            'categories',
             'sys_language_uid',
             'l18n_parent',
             'hidden',
@@ -76,7 +80,6 @@ final class TcaSchemaTest extends FunctionalTestCase
             'endtime',
             'fe_group',
             'editlock',
-            'categories',
             'rowDescription',
         ], $usedColumns);
 
@@ -91,11 +94,70 @@ final class TcaSchemaTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function tcaSchemaReturnsFieldsByFilterCallback(): void
+    {
+        $factory = $this->get(TcaSchemaFactory::class);
+        $mainSchema = $factory->get('pages');
+        $fields = $mainSchema->getFields(static fn(FieldTypeInterface $field): bool => $field->getName() === 'title');
+        self::assertCount(1, $fields);
+        self::assertEquals('input', $fields['title']->getType());
+    }
+
+    #[Test]
     public function passiveRelationsAreAttachedToSchema(): void
     {
         $factory = $this->get(TcaSchemaFactory::class);
         $fileReferences = $factory->get('sys_file_reference');
         $passiveRelations = $fileReferences->getPassiveRelations();
         self::assertCount(10, $passiveRelations);
+    }
+
+    #[Test]
+    public function rootLevelCapabilityUsesProperConfiguration(): void
+    {
+        $factory = $this->get(TcaSchemaFactory::class);
+        // Both
+        $schema = $factory->get('sys_category');
+        $rootLevelRestriction = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        self::assertEquals(RootLevelCapability::TYPE_BOTH, $rootLevelRestriction->getRootLevelType());
+        self::assertTrue($rootLevelRestriction->canExistOnPages());
+        self::assertTrue($rootLevelRestriction->canExistOnRootLevel());
+        // Only pages
+        $schema = $factory->get('fe_users');
+        $rootLevelRestriction = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        self::assertEquals(RootLevelCapability::TYPE_ONLY_ON_PAGES, $rootLevelRestriction->getRootLevelType());
+        self::assertTrue($rootLevelRestriction->canExistOnPages());
+        self::assertFalse($rootLevelRestriction->canExistOnRootLevel());
+        // Only root level
+        $schema = $factory->get('be_users');
+        $rootLevelRestriction = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        self::assertEquals(RootLevelCapability::TYPE_ONLY_ON_ROOTLEVEL, $rootLevelRestriction->getRootLevelType());
+        self::assertFalse($rootLevelRestriction->canExistOnPages());
+        self::assertTrue($rootLevelRestriction->canExistOnRootLevel());
+    }
+
+    #[Test]
+    public function labelsAreAddedToSchema(): void
+    {
+        $GLOBALS['TCA']['tt_content']['ctrl']['label'] = 'header';
+        $GLOBALS['TCA']['tt_content']['ctrl']['label_alt'] = 'subheader,bodytext,uid,subheader';
+        $GLOBALS['TCA']['tt_content']['ctrl']['label_alt_force'] = true;
+        $GLOBALS['TCA']['tt_content']['ctrl']['label_userFunc'] = '\Foo\Bar\Label\User->func';
+        $GLOBALS['TCA']['tt_content']['ctrl']['label_userFunc_options'] = ['foo' => 'bar'];
+        $GLOBALS['TCA']['tt_content']['ctrl']['formattedLabel_userFunc'] = '\Foo\Bar\Formatter\User->func';
+        $GLOBALS['TCA']['tt_content']['ctrl']['formattedLabel_userFunc_options'] = ['baz' => 'bar'];
+
+        $factory = $this->get(TcaSchemaFactory::class);
+        $factory->rebuild($GLOBALS['TCA']);
+        $schema = $factory->get('tt_content');
+        $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+        self::assertTrue($labelCapability->hasPrimaryField());
+        self::assertEquals('header', $labelCapability->getPrimaryFieldName());
+        self::assertEquals(['subheader', 'bodytext', 'uid'], $labelCapability->getAdditionalFieldNames());
+        self::assertEquals(['header', 'subheader', 'bodytext', 'uid'], $labelCapability->getAllLabelFieldNames());
+        self::assertEquals('\Foo\Bar\Label\User->func', $labelCapability->getConfiguration()['generator']);
+        self::assertEquals(['foo' => 'bar'], $labelCapability->getConfiguration()['generatorOptions']);
+        self::assertEquals('\Foo\Bar\Formatter\User->func', $labelCapability->getConfiguration()['formatter']);
+        self::assertEquals(['baz' => 'bar'], $labelCapability->getConfiguration()['formatterOptions']);
     }
 }

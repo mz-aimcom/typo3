@@ -12,11 +12,12 @@
  */
 
 import { customElement, property, state } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { classMap } from 'lit/directives/class-map';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import RegularEvent from '@typo3/core/event/regular-event';
 import { lll } from '@typo3/core/lit-helper';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 enum CspReportAttribute {
   fixable= 'fixable',
@@ -94,16 +95,30 @@ export class CspReports extends LitElement {
   @state() selectedReport: SummarizedCspReport | null = null;
   @state() suggestions: MutationSuggestion[] = [];
 
-  connectedCallback() {
+  private peripheralEvent: RegularEvent;
+
+  public override connectedCallback(): void {
     super.connectedCallback();
     this.fetchReports();
+    this.peripheralEvent = new RegularEvent('click', (evt: Event, target: HTMLElement) => {
+      if (target.dataset.cspReportsHandler === 'refresh') {
+        evt.preventDefault();
+        this.fetchReports();
+      }
+    });
+    this.peripheralEvent.delegateTo(document, '[data-csp-reports-handler]');
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  public override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.peripheralEvent?.release();
+  }
+
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div class="infolist-container infolist-overlay">
         <div class="infolist">
@@ -282,7 +297,7 @@ export class CspReports extends LitElement {
 
   private renderCodeLocation(report: SummarizedCspReport): TemplateResult|symbol {
     if (!report.details.lineNumber) {
-      return nothing
+      return nothing;
     }
     const parts = [report.details.lineNumber];
     if (report.details.columnNumber) {

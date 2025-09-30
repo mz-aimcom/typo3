@@ -25,6 +25,7 @@ use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\RedirectResponse;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -71,6 +72,8 @@ class EditController
 
     public function __construct(
         private readonly FlexFormTools $flexFormTools,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly UriBuilder $uriBuilder,
     ) {
         $this->closeWindow = sprintf(
             '<script %s></script>',
@@ -112,14 +115,15 @@ class EditController
         // Initialize:
         $table = $this->P['table'];
         $field = $this->P['field'];
+        $schema = $this->tcaSchemaFactory->get($table);
 
         if (empty($this->P['flexFormDataStructureIdentifier'])) {
             // If there is not flex data structure identifier, field config is found in globals
-            $config = $GLOBALS['TCA'][$table]['columns'][$field]['config'];
+            $config = $schema->getField($field)->getConfiguration();
         } else {
             // If there is a flex data structure identifier, parse that data structure and
             // fetch config defined by given flex path
-            $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($this->P['flexFormDataStructureIdentifier']);
+            $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($this->P['flexFormDataStructureIdentifier'], $schema);
             $config = ArrayUtility::getValueByPath($dataStructure, $this->P['flexFormDataStructurePath']);
             if (!is_array($config)) {
                 throw new \RuntimeException(
@@ -130,14 +134,12 @@ class EditController
             }
         }
 
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
         $urlParameters = [
-            'returnUrl' => (string)$uriBuilder->buildUriFromRoute('wizard_edit', ['doClose' => 1]),
+            'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('wizard_edit', ['doClose' => 1]),
         ];
 
         // Detecting the various allowed field type setups and acting accordingly.
-        if (is_array($config)
-            && $config['type'] === 'select'
+        if ($config['type'] === 'select'
             && !($config['MM'] ?? false)
             && (int)($config['maxitems'] ?? 0) <= 1
             && MathUtility::canBeInterpretedAsInteger($this->P['currentValue'])
@@ -147,7 +149,7 @@ class EditController
             // SINGLE value
             $urlParameters['edit[' . $config['foreign_table'] . '][' . $this->P['currentValue'] . ']'] = 'edit';
             // Redirect to FormEngine
-            $url = (string)$uriBuilder->buildUriFromRoute('record_edit', $urlParameters);
+            $url = $this->uriBuilder->buildUriFromRoute('record_edit', $urlParameters);
             return new RedirectResponse($url);
         }
 
@@ -171,8 +173,7 @@ class EditController
                 $urlParameters['edit[' . $recTableUidParts[0] . '][' . $recTableUidParts[1] . ']'] = 'edit';
             }
             // Redirect to FormEngine
-            $url = (string)$uriBuilder->buildUriFromRoute('record_edit', $urlParameters);
-
+            $url = $this->uriBuilder->buildUriFromRoute('record_edit', $urlParameters);
             return new RedirectResponse($url);
         }
         return new HtmlResponse($this->closeWindow);

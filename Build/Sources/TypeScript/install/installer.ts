@@ -14,11 +14,11 @@
 import DocumentService from '@typo3/core/document-service';
 import RegularEvent from '@typo3/core/event/regular-event';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import PasswordStrength from './module/password-strength';
 import { InfoBox } from './renderable/info-box';
 import '@typo3/backend/element/icon-element';
-import MessageInterface from '@typo3/install/message-interface';
+import type MessageInterface from '@typo3/install/message-interface';
 import { selector } from '@typo3/core/literals';
 import '@typo3/backend/element/progress-bar-element';
 import type { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
@@ -97,12 +97,12 @@ class Installer {
   }
 
   private getUrl(action?: string): string {
-    let url: string = location.href;
-    url = url.replace(location.search, '');
+    const url = new URL(window.location.toString());
+    url.search = '?__typo3_install';
     if (action !== undefined) {
-      url = url + '?install[action]=' + action;
+      url.searchParams.set('install[action]', action);
     }
-    return url;
+    return url.toString();
   }
 
   private setProgress(done: number): void {
@@ -224,7 +224,7 @@ class Installer {
       .then(async (response: AjaxResponse): Promise<void> => {
         const data = await response.resolve();
         if (data.success === true) {
-          this.executeSilentConfigurationUpdate();
+          this.checkDatabaseConnect();
         } else {
           this.executeAdjustTrustedHostsPattern();
         }
@@ -235,33 +235,7 @@ class Installer {
     (new AjaxRequest(this.getUrl('executeAdjustTrustedHostsPattern')))
       .get({ cache: 'no-cache' })
       .then((): void => {
-        this.executeSilentConfigurationUpdate();
-      });
-  }
-
-  private executeSilentConfigurationUpdate(): void {
-    (new AjaxRequest(this.getUrl('executeSilentConfigurationUpdate')))
-      .get({ cache: 'no-cache' })
-      .then(async (response: AjaxResponse): Promise<void> => {
-        const data = await response.resolve();
-        if (data.success === true) {
-          this.executeSilentTemplateFileUpdate();
-        } else {
-          this.executeSilentConfigurationUpdate();
-        }
-      });
-  }
-
-  private executeSilentTemplateFileUpdate(): void {
-    (new AjaxRequest(this.getUrl('executeSilentTemplateFileUpdate')))
-      .get({ cache: 'no-cache' })
-      .then(async (response: AjaxResponse): Promise<void> => {
-        const data = await response.resolve();
-        if (data.success === true) {
-          this.checkDatabaseConnect();
-        } else {
-          this.executeSilentTemplateFileUpdate();
-        }
+        this.checkDatabaseConnect();
       });
   }
 

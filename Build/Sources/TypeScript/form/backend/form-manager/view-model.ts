@@ -15,7 +15,7 @@
  * Module: @typo3/form/backend/form-manager/view-model
  */
 import $ from 'jquery';
-import Modal, { ModalElement } from '@typo3/backend/modal';
+import Modal, { type ModalElement } from '@typo3/backend/modal';
 import Severity from '@typo3/backend/severity';
 import MultiStepWizard from '@typo3/backend/multi-step-wizard';
 import Icons from '@typo3/backend/icons';
@@ -89,7 +89,7 @@ function newFormSetup(formManagerApp: FormManager): void {
         formManagerApp.assert(false, 'No accessible form storage folders', 1477506500);
       }
 
-      html = '<div class="new-form-modal">'
+      html = '<div class="new-form-modal">';
 
       html += '<div class="card-container">'
         + '<div class="card card-size-medium">'
@@ -201,7 +201,7 @@ function newFormSetup(formManagerApp: FormManager): void {
         MultiStepWizard.set('templatePath', 'EXT:form/Resources/Private/Backend/Templates/FormEditor/Yaml/NewForms/BlankForm.yaml');
         MultiStepWizard.set('templatePathName', TYPO3.lang['formManager.blankForm.label']);
       } else {
-        html += '<h5 class="form-section-headline">' + TYPO3.lang['formManager.predefinedForm.label'] + '</h5>'
+        html += '<h5 class="form-section-headline">' + TYPO3.lang['formManager.predefinedForm.label'] + '</h5>';
         if (prototypes.length > 1) {
           html += '<div class="mb-3">'
             + '<label for="new-form-prototype-name">' + '<strong>' + TYPO3.lang['formManager.form_prototype'] + '</strong>' + '</label>'
@@ -356,7 +356,7 @@ function newFormSetup(formManagerApp: FormManager): void {
         + '<h5 class="form-section-headline">' + TYPO3.lang['formManager.newFormWizard.step3.check'] + '</h5>'
         + '<p>' + TYPO3.lang['formManager.newFormWizard.step3.message'] + '</p>'
         + '</div>'
-        + '<div class="alert alert-notice">'
+        + '<div class="alert alert-notice">';
 
       if (settings.prototypeNameName) {
         html += '<div class="row my-1">'
@@ -473,8 +473,16 @@ function removeFormSetup(formManagerApp: FormManager): void {
       btnClass: 'btn-danger',
       name: 'createform',
       trigger: function(e: Event, modal: ModalElement) {
-        document.location = formManagerApp.getAjaxEndpoint('delete') + '&formPersistenceIdentifier=' + that.data('formPersistenceIdentifier');
-        modal.hideModal();
+        $.post(formManagerApp.getAjaxEndpoint('delete'), {
+          formPersistenceIdentifier: that.data('formPersistenceIdentifier'),
+        }, function(data) {
+          if (data.status === 'success') {
+            document.location = data.url;
+          } else {
+            Notification.error(data.title, data.message);
+          }
+          modal.hideModal();
+        });
       }
     });
 
@@ -521,7 +529,7 @@ function duplicateFormSetup(formManagerApp: FormManager): void {
       }
 
       html = '<div class="duplicate-form-modal">'
-        + '<h5 class="form-section-headline">' + TYPO3.lang['formManager.new_form_name'] + '</h5>'
+        + '<h2 class="h3 form-section-headline">' + TYPO3.lang['formManager.new_form_name'] + '</h2>'
         + '<div class="mb-3">'
         + '<label for="duplicate-form-name">' + '<strong>' + TYPO3.lang['formManager.form_name'] + '</strong>' + '</label>'
         + '<div class="formengine-field-item t3js-formengine-field-item">'
@@ -712,7 +720,7 @@ function showReferencesSetup(formManagerApp: FormManager): void {
 
       if (referencesLength > 0) {
         html = '<div>'
-          + '<h3>' + TYPO3.lang['formManager.references.headline'].replace('{0}', securityUtility.encodeHtml($that.data('formName'))) + '</h3>'
+          + '<h2 class="h3">' + TYPO3.lang['formManager.references.headline'].replace('{0}', securityUtility.encodeHtml($that.data('formName'))) + '</h2>'
           + '</div>'
           + '<div class="table-fit">'
           + '<table id="forms" class="table table-striped table-hover">'

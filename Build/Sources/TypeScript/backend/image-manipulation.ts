@@ -11,19 +11,20 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, TemplateResult } from 'lit';
+import { html, type TemplateResult } from 'lit';
 import { unsafeHTML } from 'lit/directives/unsafe-html';
 import { styleMap } from 'lit/directives/style-map';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import RegularEvent from '@typo3/core/event/regular-event';
-import FormEngineValidation from '@typo3/backend/form-engine-validation';
+import FormEngine from '@typo3/backend/form-engine';
 import Cropper from 'cropperjs';
-import { default as Modal, ModalElement } from './modal';
+import { default as Modal, type ModalElement } from './modal';
 import '@typo3/backend/element/spinner-element';
 import { renderNodes } from '@typo3/core/lit-helper';
-import { DraggableResizableElement, Offset } from '@typo3/backend/element/draggable-resizable-element';
-import type { DraggableResizableEvent, PointerEventNames } from '@typo3/backend/element/draggable-resizable-element';
+import { topLevelModuleImport } from '@typo3/backend/utility/top-level-module-import';
+import { Offset } from '@typo3/backend/offset';
+import type { DraggableResizableEvent, PointerEventNames, DraggableResizableElement } from '@typo3/backend/element/draggable-resizable-element';
 import type { EventInterface } from '@typo3/core/event/event-interface';
 
 export interface Area {
@@ -70,7 +71,8 @@ class ImageManipulation {
   private readonly cropImageSelector: string = '#t3js-crop-image';
   private readonly coverAreaSelector: string = '.t3js-cropper-cover-area';
   private readonly cropInfoSelector: string = '.t3js-cropper-info-crop';
-  private readonly focusAreaSelector: string = '#t3js-cropper-focus-area';
+  private readonly focusAreaSelector: string = 'typo3-backend-draggable-resizable';
+  private readonly focusAreaVisualElementSelector: string = 'typo3-backend-draggable-resizable .cropper-focus-area';
   private focusAreaEl: DraggableResizableElement;
   // Initialize an empty object to prevent undefined cropBox error on modal load.
   private cropBox: HTMLElement;
@@ -363,7 +365,7 @@ class ImageManipulation {
         this.currentCropVariant = Object.assign({}, resetCropVariant, { cropArea: absoluteCropArea });
         this.update(this.currentCropVariant);
       }
-    ).delegateTo(this.currentModal, 'button[name=reset]')
+    ).delegateTo(this.currentModal, 'button[name=reset]');
 
     // if we start without an cropArea, maximize the cropper
     if (ImageManipulation.isEmptyObject(this.currentCropVariant.cropArea)) {
@@ -417,24 +419,6 @@ class ImageManipulation {
     );
     // can't use .t3js-* as selector because it is an extraneous selector
     this.cropBox = this.currentModal.querySelector('.cropper-crop-box');
-
-    this.setCropArea(this.currentCropVariant.cropArea);
-
-    // check if new cropVariant has coverAreas
-    if (this.currentCropVariant.coverAreas) {
-      // init or reinit focusArea
-      this.initCoverAreas(this.cropBox, this.currentCropVariant.coverAreas);
-    }
-    // check if new cropVariant has focusArea
-    if (this.currentCropVariant.focusArea) {
-      // init or reinit focusArea
-      if (ImageManipulation.isEmptyObject(this.currentCropVariant.focusArea)) {
-        // if an empty focusArea is set initialise it with the default
-        this.currentCropVariant.focusArea = Object.assign({}, this.defaultFocusArea);
-      }
-      this.focusAreaEl?.remove();
-      this.initFocusArea(this.cropBox);
-    }
 
     if (this.currentCropVariant.selectedRatio) {
       // set data explicitly or setAspectRatio up-scales the crop
@@ -499,7 +483,7 @@ class ImageManipulation {
    * @desc Update current cropArea position and size when changing cropVariants
    * @param {CropVariant} cropVariant - The new cropVariant to update the UI with
    */
-  private update(cropVariant: CropVariant): void {
+  private async update(cropVariant: CropVariant): Promise<void> {
     const temp: CropVariant = Object.assign({}, cropVariant);
     const selectedRatio: Ratio = cropVariant.allowedAspectRatios[cropVariant.selectedRatio];
 
@@ -516,11 +500,7 @@ class ImageManipulation {
     this.setCropArea(temp.cropArea);
     this.currentCropVariant = Object.assign({}, temp, cropVariant);
     this.cropBox?.querySelectorAll(this.coverAreaSelector)?.forEach((el: HTMLElement) => el.remove());
-
-    // if the current container has a focus area element, deregister and cleanup prior to initialization
-    if (this.cropBox?.querySelectorAll(this.focusAreaSelector)?.length > 0) {
-      this.focusAreaEl.remove();
-    }
+    this.cropBox?.querySelectorAll(this.focusAreaSelector)?.forEach((el: HTMLElement) => el.remove());
 
     // check if new cropVariant has focusArea
     if (cropVariant.focusArea) {
@@ -528,8 +508,9 @@ class ImageManipulation {
       if (ImageManipulation.isEmptyObject(cropVariant.focusArea)) {
         this.currentCropVariant.focusArea = Object.assign({}, this.defaultFocusArea);
       }
-      this.focusAreaEl?.remove();
-      this.initFocusArea(this.cropBox);
+      this.focusAreaEl = this.initFocusArea(this.cropBox);
+    } else {
+      this.focusAreaEl = null;
     }
 
     // check if new cropVariant has coverAreas
@@ -544,48 +525,48 @@ class ImageManipulation {
    * @desc Initializes the focus area inside a container and registers the resizable and draggable interfaces to it
    * @param {HTMLElement} container
    */
-  private initFocusArea(container: HTMLElement): void {
-    this.focusAreaEl = document.createElement('typo3-backend-draggable-resizable');
-    // bind to the window of the modal's document
-    this.focusAreaEl.window = this.currentModal.ownerDocument.defaultView;
-    // assign area declaration (as persisted in the database)
-    this.focusAreaEl.offset = this.convertAreaToOffset(this.currentCropVariant.focusArea, container);
-    // assign outer container (basically the cropper)
-    this.focusAreaEl.container = container;
-    // use the same events as cropper.js does
-    this.focusAreaEl.pointerEventNames = ImageManipulation.resolvePointerEventNames();
+  private initFocusArea(container: HTMLElement): DraggableResizableElement {
+    topLevelModuleImport('@typo3/backend/element/draggable-resizable-element.js');
 
-    this.focusAreaEl.addEventListener('draggable-resizable-started', () => {
+    const focusAreaEl = top.document.createElement('typo3-backend-draggable-resizable');
+    // assign area declaration (as persisted in the database)
+    focusAreaEl.setAttribute('offset', JSON.stringify(this.convertAreaToOffset(this.currentCropVariant.focusArea, container)));
+    // use the same events as cropper.js does
+    focusAreaEl.setAttribute('pointereventnames', JSON.stringify(ImageManipulation.resolvePointerEventNames()));
+
+    focusAreaEl.addEventListener('draggable-resizable-started', () => {
       // disable outer cropper, when interacting with inner draggable-resizable-element
       this.cropper.disable();
     });
-    this.focusAreaEl.addEventListener('draggable-resizable-updated', () => {
+    focusAreaEl.addEventListener('draggable-resizable-updated', () => {
       const coverAreas = this.currentCropVariant.coverAreas;
-      const focusArea = this.convertOffsetToArea(this.focusAreaEl.offset, container);
-      // retrive the inner visual element of the lit-element
-      const visualElement = this.focusAreaEl.querySelector(this.focusAreaSelector);
+      const focusArea = this.convertOffsetToArea(focusAreaEl.offset, container);
+      // retrieve the inner visual element of the lit-element
+      const visualElement = focusAreaEl.querySelector(this.focusAreaVisualElementSelector);
       if (this.checkFocusAndCoverAreasCollision(focusArea, coverAreas)) {
         visualElement.classList.add('has-nodrop');
       } else {
         visualElement.classList.remove('has-nodrop');
       }
     });
-    this.focusAreaEl.addEventListener('draggable-resizable-finished', (evt: DraggableResizableEvent) => {
+    focusAreaEl.addEventListener('draggable-resizable-finished', (evt: DraggableResizableEvent) => {
       const coverAreas = this.currentCropVariant.coverAreas;
-      const focusArea = this.convertOffsetToArea(this.focusAreaEl.offset, container);
+      const focusArea = this.convertOffsetToArea(focusAreaEl.offset, container);
       if (this.checkFocusAndCoverAreasCollision(focusArea, coverAreas)) {
-        this.focusAreaEl.revert(evt.detail.originOffset);
+        focusAreaEl.revert(evt.detail.originOffset);
       } else {
         this.scaleAndMoveFocusArea(focusArea);
       }
-      const visualElement = this.focusAreaEl.querySelector(this.focusAreaSelector);
+      const visualElement = focusAreaEl.querySelector(this.focusAreaVisualElementSelector);
       visualElement.classList.remove('has-nodrop');
       // re-enable outer cropper again
       this.cropper.enable();
     });
 
-    container.appendChild(this.focusAreaEl);
+    container.appendChild(focusAreaEl);
     this.scaleAndMoveFocusArea(this.currentCropVariant.focusArea);
+
+    return focusAreaEl;
   }
 
   /**
@@ -819,7 +800,7 @@ class ImageManipulation {
             <img src="${image.src}" style="${styleMap(imageStyles)}">
           </div>
         </span>
-      `
+      `;
       while (preview.firstChild) {
         preview.removeChild(preview.firstChild);
       }
@@ -854,7 +835,7 @@ class ImageManipulation {
     this.trigger.dataset.cropVariants = JSON.stringify(data);
     this.setPreviewImages(data);
     hiddenField.value = cropVariants;
-    FormEngineValidation.markFieldAsChanged(hiddenField);
+    FormEngine.markFieldAsChanged(hiddenField);
     this.currentModal.hideModal();
   }
 

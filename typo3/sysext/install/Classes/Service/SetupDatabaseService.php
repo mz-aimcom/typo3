@@ -62,7 +62,6 @@ class SetupDatabaseService
         private readonly ConfigurationManager $configurationManager,
         private readonly PermissionsCheck $databasePermissionsCheck,
         private readonly Registry $registry,
-        private readonly SchemaMigrator $schemaMigrator,
     ) {}
 
     /**
@@ -75,6 +74,7 @@ class SetupDatabaseService
         if (($values['availableSet'] ?? '') === 'configurationFromEnvironment') {
             $defaultConnectionSettings = $this->getDatabaseConfigurationFromEnvironment();
         } else {
+            $defaultConnectionSettings = [];
             if (isset($values['driver'])) {
                 if (in_array($values['driver'], $this->validDrivers, true)) {
                     $defaultConnectionSettings['driver'] = $values['driver'];
@@ -151,8 +151,8 @@ class SetupDatabaseService
             // For sqlite a db path is automatically calculated
             if (isset($values['driver']) && $values['driver'] === 'pdo_sqlite') {
                 $dbFilename = '/cms-' . (new Random())->generateRandomHexString(8) . '.sqlite';
-                // If the var/ folder exists outside of document root, put it into var/sqlite/
-                // Otherwise simply into typo3conf/
+                // If the "var/" folder exists outside of document root, put it into "var/sqlite/"
+                // Otherwise simply into "typo3conf/"
                 if (Environment::getProjectPath() !== Environment::getPublicPath()) {
                     GeneralUtility::mkdir_deep(Environment::getVarPath() . '/sqlite');
                     $defaultConnectionSettings['path'] = Environment::getVarPath() . '/sqlite' . $dbFilename;
@@ -160,14 +160,11 @@ class SetupDatabaseService
                     $defaultConnectionSettings['path'] = Environment::getConfigPath() . $dbFilename;
                 }
             }
-            // For mysql, set utf8mb4 as default charset
-            if (isset($values['driver']) && in_array($values['driver'], ['mysqli', 'pdo_mysql'])) {
-                $defaultConnectionSettings['charset'] = 'utf8mb4';
-                $defaultConnectionSettings['tableoptions'] = [
-                    'charset' => 'utf8mb4',
-                    'collate' => 'utf8mb4_unicode_ci',
-                ];
-            }
+            // Note hard setting default charset and defaultTableOptions here does not take `additional.php`
+            // (existing) configuration into account. This is not an issue for the `setup` cli command.
+            // The difference can be detected for example when the local development environment tool `ddev` is
+            // used. See class method `getDriverOptions()`
+            $defaultConnectionSettings = $this->setDefaultConnectionCharsetAndCollation($defaultConnectionSettings);
         }
 
         $success = false;
@@ -176,10 +173,6 @@ class SetupDatabaseService
             try {
                 $connectionParams = $defaultConnectionSettings;
                 $connectionParams['wrapperClass'] = Connection::class;
-                if (!isset($connectionParams['charset'])) {
-                    // utf-8 as default for non mysql
-                    $connectionParams['charset'] = 'utf-8';
-                }
                 $connection = DriverManager::getConnection($connectionParams);
                 if ($connection->getNativeConnection() !== null) {
                     $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
@@ -226,12 +219,12 @@ class SetupDatabaseService
         if (!empty($envCredentials)) {
             $connectionParams = $envCredentials;
             $connectionParams['wrapperClass'] = Connection::class;
-            $connectionParams['charset'] = 'utf-8';
+            $connectionParams = $this->setDefaultConnectionCharsetAndCollation($connectionParams);
             try {
                 $connection = DriverManager::getConnection($connectionParams);
                 if ($connection->getNativeConnection() !== null) {
                     $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
-                    return $envCredentials;
+                    return $connectionParams;
                 }
             } catch (DBALException $e) {
                 return [];
@@ -522,13 +515,14 @@ class SetupDatabaseService
         $sqlReader = $container->get(SqlReader::class);
         $sqlCode = $sqlReader->getTablesDefinitionString(true);
         $createTableStatements = $sqlReader->getCreateTableStatementArray($sqlCode);
-        $results = $this->schemaMigrator->install($createTableStatements);
+        $schemaMigrator = $container->get(SchemaMigrator::class);
+        $results = $schemaMigrator->install($createTableStatements);
 
         // Only keep statements with error messages
         $results = array_filter($results);
         if (count($results) === 0) {
             $insertStatements = $sqlReader->getInsertStatementArray($sqlCode);
-            $results = $this->schemaMigrator->importStaticData($insertStatements);
+            $results = $schemaMigrator->importStaticData($insertStatements);
         }
         foreach ($results as $statement => &$message) {
             if ($message === '') {
@@ -705,5 +699,25 @@ class SetupDatabaseService
             $this->registry->set('installUpdate', $className, 1);
         }
         $this->registry->set('installUpdateRows', 'rowUpdatersDone', GeneralUtility::makeInstance(DatabaseRowsUpdateWizard::class)->getAvailableRowUpdater());
+    }
+
+    /**
+     * Set default connection charset, and in case of MySQL/MariaDB
+     * connections also defaultTableOptions charset and collation.
+     *
+     * Note that no check for pre-configured values are done. Thus,
+     * default values are set to enforce default values.
+     */
+    private function setDefaultConnectionCharsetAndCollation(array $params): array
+    {
+        $params['charset'] = 'utf8';
+        if (isset($params['driver']) && in_array($params['driver'], ['mysqli', 'pdo_mysql'], true)) {
+            $params['charset'] = 'utf8mb4';
+            $params['defaultTableOptions'] = [
+                'charset' => 'utf8mb4',
+                'collation' => 'utf8mb4_unicode_ci',
+            ];
+        }
+        return $params;
     }
 }

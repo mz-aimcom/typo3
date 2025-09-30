@@ -22,17 +22,21 @@ use TYPO3\CMS\Backend\ElementBrowser\AbstractElementBrowser;
 use TYPO3\CMS\Backend\ElementBrowser\ElementBrowserInterface;
 use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
 use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownDivider;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItem;
 use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItemInterface;
 use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownRadio;
 use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownToggle;
 use TYPO3\CMS\Backend\Template\Components\Buttons\DropDownButton;
 use TYPO3\CMS\Backend\Tree\View\LinkParameterProviderInterface;
 use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
+use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Filelist\FileList;
 use TYPO3\CMS\Filelist\Matcher\Matcher;
+use TYPO3\CMS\Filelist\Type\Mode;
+use TYPO3\CMS\Filelist\Type\SortDirection;
 use TYPO3\CMS\Filelist\Type\ViewMode;
 
 /**
@@ -42,9 +46,11 @@ abstract class AbstractResourceBrowser extends AbstractElementBrowser implements
 {
     protected ?string $expandFolder = null;
     protected int $currentPage = 1;
-    protected string $moduleStorageIdentifier = 'file_list';
+    protected string $moduleStorageIdentifier = 'media_management';
 
     protected ?FileList $filelist = null;
+    protected string $sortField = 'name';
+    protected ?SortDirection $sortDirection = null;
     protected ?ViewMode $viewMode = null;
     protected bool $displayThumbs = true;
 
@@ -73,6 +79,8 @@ abstract class AbstractResourceBrowser extends AbstractElementBrowser implements
 
         $this->currentPage = (int)($request->getParsedBody()['currentPage'] ?? $request->getQueryParams()['currentPage'] ?? 1);
         $this->expandFolder = $request->getParsedBody()['expandFolder'] ?? $request->getQueryParams()['expandFolder'] ?? null;
+        $this->sortField = ($request->getParsedBody()['sortField'] ?? $request->getQueryParams()['sortField'] ?? 'name');
+        $this->sortDirection = SortDirection::tryFrom($request->getParsedBody()['sortDirection'] ?? $request->getQueryParams()['sortDirection'] ?? '') ?? SortDirection::ASCENDING;
 
         $this->viewMode = ViewMode::tryFrom($request->getParsedBody()['viewMode'] ?? $request->getQueryParams()['viewMode'] ?? '');
         if ($this->viewMode !== null) {
@@ -102,27 +110,63 @@ abstract class AbstractResourceBrowser extends AbstractElementBrowser implements
         $this->filelist->thumbs = ($GLOBALS['TYPO3_CONF_VARS']['GFX']['thumbnails'] ?? false) && $this->displayThumbs;
     }
 
+    /**
+     * Last selected folder is stored in user module session. Sanitize it
+     * to set $this->selectedFolder or keep it null.
+     */
     protected function initSelectedFolder(): void
     {
         $resourceFactory = GeneralUtility::makeInstance(ResourceFactory::class);
-
-        // Select folder
         if ($this->expandFolder) {
             try {
                 $this->selectedFolder = $resourceFactory->getFolderObjectFromCombinedIdentifier($this->expandFolder);
-            } catch (FolderDoesNotExistException $e) {
+            } catch (FolderDoesNotExistException|InsufficientFolderAccessPermissionsException) {
+                // Outdated module session data: Last used folder has been removed meanwhile, or
+                // access to last used folder has been removed. Do not set a preselected folder.
             }
+        }
+    }
+
+    protected function getSortingModeButtons(Mode $mode): ButtonInterface
+    {
+        $sortingButton = GeneralUtility::makeInstance(DropDownButton::class)
+            ->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting'))
+            ->setIcon($this->iconFactory->getIcon($this->sortDirection->getIconIdentifier()));
+
+        $sortingModeButtons = [];
+        $sortableFields = $this->filelist->getSortableFields();
+        if (count($sortableFields) > 1) {
+            foreach ($sortableFields as $field) {
+                $label = $this->filelist->getFieldLabel($field);
+
+                $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+                    ->setActive($this->sortField === $field)
+                    ->setHref($this->createUri([
+                        'sortField' => $field,
+                        'sortDirection' => SortDirection::ASCENDING->value,
+                        'currentPage' => 1,
+                    ]))
+                    ->setLabel($label);
+            }
+
+            $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownDivider::class);
         }
 
-        if (!$this->selectedFolder) {
-            $allStorages = $this->getBackendUser()->getFileStorages();
-            $defaultStorage = $resourceFactory->getDefaultStorage();
-            if ($defaultStorage && array_key_exists($defaultStorage->getUid(), $allStorages)) {
-                $this->selectedFolder = $defaultStorage->getRootLevelFolder();
-            } else {
-                $this->selectedFolder = reset($allStorages)->getRootLevelFolder();
-            }
+        $defaultSortingDirectionParams = ['sortField' => $this->sortField, 'currentPage' => 1];
+        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+            ->setActive($this->sortDirection === SortDirection::ASCENDING)
+            ->setHref($this->createUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::ASCENDING->value])))
+            ->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.asc'));
+        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+            ->setActive($this->sortDirection === SortDirection::DESCENDING)
+            ->setHref($this->createUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::DESCENDING->value])))
+            ->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.desc'));
+
+        foreach ($sortingModeButtons as $sortingModeButton) {
+            $sortingButton->addItem($sortingModeButton);
         }
+
+        return $sortingButton;
     }
 
     protected function getViewModeButton(): ButtonInterface
@@ -145,6 +189,32 @@ abstract class AbstractResourceBrowser extends AbstractElementBrowser implements
                 ->setHref($this->createUri(['displayThumbs' => $this->displayThumbs ? 0 : 1]))
                 ->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.showThumbnails'))
                 ->setIcon($this->iconFactory->getIcon('actions-image'));
+        }
+        if (
+            ($this->getBackendUser()->getTSConfig()['options.']['file_list.']['displayColumnSelector'] ?? true)
+            && $this->viewMode === ViewMode::LIST
+            && $this->identifier === 'file'
+        ) {
+            $this->pageRenderer->loadJavaScriptModule('@typo3/backend/column-selector-button.js');
+            $viewModeItems[] = GeneralUtility::makeInstance(DropDownDivider::class);
+            $viewModeItems[] = GeneralUtility::makeInstance(DropDownItem::class)
+                ->setTag('typo3-backend-column-selector-button')
+                ->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.selectColumns'))
+                ->setAttributes([
+                    'data-url' => (string)$this->uriBuilder->buildUriFromRoute(
+                        'ajax_show_columns_selector',
+                        ['table' => '_FILE']
+                    ),
+                    'data-target' => (string)$this->filelist->createModuleUri(),
+                    'data-title' => sprintf(
+                        $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:showColumnsSelection'),
+                        $this->tcaSchemaFactory->get('sys_file')->getTitle($this->getLanguageService()->sL(...)),
+                    ),
+                    'data-button-ok' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:updateColumnView'),
+                    'data-button-close' => $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel'),
+                    'data-error-message' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:updateColumnView.error'),
+                ])
+                ->setIcon($this->iconFactory->getIcon('actions-options'));
         }
 
         $viewModeButton = GeneralUtility::makeInstance(DropDownButton::class)

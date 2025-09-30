@@ -20,7 +20,6 @@ namespace TYPO3\CMS\Frontend\Page;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
-use TYPO3\CMS\Backend\FrontendBackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Context\LanguageAspectFactory;
@@ -30,6 +29,8 @@ use TYPO3\CMS\Core\Error\Http\ShortcutTargetPageNotFoundException;
 use TYPO3\CMS\Core\Error\Http\StatusException;
 use TYPO3\CMS\Core\Exception\Page\RootLineException;
 use TYPO3\CMS\Core\Page\PageLayoutResolver;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Type\Bitmask\PageTranslationVisibility;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -37,6 +38,7 @@ use TYPO3\CMS\Core\TypoScript\IncludeTree\SysTemplateRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\RootlineUtility;
+use TYPO3\CMS\Frontend\Authentication\FrontendBackendUserAuthentication;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Frontend\Event\AfterPageAndLanguageIsResolvedEvent;
 use TYPO3\CMS\Frontend\Event\AfterPageWithRootLineIsResolvedEvent;
@@ -70,6 +72,7 @@ final readonly class PageInformationFactory
         private ErrorController $errorController,
         private SysTemplateRepository $sysTemplateRepository,
         private PageLayoutResolver $pageLayoutResolver,
+        private TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -153,12 +156,13 @@ final readonly class PageInformationFactory
             //        subtle differences: getPage($id), getPage($id, true) and getPage_noCheck($id).
             // PageRepository->getPage() did not return a page. This can have
             // different reasons. We want to error out with different status codes.
-            $hiddenField = $GLOBALS['TCA']['pages']['ctrl']['enablecolumns']['disabled'] ?? '';
+            $schema = $this->tcaSchemaFactory->get('pages');
             $includeHiddenPages = $this->context->getPropertyFromAspect('visibility', 'includeHiddenPages') || $this->context->getPropertyFromAspect('backend.user', 'isLoggedIn', false);
-            if (!empty($hiddenField) && !$includeHiddenPages) {
+            if ($schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField) && !$includeHiddenPages) {
                 // Page is hidden, user has no access. 404. This is deliberately done in default language
                 // since language overlays should not be rendered when default language is hidden.
                 $rawPageRecord = $pageRepository->getPage_noCheck($id);
+                $hiddenField = $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getFieldName();
                 if ($rawPageRecord === [] || $rawPageRecord[$hiddenField]) {
                     $response = $this->errorController->pageNotFoundAction(
                         $request,
@@ -526,9 +530,17 @@ final readonly class PageInformationFactory
      */
     protected function checkBackendUserAccess(ServerRequestInterface $request, PageInformation $pageInformation): void
     {
-        if ($this->context->getPropertyFromAspect('backend.user', 'isLoggedIn', false)
-            && $this->context->getPropertyFromAspect('frontend.preview', 'isPreview', false)
-            && !$GLOBALS['BE_USER']->doesUserHaveAccess($pageInformation->getPageRecord(), Permission::PAGE_SHOW)
+        // No backend user was logged in, nothing to check
+        if (!$this->context->getPropertyFromAspect('backend.user', 'isLoggedIn', false)) {
+            return;
+        }
+        // PreviewSimulator did not detect anything
+        if (!$this->context->getPropertyFromAspect('frontend.preview', 'isPreview', false)) {
+            return;
+        }
+        // Editor has no show permission for this page PLUS regular user is not allowed to see the page? 403.
+        if (!$GLOBALS['BE_USER']->doesUserHaveAccess($pageInformation->getPageRecord(), Permission::PAGE_SHOW)
+            && !$this->accessVoter->accessGranted('pages', $pageInformation->getPageRecord(), $this->context)
         ) {
             $response = $this->errorController->accessDeniedAction(
                 $request,

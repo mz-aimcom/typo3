@@ -24,6 +24,8 @@ use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\CacheTag;
+use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Core\Environment;
@@ -34,6 +36,9 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\Query\Restriction\DocumentTypeExclusionRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\FrontendRestrictionContainer;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Domain\Record;
+use TYPO3\CMS\Core\Domain\RecordInterface;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Html\HtmlCropper;
 use TYPO3\CMS\Core\Html\HtmlParser;
@@ -58,6 +63,9 @@ use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\FolderInterface;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\Text\TextCropper;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
@@ -71,6 +79,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
+use TYPO3\CMS\Frontend\Cache\CacheLifetimeCalculator;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterContentObjectRendererInitializedEvent;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterGetDataResolvedEvent;
 use TYPO3\CMS\Frontend\ContentObject\Event\AfterImageResourceResolvedEvent;
@@ -103,6 +112,19 @@ class ContentObjectRenderer implements LoggerAwareInterface
 {
     use LoggerAwareTrait;
     use DefaultJavaScriptAssetTrait;
+
+    /**
+     * Indicates that object type is USER.
+     *
+     * @see ContentObjectRender::$userObjectType
+     */
+    public const OBJECTTYPE_USER_INT = 1;
+    /**
+     * Indicates that object type is USER.
+     *
+     * @see ContentObjectRender::$userObjectType
+     */
+    public const OBJECTTYPE_USER = 2;
 
     /**
      * @var ContainerInterface|null
@@ -368,19 +390,6 @@ class ContentObjectRenderer implements LoggerAwareInterface
      */
     private ?ServerRequestInterface $request = null;
 
-    /**
-     * Indicates that object type is USER.
-     *
-     * @see ContentObjectRender::$userObjectType
-     */
-    public const OBJECTTYPE_USER_INT = 1;
-    /**
-     * Indicates that object type is USER.
-     *
-     * @see ContentObjectRender::$userObjectType
-     */
-    public const OBJECTTYPE_USER = 2;
-
     public function __construct(?TypoScriptFrontendController $typoScriptFrontendController = null, ?ContainerInterface $container = null)
     {
         $this->typoScriptFrontendController = $typoScriptFrontendController;
@@ -447,7 +456,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
      * Well, it has to be called manually since it is not a real constructor function.
      * So after making an instance of the class, call this function and pass to it a database record and the tablename from where the record is from. That will then become the "current" record loaded into memory and accessed by the .fields property found in eg. stdWrap.
      *
-     * @param array $data The record data that is rendered.
+     * @param array|int|string $data The record data that is rendered.
      * @param string $table The table that the data record is from.
      */
     public function start($data, $table = '')
@@ -462,6 +471,17 @@ class ContentObjectRenderer implements LoggerAwareInterface
         GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
             new AfterContentObjectRendererInitializedEvent($this)
         );
+
+        $autoTagging = GeneralUtility::makeInstance(Features::class)->isFeatureEnabled('frontend.cache.autoTagging');
+        if (is_array($this->data) && $this->currentRecord !== '' && $autoTagging) {
+            $cacheLifetimeCalculator = GeneralUtility::makeInstance(CacheLifetimeCalculator::class);
+            $this->request?->getAttribute('frontend.cache.collector')?->addCacheTags(
+                new CacheTag(
+                    name: sprintf('%s_%s', $this->table, ($this->data['uid'] ?? 0)),
+                    lifetime: $cacheLifetimeCalculator->calculateLifetimeForRow($this->table, $this->data)
+                )
+            );
+        }
     }
 
     /**
@@ -661,13 +681,21 @@ class ContentObjectRenderer implements LoggerAwareInterface
             if (!empty($key)) {
                 $cacheFrontend = GeneralUtility::makeInstance(CacheManager::class)->getCache('hash');
                 $tags = $this->calculateCacheTags($cacheConfiguration);
-                $lifetime = $this->calculateCacheLifetime($cacheConfiguration);
+                $cacheLifetime = $this->calculateCacheLifetime($cacheConfiguration);
                 $cachedData = [
                     'content' => $content,
                     'cacheTags' => $tags,
                 ];
-                $cacheFrontend->set($key, $cachedData, $tags, $lifetime);
-                $this->getTypoScriptFrontendController()->addCacheTags($tags);
+                $cacheFrontend->set($key, $cachedData, $tags, $cacheLifetime);
+
+                // If no tags are given, we restrict the maximum lifetime of the cache to the lifetime of the cache entry.
+                if ($tags === []) {
+                    $this->getRequest()->getAttribute('frontend.cache.collector')->restrictMaximumLifetime($cacheLifetime);
+                }
+
+                $this->getRequest()->getAttribute('frontend.cache.collector')->addCacheTags(
+                    ...array_map(fn(string $tag) => new CacheTag($tag, $cacheLifetime), $tags)
+                );
             }
         }
 
@@ -920,8 +948,12 @@ class ContentObjectRenderer implements LoggerAwareInterface
                 ];
                 $url = $this->cObjGetSingle('IMG_RESOURCE', $imgResourceConf);
                 if (!$url) {
-                    // If no imagemagick / gm is available
-                    $url = $imageFile;
+                    // Either imagemagick/gm is not available or image URL could not be resolved due to invalid image file
+                    if ($imageFile instanceof File || $imageFile instanceof FileReference) {
+                        $url = $imageFile->getPublicUrl();
+                    } else {
+                        $url = $imageFile;
+                    }
                 }
             }
             $target = (string)$this->stdWrapValue('target', $conf ?? []);
@@ -937,6 +969,11 @@ class ContentObjectRenderer implements LoggerAwareInterface
                     $url = $altUrl . (($conf['JSwindow.']['altUrl_noDefaultParams'] ?? false) ? '' : '?file=' . rawurlencode((string)$imageFile) . $params);
                 }
 
+                if ($file instanceof ProcessedFile) {
+                    // TypoScript record delivered like 'file = fileadmin/something.jpg' which can result
+                    // in an already processed file. Process the original file with the proper config now.
+                    $file = $file->getOriginalFile();
+                }
                 $processedFile = $file->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, $conf);
                 $JSwindowExpand = $this->stdWrapValue('expand', $conf['JSwindow.'] ?? []);
                 $offset = GeneralUtility::intExplode(',', $JSwindowExpand . ',');
@@ -1006,15 +1043,21 @@ class ContentObjectRenderer implements LoggerAwareInterface
      * The SYS_LASTCHANGED timestamp can be used by various caching/indexing applications to determine if the page has new content.
      * Therefore you should call this function with the last-changed timestamp of any element you display.
      *
-     * @param int $tstamp Unix timestamp (number of seconds since 1970)
+     * @param RecordInterface|int|string|float|null $item a record objet or a Unix timestamp (number of seconds since 1970)
      * @see TypoScriptFrontendController::setSysLastChanged()
      */
-    public function lastChanged($tstamp)
+    public function lastChanged(RecordInterface|int|string|float|null $item)
     {
-        $tstamp = (int)$tstamp;
+        if (MathUtility::canBeInterpretedAsInteger($item)) {
+            $item = (int)$item;
+        } elseif ($item instanceof Record) {
+            $item = $item->getSystemProperties()->getLastUpdatedAt()->getTimestamp();
+        } else {
+            $item = 0;
+        }
         $tsfe = $this->getTypoScriptFrontendController();
-        if ($tstamp > (int)($tsfe->register['SYS_LASTCHANGED'] ?? 0)) {
-            $tsfe->register['SYS_LASTCHANGED'] = $tstamp;
+        if ($item > (int)($tsfe->register['SYS_LASTCHANGED'] ?? 0)) {
+            $tsfe->register['SYS_LASTCHANGED'] = $item;
         }
     }
 
@@ -1074,10 +1117,10 @@ class ContentObjectRenderer implements LoggerAwareInterface
         $eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
 
         // Cache handling
-        if (isset($conf['cache.']) && is_array($conf['cache.'])) {
-            $conf['cache.']['key'] = $this->stdWrapValue('key', $conf['cache.'] ?? []);
-            $conf['cache.']['tags'] = $this->stdWrapValue('tags', $conf['cache.'] ?? []);
-            $conf['cache.']['lifetime'] = $this->stdWrapValue('lifetime', $conf['cache.'] ?? []);
+        if (is_array($conf['cache.'] ?? null)) {
+            $conf['cache.']['key'] = $this->stdWrapValue('key', $conf['cache.']);
+            $conf['cache.']['tags'] = $this->stdWrapValue('tags', $conf['cache.']);
+            $conf['cache.']['lifetime'] = $this->stdWrapValue('lifetime', $conf['cache.']);
             $conf['cacheRead'] = 1;
             $conf['cacheStore'] = 1;
         }
@@ -1202,7 +1245,9 @@ class ContentObjectRenderer implements LoggerAwareInterface
         $tags = (string)$this->stdWrapValue('addPageCacheTags', $conf ?? []);
         if (!empty($tags)) {
             $cacheTags = GeneralUtility::trimExplode(',', $tags, true);
-            $this->getTypoScriptFrontendController()->addCacheTags($cacheTags);
+            $this->getRequest()->getAttribute('frontend.cache.collector')->addCacheTags(
+                ...array_map(fn(string $tag) => new CacheTag($tag), $cacheTags)
+            );
         }
         return $content;
     }
@@ -1468,7 +1513,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
         $padType = STR_PAD_RIGHT;
 
         if (!empty($conf['strPad.']['type'])) {
-            $type = (string)$this->stdWrapValue('type', $conf['strPad.'] ?? []);
+            $type = (string)$this->stdWrapValue('type', $conf['strPad.']);
             if (strtolower($type) === 'left') {
                 $padType = STR_PAD_LEFT;
             } elseif (strtolower($type) === 'both') {
@@ -2369,7 +2414,15 @@ class ContentObjectRenderer implements LoggerAwareInterface
                 $event->getTags(),
                 $event->getLifetime()
             );
-        $this->getTypoScriptFrontendController()->addCacheTags($event->getTags());
+
+        // If no tags are given, we restrict the maximum lifetime of the cache to the lifetime of the cache entry.
+        if ($event->getTags() === []) {
+            $this->getRequest()->getAttribute('frontend.cache.collector')->restrictMaximumLifetime($event->getLifetime());
+        }
+
+        $this->getRequest()->getAttribute('frontend.cache.collector')->addCacheTags(
+            ...array_map(fn(string $tag) => new CacheTag($tag, $event->getLifetime()), $event->getTags())
+        );
         return $event->getContent();
     }
 
@@ -2803,7 +2856,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
             $splitCount = $min;
         }
         $wrap = (string)$this->stdWrapValue('wrap', $conf ?? []);
-        $cObjNumSplitConf = isset($conf['cObjNum.']) ? $this->stdWrap($conf['cObjNum'] ?? '', $conf['cObjNum.'] ?? []) : (string)($conf['cObjNum'] ?? '');
+        $cObjNumSplitConf = isset($conf['cObjNum.']) ? $this->stdWrap($conf['cObjNum'] ?? '', $conf['cObjNum.']) : (string)($conf['cObjNum'] ?? '');
         $splitArr = [];
         if ($wrap !== '' || $cObjNumSplitConf !== '') {
             $splitArr['wrap'] = $wrap;
@@ -3129,7 +3182,13 @@ class ContentObjectRenderer implements LoggerAwareInterface
         $contentAccumP = 0;
 
         $allowTags = GeneralUtility::trimExplode(',', strtolower($conf['allowTags'] ?? ''), true);
+        if (in_array('*', $allowTags, true)) {
+            $allowTags = ['*'];
+        }
         $denyTags = GeneralUtility::trimExplode(',', strtolower($conf['denyTags'] ?? ''), true);
+        if (in_array('*', $denyTags, true)) {
+            $denyTags = ['*'];
+        }
         $totalLen = strlen($theValue);
         do {
             if (!$inside) {
@@ -3209,7 +3268,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
                 } else {
                     $tagContent = substr($data, 1, -1);
                 }
-                $tag = explode(' ', trim($tagContent), 2);
+                $tag = preg_split('/[\t\n\f ]/', trim($tagContent), 2);
                 $tag[0] = strtolower($tag[0]);
                 // end tag like </li>
                 if (str_starts_with($tag[0], '/')) {
@@ -3515,7 +3574,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
         // split by mailto logic
         $textpieces = explode('mailto:', $data);
         $pieces = count($textpieces);
-        $textstr = $textpieces[0] ?? '';
+        $textstr = $textpieces[0];
         for ($i = 1; $i < $pieces; $i++) {
             $len = strcspn($textpieces[$i], chr(32) . "\t" . CRLF);
             if (trim(substr($textstr, -1)) === '' && $len) {
@@ -3809,7 +3868,6 @@ class ContentObjectRenderer implements LoggerAwareInterface
                         $retVal = $this->getValueFromRecursiveData(GeneralUtility::trimExplode('|', $key), $this->getRequest());
                         break;
                     case 'tsfe':
-                        // @todo: This needs a bigger cleanup / deprecation when TypoScriptFrontendController continues to remove properties.
                         $valueParts = GeneralUtility::trimExplode('|', $key);
                         if (($valueParts[0] ?? '') === 'fe_user') {
                             $frontendUser = $this->getRequest()->getAttribute('frontend.user');
@@ -3824,8 +3882,20 @@ class ContentObjectRenderer implements LoggerAwareInterface
                                     $this->getRequest()->getQueryParams(),
                                     GeneralUtility::makeInstance(Context::class)
                                 );
-                        } else {
-                            $retVal = $this->getValueFromRecursiveData($valueParts, $this->getTypoScriptFrontendController());
+                        } elseif (($valueParts[0] ?? '') === 'id') {
+                            $retVal = $this->getRequest()->getAttribute('frontend.page.information')->getId();
+                        } elseif (($valueParts[0] ?? '') === 'contentPid') {
+                            $retVal = $this->getRequest()->getAttribute('frontend.page.information')->getContentFromPid();
+                        } elseif (($valueParts[0] ?? '') === 'rootLine') {
+                            array_shift($valueParts);
+                            $retVal = $this->getValueFromRecursiveData($valueParts, $this->getRequest()->getAttribute('frontend.page.information')->getRootLine());
+                        } elseif (($valueParts[0] ?? '') === 'page') {
+                            array_shift($valueParts);
+                            $retVal = $this->getValueFromRecursiveData($valueParts, $this->getRequest()->getAttribute('frontend.page.information')->getPageRecord());
+                        } elseif (($valueParts[0] ?? '') === 'config' && ($valueParts[1] ?? '') === 'rootLine') {
+                            array_shift($valueParts);
+                            array_shift($valueParts);
+                            $retVal = $this->getValueFromRecursiveData($valueParts, $this->getRequest()->getAttribute('frontend.page.information')->getLocalRootLine());
                         }
                         break;
                     case 'getenv':
@@ -3845,7 +3915,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
                         if ($absoluteFilePath === '') {
                             throw new \RuntimeException('Asset "' . $key . '" not found', 1670713983);
                         }
-                        $retVal = GeneralUtility::createVersionNumberedFilename(PathUtility::getAbsoluteWebPath($absoluteFilePath));
+                        $retVal = PathUtility::getAbsoluteWebPath(GeneralUtility::createVersionNumberedFilename($absoluteFilePath));
                         break;
                     case 'parameters':
                         $retVal = $this->parameters[$key] ?? null;
@@ -4391,7 +4461,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
     {
         if ($wrap) {
             $wrapArr = explode($char, $wrap);
-            $content = trim($wrapArr[0] ?? '') . $content . trim($wrapArr[1] ?? '');
+            $content = trim($wrapArr[0]) . $content . trim($wrapArr[1] ?? '');
         }
         return $content;
     }
@@ -4558,31 +4628,15 @@ class ContentObjectRenderer implements LoggerAwareInterface
      */
     public function calcAge($seconds, $labels = null)
     {
-        if ($labels === null || MathUtility::canBeInterpretedAsInteger($labels)) {
-            $labels = ' min| hrs| days| yrs| min| hour| day| year';
-        } else {
-            $labels = str_replace('"', '', $labels);
-        }
-        $labelArr = explode('|', $labels);
-        if (count($labelArr) === 4) {
-            $labelArr = array_merge($labelArr, $labelArr);
-        }
-        $absSeconds = abs($seconds);
-        $sign = $seconds > 0 ? 1 : -1;
-        if ($absSeconds < 3600) {
-            $val = round($absSeconds / 60);
-            $seconds = $sign * $val . ($val == 1 ? $labelArr[4] : $labelArr[0]);
-        } elseif ($absSeconds < 24 * 3600) {
-            $val = round($absSeconds / 3600);
-            $seconds = $sign * $val . ($val == 1 ? $labelArr[5] : $labelArr[1]);
-        } elseif ($absSeconds < 365 * 24 * 3600) {
-            $val = round($absSeconds / (24 * 3600));
-            $seconds = $sign * $val . ($val == 1 ? $labelArr[6] : $labelArr[2]);
-        } else {
-            $val = round($absSeconds / (365 * 24 * 3600));
-            $seconds = $sign * $val . ($val == 1 ? ($labelArr[7] ?? null) : ($labelArr[3] ?? null));
-        }
-        return $seconds;
+        $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
+        $then = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME'] - $seconds);
+        // Show past dates without a leading sign, but future dates with.
+        // This does not make sense, but is kept for legacy reasons.
+        $sign = $then > $now ? '-' : '';
+        // Take an absolute diff, since we don't want formatDateInterval to output the (correct) sign
+        $diff = $now->diff($then, true);
+        $labels = ($labels === null || MathUtility::canBeInterpretedAsInteger($labels)) ? 'min|hrs|days|yrs|min|hour|day|year' : str_replace('"', '', $labels);
+        return $sign . (new DateFormatter())->formatDateInterval($diff, $labels);
     }
 
     /**
@@ -4739,6 +4793,15 @@ class ContentObjectRenderer implements LoggerAwareInterface
             }
         }
 
+        if (GeneralUtility::makeInstance(Features::class)->isFeatureEnabled('frontend.cache.autoTagging')) {
+            $cacheLifetimeCalculator = GeneralUtility::makeInstance(CacheLifetimeCalculator::class);
+            $cacheTags = array_map(fn(array $record) => new CacheTag(
+                name: sprintf('%s_%s', $tableName, ($record['uid'] ?? 0)),
+                lifetime: $cacheLifetimeCalculator->calculateLifetimeForRow($tableName, $record)
+            ), $records);
+            $this->getRequest()->getAttribute('frontend.cache.collector')?->addCacheTags(...$cacheTags);
+        }
+
         return $records;
     }
 
@@ -4882,7 +4945,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
                         $conf['begin'] = str_ireplace('total', $count, (string)$conf['begin']);
                     }
                 } catch (DBALException $e) {
-                    $this->getTimeTracker()->setTSlogMessage($e->getPrevious()->getMessage());
+                    $this->getTimeTracker()->setTSlogMessage($e->getMessage());
                     return '';
                 }
             }
@@ -4960,16 +5023,14 @@ class ContentObjectRenderer implements LoggerAwareInterface
             'orderBy' => null,
         ];
 
-        $isInWorkspace = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('workspace', 'isOffline');
-        $considerMovePointers = (
-            $isInWorkspace && $table !== 'pages'
-            && !empty($GLOBALS['TCA'][$table]['ctrl']['versioningWS'])
-        );
+        $context = GeneralUtility::makeInstance(Context::class);
+        $isInWorkspace = $context->getPropertyFromAspect('workspace', 'isOffline');
 
         if (trim($conf['uidInList'] ?? '')) {
             $listArr = GeneralUtility::intExplode(',', str_replace('this', (string)$contentPid, $conf['uidInList']));
 
             // If moved records shall be considered, select via t3ver_oid
+            $considerMovePointers = $isInWorkspace && $table !== 'pages' && $this->getTcaSchema($table)?->isWorkspaceAware();
             if ($considerMovePointers) {
                 $constraints[] = (string)$expressionBuilder->or(
                     $expressionBuilder->in($table . '.uid', $listArr),
@@ -5024,7 +5085,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
 
         // Check if the default language should be fetched (= doing overlays), or if only the records of a language should be fetched
         // but only do this for TCA tables that have languages enabled
-        $languageConstraint = $this->getLanguageRestriction($expressionBuilder, $table, $conf, GeneralUtility::makeInstance(Context::class));
+        $languageConstraint = $this->getLanguageRestriction($expressionBuilder, $table, $conf, $context);
         if ($languageConstraint !== null) {
             $constraints[] = $languageConstraint;
         }
@@ -5081,13 +5142,19 @@ class ContentObjectRenderer implements LoggerAwareInterface
     protected function getLanguageRestriction(ExpressionBuilder $expressionBuilder, string $table, array $conf, Context $context)
     {
         $languageField = '';
-        $localizationParentField = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? null;
+        $localizationParentField = '';
+        $languageCapability = null;
+        $schema = $this->getTcaSchema($table);
+        if ($schema?->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $localizationParentField = $languageCapability->getTranslationOriginPointerField()->getName();
+        }
         // Check if the table is translatable, and set the language field by default from the TCA information
         if (!empty($conf['languageField']) || !isset($conf['languageField'])) {
-            if (isset($conf['languageField']) && !empty($GLOBALS['TCA'][$table]['columns'][$conf['languageField']])) {
+            if (isset($conf['languageField']) && $schema?->hasField($conf['languageField'])) {
                 $languageField = $conf['languageField'];
-            } elseif (!empty($GLOBALS['TCA'][$table]['ctrl']['languageField']) && !empty($localizationParentField)) {
-                $languageField = $table . '.' . $GLOBALS['TCA'][$table]['ctrl']['languageField'];
+            } elseif ($languageCapability) {
+                $languageField = $table . '.' . $languageCapability->getLanguageField()->getName();
             }
         }
 
@@ -5112,7 +5179,8 @@ class ContentObjectRenderer implements LoggerAwareInterface
                 $includeRecordsWithoutDefaultTranslation = $includeRecordsWithoutDefaultTranslation !== '' && $includeRecordsWithoutDefaultTranslation !== '0';
             } else {
                 // Option was not explicitly set, check what's in for the language overlay type.
-                $includeRecordsWithoutDefaultTranslation = $languageAspect->getOverlayType() === $languageAspect::OVERLAYS_ON_WITH_FLOATING;
+                // OVERLAYS_ON means that we do not include the "floating" records (records without default translation)
+                $includeRecordsWithoutDefaultTranslation = $languageAspect->getOverlayType() !== $languageAspect::OVERLAYS_ON;
             }
             if ($includeRecordsWithoutDefaultTranslation) {
                 $languageQuery = $expressionBuilder->or(
@@ -5146,21 +5214,27 @@ class ContentObjectRenderer implements LoggerAwareInterface
         $matchEnd = '(\\s*,|\\s*$)/';
         $necessaryFields = ['uid', 'pid'];
         $wsFields = ['t3ver_state'];
-        $languageField = $GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? false;
-        if (isset($GLOBALS['TCA'][$table]) && !preg_match($matchStart . '\\*' . $matchEnd, $selectPart) && !preg_match('/(count|max|min|avg|sum)\\([^\\)]+\\)|distinct/i', $selectPart)) {
+        $schema = $this->getTcaSchema($table);
+        if ($schema === null) {
+            return $selectPart;
+        }
+
+        if (!preg_match($matchStart . '\\*' . $matchEnd, $selectPart) && !preg_match('/(count|max|min|avg|sum)\\([^\\)]+\\)|distinct/i', $selectPart)) {
             foreach ($necessaryFields as $field) {
                 $match = $matchStart . $field . $matchEnd;
                 if (!preg_match($match, $selectPart)) {
                     $selectPart .= ', ' . $connection->quoteIdentifier($table . '.' . $field) . ' AS ' . $connection->quoteIdentifier($field);
                 }
             }
-            if (is_string($languageField)) {
+            if ($schema->isLanguageAware()) {
+                $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+                $languageField = $languageCapability->getLanguageField()->getName();
                 $match = $matchStart . $languageField . $matchEnd;
                 if (!preg_match($match, $selectPart)) {
                     $selectPart .= ', ' . $connection->quoteIdentifier($table . '.' . $languageField) . ' AS ' . $connection->quoteIdentifier($languageField);
                 }
             }
-            if ($GLOBALS['TCA'][$table]['ctrl']['versioningWS'] ?? false) {
+            if ($schema->isWorkspaceAware()) {
                 foreach ($wsFields as $field) {
                     $match = $matchStart . $field . $matchEnd;
                     if (!preg_match($match, $selectPart)) {
@@ -5179,7 +5253,7 @@ class ContentObjectRenderer implements LoggerAwareInterface
      * @return array Returns the array of remaining page UID numbers
      * @internal
      */
-    public function checkPidArray($pageIds)
+    public function checkPidArray($pageIds): array
     {
         if (!is_array($pageIds) || empty($pageIds)) {
             return [];
@@ -5323,27 +5397,40 @@ class ContentObjectRenderer implements LoggerAwareInterface
         if ($cachedData === false) {
             return false;
         }
-        $this->getTypoScriptFrontendController()->addCacheTags($cachedData['cacheTags'] ?? []);
+        $this->getRequest()->getAttribute('frontend.cache.collector')->addCacheTags(
+            ...array_map(fn(string $tag) => new CacheTag($tag), $cachedData['cacheTags'])
+        );
         return $cachedData['content'] ?? false;
     }
 
     /**
      * Calculates the lifetime of a cache entry based on the given configuration
-     *
-     * @return int|null
      */
-    protected function calculateCacheLifetime(array $configuration)
+    protected function calculateCacheLifetime(array $configuration): int
     {
         $configuration['lifetime'] = $configuration['lifetime'] ?? '';
         $lifetimeConfiguration = (string)$this->stdWrapValue('lifetime', $configuration);
 
-        $lifetime = null; // default lifetime
         if (strtolower($lifetimeConfiguration) === 'unlimited') {
-            $lifetime = 0; // unlimited
+            $lifetime = 31536000; // unlimited lifetime - 1 year.
+        } elseif (strtolower($lifetimeConfiguration) === 'default') {
+            $lifetime = $this->getDefaultCachePeriod(); // default lifetime of config.cache_period or 86400 seconds
         } elseif ($lifetimeConfiguration > 0) {
-            $lifetime = (int)$lifetimeConfiguration; // lifetime in seconds
+            $lifetime = (int)$lifetimeConfiguration;
+        } else {
+            // If no lifetime is specified, we use the default cache period.
+            $lifetime = $this->getDefaultCachePeriod();
         }
         return $lifetime;
+    }
+
+    /**
+     * Returns the default cache period in seconds
+     */
+    protected function getDefaultCachePeriod(): int
+    {
+        $frontendTyposcript = $this->getRequest()->getAttribute('frontend.typoscript');
+        return (int)($frontendTyposcript->getConfigArray()['cache_period'] ?? 86400);
     }
 
     /**
@@ -5369,12 +5456,18 @@ class ContentObjectRenderer implements LoggerAwareInterface
         return $this->stdWrapValue('key', $configuration);
     }
 
-    /**
-     * @return TimeTracker
-     */
-    protected function getTimeTracker()
+    protected function getTimeTracker(): TimeTracker
     {
         return GeneralUtility::makeInstance(TimeTracker::class);
+    }
+
+    protected function getTcaSchema(string $table): ?TcaSchema
+    {
+        $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+        if ($schemaFactory->has($table)) {
+            return $schemaFactory->get($table);
+        }
+        return null;
     }
 
     /**

@@ -30,6 +30,8 @@ use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Tree\Event\ModifyTreeDataEvent;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -43,6 +45,7 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
     public const MODE_PARENT = 2;
 
     protected string $tableName = '';
+    protected ?TcaSchema $schema = null;
 
     /**
      * @var string
@@ -59,11 +62,6 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
     protected int $lookupMode = self::MODE_CHILDREN;
 
     protected string $lookupField = '';
-
-    /**
-     * @var int[]
-     */
-    protected array $startingPoints = [0];
 
     protected array $idCache = [];
 
@@ -165,26 +163,6 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
     }
 
     /**
-     * Sets the root uids
-     *
-     * @param int[] $startingPoints
-     */
-    public function setStartingPoints(array $startingPoints): void
-    {
-        $this->startingPoints = $startingPoints;
-    }
-
-    /**
-     * Gets the root uids
-     *
-     * @return int[]
-     */
-    public function getStartingPoints(): array
-    {
-        return $this->startingPoints;
-    }
-
-    /**
      * Sets the tableWhere clause
      */
     public function setTableWhere(string $tableWhere): void
@@ -209,7 +187,7 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
         $row = [];
         if ($basicNode->getId() == 0) {
             $node->setSelected(false);
-            $node->setLabel($this->getLanguageService()?->sL($GLOBALS['TCA'][$this->tableName]['ctrl']['title']));
+            $node->setLabel($this->schema?->getTitle($this->getLanguageService()->sL(...)));
         } else {
             if ($basicNode->getAdditionalData() === []) {
                 $row = BackendUtility::getRecordWSOL($this->tableName, (int)$basicNode->getId(), '*', '', false) ?? [];
@@ -245,8 +223,14 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
      */
     public function initializeTreeData(): void
     {
+        $this->schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get($this->getTableName());
         $this->nodeSortValues = array_flip($this->itemWhiteList);
-        $this->columnConfiguration = $GLOBALS['TCA'][$this->getTableName()]['columns'][$this->lookupField]['config'] ?? [];
+        if ($this->schema->hasField($this->lookupField)) {
+            $this->columnConfiguration = $this->schema->getField($this->lookupField)->getConfiguration();
+        } else {
+            // Use-case here is lookupField = "pid"
+            $this->columnConfiguration = [];
+        }
         if (isset($this->columnConfiguration['foreign_table']) && $this->columnConfiguration['foreign_table'] !== $this->getTableName()) {
             throw new \InvalidArgumentException('TCA Tree configuration is invalid: tree for different node-Tables is not implemented yet', 1290944650);
         }
@@ -371,7 +355,7 @@ class DatabaseTreeDataProvider extends AbstractTableConfigurationTreeDataProvide
             if ($this->columnConfiguration['MM'] ?? null) {
                 $dbGroup = GeneralUtility::makeInstance(RelationHandler::class);
                 // Dummy field for setting "look from other site"
-                $this->columnConfiguration['MM_oppositeField'] = 'children';
+                $this->columnConfiguration['MM_opposite_field'] = 'children';
                 $dbGroup->start($row[$this->lookupField], $this->getTableName(), $this->columnConfiguration['MM'], $uid, $this->getTableName(), $this->columnConfiguration);
                 $relatedUids = $dbGroup->tableArray[$this->getTableName()];
             } elseif ($this->columnConfiguration['foreign_field'] ?? null) {

@@ -23,7 +23,9 @@ use Doctrine\DBAL\Platforms\MariaDBPlatform as DoctrineMariaDBPlatform;
 use Doctrine\DBAL\Platforms\MySQLPlatform as DoctrineMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform as DoctrineSQLitePlatform;
+use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Schema;
@@ -42,7 +44,6 @@ use Doctrine\DBAL\Types\TextType;
 use TYPO3\CMS\Core\Database\Connection as Typo3Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Platform\PlatformInformation;
-use TYPO3\CMS\Core\Database\Schema\ColumnDiff as Typo3ColumnDiff;
 use TYPO3\CMS\Core\Database\Schema\SchemaDiff as Typo3SchemaDiff;
 use TYPO3\CMS\Core\Database\Schema\TableDiff as Typo3TableDiff;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -180,7 +181,7 @@ class ConnectionMigrator
                 $this->connection->executeStatement($statement);
                 $result[$statement] = '';
             } catch (DBALException $e) {
-                $result[$statement] = $e->getPrevious()->getMessage();
+                $result[$statement] = $e->getMessage();
             }
         }
 
@@ -244,8 +245,10 @@ class ConnectionMigrator
             );
         }
 
+        $schemaManager = $this->connection->createSchemaManager();
+
         // Build the schema definitions
-        $fromSchema = $this->buildExistingSchemaDefinitions();
+        $fromSchema = $this->buildExistingSchemaDefinitions($schemaManager);
         $toSchema = $this->buildExpectedSchemaDefinitions($this->connectionName);
 
         // Add current table options to the fromSchema
@@ -261,7 +264,7 @@ class ConnectionMigrator
         }
 
         // Build SchemaDiff and handle renames of tables and columns
-        $comparator = GeneralUtility::makeInstance(Comparator::class, $this->connection->getDatabasePlatform());
+        $comparator = GeneralUtility::makeInstance(Comparator::class, $schemaManager->createComparator());
         $schemaDiff = $comparator->compareSchemas($fromSchema, $toSchema);
         if (! $schemaDiff instanceof Typo3SchemaDiff) {
             $schemaDiff = Typo3SchemaDiff::ensure($schemaDiff);
@@ -286,10 +289,10 @@ class ConnectionMigrator
         return $schemaDiff;
     }
 
-    protected function buildExistingSchemaDefinitions(): Schema
+    protected function buildExistingSchemaDefinitions(AbstractSchemaManager $schemaManager): Schema
     {
         $platform = $this->connection->getDatabasePlatform();
-        $schema = $this->connection->createSchemaManager()->introspectSchema();
+        $schema = $schemaManager->introspectSchema();
         // Only MySQL has variable length versions of TEXT/BLOB.
         // Move the platform into the foreach loop as soon as more normalization needs to be applied, taking it
         // now as early avoiding the loop.
@@ -707,15 +710,16 @@ class ConnectionMigrator
             if (count($changedTable->changedColumns) !== 0) {
                 // Treat each changed column with a new diff to get a dedicated suggestions
                 // just for this single column.
-                foreach ($changedTable->changedColumns as $columnName => $changedColumn) {
+                foreach ($changedTable->changedColumns as $columnName => &$changedColumn) {
                     // Field has been renamed and will be handled separately
                     if ($changedColumn->hasNameChanged()) {
                         continue;
                     }
 
-                    if ($changedColumn->getOldColumn() !== null) {
-                        $changedColumn->oldColumn = $this->buildQuotedColumn($changedColumn->oldColumn);
-                    }
+                    $changedColumn = new ColumnDiff(
+                        $this->buildQuotedColumn($changedColumn->getOldColumn()),
+                        $changedColumn->getNewColumn(),
+                    );
 
                     // Get the current SQL declaration for the column
                     $currentColumn = $changedColumn->getOldColumn();
@@ -1265,7 +1269,7 @@ class ConnectionMigrator
                 );
 
                 // Build the diff object for the column to rename
-                $columnDiff = new Typo3ColumnDiff($this->buildQuotedColumn($removedColumn), $renamedColumn);
+                $columnDiff = new ColumnDiff($this->buildQuotedColumn($removedColumn), $renamedColumn);
 
                 // Add the column with the required rename information to the changed column list
                 $schemaDiff->alteredTables[$tableIndex]->changedColumns[$columnIndex] = $columnDiff;
@@ -1599,6 +1603,7 @@ class ConnectionMigrator
         array_walk($tables, function (Table &$table) use ($connection, $databasePlatform, $schemaConfig): void {
             $table->setSchemaConfig($schemaConfig);
             $this->normalizeTableIdentifiers($databasePlatform, $table);
+            $this->applyDefaultOptionsToTable($databasePlatform, $schemaConfig, $table);
             $this->applyDefaultPlatformOptionsToColumns($databasePlatform, $schemaConfig, $table);
             $this->normalizeDecimalTypeColumnDefaultValue($databasePlatform, $table);
             $this->normalizeTableForMariaDBOrMySQL($databasePlatform, $table);
@@ -1632,10 +1637,33 @@ class ConnectionMigrator
         );
     }
 
+    protected function applyDefaultOptionsToTable(AbstractPlatform $platform, SchemaConfig $schemaConfig, Table $table): void
+    {
+        $defaultTableOptions = $schemaConfig->getDefaultTableOptions();
+        $defaultColumnCollation = $defaultTableOptions['collation'] ?? null;
+        $defaultColumCharset = $defaultTableOptions['charset'] ?? null;
+        $defaultTableEngine = $defaultTableOptions['engine'] ?? 'InnoDB';
+
+        if ($platform instanceof DoctrineMariaDBPlatform || $platform instanceof DoctrineMySQLPlatform) {
+            if (!$table->hasOption('charset') && $defaultColumCharset !== null) {
+                $table->addOption('charset', $defaultColumCharset);
+            }
+            if (!$table->hasOption('collation') && $defaultColumnCollation !== null) {
+                $table->addOption('collation', $defaultColumnCollation);
+            }
+            if (!$table->hasOption('engine')) {
+                $table->addOption('engine', $defaultTableEngine);
+            }
+            if (!$table->hasOption('row_format')) {
+                $table->addOption('row_format', 'Dynamic');
+            }
+        }
+    }
+
     protected function applyDefaultPlatformOptionsToColumns(AbstractPlatform $platform, SchemaConfig $schemaConfig, Table $table): void
     {
         $defaultTableOptions = $schemaConfig->getDefaultTableOptions();
-        $defaultColumnCollation = $defaultTableOptions['collation'] ?? $defaultTableOptions['collate'] ?? '';
+        $defaultColumnCollation = $defaultTableOptions['collation'] ?? '';
         $defaultColumCharset = $defaultTableOptions['charset'] ?? '';
         foreach ($table->getColumns() as $column) {
             $columnType = $column->getType();
@@ -1651,10 +1679,21 @@ class ConnectionMigrator
                     $column->setPlatformOption('charset', $defaultColumCharset);
                 }
             }
-            if ($platform instanceof DoctrineSQLitePlatform
-                && ($columnType instanceof StringType || $columnType instanceof TextType || $columnType instanceof JsonType)
+            if ($platform instanceof DoctrinePostgreSQLPlatform
+                && (($columnType instanceof StringType || $columnType instanceof TextType))
             ) {
-                $column->setPlatformOption('collation', 'BINARY');
+                // Unset collation and charset in platformOptions
+                $column->setPlatformOption('collation', null);
+                $column->setPlatformOption('charset', null);
+            }
+            if ($platform instanceof DoctrineSQLitePlatform) {
+                if ($columnType instanceof StringType || $columnType instanceof TextType || $columnType instanceof JsonType) {
+                    $column->setPlatformOption('collation', 'BINARY');
+                }
+                if ($columnType instanceof StringType || $columnType instanceof TextType) {
+                    // Unset charset in platformOptions
+                    $column->setPlatformOption('charset', null);
+                }
             }
         }
     }
@@ -1872,21 +1911,9 @@ class ConnectionMigrator
             return;
         }
 
-        foreach ($table->getColumns() as $column) {
-            // Doctrine DBAL 4 no longer determines the field type taking field comments into account. Due to the fact
-            // that SQLite does not provide a native JSON type, it is created as TEXT field type. In consequence, the
-            // current way to compare columns this leads to a change look for JSON fields. To mitigate this, until the
-            // real Doctrine DBAL 4 way to compare columns can be enabled we need to mirror that type transformation
-            // on the virtual database schema and change the type here.
-            // @see https://github.com/doctrine/dbal/blob/4.0.x/UPGRADE.md#bc-break-removed-platform-commented-type-api
-            if ($column->getType() instanceof JsonType) {
-                $column->setType(new TextType());
-            }
-        }
-
         // doctrine/dbal detects both sqlite autoincrement variants (row_id alias and autoincrement) through assumptions
         // which have been made. TYPO3 reads the ext_tables.sql files as MySQL/MariaDB variant, thus not setting the
-        // autoincrement value to true for the row_id alias variant, which leads to an endless missmatch during database
+        // autoincrement value to true for the row_id alias variant, which leads to an endless mismatch during database
         // comparison. This method adopts the doctrine/dbal assumption and apply it to the meta schema to mitigate
         // endless database compare detections in these cases.
         //

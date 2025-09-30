@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Database\Schema;
 
 use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Table;
@@ -57,16 +58,16 @@ class TableDiff extends DoctrineTableDiff
      */
     public function __construct(
         public Table $oldTable,
-        public array $addedColumns,
-        public array $changedColumns,
-        public array $droppedColumns,
-        public array $addedIndexes,
-        public array $modifiedIndexes,
-        public array $droppedIndexes,
-        public array $renamedIndexes,
-        public array $addedForeignKeys,
-        public array $modifiedForeignKeys,
-        public array $droppedForeignKeys,
+        public array $addedColumns = [],
+        public array $changedColumns = [],
+        public array $droppedColumns = [],
+        public array $addedIndexes = [],
+        public array $modifiedIndexes = [],
+        public array $droppedIndexes = [],
+        public array $renamedIndexes = [],
+        public array $addedForeignKeys = [],
+        public array $modifiedForeignKeys = [],
+        public array $droppedForeignKeys = [],
         public array $tableOptions = [],
     ) {
         // NOTE: parent::__construct() not called by intention.
@@ -191,8 +192,6 @@ class TableDiff extends DoctrineTableDiff
             // really dropping tables instead. Therefore, we need to add here an empty check for the reintroduced
             // property.See for example: ConnectionMigrator->migrateUnprefixedRemovedTablesToRenames
             && $this->getNewName() !== null && $this->getNewName() !== ''
-            // @todo doctrine/dbal 3.5 deprecated schema events, thus a new way to provide table option has to
-            //       be found and implemented. Recheck this afterwards.
             && $this->getTableOptions() === [];
     }
 
@@ -246,6 +245,34 @@ class TableDiff extends DoctrineTableDiff
         // but we rely on it. Restore it !.
         foreach ($tableDiff->getModifiedIndexes() as $modifiedIndex) {
             $diff->modifiedIndexes[$modifiedIndex->getName()] = $modifiedIndex;
+        }
+
+        // Accumulate modified index separated into added and dropped information to modifiedIndexes again,
+        // otherwise required drop action may not be executed before trying to add an existing index first.
+        // Required for planned doctrine/dbal 4.3.0 change (deprecation) and currently breaking with an open
+        // discussion to mitigate that before dbal release. We still prepare for this case to be on the safer
+        // side here.
+        // Needs to be done in a two-step strategy to avoid changing array while iterating over it.
+        // - https://github.com/doctrine/dbal/pull/6831
+        // - https://github.com/doctrine/dbal/issues/6880
+        /**
+         * @var array<int, array{added: Index, dropped: Index}> $transformIndexOperations
+         */
+        $transformIndexOperations = [];
+        foreach ($diff->getAddedIndexes() as $addedIndex) {
+            foreach ($diff->getDroppedIndexes() as $droppedIndex) {
+                if ($droppedIndex->getName() === $addedIndex->getName()) {
+                    $transformIndexOperations[] = [
+                        'added' => $addedIndex,
+                        'dropped' => $droppedIndex,
+                    ];
+                }
+            }
+        }
+        foreach ($transformIndexOperations as $data) {
+            $diff->unsetAddedIndex($data['added']);
+            $diff->unsetDroppedIndex($data['dropped']);
+            $diff->modifiedIndexes[$data['added']->getName()] = $data['added'];
         }
 
         return $diff;

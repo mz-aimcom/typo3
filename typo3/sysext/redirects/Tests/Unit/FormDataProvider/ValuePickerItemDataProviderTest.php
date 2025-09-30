@@ -58,7 +58,7 @@ final class ValuePickerItemDataProviderTest extends UnitTestCase
     {
         // no results for now
         $siteFinderMock = $this->getMockBuilder(SiteFinder::class)->disableOriginalConstructor()->getMock();
-        $siteFinderMock->expects(self::once())->method('getAllSites')->willReturn([
+        $siteFinderMock->expects($this->once())->method('getAllSites')->willReturn([
             new Site('bar', 13, ['base' => 'bar.test']),
             new Site('foo', 14, ['base' => 'foo.test']),
         ]);
@@ -66,8 +66,8 @@ final class ValuePickerItemDataProviderTest extends UnitTestCase
         $actualResult = $valuePickerItemDataProvider->addData($this->sysRedirectResultSet);
         $expected = $this->sysRedirectResultSet;
         $expected['processedTca']['columns']['source_host']['config']['valuePicker']['items'] = [
-            ['bar.test', 'bar.test'],
-            ['foo.test', 'foo.test'],
+            ['label' => 'bar.test', 'value' => 'bar.test'],
+            ['label' => 'foo.test', 'value' => 'foo.test'],
         ];
         self::assertSame($expected, $actualResult);
     }
@@ -76,7 +76,7 @@ final class ValuePickerItemDataProviderTest extends UnitTestCase
     public function addDataDoesNotChangeResultSetIfNoSitesAreFound(): void
     {
         $siteFinderMock = $this->getMockBuilder(SiteFinder::class)->disableOriginalConstructor()->getMock();
-        $siteFinderMock->expects(self::once())->method('getAllSites')->willReturn([]);
+        $siteFinderMock->expects($this->once())->method('getAllSites')->willReturn([]);
         $valuePickerItemDataProvider = new ValuePickerItemDataProvider($siteFinderMock);
         $actualResult = $valuePickerItemDataProvider->addData($this->sysRedirectResultSet);
 

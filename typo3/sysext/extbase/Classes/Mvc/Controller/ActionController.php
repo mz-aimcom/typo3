@@ -18,7 +18,6 @@ namespace TYPO3\CMS\Extbase\Mvc\Controller;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriInterface;
 use TYPO3\CMS\Core\Crypto\HashService;
@@ -32,7 +31,6 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
-use TYPO3\CMS\Core\View\FluidViewAdapter;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Core\View\ViewInterface;
@@ -46,21 +44,18 @@ use TYPO3\CMS\Extbase\Mvc\Exception\NoSuchActionException;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
-use TYPO3\CMS\Extbase\Mvc\View\GenericViewResolver;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
-use TYPO3\CMS\Extbase\Mvc\View\ViewResolverInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder;
 use TYPO3\CMS\Extbase\Property\Exception\TargetNotFoundException;
 use TYPO3\CMS\Extbase\Property\PropertyMapper;
 use TYPO3\CMS\Extbase\Reflection\ReflectionService;
 use TYPO3\CMS\Extbase\Security\HashScope;
 use TYPO3\CMS\Extbase\Service\ExtensionService;
+use TYPO3\CMS\Extbase\Service\FileHandlingService;
 use TYPO3\CMS\Extbase\Validation\Validator\ConjunctionValidator;
-use TYPO3\CMS\Extbase\Validation\Validator\ValidatorInterface;
 use TYPO3\CMS\Extbase\Validation\ValidatorResolver;
-use TYPO3\CMS\Fluid\View\TemplatePaths;
-use TYPO3Fluid\Fluid\View\AbstractTemplateView;
-use TYPO3Fluid\Fluid\View\ViewInterface as FluidStandaloneViewInterface;
+use TYPO3\CMS\Fluid\View\FluidViewAdapter;
+use TYPO3\CMS\Frontend\Controller\ErrorController;
 
 /**
  * A multi action controller. This is by far the most common base class for Controllers.
@@ -77,16 +72,9 @@ abstract class ActionController implements ControllerInterface
     protected ReflectionService $reflectionService;
 
     /**
-     * @internal
-     */
-    private ViewResolverInterface $viewResolver;
-
-    /**
      * The current view, as resolved by resolveView()
-     * @todo Use "protected ViewInterface $view;" in v14.
-     * @var FluidStandaloneViewInterface|ViewInterface $view
      */
-    protected $view;
+    protected ViewInterface $view;
 
     /**
      * The default view class to use. Keep this 'null' for default fluid
@@ -110,6 +98,7 @@ abstract class ActionController implements ControllerInterface
 
     protected MvcPropertyMappingConfigurationService $mvcPropertyMappingConfigurationService;
     protected EventDispatcherInterface $eventDispatcher;
+    protected FileHandlingService $fileHandlingService;
     protected RequestInterface $request;
     protected UriBuilder $uriBuilder;
 
@@ -175,14 +164,6 @@ abstract class ActionController implements ControllerInterface
         $this->validatorResolver = $validatorResolver;
     }
 
-    /**
-     * @internal
-     */
-    public function injectViewResolver(ViewResolverInterface $viewResolver): void
-    {
-        $this->viewResolver = $viewResolver;
-    }
-
     final public function injectViewFactory(ViewFactoryInterface $viewFactory): void
     {
         $this->viewFactory = $viewFactory;
@@ -212,6 +193,11 @@ abstract class ActionController implements ControllerInterface
     public function injectEventDispatcher(EventDispatcherInterface $eventDispatcher): void
     {
         $this->eventDispatcher = $eventDispatcher;
+    }
+
+    public function injectFileHandlingService(FileHandlingService $fileHandlingService): void
+    {
+        $this->fileHandlingService = $fileHandlingService;
     }
 
     /**
@@ -308,15 +294,14 @@ abstract class ActionController implements ControllerInterface
             /** @var ConjunctionValidator $validator */
             $validator = $this->validatorResolver->createValidator(ConjunctionValidator::class);
             foreach ($classSchemaMethodParameter->getValidators() as $validatorDefinition) {
-                /** @var ValidatorInterface $validatorInstance */
                 $validatorInstance = $this->validatorResolver->createValidator(
                     $validatorDefinition['className'],
                     $validatorDefinition['options'],
                     $this->request
                 );
-                $validator->addValidator(
-                    $validatorInstance
-                );
+                if ($validatorInstance !== null) {
+                    $validator->addValidator($validatorInstance);
+                }
             }
             $baseValidatorConjunction = $this->validatorResolver->getBaseValidatorConjunction(
                 $argument->getDataType(),
@@ -343,9 +328,7 @@ abstract class ActionController implements ControllerInterface
                 $argument->getDataType(),
                 $this->request
             );
-            if ($validator !== null) {
-                $argument->setValidator($validator);
-            }
+            $argument->setValidator($validator);
         }
     }
 
@@ -364,9 +347,10 @@ abstract class ActionController implements ControllerInterface
         $this->initializeActionMethodArguments();
         $this->initializeActionMethodValidators();
         $this->mvcPropertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($request, $this->arguments);
+        $this->fileHandlingService->initializeFileUploadConfigurationsFromRequest($request, $this->arguments);
         $this->initializeAction();
         $actionInitializationMethodName = 'initialize' . ucfirst($this->actionMethodName);
-        /** @var callable $callable */
+        /** @var callable|null $callable */
         $callable = [$this, $actionInitializationMethodName];
         if (is_callable($callable)) {
             $callable();
@@ -402,8 +386,7 @@ abstract class ActionController implements ControllerInterface
      */
     protected function renderAssetsForRequest(RequestInterface $request): void
     {
-        if (!($this->view instanceof AbstractTemplateView) && !($this->view instanceof FluidViewAdapter)) {
-            // @todo: Simplify to if (!($this->view instanceof FluidViewAdapter)) in v14.
+        if (!($this->view instanceof FluidViewAdapter)) {
             return;
         }
         $pageRenderer = GeneralUtility::makeInstance(PageRenderer::class);
@@ -448,13 +431,17 @@ abstract class ActionController implements ControllerInterface
         // incoming request is not needed yet but can be passed into the action in the future like in symfony
         // todo: support this via method-reflection
 
-        $preparedArguments = [];
-        /** @var Argument $argument */
-        foreach ($this->arguments as $argument) {
-            $preparedArguments[] = $argument->getValue();
-        }
+        $this->fileHandlingService->initializeFileUploadDeletionConfigurationsFromRequest($request, $this->arguments);
         $validationResult = $this->arguments->validate();
         if (!$validationResult->hasErrors()) {
+            $preparedArguments = [];
+            /** @var Argument $argument */
+            foreach ($this->arguments as $argument) {
+                $this->fileHandlingService->applyDeletionsToArgument($argument);
+                $this->fileHandlingService->mapUploadedFilesToArgument($argument);
+                $preparedArguments[] = $argument->getValue();
+            }
+
             $this->eventDispatcher->dispatch(new BeforeActionCallEvent(static::class, $this->actionMethodName, $preparedArguments));
             $actionResult = $this->{$this->actionMethodName}(...$preparedArguments);
         } else {
@@ -478,7 +465,6 @@ abstract class ActionController implements ControllerInterface
      * Prepares a view for the current action.
      *
      * @internal
-     * @todo Set "protected function resolveView(): ViewInterface" in v14.
      * @todo We may want to decide in extbase to go away from the automatic view preparation via
      *       processRequest() and this method for actions. We could very well postulate actions
      *       should take care of creating "their" view on their own using a ViewFactoryInterface
@@ -488,11 +474,10 @@ abstract class ActionController implements ControllerInterface
      *       a burden than helpful since controllers then need to have an initializeFooAction()
      *       just to set this property when different actions want different views. Also, it does
      *       not allow actions to have no view prepared at all, for instance when they just want to
-     *       create a json response by json_encode()'ing stuff. We should look at this in v14, when
-     *       GenericViewResolver and ViewResolverInterface are gone, which renders property
-     *       defaultViewObjectName even more useless.
+     *       create a json response by json_encode()'ing stuff. We should look at this in v14, which
+     *       renders property defaultViewObjectName even more useless.
      */
-    protected function resolveView(): FluidStandaloneViewInterface|ViewInterface
+    protected function resolveView(): ViewInterface
     {
         if ($this->defaultViewObjectName !== null && is_a($this->defaultViewObjectName, JsonView::class, true)) {
             // @todo: JsonView is a very extbase specific thing. It comes with setVariablesToRender() and
@@ -537,31 +522,12 @@ abstract class ActionController implements ControllerInterface
             $view->assign('settings', $this->settings);
             return $view;
         }
-        // @deprecated Drop everything below in v14 and remove GenericViewResolver and ViewResolverInterface
-        trigger_error(
-            'The only allowed values for $this->defaultViewObjectName are null or extbase JsonView::class. Please'
-            . ' create an own view in your action if that is not sufficient, or inject a different ViewFactoryInterface',
-            E_USER_DEPRECATED
+        throw new \RuntimeException(
+            'The only allowed values for $this->defaultViewObjectName are null or extbase JsonView::class.'
+            . ' Please create an own view in your action if that is not sufficient, or inject a different'
+            . ' ViewFactoryInterface',
+            1729780151
         );
-        if ($this->viewResolver instanceof GenericViewResolver) {
-            $this->viewResolver->setDefaultViewClass($this->defaultViewObjectName);
-        }
-        $view = $this->viewResolver->resolve($this->request->getControllerObjectName(), $this->request->getControllerActionName(), $this->request->getFormat());
-        if ($view instanceof FluidViewAdapter || method_exists($view, 'getRenderingContext')) {
-            // This specific magic is tailored to Fluid. Ignore if we're not dealing with a fluid view here.
-            $renderingContext = $view->getRenderingContext();
-            $renderingContext->setAttribute(ServerRequestInterface::class, $this->request);
-            $renderingContext->setControllerName($this->request->getControllerName());
-            $renderingContext->setControllerAction($this->request->getControllerActionName());
-            /** @var TemplatePaths $templatePaths */
-            $templatePaths = $renderingContext->getTemplatePaths();
-            $templatePaths->setTemplateRootPaths($templateRootPaths);
-            $templatePaths->setPartialRootPaths($partialRootPaths);
-            $templatePaths->setLayoutRootPaths($layoutRootPaths);
-            $templatePaths->setFormat($this->request->getFormat());
-        }
-        $view->assign('settings', $this->settings);
-        return $view;
     }
 
     /**
@@ -795,22 +761,58 @@ abstract class ActionController implements ControllerInterface
     }
 
     /**
-     * Maps arguments delivered by the request object to the local controller arguments.
+     * This method processes exceptions that occur due to missing or not found targets or arguments during argument
+     * mapping. Based on configuration settings, either a "page not found" response is triggered or the original
+     * exception is propagated.
      *
-     * @throws Exception\RequiredArgumentMissingException
+     * Extension authors can override this function to implement additional/custom argument mapping exception handling
+     */
+    protected function handleArgumentMappingExceptions(\Exception $exception): void
+    {
+        $configuration = $this->configurationManager->getConfiguration(
+            ConfigurationManagerInterface::CONFIGURATION_TYPE_FRAMEWORK
+        );
+
+        $handleTargetNotFoundException = $exception instanceof TargetNotFoundException &&
+            (bool)($configuration['mvc']['showPageNotFoundIfTargetNotFoundException'] ?? false);
+        $handleRequiredArgumentMissingException = $exception instanceof RequiredArgumentMissingException &&
+            (bool)($configuration['mvc']['showPageNotFoundIfRequiredArgumentIsMissingException'] ?? false);
+
+        if ($handleTargetNotFoundException || $handleRequiredArgumentMissingException) {
+            $response = GeneralUtility::makeInstance(ErrorController::class)->pageNotFoundAction(
+                $this->request,
+                $exception->getMessage()
+            );
+            throw new PropagateResponseException($response, 1720242346);
+        }
+
+        throw $exception;
+    }
+
+    /**
+     * Maps arguments delivered by the request object to the local controller arguments.
      *
      * @internal
      */
     protected function mapRequestArgumentsToControllerArguments(): void
     {
-        /** @var Argument $argument */
-        foreach ($this->arguments as $argument) {
-            $argumentName = $argument->getName();
-            if ($this->request->hasArgument($argumentName)) {
-                $this->setArgumentValue($argument, $this->request->getArgument($argumentName));
-            } elseif ($argument->isRequired()) {
-                throw new RequiredArgumentMissingException('Required argument "' . $argumentName . '" is not set for ' . $this->request->getControllerObjectName() . '->' . $this->request->getControllerActionName() . '.', 1298012500);
+        try {
+            /** @var Argument $argument */
+            foreach ($this->arguments as $argument) {
+                $argumentName = $argument->getName();
+                if ($this->request->hasArgument($argumentName)) {
+                    $this->setArgumentValue($argument, $this->request->getArgument($argumentName));
+                } elseif ($argument->isRequired()) {
+                    throw new RequiredArgumentMissingException('Required argument "' . $argumentName . '" is not set for ' . $this->request->getControllerObjectName() . '->' . $this->request->getControllerActionName() . '.', 1298012500);
+                }
+
+                if ($this->request->getMethod() === 'POST') {
+                    $uploadedFiles = $this->request->getUploadedFiles()[$argumentName] ?? [];
+                    $argument->setUploadedFiles($uploadedFiles);
+                }
             }
+        } catch (\Exception $exception) {
+            $this->handleArgumentMappingExceptions($exception);
         }
     }
 

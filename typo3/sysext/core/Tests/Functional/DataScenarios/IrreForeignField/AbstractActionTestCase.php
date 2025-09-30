@@ -17,9 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\DataScenarios\IrreForeignField;
 
+use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Tests\Functional\DataScenarios\AbstractDataHandlerActionTestCase;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
 abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
@@ -77,13 +79,6 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         );
     }
 
-    /**
-     * Parent content records
-     */
-
-    /**
-     * Create a new parent content element
-     */
     public function createParentContent(): void
     {
         $newTableIds = $this->actionService->createNewRecord(self::TABLE_Content, self::VALUE_PageId, ['header' => 'Testing #1']);
@@ -100,6 +95,42 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
     }
 
+    public function deleteParentContentWithoutSoftDelete(): void
+    {
+        unset($GLOBALS['TCA'][self::TABLE_Content]['ctrl']['delete']);
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $newTableIds = $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+        // Usually this is the record ID itself, but when in a workspace, the ID is the one from the versioned record
+        $this->recordIds['deletedRecordId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast] ?? self::VALUE_ContentIdLast;
+    }
+
+    public function deleteParentContentWithoutCascadingDelete(): void
+    {
+        $GLOBALS['TCA']['tx_testirreforeignfield_hotel']['columns']['offers']['config']['behaviour']['enableCascadingDelete'] = false;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+    }
+
+    public function deleteParentContentThenHardDeleteParentContent(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+        // Now hard delete that default language record. Recycler can trigger this.
+        /** @var DataHandler $dataHandler */
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Content, self::VALUE_ContentIdLast, true, true);
+    }
+
+    public function deleteParentContentWithMultipleChildrenThenHardDeleteParentContent(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdFirst);
+        // Now hard delete that default language record. Recycler can trigger this.
+        /** @var DataHandler $dataHandler */
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Content, self::VALUE_ContentIdFirst, true, true);
+    }
+
     public function copyParentContent(): void
     {
         $newTableIds = $this->actionService->copyRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_PageId);
@@ -109,6 +140,19 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
     public function copyParentContentToDifferentPage(): void
     {
         $newTableIds = $this->actionService->copyRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_PageIdTarget);
+        $this->recordIds['newContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    public function copyParentContentToDifferentLanguageWAllChildren(): void
+    {
+        $newTableIds = $this->actionService->copyRecord(
+            self::TABLE_Content,
+            self::VALUE_ContentIdLast,
+            self::VALUE_PageId,
+            [
+                'sys_language_uid' => self::VALUE_LanguageId,
+            ]
+        );
         $this->recordIds['newContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
     }
 

@@ -31,9 +31,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @todo Move additional shareable code from form-engine into here.
  */
 #[Autoconfigure(public: true)]
-final class SelectItemProcessor
+final readonly class SelectItemProcessor
 {
-    public function __construct(protected readonly LanguageServiceFactory $languageServiceFactory) {}
+    public function __construct(
+        private LanguageServiceFactory $languageServiceFactory,
+    ) {}
 
     /**
      * Is used when --div-- elements in the item list are used, or if groups are defined via "groupItems" config array.
@@ -162,25 +164,27 @@ final class SelectItemProcessor
             switch ($order) {
                 case 'label':
                     $direction = strtolower($direction);
+                    $collator = new \Collator((string)($this->getLanguageService()->getLocale() ?? 'en'));
                     @usort(
                         $items,
-                        static function (SelectItem $item1, SelectItem $item2) use ($direction) {
+                        static function (SelectItem $item1, SelectItem $item2) use ($direction, $collator) {
                             if ($direction === 'desc') {
-                                return (strcasecmp($item1->getLabel(), $item2->getLabel()) <= 0) ? 1 : 0;
+                                return $collator->compare($item1->getLabel(), $item2->getLabel()) <= 0;
                             }
-                            return strcasecmp($item1->getLabel(), $item2->getLabel());
+                            return $collator->compare($item1->getLabel(), $item2->getLabel());
                         }
                     );
                     break;
                 case 'value':
                     $direction = strtolower($direction);
+                    $collator = new \Collator((string)($this->getLanguageService()->getLocale() ?? 'en'));
                     @usort(
                         $items,
-                        static function (SelectItem $item1, SelectItem $item2) use ($direction) {
+                        static function (SelectItem $item1, SelectItem $item2) use ($direction, $collator) {
                             if ($direction === 'desc') {
-                                return (strcasecmp((string)$item1->getValue(), (string)$item2->getValue()) <= 0) ? 1 : 0;
+                                return ($collator->compare((string)$item1->getValue(), (string)$item2->getValue()) <= 0) ? 1 : 0;
                             }
-                            return strcasecmp((string)$item1->getValue(), (string)$item2->getValue());
+                            return $collator->compare((string)$item1->getValue(), (string)$item2->getValue());
                         }
                     );
                     break;

@@ -13,11 +13,11 @@
 
 import RegularEvent from '@typo3/core/event/regular-event';
 import {
-  ActionConfiguration,
-  ActionEventDetails,
+  type ActionConfiguration,
+  type ActionEventDetails,
   MultiRecordSelectionAction
 } from '@typo3/backend/multi-record-selection-action';
-import Modal, { ModalElement } from '@typo3/backend/modal';
+import Modal, { type ModalElement } from '@typo3/backend/modal';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import Severity from '@typo3/backend/severity';
 import AjaxDataHandler from '@typo3/backend/ajax-data-handler';
@@ -91,9 +91,9 @@ class MultiRecordSelectionDeleteAction {
               if (result.hasErrors) {
                 throw result.messages;
               } else if (returnUrl !== '') {
-                window.location.href = returnUrl;
+                (event.target as HTMLElement).ownerDocument.location.href = returnUrl;
               } else {
-                modal.ownerDocument.location.reload();
+                (event.target as HTMLElement).ownerDocument.location.reload();
               }
             } catch {
               Notification.error('Could not delete records');

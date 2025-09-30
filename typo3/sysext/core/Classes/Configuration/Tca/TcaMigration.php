@@ -26,16 +26,13 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * Migrate TCA from old to new syntax.
  * Used in bootstrap and Flex Form Data Structures.
  * This is to *migrate* from "old" to "new" TCA syntax,
- * all methods must add a deprecation method if they
+ * all methods must add a deprecation message if they
  * change something.
  *
  * @internal Class and API may change any time.
  */
 class TcaMigration
 {
-    /** Accumulate migration messages */
-    protected array $messages = [];
-
     /**
      * Run some general TCA validations, then migrate old TCA to new TCA.
      *
@@ -46,67 +43,67 @@ class TcaMigration
      *
      * See unit tests for details.
      */
-    public function migrate(array $tca): array
+    public function migrate(array $tca): TcaProcessingResult
     {
         $this->validateTcaType($tca);
 
-        $tca = $this->migrateColumnsConfig($tca);
-        $tca = $this->migratePagesLanguageOverlayRemoval($tca);
-        $tca = $this->removeSelIconFieldPath($tca);
-        $tca = $this->removeSetToDefaultOnCopy($tca);
-        $tca = $this->removeEnableMultiSelectFilterTextfieldConfiguration($tca);
-        $tca = $this->removeExcludeFieldForTransOrigPointerField($tca);
-        $tca = $this->removeShowRecordFieldListField($tca);
-        $tca = $this->removeWorkspacePlaceholderShadowColumnsConfiguration($tca);
-        $tca = $this->migrateLanguageFieldToTcaTypeLanguage($tca);
-        $tca = $this->migrateSpecialLanguagesToTcaTypeLanguage($tca);
-        $tca = $this->removeShowRemovedLocalizationRecords($tca);
-        $tca = $this->migrateFileFolderConfiguration($tca);
-        $tca = $this->migrateLevelLinksPosition($tca);
-        $tca = $this->migrateRootUidToStartingPoints($tca);
-        $tca = $this->migrateInternalTypeFolderToTypeFolder($tca);
-        $tca = $this->migrateRequiredFlag($tca);
-        $tca = $this->migrateNullFlag($tca);
-        $tca = $this->migrateEmailFlagToEmailType($tca);
-        $tca = $this->migrateTypeNoneColsToSize($tca);
-        $tca = $this->migrateRenderTypeInputLinkToTypeLink($tca);
-        $tca = $this->migratePasswordAndSaltedPasswordToPasswordType($tca);
-        $tca = $this->migrateRenderTypeInputDateTimeToTypeDatetime($tca);
-        $tca = $this->removeAuthModeEnforce($tca);
-        $tca = $this->removeSelectAuthModeIndividualItemsKeyword($tca);
-        $tca = $this->migrateAuthMode($tca);
-        $tca = $this->migrateRenderTypeColorpickerToTypeColor($tca);
-        $tca = $this->migrateEvalIntAndDouble2ToTypeNumber($tca);
-        $tca = $this->removeAlwaysDescription($tca);
-        $tca = $this->migrateFalHandlingInInlineToTypeFile($tca);
-        $tca = $this->removeCtrlCruserId($tca);
-        $tca = $this->removeFalRelatedElementBrowserOptions($tca);
-        $tca = $this->removeFalRelatedOptionsFromTypeInline($tca);
-        $tca = $this->removePassContentFromTypeNone($tca);
-        $tca = $this->migrateItemsToAssociativeArray($tca);
-        $tca = $this->removeMmInsertFields($tca);
-        $tca = $this->removeMmHasUidField($tca);
-        $tca = $this->migrateT3EditorToCodeEditor($tca);
+        $tcaProcessingResult = new TcaProcessingResult($tca);
 
-        return $tca;
-    }
+        $tcaProcessingResult = $this->migrateColumnsConfig($tcaProcessingResult);
+        $tcaProcessingResult = $this->migratePagesLanguageOverlayRemoval($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeSelIconFieldPath($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeSetToDefaultOnCopy($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeEnableMultiSelectFilterTextfieldConfiguration($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeExcludeFieldForTransOrigPointerField($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeShowRecordFieldListField($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeMaxDBListItems($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeWorkspacePlaceholderShadowColumnsConfiguration($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateLanguageFieldToTcaTypeLanguage($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateSpecialLanguagesToTcaTypeLanguage($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeShowRemovedLocalizationRecords($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateFileFolderConfiguration($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateLevelLinksPosition($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateRootUidToStartingPoints($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateInternalTypeFolderToTypeFolder($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateRequiredFlag($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateNullFlag($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateEmailFlagToEmailType($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateTypeNoneColsToSize($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateRenderTypeInputLinkToTypeLink($tcaProcessingResult);
+        $tcaProcessingResult = $this->migratePasswordAndSaltedPasswordToPasswordType($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateRenderTypeInputDateTimeToTypeDatetime($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeAuthModeEnforce($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeSelectAuthModeIndividualItemsKeyword($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateAuthMode($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateRenderTypeColorpickerToTypeColor($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateEvalIntAndDouble2ToTypeNumber($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeAlwaysDescription($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateFalHandlingInInlineToTypeFile($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeCtrlCruserId($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeFalRelatedElementBrowserOptions($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeFalRelatedOptionsFromTypeInline($tcaProcessingResult);
+        $tcaProcessingResult = $this->removePassContentFromTypeNone($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateItemsToAssociativeArray($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateItemsOfValuePickerToAssociativeArray($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeMmInsertFields($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeMmHasUidField($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateT3EditorToCodeEditor($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeAllowLanguageSynchronizationFromColumnsOverrides($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeSubTypesConfiguration($tcaProcessingResult);
+        $tcaProcessingResult = $this->addWorkspaceAwarenessToInlineChildren($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeEvalYearFlag($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeIsStaticControlOption($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeFieldSearchConfigOptions($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeSearchFieldsControlOption($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateSingleDataStructureConfiguration($tcaProcessingResult);
 
-    /**
-     * Get messages of migrated fields. Can be used for deprecation messages after migrate() was called.
-     *
-     * @return array Migration messages
-     */
-    public function getMessages(): array
-    {
-        return $this->messages;
+        return $tcaProcessingResult;
     }
 
     /**
      * Check for required TCA configuration
-     *
-     * @param array $tca Incoming TCA
      */
-    protected function validateTcaType(array $tca)
+    protected function validateTcaType(array $tca): void
     {
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
@@ -126,11 +123,10 @@ class TcaMigration
     /**
      * Find columns fields that don't have a 'config' section at all, add
      * ['config']['type'] = 'none'; for those to enforce config
-     *
-     * @param array $tca Incoming TCA
      */
-    protected function migrateColumnsConfig(array $tca): array
+    protected function migrateColumnsConfig(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -140,38 +136,36 @@ class TcaMigration
                     $fieldConfig['config'] = [
                         'type' => 'none',
                     ];
-                    $this->messages[] = 'TCA table "' . $table . '" columns field "' . $fieldName . '"'
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('TCA table "' . $table . '" columns field "' . $fieldName . '"'
                         . ' had no mandatory "config" section. This has been added with default type "none":'
-                        . ' TCA "' . $table . '[\'columns\'][\'' . $fieldName . '\'][\'config\'][\'type\'] = \'none\'"';
+                        . ' TCA "' . $table . '[\'columns\'][\'' . $fieldName . '\'][\'config\'][\'type\'] = \'none\'"');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA['pages_language_overlay'] if defined.
-     *
-     * @return array the modified TCA structure
      */
-    protected function migratePagesLanguageOverlayRemoval(array $tca)
+    protected function migratePagesLanguageOverlayRemoval(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         if (isset($tca['pages_language_overlay'])) {
-            $this->messages[] = 'The TCA table \'pages_language_overlay\' is'
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'pages_language_overlay\' is'
                 . ' not used anymore and has been removed automatically in'
-                . ' order to avoid negative side-effects.';
+                . ' order to avoid negative side-effects.');
             unset($tca['pages_language_overlay']);
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes configuration removeEnableMultiSelectFilterTextfield
-     *
-     * @return array the modified TCA structure
      */
-    protected function removeEnableMultiSelectFilterTextfieldConfiguration(array $tca): array
+    protected function removeEnableMultiSelectFilterTextfieldConfiguration(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -181,145 +175,168 @@ class TcaMigration
                     continue;
                 }
 
-                $this->messages[] = 'The TCA setting \'enableMultiSelectFilterTextfield\' is deprecated '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA setting \'enableMultiSelectFilterTextfield\' is deprecated '
                     . ' and should be removed from TCA for ' . $table . '[\'columns\']'
-                    . '[\'' . $fieldName . '\'][\'config\'][\'enableMultiSelectFilterTextfield\']';
+                    . '[\'' . $fieldName . '\'][\'config\'][\'enableMultiSelectFilterTextfield\']');
                 unset($fieldConfig['config']['enableMultiSelectFilterTextfield']);
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA[$mytable][ctrl][selicon_field_path]
-     *
-     * @return array the modified TCA structure
      */
-    protected function removeSelIconFieldPath(array $tca): array
+    protected function removeSelIconFieldPath(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (isset($configuration['ctrl']['selicon_field_path'])) {
-                $this->messages[] = 'The TCA table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'' . $table . '\' defines '
                     . '[ctrl][selicon_field_path] which should be removed from TCA, '
-                    . 'as it is not in use anymore.';
+                    . 'as it is not in use anymore.');
                 unset($configuration['ctrl']['selicon_field_path']);
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA[$mytable][ctrl][setToDefaultOnCopy]
-     *
-     * @return array the modified TCA structure
      */
-    protected function removeSetToDefaultOnCopy(array $tca): array
+    protected function removeSetToDefaultOnCopy(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (isset($configuration['ctrl']['setToDefaultOnCopy'])) {
-                $this->messages[] = 'The TCA table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'' . $table . '\' defines '
                     . '[ctrl][setToDefaultOnCopy] which should be removed from TCA, '
-                    . 'as it is not in use anymore.';
+                    . 'as it is not in use anymore.');
                 unset($configuration['ctrl']['setToDefaultOnCopy']);
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA[$mytable][columns][_transOrigPointerField_][exclude] if defined
      */
-    protected function removeExcludeFieldForTransOrigPointerField(array $tca): array
+    protected function removeExcludeFieldForTransOrigPointerField(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (isset($configuration['ctrl']['transOrigPointerField'],
                 $configuration['columns'][$configuration['ctrl']['transOrigPointerField']]['exclude'])
             ) {
-                $this->messages[] = 'The \'' . $table . '\' TCA tables transOrigPointerField '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA tables transOrigPointerField '
                     . '\'' . $configuration['ctrl']['transOrigPointerField'] . '\' is defined '
-                    . ' as excluded field which is no longer needed and should therefore be removed. ';
+                    . ' as excluded field which is no longer needed and should therefore be removed.');
                 unset($configuration['columns'][$configuration['ctrl']['transOrigPointerField']]['exclude']);
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA[$mytable]['interface']['showRecordFieldList'] and also $TCA[$mytable]['interface']
      * if `showRecordFieldList` was the only key in the array.
      */
-    protected function removeShowRecordFieldListField(array $tca): array
+    protected function removeShowRecordFieldListField(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (!isset($configuration['interface']['showRecordFieldList'])) {
                 continue;
             }
-            $this->messages[] = 'The \'' . $table . '\' TCA configuration \'showRecordFieldList\''
-                . ' inside the section \'interface\' is not evaluated anymore and should therefore be removed.';
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA configuration \'showRecordFieldList\''
+                . ' inside the section \'interface\' is not evaluated anymore and should therefore be removed.');
             unset($configuration['interface']['showRecordFieldList']);
             if ($configuration['interface'] === []) {
                 unset($configuration['interface']);
             }
         }
+        return $tcaProcessingResult->withTca($tca);
+    }
 
-        return $tca;
+    /**
+     * Removes $TCA[$mytable]['interface']['maxDBListItems'], and 'maxSingleDBListItems' and also $TCA[$mytable]['interface']
+     * if `interface` is empty later-on.
+     */
+    protected function removeMaxDBListItems(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$configuration) {
+            if (isset($configuration['interface']['maxDBListItems'])) {
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA configuration \'maxDBListItems\''
+                    . ' inside the section \'interface\' is not evaluated anymore and should therefore be removed.');
+                unset($configuration['interface']['maxDBListItems']);
+            }
+            if (isset($configuration['interface']['maxSingleDBListItems'])) {
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA configuration \'maxSingleDBListItems\''
+                    . ' inside the section \'interface\' is not evaluated anymore and should therefore be removed.');
+                unset($configuration['interface']['maxSingleDBListItems']);
+            }
+            if (isset($configuration['interface']) && $configuration['interface'] === []) {
+                unset($configuration['interface']);
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes $TCA[$mytable][ctrl][shadowColumnsForMovePlaceholders]
      * and $TCA[$mytable][ctrl][shadowColumnsForNewPlaceholders]
-     *
-     * @return array the modified TCA structure
      */
-    protected function removeWorkspacePlaceholderShadowColumnsConfiguration(array $tca): array
+    protected function removeWorkspacePlaceholderShadowColumnsConfiguration(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (isset($configuration['ctrl']['shadowColumnsForNewPlaceholders'])) {
-                $this->messages[] = 'The TCA table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'' . $table . '\' defines '
                     . '[ctrl][shadowColumnsForNewPlaceholders] which should be removed from TCA, '
-                    . 'as it is not in use anymore.';
+                    . 'as it is not in use anymore.');
                 unset($configuration['ctrl']['shadowColumnsForNewPlaceholders']);
             }
             if (isset($configuration['ctrl']['shadowColumnsForMovePlaceholders'])) {
-                $this->messages[] = 'The TCA table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'' . $table . '\' defines '
                     . '[ctrl][shadowColumnsForMovePlaceholders] which should be removed from TCA, '
-                    . 'as it is not in use anymore.';
+                    . 'as it is not in use anymore.');
                 unset($configuration['ctrl']['shadowColumnsForMovePlaceholders']);
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Replaces $TCA[$mytable][columns][$TCA[$mytable][ctrl][languageField]][config] with
      * $TCA[$mytable][columns][$TCA[$mytable][ctrl][languageField]][config][type] = 'language'
      */
-    protected function migrateLanguageFieldToTcaTypeLanguage(array $tca): array
+    protected function migrateLanguageFieldToTcaTypeLanguage(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$configuration) {
             if (isset($configuration['ctrl']['languageField'], $configuration['columns'][$configuration['ctrl']['languageField']])
                 && ($configuration['columns'][$configuration['ctrl']['languageField']]['config']['type'] ?? '') !== 'language'
             ) {
-                $this->messages[] = 'The TCA field \'' . $configuration['ctrl']['languageField'] . '\' '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $configuration['ctrl']['languageField'] . '\' '
                     . 'of table \'' . $table . '\' is defined as the \'languageField\' and should '
                     . 'therefore use the TCA type \'language\' instead of TCA type \'select\' with '
-                    . '\'foreign_table=sys_language\' or \'special=languages\'.';
+                    . '\'foreign_table=sys_language\' or \'special=languages\'.');
                 $configuration['columns'][$configuration['ctrl']['languageField']]['config'] = [
                     'type' => 'language',
                 ];
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Replaces $TCA[$mytable][columns][field][config][special] = 'languages' with
      * $TCA[$mytable][columns][field][config][type] = 'language'
      */
-    protected function migrateSpecialLanguagesToTcaTypeLanguage(array $tca): array
+    protected function migrateSpecialLanguagesToTcaTypeLanguage(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -330,20 +347,20 @@ class TcaMigration
                 ) {
                     continue;
                 }
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
                     . 'defined as type \'select\' with the \'special=languages\' option. This is not '
-                    . 'evaluated anymore and should be replaced by the TCA type \'language\'.';
+                    . 'evaluated anymore and should be replaced by the TCA type \'language\'.');
                 $fieldConfig['config'] = [
                     'type' => 'language',
                 ];
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
-    protected function removeShowRemovedLocalizationRecords(array $tca): array
+    protected function removeShowRemovedLocalizationRecords(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -354,22 +371,22 @@ class TcaMigration
                 ) {
                     continue;
                 }
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
                     . 'defined as type \'inline\' with the \'appearance.showRemovedLocalizationRecords\' option set. '
-                    . 'As this option is not evaluated anymore and no replacement exists, it should be removed from TCA.';
+                    . 'As this option is not evaluated anymore and no replacement exists, it should be removed from TCA.');
                 unset($fieldConfig['config']['appearance']['showRemovedLocalizationRecords']);
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Moves the "fileFolder" configuration of TCA columns type=select
      * into sub array "fileFolderConfig", while renaming those options.
      */
-    protected function migrateFileFolderConfiguration(array $tca): array
+    protected function migrateFileFolderConfiguration(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -392,16 +409,15 @@ class TcaMigration
                     $fieldConfig['config']['fileFolderConfig']['depth'] = $fieldConfig['config']['fileFolder_recursions'];
                     unset($fieldConfig['config']['fileFolder_recursions']);
                 }
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' is '
                     . 'defined as type \'select\' with the \'fileFolder\' configuration option set. To streamline '
                     . 'the configuration, all \'fileFolder\' related configuration options were moved into a '
                     . 'dedicated sub array \'fileFolderConfig\', while \'fileFolder\' is now just \'folder\' and '
                     . 'the other options have been renamed to \'allowedExtensions\' and \'depth\'. '
-                    . 'The TCA configuration should be adjusted accordingly.';
+                    . 'The TCA configuration should be adjusted accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -413,8 +429,9 @@ class TcaMigration
      * this wizard sets those options to false and unsets the
      * invalid levelLinksPosition value.
      */
-    protected function migrateLevelLinksPosition(array $tca): array
+    protected function migrateLevelLinksPosition(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -431,21 +448,21 @@ class TcaMigration
                 $fieldConfig['config']['appearance']['showSynchronizationLink'] = false;
                 $fieldConfig['config']['appearance']['showNewRecordLink'] = false;
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
                     . '[appearance][levelLinksPosition] to "none", while only "top", "bottom" and "both" are supported. '
                     . 'The TCA configuration should be adjusted accordingly. In case you want to disable all level links, '
-                    . 'use the corresponding level link specific options, e.g. [appearance][showNewRecordLink], instead.';
+                    . 'use the corresponding level link specific options, e.g. [appearance][showNewRecordLink], instead.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * If a column has [treeConfig][rootUid] defined, migrate to [treeConfig][startingPoints] on the same level.
      */
-    protected function migrateRootUidToStartingPoints(array $tca): array
+    protected function migrateRootUidToStartingPoints(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -461,21 +478,21 @@ class TcaMigration
                 $fieldConfig['config']['treeConfig']['startingPoints'] = (string)(int)$fieldConfig['config']['treeConfig']['rootUid'];
                 unset($fieldConfig['config']['treeConfig']['rootUid']);
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
                     . '[treeConfig][rootUid], which is superseded by [treeConfig][startingPoints].'
-                    . 'The TCA configuration should be adjusted accordingly.';
+                    . 'The TCA configuration should be adjusted accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Migrates [config][internal_type] = 'folder' to [config][type] = 'folder'.
      * Also removes [config][internal_type] completely, if present.
      */
-    protected function migrateInternalTypeFolderToTypeFolder(array $tca): array
+    protected function migrateInternalTypeFolderToTypeFolder(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -489,24 +506,24 @@ class TcaMigration
 
                 if ($fieldConfig['config']['internal_type'] === 'folder') {
                     $tca[$table]['columns'][$fieldName]['config']['type'] = 'folder';
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' has been migrated to '
-                        . 'the TCA type \'folder\'. Please adjust your TCA accordingly.';
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' has been migrated to '
+                        . 'the TCA type \'folder\'. Please adjust your TCA accordingly.');
                 } else {
-                    $this->messages[] = 'The property \'internal_type\' of the TCA field \'' . $fieldName . '\' of table \''
-                        . $table . '\' is obsolete and has been removed. You can remove it from your TCA as it is not evaluated anymore.';
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The property \'internal_type\' of the TCA field \'' . $fieldName . '\' of table \''
+                        . $table . '\' is obsolete and has been removed. You can remove it from your TCA as it is not evaluated anymore.');
                 }
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Migrates [config][eval] = 'required' to [config][required] = true and removes 'required' from [config][eval].
      * If [config][eval] becomes empty, it will be removed completely.
      */
-    protected function migrateRequiredFlag(array $tca): array
+    protected function migrateRequiredFlag(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -531,21 +548,21 @@ class TcaMigration
                 }
 
                 $tca[$table]['columns'][$fieldName]['config']['required'] = true;
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . '"required" in its "eval" list. This is not evaluated anymore and should be replaced '
-                    . ' by `\'required\' => true`.';
+                    . ' by `\'required\' => true`.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Migrates [config][eval] = 'null' to [config][nullable] = true and removes 'null' from [config][eval].
      * If [config][eval] becomes empty, it will be removed completely.
      */
-    protected function migrateNullFlag(array $tca): array
+    protected function migrateNullFlag(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -570,13 +587,12 @@ class TcaMigration
                 }
 
                 $tca[$table]['columns'][$fieldName]['config']['nullable'] = true;
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . '"null" in its "eval" list. This is not evaluated anymore and should be replaced '
-                    . ' by `\'nullable\' => true`.';
+                    . ' by `\'nullable\' => true`.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -584,8 +600,9 @@ class TcaMigration
      * If [config][eval] contains 'trim', it will also be removed. If [config][eval] becomes empty, the option
      * will be removed completely.
      */
-    protected function migrateEmailFlagToEmailType(array $tca): array
+    protected function migrateEmailFlagToEmailType(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -619,20 +636,20 @@ class TcaMigration
                     unset($tca[$table]['columns'][$fieldName]['config']['eval']);
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . '"email" in its "eval" list. The field has therefore been migrated to the TCA type \'email\'. '
-                    . 'Please adjust your TCA accordingly.';
+                    . 'Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Migrates type => "none" [config][cols] to [config][size] and removes "cols".
      */
-    protected function migrateTypeNoneColsToSize(array $tca): array
+    protected function migrateTypeNoneColsToSize(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -646,12 +663,11 @@ class TcaMigration
                 $tca[$table]['columns'][$fieldName]['config']['size'] = $fieldConfig['config']['cols'];
                 unset($tca[$table]['columns'][$fieldName]['config']['cols']);
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
-                    . '"cols" in its config. This value has been migrated to the option "size". Please adjust your TCA accordingly.';
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                    . '"cols" in its config. This value has been migrated to the option "size". Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -661,8 +677,9 @@ class TcaMigration
      * Removes option [config][max], if set.
      * Removes option [config][softref], if set to "typolink".
      */
-    protected function migrateRenderTypeInputLinkToTypeLink(array $tca): array
+    protected function migrateRenderTypeInputLinkToTypeLink(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -737,14 +754,13 @@ class TcaMigration
                     unset($tca[$table]['columns'][$fieldName]['config']['fieldControl']);
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'renderType="inputLink". The field has therefore been migrated to the TCA type \'link\'. '
                     . 'This includes corresponding configuration of the "linkPopup", as well as obsolete field '
-                    . 'configurations, such as "max" and "softref". Please adjust your TCA accordingly.';
+                    . 'configurations, such as "max" and "softref". Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -754,8 +770,9 @@ class TcaMigration
      * Removes option [config][max], if set.
      * Removes option [config][search], if set.
      */
-    protected function migratePasswordAndSaltedPasswordToPasswordType(array $tca): array
+    protected function migratePasswordAndSaltedPasswordToPasswordType(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -787,14 +804,13 @@ class TcaMigration
                     $tca[$table]['columns'][$fieldName]['config']['hashed'] = false;
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . '"password" or "saltedPassword" in its "eval" list. The field has therefore been migrated to '
                     . 'the TCA type \'password\'. This also includes the removal of obsolete field configurations,'
-                    . 'such as "max" and "search". Please adjust your TCA accordingly.';
+                    . 'such as "max" and "search". Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -805,8 +821,9 @@ class TcaMigration
      * Removes option [config][format], if set.
      * Removes option [config][default], if the default is the native "empty" value
      */
-    protected function migrateRenderTypeInputDateTimeToTypeDatetime(array $tca): array
+    protected function migrateRenderTypeInputDateTimeToTypeDatetime(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -866,14 +883,13 @@ class TcaMigration
                     }
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'renderType="inputDateTime". The field has therefore been migrated to the TCA type \'datetime\'. '
                     . 'This includes corresponding migration of the "eval" list, as well as obsolete field '
-                    . 'configurations, such as "max". Please adjust your TCA accordingly.';
+                    . 'configurations, such as "max". Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -881,8 +897,9 @@ class TcaMigration
      * Removes [config][eval].
      * Removes option [config][max], if set.
      */
-    protected function migrateRenderTypeColorpickerToTypeColor(array $tca): array
+    protected function migrateRenderTypeColorpickerToTypeColor(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -906,21 +923,21 @@ class TcaMigration
                     $tca[$table]['columns'][$fieldName]['config']['eval'],
                 );
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'renderType="colorpicker". The field has therefore been migrated to the TCA type \'color\'. '
                     . 'This includes corresponding migration of the "eval" list, as well as obsolete field '
-                    . 'configurations, such as "max". Please adjust your TCA accordingly.';
+                    . 'configurations, such as "max". Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Remove ['columns'][aField]['config']['authMode_enforce']
      */
-    protected function removeAuthModeEnforce(array $tca): array
+    protected function removeAuthModeEnforce(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -928,21 +945,22 @@ class TcaMigration
             foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
                 if (array_key_exists('authMode_enforce', $fieldConfig['config'] ?? [])) {
                     unset($tca[$table]['columns'][$fieldName]['config']['authMode_enforce']);
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                     . '\'authMode_enforce\'. This config key is obsolete and has been removed.'
-                    . ' Please adjust your TCA accordingly.';
+                    . ' Please adjust your TCA accordingly.');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * If a column has authMode=individual and items with the corresponding key on position 5
      * defined, or if EXPL_ALLOW or EXPL_DENY is set for position 6, migrate or remove them.
      */
-    protected function removeSelectAuthModeIndividualItemsKeyword(array $tca): array
+    protected function removeSelectAuthModeIndividualItemsKeyword(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
                 continue;
@@ -954,28 +972,29 @@ class TcaMigration
                 foreach ($fieldConfig['config']['items'] ?? [] as $index => $item) {
                     if (in_array($item[4] ?? '', ['EXPL_ALLOW', 'EXPL_DENY'], true)) {
                         $tca[$table]['columns'][$fieldName]['config']['items'][$index][4] = '';
-                        $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets ' . $item[4]
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets ' . $item[4]
                             . ' at position 5 of the items array. This was used in combination with \'authMode=individual\' and'
-                            . ' is obsolete since \'individual\' is no longer supported.';
+                            . ' is obsolete since \'individual\' is no longer supported.');
                     }
                     if (isset($item[5])) {
                         unset($tca[$table]['columns'][$fieldName]['config']['items'][$index][5]);
-                        $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets ' . $item[5]
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets ' . $item[5]
                             . ' at position 6 of the items array. This was used in combination with \'authMode=individual\' and'
-                            . ' is obsolete since \'individual\' is no longer supported.';
+                            . ' is obsolete since \'individual\' is no longer supported.');
                     }
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * See if ['columns'][aField]['config']['authMode'] is not set to 'explicitAllow' and
      * set it to this value if needed.
      */
-    protected function migrateAuthMode(array $tca): array
+    protected function migrateAuthMode(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -985,15 +1004,15 @@ class TcaMigration
                     && $fieldConfig['config']['authMode'] !== 'explicitAllow'
                 ) {
                     $tca[$table]['columns'][$fieldName]['config']['authMode'] = 'explicitAllow';
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' sets '
                         . '\'authMode\' to \'' . $fieldConfig['config']['authMode'] . '\'. The only allowed value is \'explicitAllow\','
                         . ' and that value has been set now. Please adjust your TCA accordingly. Note this has impact on'
                         . ' backend group access rights, these should be reviewed and new access right for this field should'
-                        . ' be set. An upgrade wizard partially migrates this and reports be_groups rows that need manual attention.';
+                        . ' be set. An upgrade wizard partially migrates this and reports be_groups rows that need manual attention.');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -1003,8 +1022,9 @@ class TcaMigration
      * Removes [config][eval].
      * Removes option [config][max], if set.
      */
-    protected function migrateEvalIntAndDouble2ToTypeNumber(array $tca): array
+    protected function migrateEvalIntAndDouble2ToTypeNumber(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1044,21 +1064,22 @@ class TcaMigration
                     $numberType = 'int';
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' in table \'' . $table . '\'" defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' in table \'' . $table . '\'" defines '
                     . 'eval="' . $numberType . '". The field has therefore been migrated to the TCA type \'number\'. '
                     . 'This includes corresponding migration of the "eval" list, as well as obsolete field '
-                    . 'configurations, such as "max". Please adjust your TCA accordingly.';
+                    . 'configurations, such as "max". Please adjust your TCA accordingly.');
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes ['interface']['always_description'] and also ['interface']
      * if `always_description` was the only key in the array.
      */
-    protected function removeAlwaysDescription(array $tca): array
+    protected function removeAlwaysDescription(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['interface']['always_description'])) {
                 continue;
@@ -1067,26 +1088,27 @@ class TcaMigration
             if ($tableDefinition['interface'] === []) {
                 unset($tableDefinition['interface']);
             }
-            $this->messages[] = 'The TCA property [\'interface\'][\'always_description\'] of table \'' . $table
-                . '\'  is not evaluated anymore and has therefore been removed. Please adjust your TCA accordingly.';
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA property [\'interface\'][\'always_description\'] of table \'' . $table
+                . '\'  is not evaluated anymore and has therefore been removed. Please adjust your TCA accordingly.');
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Remove ['ctrl']['cruser_id'].
      */
-    protected function removeCtrlCruserId(array $tca): array
+    protected function removeCtrlCruserId(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['ctrl']['cruser_id'])) {
                 continue;
             }
             unset($tableDefinition['ctrl']['cruser_id']);
-            $this->messages[] = 'The TCA property [\'ctrl\'][\'cruser_id\'] of table \'' . $table
-                . '\'  is not evaluated anymore and has therefore been removed. Please adjust your TCA accordingly.';
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA property [\'ctrl\'][\'cruser_id\'] of table \'' . $table
+                . '\'  is not evaluated anymore and has therefore been removed. Please adjust your TCA accordingly.');
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -1097,8 +1119,9 @@ class TcaMigration
      * Migrates renamed appearance options.
      * Migrates allowed file extensions.
      */
-    protected function migrateFalHandlingInInlineToTypeFile(array $tca): array
+    protected function migrateFalHandlingInInlineToTypeFile(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1125,7 +1148,6 @@ class TcaMigration
                     $fieldConfig['config']['foreign_field'],
                     $fieldConfig['config']['foreign_sortby'],
                     $fieldConfig['config']['foreign_table_field'],
-                    $fieldConfig['config']['foreign_match_fields'],
                     $fieldConfig['config']['foreign_label'],
                     $fieldConfig['config']['foreign_selector'],
                     $fieldConfig['config']['foreign_unique'],
@@ -1211,22 +1233,22 @@ class TcaMigration
                     }
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'type="inline" with foreign_table=sys_file_reference. The field has therefore been '
                     . 'migrated to the dedicated TCA type \'file\'' . $additionalInformation . ' '
-                    . 'Please adjust your TCA accordingly.';
+                    . 'Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes the [appearance][elementBrowserType] and [appearance][elementBrowserAllowed]
      * options from TCA type "group" fields.
      */
-    protected function removeFalRelatedElementBrowserOptions(array $tca): array
+    protected function removeFalRelatedElementBrowserOptions(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1253,13 +1275,12 @@ class TcaMigration
                     unset($fieldConfig['config']['appearance']);
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'fal related element browser options, which are no longer needed and therefore removed. '
-                    . 'Please adjust your TCA accordingly.';
+                    . 'Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -1268,8 +1289,9 @@ class TcaMigration
      * - [appearance][fileUploadAllowed]
      * - [appearance][fileByUrlAllowed]
      */
-    protected function removeFalRelatedOptionsFromTypeInline(array $tca): array
+    protected function removeFalRelatedOptionsFromTypeInline(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => &$tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1298,20 +1320,20 @@ class TcaMigration
                     unset($fieldConfig['config']['appearance']);
                 }
 
-                $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
                     . 'fal related appearance options, which are no longer evaluated and therefore removed. '
-                    . 'Please adjust your TCA accordingly.';
+                    . 'Please adjust your TCA accordingly.');
             }
         }
-
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
      * Removes ['config']['pass_content'] from TCA type "none" fields
      */
-    protected function removePassContentFromTypeNone(array $tca): array
+    protected function removePassContentFromTypeNone(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1321,13 +1343,13 @@ class TcaMigration
                     && array_key_exists('pass_content', $fieldConfig['config'] ?? [])
                 ) {
                     unset($tca[$table]['columns'][$fieldName]['config']['pass_content']);
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                         . '\'pass_content\'. This config key is obsolete and has been removed. '
-                        . 'Please adjust your TCA accordingly.';
+                        . 'Please adjust your TCA accordingly.');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
     /**
@@ -1351,8 +1373,9 @@ class TcaMigration
      *     'description' => 'a custom description'
      * ]
      */
-    protected function migrateItemsToAssociativeArray(array $tca): array
+    protected function migrateItemsToAssociativeArray(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1364,6 +1387,9 @@ class TcaMigration
                 ) {
                     $hasLegacyItemConfiguration = false;
                     $items = $fieldConfig['config']['items'];
+                    if (is_string($items)) {
+                        continue;
+                    }
                     foreach ($items as $key => $item) {
                         if (!is_array($item)) {
                             continue;
@@ -1398,18 +1424,72 @@ class TcaMigration
                     }
                     if ($hasLegacyItemConfiguration) {
                         $tca[$table]['columns'][$fieldName]['config']['items'] = $items;
-                        $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                             . 'the legacy way of defining \'items\'. Please switch to associated array keys: '
-                            . 'label, value, icon, group, description.';
+                            . 'label, value, icon, group, description.');
                     }
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
-    protected function removeMmInsertFields(array $tca): array
+    /**
+     * Converts the item list of valuePicker to an associated array.
+     *
+     * // From:
+     * [
+     *     0 => 'A label',
+     *     1 => 'value',
+     * ]
+     *
+     * // To:
+     * [
+     *     'label' => 'A label',
+     *     'value' => 'value',
+     * ]
+     */
+    protected function migrateItemsOfValuePickerToAssociativeArray(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
+                continue;
+            }
+            foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
+                if (is_array($fieldConfig['config']['valuePicker']['items'] ?? false)) {
+                    $hasLegacyItemConfiguration = false;
+                    $items = $fieldConfig['config']['valuePicker']['items'];
+                    foreach ($items as $key => $item) {
+                        if (!is_array($item)) {
+                            continue;
+                        }
+                        if (array_key_exists(0, $item)) {
+                            $hasLegacyItemConfiguration = true;
+                            $items[$key]['label'] = $item[0];
+                            unset($items[$key][0]);
+                        }
+                        if (array_key_exists(1, $item)) {
+                            $hasLegacyItemConfiguration = true;
+                            $items[$key]['value'] = $item[1];
+                            unset($items[$key][1]);
+                        }
+                    }
+                    if ($hasLegacyItemConfiguration) {
+                        $tca[$table]['columns'][$fieldName]['config']['valuePicker']['items'] = $items;
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                            . 'the legacy way of defining \'items\' for the \'valuePicker\'. Please switch to associated array keys: '
+                            . 'label, value.');
+                    }
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    protected function removeMmInsertFields(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1417,17 +1497,18 @@ class TcaMigration
             foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
                 if (isset($fieldConfig['config']['MM_insert_fields'])) {
                     unset($tca[$table]['columns'][$fieldName]['config']['MM_insert_fields']);
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                         . '\'MM_insert_fields\'. This config key is obsolete and should be removed. '
-                        . 'Please adjust your TCA accordingly.';
+                        . 'Please adjust your TCA accordingly.');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
-    protected function removeMmHasUidField(array $tca): array
+    protected function removeMmHasUidField(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1435,17 +1516,18 @@ class TcaMigration
             foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
                 if (isset($fieldConfig['config']['MM_hasUidField'])) {
                     unset($tca[$table]['columns'][$fieldName]['config']['MM_hasUidField']);
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                         . '\'MM_hasUidField\'. This config key is obsolete and should be removed. '
-                        . 'Please adjust your TCA accordingly.';
+                        . 'Please adjust your TCA accordingly.');
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
     }
 
-    protected function migrateT3EditorToCodeEditor(array $tca): array
+    protected function migrateT3EditorToCodeEditor(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
     {
+        $tca = $tcaProcessingResult->getTca();
         foreach ($tca as $table => $tableDefinition) {
             if (!is_array($tableDefinition['columns'] ?? false)) {
                 continue;
@@ -1453,9 +1535,9 @@ class TcaMigration
             foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
                 if (($fieldConfig['config']['renderType'] ?? '') === 't3editor') {
                     $tca[$table]['columns'][$fieldName]['config']['renderType'] = 'codeEditor';
-                    $this->messages[] = 'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
                         . '\'renderType\' with the value \'t3editor\', which has been migrated to \'codeEditor\'. '
-                        . 'Please adjust your TCA accordingly.';
+                        . 'Please adjust your TCA accordingly.');
                 }
             }
 
@@ -1463,13 +1545,266 @@ class TcaMigration
                 foreach ($typeConfig['columnsOverrides'] ?? [] as $columnOverride => $columnOverrideConfig) {
                     if (($columnOverrideConfig['config']['renderType'] ?? '') === 't3editor') {
                         $tca[$table]['types'][$typeName]['columnsOverrides'][$columnOverride]['config']['renderType'] = 'codeEditor';
-                        $this->messages[] = 'The TCA column override \'' . $columnOverride . '\' of table \'' . $table . '\' uses '
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA column override \'' . $columnOverride . '\' of table \'' . $table . '\' uses '
                             . '\'renderType\' with the value \'t3editor\', which has been migrated to \'codeEditor\'. '
-                            . 'Please adjust your TCA accordingly.';
+                            . 'Please adjust your TCA accordingly.');
                     }
                 }
             }
         }
-        return $tca;
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Setting "allowLanguageSynchronization" for columns via columnsOverride is currently not supported
+     * see Localization\State and therefore leads to an exception in the LocalizationStateSelector wizard.
+     * Therefore, the setting is removed for now and the integrator is informed accordingly.
+     */
+    protected function removeAllowLanguageSynchronizationFromColumnsOverrides(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!is_array($tableDefinition['types'] ?? false)) {
+                continue;
+            }
+            foreach ($tableDefinition['types'] ?? [] as $typeName => $typeConfig) {
+                foreach ($typeConfig['columnsOverrides'] ?? [] as $columnOverride => $columnOverrideConfig) {
+                    if (isset($columnOverrideConfig['config']['behaviour']['allowLanguageSynchronization'])) {
+                        unset($tca[$table]['types'][$typeName]['columnsOverrides'][$columnOverride]['config']['behaviour']['allowLanguageSynchronization']);
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA columns override of column \'' . $columnOverride . '\' for type \'' . $typeName . '\' '
+                            . 'of table  \'' . $table . '\' sets \'[behaviour][allowLanguageSynchronization]\'. Setting '
+                            . 'this option in \'columnsOverrides\' is currently not supported. Please adjust your TCA accordingly.');
+                    }
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes the following sub types configuration options:
+     *
+     * - subtype_value_field
+     * - subtypes_addlist
+     * - subtypes_excludelist
+     */
+    protected function removeSubTypesConfiguration(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!is_array($tableDefinition['types'] ?? false)) {
+                continue;
+            }
+            foreach ($tableDefinition['types'] ?? [] as $typeName => $typeConfig) {
+                if (!isset($typeConfig['subtype_value_field'])
+                    && !isset($typeConfig['subtypes_addlist'])
+                    && !isset($typeConfig['subtypes_excludelist'])
+                ) {
+                    continue;
+                }
+                unset(
+                    $tca[$table]['types'][$typeName]['subtype_value_field'],
+                    $tca[$table]['types'][$typeName]['subtypes_addlist'],
+                    $tca[$table]['types'][$typeName]['subtypes_excludelist'],
+                );
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA record type \'' . $typeName . '\' of table \'' . $table . '\' makes '
+                    . 'use of the removed "sub types" functionality. The options \'subtype_value_field\', '
+                    . '\'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your '
+                    . 'TCA accordingly by migrating those sub types to dedicated record types.');
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Inline foreign_table relations with a parent being workspace aware and
+     * a child not being workspace aware are not supported. The method detects
+     * this scenario in parent columns (not in flex forms) and enforces workspace
+     * awareness of child tables.
+     */
+    protected function addWorkspaceAwarenessToInlineChildren(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $parentTable => $parentTableDefinition) {
+            if (!($parentTableDefinition['ctrl']['versioningWS'] ?? false)
+                || !is_array($parentTableDefinition['columns'] ?? null)
+            ) {
+                continue;
+            }
+            foreach ($parentTableDefinition['columns'] as $parentFieldName => $parentFieldConfig) {
+                if (($parentFieldConfig['config']['type'] ?? '') === 'inline') {
+                    if (empty($parentFieldConfig['config']['foreign_table'] ?? '')) {
+                        continue;
+                    }
+                    $foreignTable = $parentFieldConfig['config']['foreign_table'];
+                    if ((bool)($tca[$foreignTable]['ctrl']['versioningWS'] ?? false) === false) {
+                        $tca[$foreignTable]['ctrl']['versioningWS'] = true;
+                        $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA table \'' . $foreignTable . '\' has been declared workspace aware because it is'
+                            . ' used as an inline child in TCA table field \'' . $parentTable . '\':\'' . $parentFieldName . '\','
+                            . ' and that table is workspace aware. Please adjust your TCA accordingly by adding'
+                            . ' "\'versioningWS\' => true;" to the \'ctrl\' section of \'' . $foreignTable . '\'.');
+                    }
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes [config][eval] = 'year'.
+     * If [config][eval] becomes empty, it will be removed completely.
+     */
+    protected function removeEvalYearFlag(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
+                continue;
+            }
+
+            foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
+                if (!GeneralUtility::inList($fieldConfig['config']['eval'] ?? '', 'year')) {
+                    continue;
+                }
+
+                $evalList = GeneralUtility::trimExplode(',', $fieldConfig['config']['eval'], true);
+                // Remove "year" from $evalList
+                $evalList = array_filter($evalList, static fn(string $eval): bool => $eval !== 'year');
+                if ($evalList !== []) {
+                    // Write back filtered 'eval'
+                    $tca[$table]['columns'][$fieldName]['config']['eval'] = implode(',', $evalList);
+                } else {
+                    // 'eval' is empty, remove whole configuration
+                    unset($tca[$table]['columns'][$fieldName]['config']['eval']);
+                }
+
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines'
+                    . ' "year" in its "eval" list. This is not evaluated anymore and is therefore removed.'
+                    . ' Please adjust your TCA accordingly.');
+            }
+        }
+
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes $TCA[$mytable]['ctrl']['is_static']
+     */
+    protected function removeIsStaticControlOption(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$configuration) {
+            if (!isset($configuration['ctrl']['is_static'])) {
+                continue;
+            }
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA configuration \'is_static\''
+                . ' inside the \'ctrl\' section is not evaluated anymore and is therefore removed.'
+                . ' Please adjust your TCA accordingly.');
+            unset($configuration['ctrl']['is_static']);
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes $[config][search]
+     */
+    protected function removeFieldSearchConfigOptions(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
+                continue;
+            }
+
+            foreach ($tableDefinition['columns'] as $fieldName => &$fieldConfig) {
+                if (!isset($fieldConfig['config']['search'])) {
+                    continue;
+                }
+                unset($fieldConfig['config']['search']);
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages(
+                    'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines'
+                    . ' "search" config options. Those are not evaluated anymore and are therefore removed.'
+                    . ' Please adjust your TCA accordingly.'
+                );
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes $TCA[$mytable]['ctrl']['searchFields']
+     */
+    protected function removeSearchFieldsControlOption(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$configuration) {
+            if (!isset($configuration['ctrl']['searchFields'])) {
+                continue;
+            }
+            $searchFields = GeneralUtility::trimExplode(',', (string)$configuration['ctrl']['searchFields'], true);
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages(
+                'The \'' . $table . '\' TCA configuration \'searchFields\''
+                . ' inside the \'ctrl\' section is not evaluated anymore and is therefore removed.'
+                . ' Suitable field types, e.g. \'input\' are now automatically considered, while using the'
+                . ' \'searchable\' field config for specific exclusion can be used. Please adjust your TCA accordingly.'
+            );
+            unset($configuration['ctrl']['searchFields']);
+
+            if (!isset($configuration['columns']) || !is_array($configuration['columns'])) {
+                continue;
+            }
+            foreach ($configuration['columns'] as $fieldName => &$fieldConfig) {
+                $type = (string)($fieldConfig['config']['type'] ?? '');
+                if ($type !== ''
+                    && !isset($fieldConfig['config']['searchable'])
+                    && !in_array($fieldName, $searchFields, true)
+                    && (
+                        in_array($type, ['color', 'email', 'flex', 'input', 'json', 'link', 'slug', 'text', 'uuid'], true)
+                        || ($type === 'datetime' && !in_array($fieldConfig['config']['dbType'] ?? null, QueryHelper::getDateTimeTypes(), true))
+                    )
+                ) {
+                    $fieldConfig['config']['searchable'] = false;
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages(
+                        'Because the field \'' . $fieldName . '\' of \'' . $table . '\' is considered'
+                        . ' searchable based on it\'s TCA type \'' . $type . '\' but is not included in still existing'
+                        . ' but no longer evaluated \'searchFields\' TCA \'ctrl\' option, it was automatically set to'
+                        . ' searchable => false, to be excluded in searches. Please consider this when adjusting your'
+                        . ' TCA towards proper usage of searchable fields.'
+                    );
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    protected function migrateSingleDataStructureConfiguration(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!is_array($tableDefinition['columns'] ?? false)) {
+                continue;
+            }
+            foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
+                if (($fieldConfig['config']['type'] ?? '') !== 'flex'
+                    || !isset($fieldConfig['config']['ds'])
+                    || is_string($fieldConfig['config']['ds'])
+                ) {
+                    continue;
+                }
+
+                $dataStructureConfiguration = $fieldConfig['config']['ds'];
+                if (is_array($dataStructureConfiguration) && count($dataStructureConfiguration) === 1) {
+                    $dataStructureKey = key($dataStructureConfiguration);
+                    $tca[$table]['columns'][$fieldName]['config']['ds'] = reset($dataStructureConfiguration);
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages(
+                        'The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines '
+                        . 'a data structure below key \'' . $dataStructureKey . '\' in \'ds\'. Since \'ds\' does '
+                        . 'now contain the data strcuture directly, the corresponding configuration has been migrated. '
+                        . 'Please adjust your TCA accordingly.'
+                    );
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
     }
 }

@@ -1,4 +1,5 @@
 <?php
+
 /**
  * An array consisting of implementations of middlewares for a middleware stack to be registered
  *  'stackname' => [
@@ -30,14 +31,6 @@ return [
             ],
             'before' => [
                 'typo3/cms-frontend/tsfe',
-            ],
-        ],
-        'typo3/cms-adminpanel/data-persister' => [
-            'target' => \TYPO3\CMS\Adminpanel\Middleware\AdminPanelDataPersister::class,
-            'after' => [
-                'typo3/cms-adminpanel/initiator',
-                'typo3/cms-frontend/content-length-headers',
-                'typo3/cms-adminpanel/renderer',
             ],
         ],
         'typo3/cms-adminpanel/renderer' => [

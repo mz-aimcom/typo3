@@ -21,6 +21,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Domain\Model\Renderable;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
@@ -30,6 +31,7 @@ use TYPO3\CMS\Extbase\Validation\ValidatorResolver;
 use TYPO3\CMS\Form\Domain\Model\Exception\FormDefinitionConsistencyException;
 use TYPO3\CMS\Form\Domain\Model\Exception\ValidatorPresetNotFoundException;
 use TYPO3\CMS\Form\Domain\Model\FormDefinition;
+use TYPO3\CMS\Form\Event\BeforeRenderableIsRemovedFromFormEvent;
 
 /**
  * Convenience base class which implements common functionality for most
@@ -101,6 +103,8 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
 
     protected ?ValidatorResolver $validatorResolver = null;
 
+    protected ?ServerRequestInterface $request = null;
+
     /**
      * Get the type of the renderable
      */
@@ -124,8 +128,6 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
     {
         $this->identifier = $identifier;
     }
-
-    protected ?ServerRequestInterface $request = null;
 
     public function getRequest(): ?ServerRequestInterface
     {
@@ -194,7 +196,7 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
      *
      * @throws ValidatorPresetNotFoundException
      */
-    public function createValidator(string $validatorIdentifier, array $options = []): ValidatorInterface
+    public function createValidator(string $validatorIdentifier, array $options = []): ?ValidatorInterface
     {
         $validatorsDefinition = $this->getRootForm()->getValidatorsDefinition();
         if (isset($validatorsDefinition[$validatorIdentifier]) && is_array($validatorsDefinition[$validatorIdentifier]) && isset($validatorsDefinition[$validatorIdentifier]['implementationClassName'])) {
@@ -209,9 +211,10 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
                 $container = GeneralUtility::getContainer();
                 $this->validatorResolver = $container->get(ValidatorResolver::class);
             }
-            /** @var ValidatorInterface $validator */
             $validator = $this->validatorResolver->createValidator($implementationClassName, $defaultOptions, $this->request);
-            $this->addValidator($validator);
+            if ($validator !== null) {
+                $this->addValidator($validator);
+            }
             return $validator;
         }
         throw new ValidatorPresetNotFoundException('The validator preset identified by "' . $validatorIdentifier . '" could not be found, or the implementationClassName was not specified.', 1328710202);
@@ -338,13 +341,11 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
      */
     public function onRemoveFromParentRenderable()
     {
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['beforeRemoveFromParentRenderable'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'beforeRemoveFromParentRenderable')) {
-                $hookObj->beforeRemoveFromParentRenderable(
-                    $this
-                );
-            }
+        $event = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+            new BeforeRenderableIsRemovedFromFormEvent($this)
+        );
+        if ($event->isPropagationStopped()) {
+            return;
         }
 
         try {

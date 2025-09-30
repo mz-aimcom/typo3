@@ -11,14 +11,13 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, TemplateResult, LitElement } from 'lit';
+import { html, css, type TemplateResult, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
-import Severity from '@typo3/backend/severity';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import { lll } from '@typo3/core/lit-helper';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import Notification from '@typo3/backend/notification';
 
 enum Selectors {
@@ -52,7 +51,7 @@ enum SelectorActions {
  */
 @customElement('typo3-backend-column-selector-button')
 export class ColumnSelectorButton extends LitElement {
-  static styles = [css`:host { cursor: pointer; appearance: button; }`];
+  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
 
   @property({ type: String, attribute: 'data-url' }) modalUrl: string;
   @property({ type: String, attribute: 'data-target' }) modalTarget: string;
@@ -149,7 +148,7 @@ export class ColumnSelectorButton extends LitElement {
     });
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     if (!this.hasAttribute('role')) {
       this.setAttribute('role', 'button');
     }
@@ -158,7 +157,7 @@ export class ColumnSelectorButton extends LitElement {
     }
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<slot></slot>`;
   }
 
@@ -184,7 +183,7 @@ export class ColumnSelectorButton extends LitElement {
         },
         {
           text: this.buttonOk,
-          btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.info),
+          btnClass: 'btn-primary',
           name: 'update',
           trigger: (e: Event, modal: ModalElement): void => this.processSelection(modal)
         }

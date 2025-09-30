@@ -16,6 +16,8 @@
 namespace TYPO3\CMS\Core\Tree\TableConfiguration;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -27,13 +29,10 @@ class TreeDataProviderFactory
     /**
      * Gets the data provider, depending on TCA configuration
      *
-     * @param string $table
-     * @param string $field
      * @param array $currentValue The current database row, handing over 'uid' is enough
      * @return DatabaseTreeDataProvider
-     * @throws \InvalidArgumentException
      */
-    public static function getDataProvider(array $tcaConfiguration, $table, $field, $currentValue)
+    public static function getDataProvider(array $tcaConfiguration, string $table, string $field, array $currentValue)
     {
         /** @var DatabaseTreeDataProvider $dataProvider */
         $dataProvider = null;
@@ -72,7 +71,7 @@ class TreeDataProviderFactory
                 $tableName = $tcaConfiguration['foreign_table'];
                 $dataProvider->setTableName($tableName);
                 if ($tableName == $table) {
-                    // The uid of the currently opened row can not be selected in a table relation to "self"
+                    // The uid of the currently opened row cannot be selected in a table relation to "self"
                     $unselectableUids = [$currentValue['uid']];
                     $dataProvider->setItemUnselectableList($unselectableUids);
                 }
@@ -82,7 +81,11 @@ class TreeDataProviderFactory
             if (isset($tcaConfiguration['foreign_label'])) {
                 $dataProvider->setLabelField($tcaConfiguration['foreign_label']);
             } else {
-                $dataProvider->setLabelField($GLOBALS['TCA'][$tableName]['ctrl']['label'] ?? '');
+                $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+                if ($schemaFactory->has($tableName)) {
+                    $labelField = $schemaFactory->get($tableName)->getCapability(TcaSchemaCapability::Label);
+                    $dataProvider->setLabelField($labelField->getPrimaryFieldName() ?? '');
+                }
             }
             $dataProvider->setTreeId(md5($table . '|' . $field));
 

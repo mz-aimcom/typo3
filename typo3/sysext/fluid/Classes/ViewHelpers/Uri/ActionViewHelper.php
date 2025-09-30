@@ -26,28 +26,20 @@ use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder as ExtbaseUriBuilder;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Typolink\LinkFactory;
 use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * A ViewHelper for creating URIs to extbase actions. Tailored for extbase plugins, uses extbase Request and extbase UriBuilder.
+ * ViewHelper for creating URIs to Extbase actions (within Controllers).
+ * Tailored for Extbase plugins, uses Extbase Request and Extbase UriBuilder.
  *
- * Examples
- * ========
+ * ```
+ *   <f:uri.action action="show" arguments="{blog: blog.uid}">action link</f:uri.action>
+ * ```
  *
- * URI to the show-action of the current controller::
- *
- *    <f:uri.action action="show" />
- *
- * ``/page/path/name.html?tx_myextension_plugin[action]=show&tx_myextension_plugin[controller]=Standard&cHash=xyz``
- *
- * Depending on current page, routing and page path configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-action
  */
 final class ActionViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('action', 'string', 'Target action');
@@ -68,17 +60,17 @@ final class ActionViewHelper extends AbstractViewHelper
         $this->registerArgument('argumentsToBeExcludedFromQueryString', 'array', 'arguments to be removed from the URI. Only active if $addQueryString = TRUE', false, []);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
         $request = null;
-        if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
         }
         if ($request instanceof ExtbaseRequestInterface) {
-            return self::renderWithExtbaseContext($request, $arguments);
+            return self::renderWithExtbaseContext($request, $this->arguments);
         }
         if ($request instanceof ServerRequestInterface && ApplicationType::fromRequest($request)->isFrontend()) {
-            return self::renderFrontendLinkWithCoreContext($request, $arguments, $renderChildrenClosure);
+            return self::renderFrontendLinkWithCoreContext($request, $this->arguments, $this->renderChildren(...));
         }
         throw new \RuntimeException(
             'The rendering context of ViewHelper f:uri.action is missing a valid request object.',
@@ -86,7 +78,7 @@ final class ActionViewHelper extends AbstractViewHelper
         );
     }
 
-    protected static function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
+    private static function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
     {
         // No support for following arguments:
         //  * format
@@ -185,7 +177,7 @@ final class ActionViewHelper extends AbstractViewHelper
         }
     }
 
-    protected static function renderWithExtbaseContext(ExtbaseRequestInterface $request, array $arguments): string
+    private static function renderWithExtbaseContext(ExtbaseRequestInterface $request, array $arguments): string
     {
         $pageUid = (int)($arguments['pageUid'] ?? 0);
         $pageType = (int)($arguments['pageType'] ?? 0);

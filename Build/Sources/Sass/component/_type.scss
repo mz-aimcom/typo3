@@ -26,6 +26,24 @@ h3 {
 }
 
 //
+// Links
+//
+a {
+    color: var(--typo3-text-color-link);
+    text-decoration: none;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &:not([href]):not([class]),
+    &:not([href]):not([class]):hover {
+        color: inherit;
+        text-decoration: none;
+    }
+}
+
+//
 // Colors
 //
 .text-base,
@@ -78,6 +96,11 @@ h3 {
 .text-default,
 .text-default-emphasis {
     color: var(--typo3-text-color-default) !important;
+}
+
+.text-highlight {
+    color: inherit !important;
+    background-color: var(--typo3-component-match-highlight-bg) !important;
 }
 
 code,

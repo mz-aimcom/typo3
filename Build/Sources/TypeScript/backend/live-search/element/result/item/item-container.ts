@@ -13,12 +13,12 @@
 
 import '@typo3/backend/element/spinner-element';
 import LiveSearchConfigurator from '@typo3/backend/live-search/live-search-configurator';
-import { css, html, LitElement, TemplateResult } from 'lit';
+import { css, html, LitElement, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators';
 import { until } from 'lit/directives/until';
 import '../../provider/default-result-item';
-import './item';
-import { Item, ResultItemActionInterface, ResultItemInterface } from './item';
+import { type Item, type ResultItemActionInterface, type ResultItemInterface } from './item';
+import type { InvokeActionEventData, RequestActionsEventData } from '@typo3/backend/live-search/element/result/result-container';
 
 type GroupedResultItems = { [key: string ]: ResultItemInterface[] };
 
@@ -28,22 +28,22 @@ export const componentName = 'typo3-backend-live-search-result-item-container';
 export class ItemContainer extends LitElement {
   @property({ type: Object, attribute: false }) results: ResultItemInterface[]|null = null;
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener('scroll', this.onScroll);
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     this.removeEventListener('scroll', this.onScroll);
     super.disconnectedCallback();
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     const groupedResults: GroupedResultItems = {};
     const filteredResults = this.results.filter((result: ResultItemInterface): boolean => result !== null);
     if (filteredResults.length !== this.results.length) {
@@ -104,7 +104,7 @@ export class ItemContainer extends LitElement {
   }
 
   private requestActions(resultItem: ResultItemInterface) {
-    this.parentElement.dispatchEvent(new CustomEvent('livesearch:request-actions', {
+    this.parentElement.dispatchEvent(new CustomEvent<RequestActionsEventData>('livesearch:request-actions', {
       detail: {
         resultItem: resultItem
       }
@@ -112,7 +112,7 @@ export class ItemContainer extends LitElement {
   }
 
   private invokeAction(resultItem: ResultItemInterface, action: ResultItemActionInterface): void {
-    this.parentElement.dispatchEvent(new CustomEvent('livesearch:invoke-action', {
+    this.parentElement.dispatchEvent(new CustomEvent<InvokeActionEventData>('livesearch:invoke-action', {
       detail: {
         resultItem: resultItem,
         action: action
@@ -129,7 +129,7 @@ export class ItemContainer extends LitElement {
 
 @customElement('typo3-backend-live-search-result-list')
 export class ResultList extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
     }
@@ -138,7 +138,7 @@ export class ResultList extends LitElement {
   private parentContainer: HTMLElement;
   private resultItemDetailContainer: HTMLElement;
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     this.parentContainer = this.closest('typo3-backend-live-search-result-container');
     this.resultItemDetailContainer = this.parentContainer.querySelector('typo3-backend-live-search-result-item-detail-container');
 
@@ -147,13 +147,13 @@ export class ResultList extends LitElement {
     this.addEventListener('keyup', this.handleKeyUp);
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     this.removeEventListener('keydown', this.handleKeyDown);
     this.removeEventListener('keyup', this.handleKeyUp);
     super.disconnectedCallback();
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<slot></slot>`;
   }
 
@@ -207,7 +207,7 @@ export class ResultList extends LitElement {
   }
 
   private invokeAction(item: ResultItemInterface): void {
-    this.parentContainer.dispatchEvent(new CustomEvent('livesearch:invoke-action', {
+    this.parentContainer.dispatchEvent(new CustomEvent<InvokeActionEventData>('livesearch:invoke-action', {
       detail: {
         resultItem: item,
         action: item.actions[0]

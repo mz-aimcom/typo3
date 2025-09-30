@@ -35,6 +35,7 @@ use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
 use TYPO3\CMS\Core\Log\Logger;
 use TYPO3\CMS\Core\Resource\Exception\InvalidPathException;
 use TYPO3\CMS\Core\Resource\FileReference;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
@@ -191,11 +192,19 @@ final class ContentObjectRendererTest extends FunctionalTestCase
     #[Test]
     public function getQuery(string $table, array $conf, string $expected): void
     {
-        $GLOBALS['TCA'] = [
+        $backedupTca = $GLOBALS['TCA'];
+        $tca = [
             'pages' => [
                 'ctrl' => [
                     'enablecolumns' => [
                         'disabled' => 'hidden',
+                    ],
+                ],
+                'columns' => [
+                    'hidden' => [
+                        'config' => [
+                            'type' => 'check',
+                        ],
                     ],
                 ],
             ],
@@ -206,11 +215,19 @@ final class ContentObjectRendererTest extends FunctionalTestCase
                     ],
                     'versioningWS' => true,
                 ],
+                'columns' => [
+                    'hidden' => [
+                        'config' => [
+                            'type' => 'check',
+                        ],
+                    ],
+                ],
             ],
         ];
 
-        $typoScriptFrontendController = GeneralUtility::makeInstance(TypoScriptFrontendController::class);
-        $subject = new ContentObjectRenderer($typoScriptFrontendController);
+        $tcaSchemaFactory = $this->get(TcaSchemaFactory::class);
+        $tcaSchemaFactory->load($tca, true);
+        $subject = new ContentObjectRenderer();
         $request = $this->getPreparedRequest();
         $pageInformation = new PageInformation();
         $pageInformation->setId(0);
@@ -229,6 +246,7 @@ final class ContentObjectRendererTest extends FunctionalTestCase
         $quoteChar = $identifierQuoteCharacter;
         $expected = str_replace(['[', ']'], [$quoteChar, $quoteChar], $expected);
         self::assertEquals($expected, $selectValue);
+        $tcaSchemaFactory->load($backedupTca, true);
     }
 
     #[Test]
@@ -260,7 +278,7 @@ final class ContentObjectRendererTest extends FunctionalTestCase
         $linkService->method('resolve')->with('foo')->willThrowException(new InvalidPathException('', 1666303765));
         $linkFactory = new LinkFactory($linkService, $this->get(EventDispatcherInterface::class), $this->get(TypoLinkCodecService::class), $this->get('cache.runtime'), $this->get(SiteFinder::class));
         $logger = $this->getMockBuilder(Logger::class)->disableOriginalConstructor()->getMock();
-        $logger->expects(self::atLeastOnce())->method('warning')->with('The link could not be generated', self::anything());
+        $logger->expects($this->atLeastOnce())->method('warning')->with('The link could not be generated', self::anything());
         $linkFactory->setLogger($logger);
         GeneralUtility::addInstance(LinkFactory::class, $linkFactory);
         $subject = new ContentObjectRenderer();
@@ -792,10 +810,13 @@ final class ContentObjectRendererTest extends FunctionalTestCase
     #[Test]
     public function typolinkReturnsCorrectLinksForFilesWithAbsRefPrefix(string $linkText, array $configuration, string $absRefPrefix, string $expectedResult): void
     {
-        $tsfe = $this->getMockBuilder(TypoScriptFrontendController::class)->disableOriginalConstructor()->getMock();
-        $tsfe->absRefPrefix = $absRefPrefix;
+        $typoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $typoScript->setConfigArray(['absRefPrefix' => $absRefPrefix]);
+
+        $subject = new ContentObjectRenderer();
         $request = new ServerRequest();
-        $subject = new ContentObjectRenderer($tsfe);
+        $request = $request->withAttribute('frontend.typoscript', $typoScript);
+        $request = $request->withAttribute('currentContentObject', $subject);
         $subject->setRequest($request);
         self::assertEquals($expectedResult, $subject->typoLink($linkText, $configuration));
     }
@@ -881,8 +902,7 @@ final class ContentObjectRendererTest extends FunctionalTestCase
     #[Test]
     public function searchWhereWithTooShortSearchWordWillReturnValidWhereStatement(): void
     {
-        $tsfe = $this->getMockBuilder(TypoScriptFrontendController::class)->disableOriginalConstructor()->getMock();
-        $subject = new ContentObjectRenderer($tsfe);
+        $subject = new ContentObjectRenderer();
         $subject->setRequest($this->getPreparedRequest());
         $subject->start([], 'tt_content');
 
@@ -894,8 +914,7 @@ final class ContentObjectRendererTest extends FunctionalTestCase
     #[Test]
     public function libParseFuncProperlyKeepsTagsUnescaped(): void
     {
-        $tsfe = $this->getMockBuilder(TypoScriptFrontendController::class)->disableOriginalConstructor()->getMock();
-        $subject = new ContentObjectRenderer($tsfe);
+        $subject = new ContentObjectRenderer();
         $typoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $typoScript->setConfigArray([]);
         $request = $this->getPreparedRequest()->withAttribute('frontend.typoscript', $typoScript);

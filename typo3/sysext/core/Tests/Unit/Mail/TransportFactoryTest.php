@@ -17,12 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Mail;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\NullLogger;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Symfony\Component\Mailer\Transport\NullTransport;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
-use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Log\LogManagerInterface;
@@ -31,6 +32,7 @@ use TYPO3\CMS\Core\Mail\FileSpool;
 use TYPO3\CMS\Core\Mail\MailMessage;
 use TYPO3\CMS\Core\Mail\MemorySpool;
 use TYPO3\CMS\Core\Mail\TransportFactory;
+use TYPO3\CMS\Core\Resource\Security\FileNameValidator;
 use TYPO3\CMS\Core\Tests\Unit\Mail\Fixtures\FakeFileSpoolFixture;
 use TYPO3\CMS\Core\Tests\Unit\Mail\Fixtures\FakeInvalidSpoolFixture;
 use TYPO3\CMS\Core\Tests\Unit\Mail\Fixtures\FakeMemorySpoolFixture;
@@ -45,18 +47,27 @@ final class TransportFactoryTest extends UnitTestCase
     {
         $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
         $logger = new NullLogger();
-
         $logManager = $this->createMock(LogManagerInterface::class);
         $logManager->method('getLogger')->willReturn($logger);
-
-        $transportFactory = new TransportFactory($eventDispatcher, $logManager);
-        $transportFactory->setLogger($logger);
-
-        return $transportFactory;
+        return new TransportFactory($eventDispatcher, $logManager, $logger, new FileNameValidator());
     }
 
+    /**
+     * @return \Generator<string, array{string, string, list<string>}>
+     */
+    public static function getReturnsSpoolTransportUsingFileSpoolDataProvider(): \Generator
+    {
+        yield 'relative path' => ['foo', Environment::getPublicPath() . '/foo', []];
+        yield 'extension path' => ['EXT:styleguide/Resources/Private/MailQueue', Environment::getFrameworkBasePath() . '/styleguide/Resources/Private/MailQueue', []];
+        yield 'absolute path' => ['/var/mailqueue', '/var/mailqueue', ['/var/mailqueue']];
+    }
+
+    /**
+     * @param list<string> $lockRootPath
+     */
+    #[DataProvider('getReturnsSpoolTransportUsingFileSpoolDataProvider')]
     #[Test]
-    public function getReturnsSpoolTransportUsingFileSpool(): void
+    public function getReturnsSpoolTransportUsingFileSpool(string $path, string $expected, array $lockRootPath): void
     {
         $mailSettings = [
             'transport' => 'sendmail',
@@ -73,18 +84,62 @@ final class TransportFactoryTest extends UnitTestCase
             'defaultMailFromAddress' => '',
             'defaultMailFromName' => '',
             'transport_spool_type' => 'file',
-            'transport_spool_filepath' => '.',
+            'transport_spool_filepath' => $path,
         ];
+
+        // Register lock root path
+        $initialLockRootPath = $GLOBALS['TYPO3_CONF_VARS']['BE']['lockRootPath'] ?? [];
+        $GLOBALS['TYPO3_CONF_VARS']['BE']['lockRootPath'] = $lockRootPath;
 
         // Register fixture class
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['Objects'][FileSpool::class]['className'] = FakeFileSpoolFixture::class;
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
+
         self::assertInstanceOf(DelayedTransportInterface::class, $transport);
         self::assertInstanceOf(FakeFileSpoolFixture::class, $transport);
+        self::assertStringContainsString($expected, $transport->getPath());
 
-        $path = $transport->getPath();
-        self::assertStringContainsString($mailSettings['transport_spool_filepath'], $path);
+        // Restore lock root path
+        $GLOBALS['TYPO3_CONF_VARS']['BE']['lockRootPath'] = $initialLockRootPath;
+    }
+
+    /**
+     * @return \Generator<string, array{string}>
+     */
+    public static function getThrowsExceptionOnInvalidSpoolFilePathDataProvider(): \Generator
+    {
+        yield 'relative path' => ['../foo'];
+        yield 'extension path' => ['EXT:styleguide/../foo'];
+        yield 'absolute path' => ['/foo/../baz'];
+    }
+
+    #[DataProvider('getThrowsExceptionOnInvalidSpoolFilePathDataProvider')]
+    #[Test]
+    public function getThrowsExceptionOnInvalidSpoolFilePath(string $path): void
+    {
+        $mailSettings = [
+            'transport' => 'sendmail',
+            'transport_smtp_server' => 'localhost:25',
+            'transport_smtp_encrypt' => '',
+            'transport_smtp_username' => '',
+            'transport_smtp_password' => '',
+            'transport_smtp_restart_threshold' => 0,
+            'transport_smtp_restart_threshold_sleep' => 0,
+            'transport_smtp_ping_threshold' => 0,
+            'transport_smtp_stream_options' => [],
+            'transport_sendmail_command' => '',
+            'transport_mbox_file' => '',
+            'defaultMailFromAddress' => '',
+            'defaultMailFromName' => '',
+            'transport_spool_type' => 'file',
+            'transport_spool_filepath' => $path,
+        ];
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1518558797);
+
+        $this->getSubject($eventDispatcher)->get($mailSettings);
     }
 
     #[Test]
@@ -192,7 +247,7 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects(self::atLeastOnce())->method('dispatch')->with(self::anything());
+        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
@@ -207,7 +262,8 @@ final class TransportFactoryTest extends UnitTestCase
     }
 
     #[Test]
-    public function getReturnsMailerTransportInterface(): void
+    #[DoesNotPerformAssertions]
+    public function getDoesNotThrowExceptionWithValidConfiguration(): void
     {
         $mailSettings = [
             'transport' => 'smtp',
@@ -226,9 +282,7 @@ final class TransportFactoryTest extends UnitTestCase
             'transport_spool_type' => '',
             'transport_spool_filepath' => Environment::getVarPath() . '/messages/',
         ];
-
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        self::assertInstanceOf(TransportInterface::class, $transport);
     }
 
     #[Test]
@@ -251,7 +305,7 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects(self::atLeastOnce())->method('dispatch')->with(self::anything());
+        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
@@ -285,7 +339,7 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects(self::atLeastOnce())->method('dispatch')->with(self::anything());
+        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
@@ -319,7 +373,7 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects(self::atLeastOnce())->method('dispatch')->with(self::anything());
+        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])

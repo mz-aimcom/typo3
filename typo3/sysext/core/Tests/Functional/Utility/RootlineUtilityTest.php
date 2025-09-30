@@ -26,10 +26,13 @@ use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Context\WorkspaceAspect;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Exception\Page\CircularRootLineException;
 use TYPO3\CMS\Core\Exception\Page\PageNotFoundException;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\RootlineUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -58,7 +61,16 @@ final class RootlineUtilityTest extends FunctionalTestCase
                 $this->buildLanguageConfiguration('FR', '/fr/', ['EN']),
             ]
         );
+        $this->writeSiteConfiguration(
+            'second',
+            $this->buildSiteConfiguration(2, 'https://other.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ]
+        );
         self::importCSVDataSet(__DIR__ . '/Fixtures/RootlineUtilityImport.csv');
+        $this->setUpFrontendRootPage(1, [], ['config' => '# rootpage 1']);
+        $this->setUpFrontendRootPage(2, [], ['config' => '# rootpage 2']);
     }
 
     private function filterExpectedValues(array $incomingData, array $fields): array
@@ -223,9 +235,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertFalse($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'group',
-                ],
+                'type' => 'group',
             ]
         ));
     }
@@ -238,10 +248,8 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertTrue($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'group',
-                    'MM' => 'tx_xyz',
-                ],
+                'type' => 'group',
+                'MM' => 'tx_xyz',
             ]
         ));
     }
@@ -254,9 +262,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertFalse($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'inline',
-                ],
+                'type' => 'inline',
             ]
         ));
     }
@@ -269,10 +275,8 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertTrue($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'inline',
-                    'foreign_field' => 'xyz',
-                ],
+                'type' => 'inline',
+                'foreign_field' => 'xyz',
             ]
         ));
     }
@@ -285,10 +289,8 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertTrue($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'inline',
-                    'MM' => 'xyz',
-                ],
+                'type' => 'inline',
+                'MM' => 'xyz',
             ]
         ));
     }
@@ -301,9 +303,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertFalse($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'select',
-                ],
+                'type' => 'select',
             ]
         ));
     }
@@ -316,10 +316,8 @@ final class RootlineUtilityTest extends FunctionalTestCase
         self::assertTrue($subjectMethodReflection->invoke(
             $subject,
             [
-                'config' => [
-                    'type' => 'select',
-                    'MM' => 'xyz',
-                ],
+                'type' => 'select',
+                'MM' => 'xyz',
             ]
         ));
     }
@@ -341,24 +339,6 @@ final class RootlineUtilityTest extends FunctionalTestCase
         $subjectMethodReflection = (new \ReflectionMethod($subject, 'getCacheIdentifier'));
         self::assertSame('42_47-11_8_0_0_1', $subjectMethodReflection->invoke($subject));
         self::assertTrue($cacheFrontend->isValidEntryIdentifier($subjectMethodReflection->invoke($subject)));
-    }
-
-    #[Test]
-    public function getWithMissingPagesColumnsTcaThrowsException(): void
-    {
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionCode(1712572738);
-        unset($GLOBALS['TCA']['pages']['columns']);
-        (new RootlineUtility(1))->get();
-    }
-
-    #[Test]
-    public function getWithPagesColumnsTcaNonArrayThrowsException(): void
-    {
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionCode(1712572738);
-        $GLOBALS['TCA']['pages']['columns'] = 'This is not an array.';
-        (new RootlineUtility(1))->get();
     }
 
     #[Test]
@@ -1339,7 +1319,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect($workspace));
         $context->setAspect('language', new LanguageAspect($language));
-        $context->setAspect('date', new DateTimeAspect((new \DateTimeImmutable())->setTimestamp(time())));
+        $context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp(time())));
         $result = (new RootlineUtility($uid, '', $context))->get();
         self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
     }
@@ -1411,7 +1391,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect(0));
         $context->setAspect('language', new LanguageAspect(0));
-        $context->setAspect('date', new DateTimeAspect((new \DateTimeImmutable())->setTimestamp(time())));
+        $context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp(time())));
         $context->setAspect('visibility', new VisibilityAspect(false, $includeHiddenRecords, false, false));
         $result = (new RootlineUtility($uid, '', $context))->get();
         self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
@@ -1544,7 +1524,7 @@ final class RootlineUtilityTest extends FunctionalTestCase
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect(0));
         $context->setAspect('language', new LanguageAspect(0));
-        $context->setAspect('date', new DateTimeAspect((new \DateTimeImmutable())->setTimestamp($simulateTime)));
+        $context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($simulateTime)));
         $context->setAspect('visibility', new VisibilityAspect(false, false, false, $includeScheduledRecords));
         $result = (new RootlineUtility($uid, '', $context))->get();
         self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
@@ -1569,5 +1549,165 @@ final class RootlineUtilityTest extends FunctionalTestCase
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect(2));
         (new RootlineUtility(8020, '', $context))->get();
+    }
+
+    #[Test]
+    public function mountPageReplaceResolvedExpectedSiteRoot(): void
+    {
+        $testFields = ['uid', 'pid', 'is_siteroot', '_MOUNT_OL', '_MOUNT_PAGE', '_MOUNTED_FROM', '_MP_PARAM'];
+        $expected = [
+            2 => [
+                'uid' => 1001,
+                'pid' => 1000,
+                'is_siteroot' => 0,
+                '_MOUNT_OL' => true,
+                '_MOUNT_PAGE' =>
+                    [
+                        'uid' => 9010,
+                        'pid' => 9000,
+                        'title' => 'RP2 Parent 9000 Sub 10',
+                    ],
+                '_MOUNTED_FROM' => 1001,
+                '_MP_PARAM' => '1001-9010',
+            ],
+            1 => [
+                'uid' => 9000,
+                'pid' => 2,
+                'is_siteroot' => 0,
+            ],
+            0 => [
+                'uid' => 2,
+                'pid' => 0,
+                'is_siteroot' => 1,
+            ],
+        ];
+        $result = (new RootlineUtility(1001, '1001-9010'))->get();
+        self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
+        self::assertSame('second', GeneralUtility::makeInstance(SiteFinder::class)->getSiteByRootPageId($result[0]['uid'])->getIdentifier());
+    }
+
+    #[Test]
+    public function mountPageResolvedExpectedSiteRoot(): void
+    {
+        $testFields = ['uid', 'pid', 'is_siteroot', '_MOUNT_OL', '_MOUNT_PAGE', '_MOUNTED_FROM', '_MP_PARAM'];
+        $expected = [
+            2 => [
+                'uid' => 9020,
+                'pid' => 9000,
+                'is_siteroot' => 0,
+                '_MOUNTED_FROM' => 1010,
+                '_MP_PARAM' => '1010-9020',
+            ],
+            1 => [
+                'uid' => 9000,
+                'pid' => 2,
+                'is_siteroot' => 0,
+            ],
+            0 => [
+                'uid' => 2,
+                'pid' => 0,
+                'is_siteroot' => 1,
+            ],
+        ];
+        $result = (new RootlineUtility(1010, '1010-9020'))->get();
+        self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
+        self::assertSame('second', GeneralUtility::makeInstance(SiteFinder::class)->getSiteByRootPageId($result[0]['uid'])->getIdentifier());
+    }
+
+    #[Test]
+    public function mountedPageVariant1GenerateExpectedRootline(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/RootlineUtility_MountPointVariant1.csv');
+        $this->writeSiteConfiguration(
+            'site1',
+            $this->buildSiteConfiguration(10000, 'https://site1.acme.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ]
+        );
+        $this->writeSiteConfiguration(
+            'site2',
+            $this->buildSiteConfiguration(10100, 'https://site2.acme.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ]
+        );
+        $result = (new RootlineUtility(10002, '10000-10100', new Context()))->get();
+        $testFields = ['uid', 'pid', 'title'];
+        $expected = [
+            2 => [
+                'uid' => 10002,
+                'pid' => 10001,
+                'title' => 'sub-1-1-1',
+            ],
+            1 => [
+                'uid' => 10001,
+                'pid' => 10000,
+                'title' => 'sub-1-1',
+            ],
+            0 => [
+                'uid' => 10100,
+                'pid' => 0,
+                'title' => 'site-2',
+            ],
+        ];
+        self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
+        self::assertCount(3, $result);
+        self::assertArrayHasKey(0, $result);
+        self::assertIsArray($result[0]);
+        self::assertSame(10000, $result[0]['_MOUNTED_FROM']);
+        self::assertSame('10000-10100', $result[0]['_MP_PARAM']);
+        self::assertArrayNotHasKey('_MOUNT_PAGE', $result[0]);
+    }
+
+    #[Test]
+    public function mountedPageVariant2GenerateExpectedRootline(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/RootlineUtility_MountPointVariant2.csv');
+        $this->writeSiteConfiguration(
+            'site1',
+            $this->buildSiteConfiguration(10000, 'https://site1.acme.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ]
+        );
+        $this->writeSiteConfiguration(
+            'site2',
+            $this->buildSiteConfiguration(10100, 'https://site2.acme.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ]
+        );
+        $result = (new RootlineUtility(10002, '10000-10100', new Context()))->get();
+        $testFields = ['uid', 'pid', 'title'];
+        $expected = [
+            2 => [
+                'uid' => 10002,
+                'pid' => 10001,
+                'title' => 'sub-1-1-1',
+            ],
+            1 => [
+                'uid' => 10001,
+                'pid' => 10000,
+                'title' => 'sub-1-1',
+            ],
+            0 => [
+                'uid' => 10000,
+                'pid' => 0,
+                'title' => 'site-1',
+            ],
+        ];
+        self::assertSame($expected, $this->filterExpectedValues($result, $testFields));
+        self::assertCount(3, $result);
+        self::assertArrayHasKey(0, $result);
+        self::assertIsArray($result[0]);
+        self::assertSame(10000, $result[0]['_MOUNTED_FROM']);
+        self::assertSame('10000-10100', $result[0]['_MP_PARAM']);
+        self::assertTrue($result[0]['_MOUNT_OL']);
+        self::assertArrayHasKey('_MOUNT_PAGE', $result[0]);
+        self::assertIsArray($result[0]['_MOUNT_PAGE']);
+        self::assertSame(10100, $result[0]['_MOUNT_PAGE']['uid']);
+        self::assertSame(0, $result[0]['_MOUNT_PAGE']['pid']);
+        self::assertSame('site-2', $result[0]['_MOUNT_PAGE']['title']);
     }
 }

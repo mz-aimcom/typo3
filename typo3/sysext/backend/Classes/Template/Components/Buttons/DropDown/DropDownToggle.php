@@ -16,7 +16,6 @@
 namespace TYPO3\CMS\Backend\Template\Components\Buttons\DropDown;
 
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -26,6 +25,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * When set to active, it will show a checkmark in front of the icon
  * and text to indicate the current state.
  *
+ * Example:
+ *
+ * ```
  * $item = GeneralUtility::makeInstance(DropDownToggle::class)
  *     ->setHref('#')
  *     ->setActive(true)
@@ -34,6 +36,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *     ->setIcon($this->iconFactory->getIcon('actions-heart'))
  *     ->setAttributes(['data-value' => '123']);
  * $dropDownButton->addItem($item);
+ * ```
  */
 class DropDownToggle extends AbstractDropDownItem implements DropDownItemInterface
 {
@@ -53,15 +56,9 @@ class DropDownToggle extends AbstractDropDownItem implements DropDownItemInterfa
     public function render(): string
     {
         // Status Icon
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-        if ($this->isActive()) {
-            $statusIcon = '<span class="text-primary">' . $iconFactory->getIcon('actions-check', IconSize::SMALL)->render() . '</span>';
-        } else {
-            $statusIcon = $iconFactory->getIcon('empty-empty', IconSize::SMALL)->render();
-        }
-
+        $this->setAttribute('data-dropdowntoggle-status', $this->isActive() ? 'active' : 'inactive');
         return '<' . $this->getTag() . ' ' . $this->getAttributesString() . '>'
-            . $statusIcon
+            . '<span class="dropdown-item-status"></span>'
             . $this->getRenderedIcon()
             . htmlspecialchars($this->getLabel())
             . '</' . $this->getTag() . '>';

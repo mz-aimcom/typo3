@@ -27,6 +27,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
+use TYPO3Fluid\Fluid\Core\ViewHelper\TagBuilder;
 
 /**
  * Render deactivate / activate extension link.
@@ -38,7 +39,13 @@ final class ToggleExtensionInstallationStateViewHelper extends AbstractTagBasedV
     /**
      * @var string
      */
-    protected $tagName = 'a';
+    protected $tagName = 'form';
+
+    public function __construct(
+        private readonly IconFactory $iconFactory
+    ) {
+        parent::__construct();
+    }
 
     public function initializeArguments(): void
     {
@@ -72,19 +79,21 @@ final class ToggleExtensionInstallationStateViewHelper extends AbstractTagBasedV
             ['extensionKey' => $extension['key']],
             'Action'
         );
-        $this->tag->addAttribute('href', $uri);
-        $label = $extension['installed'] ? 'deactivate' : 'activate';
-        $this->tag->addAttribute('title', htmlspecialchars($this->getLanguageService()->sL(
-            'LLL:EXT:extensionmanager/Resources/Private/Language/locallang.xlf:extensionList.' . $label
+        $this->tag->addAttribute('action', $uri);
+        $this->tag->addAttribute('method', 'post');
+
+        $buttonTagBuilder = new TagBuilder('button');
+        $buttonTagBuilder->addAttribute('type', 'submit');
+        $buttonTagBuilder->addAttribute('class', 'onClickMaskExtensionManager btn btn-default');
+        $buttonTagBuilder->setContent($this->iconFactory->getIcon('actions-system-extension-' . ($extension['installed'] ? 'uninstall' : 'install'), IconSize::SMALL)->render());
+        $buttonTagBuilder->addAttribute('title', htmlspecialchars($this->getLanguageService()->sL(
+            'LLL:EXT:extensionmanager/Resources/Private/Language/locallang.xlf:extensionList.' . ($extension['installed'] ? 'deactivate' : 'activate')
         )));
-        $icon = $extension['installed'] ? 'uninstall' : 'install';
-        $this->tag->addAttribute('class', 'onClickMaskExtensionManager btn btn-default');
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-        $this->tag->setContent($iconFactory->getIcon('actions-system-extension-' . $icon, IconSize::SMALL)->render());
+        $this->tag->setContent($buttonTagBuilder->render());
         return $this->tag->render();
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

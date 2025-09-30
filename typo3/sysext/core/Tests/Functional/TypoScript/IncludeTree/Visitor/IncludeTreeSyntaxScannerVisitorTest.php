@@ -155,7 +155,7 @@ final class IncludeTreeSyntaxScannerVisitorTest extends FunctionalTestCase
         $visitor = new IncludeTreeSyntaxScannerVisitor();
         $traverser->traverse($includeTree, [$visitor]);
         $erroneousLineNumbers = array_column($visitor->getErrors(), 'lineNumber');
-        $expectedLineNumbers = [0, 2, 4, 6, 9, 12, 13, 15];
+        $expectedLineNumbers = [0, 2, 4, 7, 9, 11];
         self::assertSame($expectedLineNumbers, $erroneousLineNumbers);
     }
 }

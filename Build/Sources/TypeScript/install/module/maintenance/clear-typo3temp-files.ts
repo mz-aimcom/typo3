@@ -11,14 +11,14 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInteractableModule, ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
+import { AbstractInteractableModule, type ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
 import Modal from '@typo3/backend/modal';
 import Notification from '@typo3/backend/notification';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Router from '../../router';
-import MessageInterface from '@typo3/install/message-interface';
+import type MessageInterface from '@typo3/install/message-interface';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ModalElement } from '@typo3/backend/modal';
 
 type TemporaryAssetsListResponse = ModuleLoadedResponseWithButtons & {
@@ -27,12 +27,12 @@ type TemporaryAssetsListResponse = ModuleLoadedResponseWithButtons & {
     name: string,
     rowCount: number,
   }[]
-}
+};
 
 type TemporaryAssetsClearedResponse = {
   status: MessageInterface[],
   success: boolean
-}
+};
 
 enum Identifiers {
   deleteTrigger = '.t3js-clearTypo3temp-delete',
@@ -47,7 +47,7 @@ enum Identifiers {
  * Module: @typo3/install/module/clear-typo3temp-files
  */
 class ClearTypo3tempFiles extends AbstractInteractableModule {
-  public initialize(currentModal: ModalElement): void {
+  public override initialize(currentModal: ModalElement): void {
     super.initialize(currentModal);
     this.getStats();
 

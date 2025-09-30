@@ -1,22 +1,27 @@
 import { nodeResolve } from '@rollup/plugin-node-resolve';
+import MagicString from 'magic-string';
 import commonjs from '@rollup/plugin-commonjs';
-import postcss from 'rollup-plugin-postcss';
+import postcss from 'postcss';
+import cssnano from 'cssnano';
 import svg from 'rollup-plugin-svg';
-import terser from '@rollup/plugin-terser';
-import * as path from 'path';
-import { buildConfigForTranslations } from './ckeditor/build-translations-config.js';
-import { readdirSync, statSync, existsSync } from 'fs';
-import { createRequire } from 'node:module';
-import ckeditor5dev from '@ckeditor/ckeditor5-dev-utils';
+import { minify } from 'rollup-plugin-esbuild';
+import { styles } from '@ckeditor/ckeditor5-dev-utils';
+import { resolve } from 'path';
+import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
+import { translations } from './ckeditor/translations.js';
 
-const require = createRequire(import.meta.url);
-
-const postCssConfig = ckeditor5dev.styles.getPostCssConfig({
+const postCssConfig = styles.getPostCssConfig({
   themeImporter: {
-    themePath: require.resolve('@ckeditor/ckeditor5-theme-lark')
+    themePath: new URL(import.meta.resolve('@ckeditor/ckeditor5-theme-lark')).pathname
   },
-  minify: true
 });
+
+const postCssPocessor = postcss([
+  ...postCssConfig.plugins,
+  cssnano({
+    preset: 'default',
+  }),
+]);
 
 const packages = readdirSync('node_modules/@ckeditor')
   .filter(dir =>
@@ -28,8 +33,9 @@ const packages = readdirSync('node_modules/@ckeditor')
 export default [
   ...packages.map(pkg => {
     const packageName = `@ckeditor/${pkg}`;
-    const packageJson = `../node_modules/${packageName}/package.json`;
-    let input = `./node_modules/${packageName}/${require(packageJson).main}`;
+    const packageJson = `node_modules/${packageName}/package.json`;
+    const entryPoint = JSON.parse(readFileSync(packageJson, 'utf8')).main
+    let input = `./node_modules/${packageName}/${entryPoint}`;
     if (packageName === '@ckeditor/ckeditor5-link') {
       input = 'Sources/JavaScript/rte_ckeditor/contrib/ckeditor5-link.js';
     }
@@ -41,15 +47,17 @@ export default [
         compact: true,
         file: `../typo3/sysext/rte_ckeditor/Resources/Public/Contrib/${packageName}.js`,
         format: 'es',
-        plugins: [terser({ ecma: 8 })],
+        plugins: [
+          minify({ target: 'es2023' }),
+        ]
       },
+      external: [
+        'lodash-es',
+      ],
       plugins: [
         {
-          name: 'externals',
+          name: 'resolve imports',
           resolveId: (source, from) => {
-            if (source === '@ckeditor/ckeditor5-utils/src/version.js' && from.includes('@ckeditor/ckeditor5-engine')) {
-              return { id: '@ckeditor/ckeditor5-utils', external: true }
-            }
             if (source.startsWith('@ckeditor/') && !source.startsWith(packageName) && !source.endsWith('.svg') && !source.endsWith('.css')) {
               if (source.split('/').length > 2) {
                 throw new Error(`Non package-entry point was imported: ${source}`);
@@ -59,9 +67,6 @@ export default [
             if (source.startsWith('ckeditor5/src/')) {
               return { id: '@ckeditor/ckeditor5-' + source.substring(14).replace(/.js$/, ''), external: true };
             }
-            if (source === 'lodash-es') {
-              return { id: 'lodash-es', external: true }
-            }
             if (source.startsWith('@ckeditor/') && source.endsWith('.js') && source.split('/').length === 2) {
               throw new Error(`JS File with suffix: ${source} import from ${from}`);
             }
@@ -70,6 +75,7 @@ export default [
               !source.startsWith('.') &&
               !source.startsWith('/') &&
               !source.startsWith('Sources/JavaScript/rte_ckeditor/contrib') &&
+              source !== 'es-toolkit/compat' &&
               source !== 'vanilla-colorful/hex-color-picker.js' &&
               source !== 'vanilla-colorful/lib/entrypoints/hex' &&
               source !== 'color-convert' &&
@@ -84,30 +90,41 @@ export default [
         {
           name: 'patchLinkEditing',
           transform(code, id) {
-            if (id.endsWith('@ckeditor/ckeditor5-link/src/linkediting.js')) {
-              // Workaround a CKEditor5 bug where a link without an `href` attribute is created
-              // when the cursor is placed at the end of a link containing a class attribute.
-              // @todo: Fix this upstream: htmlA should theoretically be removed automatically
-              // when linkHref is removed as it is defined to be a coupledAttribute with linkHref.
-              // (see @ckeditor/ckeditor5-html-support/src/schemadefinitions.js)
-              const source = "return textAttributes.filter(attribute => attribute.startsWith('link'));";
-              const target = "return textAttributes.filter(attribute => attribute.startsWith('link') || attribute === 'htmlA');";
-              if (!code.includes(source)) {
-                throw new Error(`Expected to find "${search}" in "${id}". Please adapt the rollup plugin "patchLinkEditing".`);
-              }
-              return code.replace(source, target);
+            if (!id.endsWith('@ckeditor/ckeditor5-link/src/linkediting.js')) {
+              return null;
             }
-            return code;
+            const ms = new MagicString(code);
+            // Workaround a CKEditor5 bug where a link without an `href` attribute is created
+            // when the cursor is placed at the end of a link containing a class attribute.
+            // @todo: Fix this upstream: htmlA should theoretically be removed automatically
+            // when linkHref is removed as it is defined to be a coupledAttribute with linkHref.
+            // (see @ckeditor/ckeditor5-html-support/src/schemadefinitions.js)
+            const source = "return textAttributes.filter(attribute => attribute.startsWith('link'));";
+            const target = "return textAttributes.filter(attribute => attribute.startsWith('link') || attribute === 'htmlA');";
+            if (!code.includes(source)) {
+              throw new Error(`Expected to find "${search}" in "${id}". Please adapt the rollup plugin "patchLinkEditing".`);
+            }
+            ms.replace(source, target);
+            return { code: ms.toString(), map: ms.generateMap({ id, includeContent: true, hires: true }) }
           }
         },
-        postcss({
-          ...postCssConfig,
-          inject: function (cssVariableName, fileId) {
-            // overrides functionality of native `style-inject` package, now applies `window.litNonce` to `<style>`
-            const importPath = path.resolve('./rollup/shim/style-inject.js');
-            return `import styleInject from '${importPath}';\n` + `styleInject(${cssVariableName});`;
-          },
-        }),
+        {
+          name: 'css inject',
+          async transform(code, id) {
+            if (!id.endsWith('.css')) {
+              return;
+            }
+            const { css } = await postCssPocessor.process(code, { from: id });
+            const importPath = resolve('./rollup/shim/style-inject.js');
+            return {
+              code: `
+                import styleInject from '${importPath}';
+                styleInject(${JSON.stringify(css)});
+              `,
+              map: { mappings: '' }
+            }
+          }
+        },
         nodeResolve({
           extensions: ['.js']
         }),
@@ -116,6 +133,6 @@ export default [
       ]
     }
   }),
-  ...buildConfigForTranslations()
+  ...translations()
 ];
 

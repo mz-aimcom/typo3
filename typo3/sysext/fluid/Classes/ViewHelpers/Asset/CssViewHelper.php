@@ -18,31 +18,21 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers\Asset;
 
 use TYPO3\CMS\Core\Page\AssetCollector;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\TagBuilder;
 
 /**
  * ViewHelper to add CSS to the TYPO3 AssetCollector. Either a file or inline CSS can be added.
  *
- * Examples
- * ========
- *
- * ::
- *
- *    <f:asset.css identifier="identifier123" href="EXT:my_ext/Resources/Public/Css/foo.css" />
+ * ```
+ *    <f:asset.css identifier="identifier123" href="EXT:my_ext/Resources/Public/Css/foo.css" inline="0" />
  *    <f:asset.css identifier="identifier123">
  *       .foo { color: black; }
  *    </f:asset.css>
+ * ```
  *
- * Details
- * =======
- *
- * In the AssetCollector, the "identifier" attribute is used as a unique identifier. Thus, if assets are added multiple
- * times using the same identifier, the asset will only be served once (the last added overrides previous assets).
- *
- * Some available attributes are defaults but do not make sense for this ViewHelper. Relevant attributes specific
- * for this ViewHelper are: as, crossorigin, disabled, href, hreflang, importance, integrity, media, referrerpolicy,
- * sizes, type, nonce.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-asset-css
  */
 final class CssViewHelper extends AbstractTagBasedViewHelper
 {
@@ -61,11 +51,10 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
      */
     protected $escapeChildren = true;
 
-    protected AssetCollector $assetCollector;
-
-    public function injectAssetCollector(AssetCollector $assetCollector): void
-    {
-        $this->assetCollector = $assetCollector;
+    public function __construct(
+        private readonly AssetCollector $assetCollector,
+    ) {
+        parent::__construct();
     }
 
     public function initialize(): void
@@ -89,6 +78,7 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
         $this->registerArgument('useNonce', 'bool', 'Whether to use the global nonce value', false, false);
         $this->registerArgument('identifier', 'string', 'Use this identifier within templates to only inject your CSS once, even though it is added multiple times.', true);
         $this->registerArgument('priority', 'boolean', 'Define whether the CSS should be included before other CSS. CSS will always be output in the <head> tag.', false, false);
+        $this->registerArgument('inline', 'bool', 'Define whether or not the referenced file should be loaded as inline styles (Only to be used if \'href\' is set).', false, false);
     }
 
     public function render(): string
@@ -108,7 +98,14 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
             'useNonce' => $this->arguments['useNonce'],
         ];
         if ($file !== null) {
-            $this->assetCollector->addStyleSheet($identifier, $file, $attributes, $options);
+            if ($this->arguments['inline'] ?? false) {
+                $content = @file_get_contents(GeneralUtility::getFileAbsFileName(trim($file)));
+                if ($content !== false) {
+                    $this->assetCollector->addInlineStyleSheet($identifier, $content, $attributes, $options);
+                }
+            } else {
+                $this->assetCollector->addStyleSheet($identifier, $file, $attributes, $options);
+            }
         } else {
             $content = (string)$this->renderChildren();
             if ($content !== '') {

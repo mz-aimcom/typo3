@@ -18,16 +18,13 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extensionmanager\ViewHelpers;
 
 use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder;
-use TYPO3\CMS\Extbase\Service\ExtensionService;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
-use TYPO3\CMS\Extensionmanager\Enum\ExtensionType;
 use TYPO3\CMS\Fluid\ViewHelpers\Form\AbstractFormViewHelper;
 
 /**
@@ -42,17 +39,13 @@ final class DownloadExtensionViewHelper extends AbstractFormViewHelper
      */
     protected $tagName = 'form';
 
-    protected ExtensionService $extensionService;
-    protected IconFactory $iconFactory;
-
-    public function injectExtensionService(ExtensionService $extensionService): void
-    {
-        $this->extensionService = $extensionService;
-    }
-
-    public function injectIconFactory(IconFactory $iconFactory): void
-    {
-        $this->iconFactory = $iconFactory;
+    public function __construct(
+        #[Autowire(expression: 'service("extension-configuration").get("extensionmanager", "automaticInstallation")')]
+        private readonly string $automaticInstallation,
+        private readonly IconFactory $iconFactory,
+        private readonly UriBuilder $uriBuilder,
+    ) {
+        parent::__construct();
     }
 
     public function initializeArguments(): void
@@ -65,33 +58,18 @@ final class DownloadExtensionViewHelper extends AbstractFormViewHelper
     {
         /** @var Extension $extension */
         $extension = $this->arguments['extension'];
-        $installPaths =  [
-            ExtensionType::System->value,
-            ExtensionType::Local->value,
-        ];
-        $pathSelector = '<ul class="extensionmanager-is-hidden">';
-        foreach ($installPaths as $installPathType) {
-            /** @var string $installPathType */
-            $pathSelector .= '<li>
-                <input type="radio" id="' . htmlspecialchars($extension->getExtensionKey()) . '-downloadPath-' . htmlspecialchars($installPathType) . '" name="downloadPath" class="downloadPath" value="' . htmlspecialchars($installPathType) . '" ' . ($installPathType === 'Local' ? 'checked="checked"' : '') . ' />
-                <label for="' . htmlspecialchars($extension->getExtensionKey()) . '-downloadPath-' . htmlspecialchars($installPathType) . '">' . htmlspecialchars($installPathType) . '</label>
-            </li>';
-        }
-        $pathSelector .= '</ul>';
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
         /** @var RequestInterface $request */
         $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
-        $uriBuilder->setRequest($request);
+        $this->uriBuilder->setRequest($request);
         $action = 'checkDependencies';
-        $uriBuilder->reset();
-        $uriBuilder->setFormat('json');
-        $uri = $uriBuilder->uriFor($action, [
+        $this->uriBuilder->reset();
+        $this->uriBuilder->setFormat('json');
+        $uri = $this->uriBuilder->uriFor($action, [
             'extension' => (int)$extension->getUid(),
         ], 'Download');
         $this->tag->addAttribute('data-href', $uri);
 
-        $automaticInstallation = (bool)GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('extensionmanager', 'automaticInstallation');
-        $labelKeySuffix = $automaticInstallation ? '' : '.downloadOnly';
+        $labelKeySuffix = $this->automaticInstallation ? '' : '.downloadOnly';
         $titleAndValue = $this->getLanguageService()->sL(
             'LLL:EXT:extensionmanager/Resources/Private/Language/locallang.xlf:extensionList.downloadViewHelper.submit' . $labelKeySuffix
         );
@@ -107,11 +85,11 @@ final class DownloadExtensionViewHelper extends AbstractFormViewHelper
                 </button>
             </div>';
 
-        $this->tag->setContent($label . $pathSelector);
+        $this->tag->setContent($label);
         return '<div id="' . htmlspecialchars($extension->getExtensionKey()) . '-downloadFromTer" class="downloadFromTer">' . $this->tag->render() . '</div>';
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

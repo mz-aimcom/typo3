@@ -79,6 +79,7 @@ class Bootstrap
             ClassLoadingInformation::registerClassLoadingInformation();
         }
 
+        // @todo Remove output buffering in TYPO3 v14
         static::startOutputBuffering();
 
         $configurationManager = static::createConfigurationManager();
@@ -112,6 +113,7 @@ class Bootstrap
         $bootState = new \stdClass();
         $bootState->complete = false;
         $bootState->cacheDisabled = $disableCaching;
+        $bootState->failsafe = $failsafe;
 
         $builder = new ContainerBuilder([
             ClassLoader::class => $classLoader,
@@ -152,7 +154,7 @@ class Bootstrap
         $GLOBALS['TCA'] = $tcaFactory->get();
         static::checkEncryptionKey();
         $bootState->complete = true;
-        $container->get(TcaSchemaFactory::class)->load($GLOBALS['TCA'], true);
+        $container->get(TcaSchemaFactory::class)->load($GLOBALS['TCA']);
         $eventDispatcher->dispatch(new BootCompletedEvent(true));
 
         return $container;
@@ -237,7 +239,8 @@ class Bootstrap
             return true;
         }
 
-        // @deprecated All code below is deprecated and can be removed with TYPO3 v14.0 and replaced with `return false;`
+        // @deprecated All code below is deprecated and can be removed with TYPO3 v15.0 (or later as
+        //              it does not hurt to keep this migration for now) and replaced with `return false;`
 
         // All other cases will probably need some migration work
         $migrated = false;
@@ -330,10 +333,14 @@ class Bootstrap
      *
      * @param string $identifier
      * @param bool $disableCaching
+     * @param class-string<BackendInterface>|null $enforcedCacheBackend
      * @internal
      */
-    public static function createCache(string $identifier, bool $disableCaching = false): FrontendInterface
-    {
+    public static function createCache(
+        string $identifier,
+        bool $disableCaching = false,
+        ?string $enforcedCacheBackend = null
+    ): FrontendInterface {
         $cacheConfigurations = $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations'] ?? [];
         $cacheConfigurations['di']['frontend'] = PhpFrontend::class;
         $cacheConfigurations['di']['backend'] = ContainerBackend::class;
@@ -341,7 +348,7 @@ class Bootstrap
         $configuration = $cacheConfigurations[$identifier] ?? [];
 
         $frontend = $configuration['frontend'] ?? VariableFrontend::class;
-        $backend = $configuration['backend'] ?? Typo3DatabaseBackend::class;
+        $backend = $enforcedCacheBackend ?? $configuration['backend'] ?? Typo3DatabaseBackend::class;
         $options = $configuration['options'] ?? [];
 
         if ($disableCaching) {
@@ -507,7 +514,6 @@ class Bootstrap
      *
      * @param string $className usually \TYPO3\CMS\Core\Authentication\BackendUserAuthentication::class but can be used for CLI
      * @param ServerRequestInterface|null $request
-     * @internal This is not a public API method, do not use in own extensions
      */
     public static function initializeBackendUser($className = BackendUserAuthentication::class, ?ServerRequestInterface $request = null)
     {
@@ -521,8 +527,6 @@ class Bootstrap
 
     /**
      * Initializes and ensures authenticated access
-     *
-     * @internal This is not a public API method, do not use in own extensions
      */
     public static function initializeBackendAuthentication()
     {

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Acceptance\Application\Impexp;
 
+use Codeception\Exception\MalformedLocatorException;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\ApplicationTester;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\Helper\PageTree;
 
@@ -29,11 +30,11 @@ final class UsersCest extends AbstractCest
     private string $inModuleHeader = '.module-docheader';
     private string $inModuleTabs = '#ImportExportController .nav-tabs';
     private string $inModuleTabsBody = '#ImportExportController .tab-content';
-    private string $contextMenuMore = '#contentMenu0 li.context-menu-item-submenu';
-    private string $contextMenuExport = '#contentMenu1 li.context-menu-item[data-callback-action=exportT3d]';
-    private string $contextMenuImport = '#contentMenu1 li.context-menu-item[data-callback-action=importT3d]';
+    private string $contextMenuMore = 'button[data-contextmenu-id="root_more"]';
+    private string $contextMenuExport = 'button[data-contextmenu-id="root_more_exportT3d"]';
+    private string $contextMenuImport = 'button[data-contextmenu-id="root_more_importT3d"]';
     private string $buttonViewPage = 'span[data-identifier="actions-view-page"]';
-    private string $tabUpload = 'a[href="#import-upload"]';
+    private string $tabUpload = 'button[data-bs-target="#import-upload"]';
     private string $checkboxForceAllUids = 'input#checkForce_all_UIDS';
 
     public function _before(ApplicationTester $I): void
@@ -53,8 +54,9 @@ final class UsersCest extends AbstractCest
         $I->useExistingSession('editor');
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore]);
-        $I->waitForElementVisible('#contentMenu1', 5);
+        $I->waitForElementVisible('#contextmenu-root_more', 5);
         $I->dontSeeElement($this->contextMenuExport);
         $I->dontSeeElement($this->contextMenuImport);
 
@@ -71,7 +73,7 @@ final class UsersCest extends AbstractCest
 
         $I->click($selectedPageIcon);
         $this->selectInContextMenu($I, [$this->contextMenuMore]);
-        $I->waitForElementVisible('#contentMenu1', 5);
+        $I->waitForElementVisible('#contextmenu-root_more', 5);
         $I->seeElement($this->contextMenuImport);
         $I->seeElement($this->contextMenuExport);
 
@@ -88,6 +90,7 @@ final class UsersCest extends AbstractCest
         $importPageSectionTitle = 'Select file to import';
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->seeElement($this->checkboxForceAllUids);
@@ -95,6 +98,7 @@ final class UsersCest extends AbstractCest
         $I->useExistingSession('editor');
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->waitForText($importPageSectionTitle);
@@ -113,6 +117,7 @@ final class UsersCest extends AbstractCest
         $importPageSectionTitle = 'Select file to import';
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->see('From path:', $this->inModuleTabsBody);
@@ -121,6 +126,7 @@ final class UsersCest extends AbstractCest
         $I->useExistingSession('editor');
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->waitForText($importPageSectionTitle);
@@ -141,6 +147,7 @@ final class UsersCest extends AbstractCest
         $importPageSectionTitle = 'Select file to import';
 
         $I->click($this->inPageTree . ' [role="treeitem"][data-id="0"] .node-icon');
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->waitForText($importPageSectionTitle);
@@ -150,6 +157,7 @@ final class UsersCest extends AbstractCest
 
         $I->click('List');
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->seeElement($this->inModuleHeader . ' ' . $this->buttonViewPage);
@@ -160,6 +168,7 @@ final class UsersCest extends AbstractCest
         $I->useExistingSession('editor');
 
         $I->click($selectedPageIcon);
+        $I->switchToMainFrame();
         $this->selectInContextMenu($I, [$this->contextMenuMore, $this->contextMenuImport]);
         $I->switchToContentFrame();
         $I->seeElement($this->inModuleHeader . ' ' . $this->buttonViewPage);
@@ -186,6 +195,20 @@ final class UsersCest extends AbstractCest
         $recursionLevelOption = $I->grabTextFrom('//select[@id="recursionLevel"]/option[' . $recursionLevel . ']');
         $I->selectOption('//select[@id="recursionLevel"]', ['value' => $recursionLevelOption]);
         $I->click($this->inModuleHeader . ' .btn[title="Save and close"]');
+        $I->wait(0.5);
+        $I->switchToMainFrame();
+        try {
+            $needsStepUp = count($I->grabMultiple('.modal-sudo-mode-verification')) > 0;
+        } catch (MalformedLocatorException) {
+            $needsStepUp = false;
+        }
+        if ($needsStepUp) {
+            $I->see('Verify with user password');
+            $I->fillField('//input[@name="password"]', 'password');
+            $I->click('//button[@name="verify"]');
+        }
+        $I->switchToContentFrame();
+        $I->wait(0.5);
     }
 
     private function setModAccess(ApplicationTester $I, int $userGroupId, array $modAccessByName): void
@@ -199,7 +222,7 @@ final class UsersCest extends AbstractCest
         $I->waitForText('Backend user groups');
         $I->click('//table/tbody/tr[descendant::button[@data-contextmenu-uid="' . $userGroupId . '"]]/td[2]/a');
         $I->waitForElementVisible('#EditDocumentController');
-        $I->click('//form[@id="EditDocumentController"]//ul/li[3]/a');
+        $I->click('//form[@id="EditDocumentController"]//ul/li[3]/button');
 
         foreach ($modAccessByName as $modName => $modAccess) {
             if ((bool)$modAccess) {
@@ -210,6 +233,19 @@ final class UsersCest extends AbstractCest
         }
 
         $I->click($this->inModuleHeader . ' .btn[title="Save"]');
+        $I->wait(0.5);
+        $I->switchToMainFrame();
+        try {
+            $needsStepUp = count($I->grabMultiple('.modal-sudo-mode-verification')) > 0;
+        } catch (MalformedLocatorException) {
+            $needsStepUp = false;
+        }
+        if ($needsStepUp) {
+            $I->see('Verify with user password');
+            $I->fillField('//input[@name="password"]', 'password');
+            $I->click('//button[@name="verify"]');
+        }
+        $I->switchToContentFrame();
         $I->wait(0.5);
         $I->click($this->inModuleHeader . ' .btn[title="Close"]');
         $I->waitForText('Backend user groups');
@@ -232,10 +268,23 @@ final class UsersCest extends AbstractCest
         $I->waitForElement('#typo3-backend-user-list');
         $I->click('//table[@id="typo3-backend-user-list"]/tbody/tr[descendant::button[@data-contextmenu-uid="' . $userId . '"]]//a[@title="Edit"]');
         $I->waitForElement('#EditDocumentController');
-        $I->click('//form[@id="EditDocumentController"]//ul/li[5]/a');
+        $I->click('//form[@id="EditDocumentController"]//ul/li[6]/button');
         $I->waitForElementVisible($codeMirrorSelector);
         $I->executeJS("document.querySelector('" . $codeMirrorSelector . "').setContent('" . $userTsConfig . "')");
         $I->click($this->inModuleHeader . ' .btn[title="Save"]');
+        $I->wait(0.5);
+        $I->switchToMainFrame();
+        try {
+            $needsStepUp = count($I->grabMultiple('.modal-sudo-mode-verification')) > 0;
+        } catch (MalformedLocatorException) {
+            $needsStepUp = false;
+        }
+        if ($needsStepUp) {
+            $I->see('Verify with user password');
+            $I->fillField('//input[@name="password"]', 'password');
+            $I->click('//button[@name="verify"]');
+        }
+        $I->switchToContentFrame();
         $I->wait(0.5);
         $I->click($this->inModuleHeader . ' .btn[title="Close"]');
         $I->waitForElement('#typo3-backend-user-list');

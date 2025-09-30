@@ -27,6 +27,8 @@ use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -37,6 +39,12 @@ use TYPO3\CMS\Core\Versioning\VersionState;
  */
 class TcaInline extends AbstractDatabaseRecordProvider implements FormDataProviderInterface
 {
+    public function __construct(
+        private readonly FlashMessageService $flashMessageService,
+        private readonly InlineStackProcessor $inlineStackProcessor,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
+
     /**
      * Resolve inline fields
      *
@@ -153,7 +161,7 @@ class TcaInline extends AbstractDatabaseRecordProvider implements FormDataProvid
                 $result['processedTca']['columns'][$fieldName]['config'],
                 $tableNameWithDefaultRecords,
                 $result['defaultLanguageRow'],
-                $result['defaultLanguageRow'][$fieldName]
+                (string)($result['defaultLanguageRow'][$fieldName] ?? '')
             );
             $connectedUidsOfDefaultLanguageRecord = $this->getSubstitutedWorkspacedUids($connectedUidsOfDefaultLanguageRecord, $childTableName);
 
@@ -328,11 +336,7 @@ class TcaInline extends AbstractDatabaseRecordProvider implements FormDataProvid
     {
         $parentConfig = $result['processedTca']['columns'][$parentFieldName]['config'];
         $childTableName = $parentConfig['foreign_table'];
-
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByGivenStructure($result['inlineStructure']);
-        $inlineTopMostParent = $inlineStackProcessor->getStructureLevel(0) ?: [];
-
+        $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($result['inlineStructure'], 0) ?: [];
         $formDataCompiler = GeneralUtility::makeInstance(FormDataCompiler::class);
         $formDataCompilerInput = [
             'request' => $result['request'],
@@ -382,7 +386,7 @@ class TcaInline extends AbstractDatabaseRecordProvider implements FormDataProvid
                     '',
                     ContextualFeedbackSeverity::ERROR
                 );
-                GeneralUtility::makeInstance(FlashMessageService::class)->getMessageQueueByIdentifier()->enqueue($flashMessage);
+                $this->flashMessageService->getMessageQueueByIdentifier()->enqueue($flashMessage);
             }
         }
         return $mainChild;
@@ -434,7 +438,7 @@ class TcaInline extends AbstractDatabaseRecordProvider implements FormDataProvid
         $newConnectedUids = [];
         foreach ($connectedUids as $uid) {
             // Fetch workspace version of a record (if any):
-            if ($backendUser->workspace !== 0 && BackendUtility::isTableWorkspaceEnabled($childTableName)) {
+            if ($backendUser->workspace !== 0 && $this->tcaSchemaFactory->has($childTableName) && $this->tcaSchemaFactory->get($childTableName)->hasCapability(TcaSchemaCapability::Workspace)) {
                 $workspaceVersion = BackendUtility::getWorkspaceVersionOfRecord($backendUser->workspace, $childTableName, $uid, 'uid,t3ver_state');
                 if (!empty($workspaceVersion)) {
                     $versionState = VersionState::tryFrom($workspaceVersion['t3ver_state'] ?? 0);

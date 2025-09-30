@@ -99,6 +99,67 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
+    public function modifyContentWithTranslations(): void
+    {
+        parent::modifyContentWithTranslations();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyContentWithTranslations.csv');
+    }
+
+    #[Test]
+    public function modifySoftDeletedContent(): void
+    {
+        parent::modifySoftDeletedContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifySoftDeletedContent.csv');
+    }
+
+    #[Test]
+    public function modifyTranslatedContent(): void
+    {
+        parent::modifyTranslatedContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContent.csv');
+
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing Translation #3'));
+    }
+
+    #[Test]
+    public function modifyTranslatedContentThenModifyDefaultLanguageContent(): void
+    {
+        parent::modifyTranslatedContentThenModifyDefaultLanguageContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContentThenModifyDefaultLanguageContent.csv');
+
+        // Verify changed default language CE is shown when rendering workspace preview in default language
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #3'));
+
+        // Verify changed localized CE is shown when rendering workspace preview in localized language
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing Translation #3'));
+    }
+
+    #[Test]
+    public function modifyTranslatedContentThenMoveDefaultLanguageContent(): void
+    {
+        parent::modifyTranslatedContentThenMoveDefaultLanguageContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContentThenMoveDefaultLanguageContent.csv');
+    }
+
+    #[Test]
     public function hideContent(): void
     {
         parent::hideContent();
@@ -135,40 +196,6 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         $responseSectionsTarget = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSectionsTarget, (new DoesNotHaveRecordConstraint())
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
-    }
-
-    #[Test]
-    public function deleteContent(): void
-    {
-        parent::deleteContent();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContent.csv');
-
-        $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(self::VALUE_PageId),
-            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
-        );
-        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #1'));
-        self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
-    }
-
-    #[Test]
-    public function deleteLocalizedContentAndDeleteContent(): void
-    {
-        parent::deleteLocalizedContentAndDeleteContent();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteLocalizedContentNDeleteContent.csv');
-
-        $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
-            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
-        );
-        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #3', '[Translate to Dansk:] Regular Element #3', 'Regular Element #1'));
-        self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('[Translate to Dansk:] Regular Element #1', 'Regular Element #2'));
     }
 
     #[Test]
@@ -378,6 +405,21 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
+    public function localizeContentWithLocalizationExclude(): void
+    {
+        parent::localizeContentWithLocalizationExclude();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentWExclude.csv');
+
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('[Translate to Dansk:] Regular Element #1', 'Testing #1'));
+    }
+
+    #[Test]
     public function localizeContentWithHideAtCopy(): void
     {
         parent::localizeContentWithHideAtCopy();
@@ -438,24 +480,6 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #1', 'Regular Element #2'));
     }
 
-    /**
-     * @todo: Publish and PublishAll for this are missing - TF throws an exception on publish due to deleted state
-     */
-    #[Test]
-    public function changeContentSortingAndDeleteMovedRecord(): void
-    {
-        parent::changeContentSortingAndDeleteMovedRecord();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/changeContentSortingNDeleteMovedRecord.csv');
-
-        $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(self::VALUE_PageId),
-            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
-        );
-        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #1', 'Regular Element #2'));
-    }
-
     #[Test]
     public function changeContentSortingAndDeleteLiveRecord(): void
     {
@@ -493,6 +517,180 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         $responseSectionsTarget = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSectionsTarget, (new HasRecordConstraint())
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeFallback(): void
+    {
+        // Inherit site configuration from setUp(): DA fallback to EN
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeFallback.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as first element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 0, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeFree(): void
+    {
+        // Set up "danish" to not have overlays: "free" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/', [], 'free'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeFree.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as first element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 0, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeStrict(): void
+    {
+        // Set up "danish" to "strict" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeStrict.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as first element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 0, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeFallback(): void
+    {
+        // Inherit site configuration from setUp(): DA fallback to EN
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeFallback.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as second element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 1, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeFree(): void
+    {
+        // Set up "danish" to not have overlays: "free" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/', [], 'free'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeFree.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as second element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 1, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeStrict(): void
+    {
+        // Set up "danish" to "strict" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeStrict.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        // Verify "Language all element" exists
+        self::assertThat(
+            $responseSections,
+            (new HasRecordConstraint())->setTable(self::TABLE_Content)->setField('header')->setValues('Language all element')
+        );
+        // Verify "Language all element" is output as second element
+        self::assertEquals(
+            self::VALUE_ContentLanguageAll,
+            array_slice($responseSections[0]->getStructure()['pages:' . self::VALUE_PageId]['__contents'], 1, 1)['tt_content:' . self::VALUE_ContentLanguageAll]['uid']
+        );
     }
 
     #[Test]
@@ -641,29 +839,17 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
-    public function deletePage(): void
+    public function modifyTranslatedPage(): void
     {
-        parent::deletePage();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePage.csv');
-
-        $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(self::VALUE_PageId),
-            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
-        );
-        self::assertEquals(404, $response->getStatusCode());
+        parent::modifyTranslatedPage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedPage.csv');
     }
 
     #[Test]
-    public function deleteContentAndPage(): void
+    public function modifyTranslatedPageThenModifyPage(): void
     {
-        parent::deleteContentAndPage();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentAndPage.csv');
-
-        $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(self::VALUE_PageId),
-            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
-        );
-        self::assertEquals(404, $response->getStatusCode());
+        parent::modifyTranslatedPageThenModifyPage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedPageThenModifyPage.csv');
     }
 
     #[Test]
@@ -679,6 +865,21 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
             ->setTable(self::TABLE_Page)->setField('title')->setValues('Relations'));
+    }
+
+    #[Test]
+    public function copyPageRecursively(): void
+    {
+        parent::copyPageRecursively();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyPageRecursively.csv');
+
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId($this->recordIds['newPageId']),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Page)->setField('title')->setValues('DataHandlerTest (copy 1)'));
     }
 
     #[Test]
@@ -1049,5 +1250,112 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
             ->setTable(self::TABLE_Content)->setField('header')->setValues('[Translate to Dansk:] Regular Element #3'));
+    }
+
+    #[Test]
+    public function deleteContent(): void
+    {
+        parent::deleteContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContent.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #1'));
+        self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
+    }
+
+    #[Test]
+    public function deletePage(): void
+    {
+        parent::deletePage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePage.csv');
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        self::assertEquals(404, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function deleteContentAndPage(): void
+    {
+        parent::deleteContentAndPage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentAndPage.csv');
+
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        self::assertEquals(404, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function deleteLocalizedContentAndDeleteContent(): void
+    {
+        parent::deleteLocalizedContentAndDeleteContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteLocalizedContentNDeleteContent.csv');
+
+        $response = $this->executeFrontendSubRequest(
+            (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
+            (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
+        );
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
+        self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #3', '[Translate to Dansk:] Regular Element #3', 'Regular Element #1'));
+        self::assertThat($responseSections, (new HasRecordConstraint())
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('[Translate to Dansk:] Regular Element #1', 'Regular Element #2'));
+    }
+
+    #[Test]
+    public function deleteModifiedContentByLiveUid(): void
+    {
+        parent::deleteModifiedContentByLiveUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteModifiedContentByLiveUid.csv');
+    }
+
+    #[Test]
+    public function deleteModifiedContentByDraftUid(): void
+    {
+        parent::deleteModifiedContentByDraftUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteModifiedContentByDraftUid.csv');
+    }
+
+    #[Test]
+    public function deleteMovedContentByLiveUid(): void
+    {
+        parent::deleteMovedContentByLiveUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteMovedContentByLiveUid.csv');
+    }
+
+    #[Test]
+    public function deleteMovedContentByDraftUid(): void
+    {
+        parent::deleteMovedContentByDraftUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteMovedContentByDraftUid.csv');
+    }
+
+    #[Test]
+    public function deleteNewContentByDraftUid(): void
+    {
+        parent::deleteNewContentByDraftUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteNewContentByDraftUid.csv');
+    }
+
+    #[Test]
+    public function deleteDeletedContentByLiveUid(): void
+    {
+        parent::deleteDeletedContentByLiveUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteDeletedContentByLiveUid.csv');
+    }
+
+    #[Test]
+    public function deleteDeletedContentByDraftUid(): void
+    {
+        parent::deleteDeletedContentByDraftUid();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteDeletedContentByDraftUid.csv');
     }
 }

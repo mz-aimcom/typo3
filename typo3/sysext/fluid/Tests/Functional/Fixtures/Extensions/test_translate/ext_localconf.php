@@ -13,4 +13,5 @@ ExtensionUtility::configurePlugin(
     [
         TranslateController::class => ['translate'],
     ],
+    [],
 );

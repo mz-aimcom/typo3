@@ -11,13 +11,13 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, TemplateResult } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators';
-import { TreeNodeInterface } from './tree-node';
 import { lll } from '@typo3/core/lit-helper';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import '@typo3/backend/element/icon-element';
 import { Tree } from './tree';
+import type { TreeNodeInterface } from './tree-node';
 
 @customElement('typo3-backend-tree-toolbar')
 export class TreeToolbar extends LitElement {
@@ -27,11 +27,11 @@ export class TreeToolbar extends LitElement {
     filterTimeout: 450
   };
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected firstUpdated(): void
+  protected override firstUpdated(): void
   {
     const inputEl = this.querySelector(this.settings.searchInput) as HTMLInputElement;
     if (inputEl) {
@@ -42,7 +42,7 @@ export class TreeToolbar extends LitElement {
     }
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div class="tree-toolbar">
         <div class="tree-toolbar__menu">
@@ -54,7 +54,14 @@ export class TreeToolbar extends LitElement {
           </div>
         </div>
         <div class="tree-toolbar__submenu">
-          <a class="tree-toolbar__menuitem dropdown-toggle dropdown-toggle-no-chevron float-end" data-bs-toggle="dropdown" href="#" role="button" aria-expanded="false"><typo3-backend-icon identifier="actions-menu-alternative" size="small"></typo3-backend-icon></a>
+          <button
+            type="button"
+            class="tree-toolbar__menuitem dropdown-toggle dropdown-toggle-no-chevron float-end"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            <typo3-backend-icon identifier="actions-menu-alternative" size="small"></typo3-backend-icon>
+          </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li>
               <button class="dropdown-item" @click="${() => this.refreshTree()}">

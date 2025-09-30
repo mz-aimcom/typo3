@@ -30,6 +30,7 @@ use TYPO3\CMS\Core\Domain\Event\ModifyDefaultConstraintsForDatabaseQueryEvent;
 use TYPO3\CMS\Core\Domain\Page;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -130,7 +131,6 @@ final class PageRepositoryTest extends FunctionalTestCase
     {
         $subject = new PageRepository();
         $row = $subject->getPageOverlay(4, 1);
-        self::assertIsArray($row);
         self::assertCount(0, $row);
     }
 
@@ -153,7 +153,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $subject = new PageRepository();
         $orig = $subject->getPage(4);
         $row = $subject->getPageOverlay($orig, 1);
-        self::assertIsArray($row);
         self::assertEquals(4, $row['uid']);
         self::assertEquals('Dummy 1-4', $row['title']);//original title
     }
@@ -165,7 +164,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([1]);
-        self::assertIsArray($rows);
         self::assertCount(1, $rows);
         self::assertArrayHasKey(0, $rows);
 
@@ -183,7 +181,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([1, 5, 15]);
-        self::assertIsArray($rows);
         self::assertCount(2, $rows);
         self::assertArrayHasKey(0, $rows);
         self::assertArrayHasKey(1, $rows);
@@ -208,7 +205,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([1, 4, 5, 8]);
-        self::assertIsArray($rows);
         self::assertCount(2, $rows);
         self::assertArrayHasKey(0, $rows);
         self::assertArrayHasKey(2, $rows);
@@ -232,7 +228,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([$origRow]);
-        self::assertIsArray($rows);
         self::assertCount(1, $rows);
         self::assertArrayHasKey(0, $rows);
 
@@ -254,7 +249,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([$origRow]);
-        self::assertIsArray($rows);
         self::assertCount(1, $rows);
         self::assertArrayHasKey(0, $rows);
 
@@ -276,7 +270,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([1 => $orig1, 5 => $orig2]);
-        self::assertIsArray($rows);
         self::assertCount(2, $rows);
         self::assertArrayHasKey(1, $rows);
         self::assertArrayHasKey(5, $rows);
@@ -308,7 +301,6 @@ final class PageRepositoryTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(1));
         $subject = new PageRepository($context);
         $rows = $subject->getPagesOverlay([$orig1, $orig2, $orig3]);
-        self::assertIsArray($rows);
         self::assertCount(3, $rows);
         self::assertArrayHasKey(0, $rows);
         self::assertArrayHasKey(1, $rows);
@@ -402,6 +394,7 @@ final class PageRepositoryTest extends FunctionalTestCase
                 'versioningWS' => true,
             ],
         ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $subject = new PageRepository(new Context());
 
@@ -430,6 +423,7 @@ final class PageRepositoryTest extends FunctionalTestCase
                 'versioningWS' => true,
             ],
         ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect(13));
@@ -460,6 +454,7 @@ final class PageRepositoryTest extends FunctionalTestCase
                 'versioningWS' => true,
             ],
         ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect(2));
@@ -603,6 +598,7 @@ final class PageRepositoryTest extends FunctionalTestCase
 
         $table = StringUtility::getUniqueId('aTable');
         $GLOBALS['TCA'][$table] = ['ctrl' => []];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $defaultConstraints = (new PageRepository(new Context()))->getDefaultConstraints($table);
 

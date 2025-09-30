@@ -53,7 +53,7 @@ use TYPO3\CMS\Install\WebserverType;
  */
 class EnvironmentController extends AbstractController
 {
-    private const IMAGE_FILE_EXT = ['gif', 'jpg', 'png', 'tif', 'ai', 'pdf', 'webp'];
+    private const IMAGE_FILE_EXT = ['gif', 'jpg', 'png', 'tif', 'ai', 'pdf', 'webp', 'avif'];
     private const TEST_REFERENCE_PATH = __DIR__ . '/../../Resources/Public/Images/TestReference';
 
     public function __construct(
@@ -392,6 +392,14 @@ class EnvironmentController extends AbstractController
     }
 
     /**
+     * Convert to jpg from avif
+     */
+    public function imageProcessingReadAvifAction(): ResponseInterface
+    {
+        return $this->convertImageFormatsToJpg('avif');
+    }
+
+    /**
      * Convert to jpg from gif
      */
     public function imageProcessingReadGifAction(): ResponseInterface
@@ -529,6 +537,38 @@ class EnvironmentController extends AbstractController
     }
 
     /**
+     * Writing avif test
+     */
+    public function imageProcessingWriteAvifAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $inputFile = $imageBasePath . 'TestInput/Test.avif';
+        $imageService = $this->initializeGraphicalFunctions();
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('write-avif');
+        $imResult = $imageService->resize($inputFile, 'avif', '300', '', '', [], true);
+        if ($imResult !== null && $imResult->isFile()) {
+            $result = [
+                'fileExists' => true,
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Write-avif.avif',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->avifImageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
      * Scaling transparent files - gif to gif
      */
     public function imageProcessingGifToGifAction(): ResponseInterface
@@ -625,6 +665,70 @@ class EnvironmentController extends AbstractController
     }
 
     /**
+     * Scaling transparent files - svg to webp (note black/white background)
+     */
+    public function imageProcessingSvgToWebpAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $imageService = $this->initializeGraphicalFunctions();
+        $inputFile = $imageBasePath . 'TestInput/Transparent.svg';
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('transparent-svg-webp');
+        $imResult = $imageService->resize($inputFile, 'webp', '300', '', '-flatten', [], true);
+        if ($imResult !== null && $imResult->isFile()) {
+            $result = [
+                'fileExists' => true,
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Convert-svg-transparent.webp',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->imageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
+     * Scaling transparent files - svg to png (note black/white background)
+     */
+    public function imageProcessingSvgToPngAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $imageService = $this->initializeGraphicalFunctions();
+        $inputFile = $imageBasePath . 'TestInput/Transparent.svg';
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('transparent-svg-webp');
+        $imResult = $imageService->resize($inputFile, 'png', '300', '', '-flatten', [], true);
+        if ($imResult !== null && $imResult->isFile()) {
+            $result = [
+                'fileExists' => true,
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Convert-svg-transparent.png',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->imageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
      * Converting jpg to webp
      */
     public function imageProcessingJpgToWebpAction(): ResponseInterface
@@ -650,6 +754,102 @@ class EnvironmentController extends AbstractController
         } else {
             $result = [
                 'status' => [$this->imageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
+     * Converting jpg to avif
+     */
+    public function imageProcessingJpgToAvifAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $imageService = $this->initializeGraphicalFunctions();
+        $inputFile = $imageBasePath . 'TestInput/Test.jpg';
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('read-avif');
+        $imResult = $imageService->resize($inputFile, 'avif', '300', '', '', [], true);
+        if ($imResult !== null) {
+            $result = [
+                'fileExists' => $imResult->isFile(),
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Convert-avif.avif',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->avifImageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
+     * Converting png to webp
+     */
+    public function imageProcessingPngToWebpAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $imageService = $this->initializeGraphicalFunctions();
+        $inputFile = $imageBasePath . 'TestInput/Transparent.png';
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('read-webp');
+        $imResult = $imageService->resize($inputFile, 'webp', '300', '', '', [], true);
+        if ($imResult !== null) {
+            $result = [
+                'fileExists' => $imResult->isFile(),
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Convert-webp-transparent.webp',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->imageGenerationFailedMessage()],
+                'command' => $imageService->IM_commands,
+            ];
+        }
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
+     * Converting png to avif
+     */
+    public function imageProcessingPngToAvifAction(): ResponseInterface
+    {
+        if (!$this->isImageMagickEnabledAndConfigured()) {
+            return new JsonResponse([
+                'success' => true,
+                'status' => [$this->imageMagickDisabledMessage()],
+            ]);
+        }
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $imageService = $this->initializeGraphicalFunctions();
+        $inputFile = $imageBasePath . 'TestInput/Transparent.png';
+        $imageService->imageMagickConvert_forceFileNameBody = StringUtility::getUniqueId('read-avif');
+        $imResult = $imageService->resize($inputFile, 'avif', '300', '', '', [], true);
+        if ($imResult !== null) {
+            $result = [
+                'fileExists' => $imResult->isFile(),
+                'outputFile' => $imResult->getRealPath(),
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Convert-avif-transparent.avif',
+                'command' => $imageService->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->avifImageGenerationFailedMessage()],
                 'command' => $imageService->IM_commands,
             ];
         }
@@ -801,6 +1001,39 @@ class EnvironmentController extends AbstractController
             'referenceFile' => self::TEST_REFERENCE_PATH . '/Gdlib-box.webp',
             'command' => $gifBuilder->getGraphicalFunctions()->IM_commands,
         ];
+        return $this->getImageTestResponse($result);
+    }
+
+    /**
+     * GD from image with box exported as AVIF file
+     */
+    public function imageProcessingGdlibFromFileToAvifAction(): ResponseInterface
+    {
+        $gifBuilder = $this->initializeGifBuilder();
+        $imageBasePath = ExtensionManagementUtility::extPath('install') . 'Resources/Public/Images/';
+        $inputFile = $imageBasePath . 'TestInput/Test.avif';
+        $image = $gifBuilder->imageCreateFromFile($inputFile);
+        $workArea = [0, 0, 400, 300];
+        $conf = [
+            'dimensions' => '10,50,380,50',
+            'color' => 'olive',
+        ];
+        $gifBuilder->makeBox($image, $conf, $workArea);
+        $outputFile = $this->getImagesPath() . 'installTool-' . StringUtility::getUniqueId('gdBox') . '.avif';
+        $success = $gifBuilder->ImageWrite($image, $outputFile);
+        if ($success) {
+            $result = [
+                'fileExists' => true,
+                'outputFile' => $outputFile,
+                'referenceFile' => self::TEST_REFERENCE_PATH . '/Gdlib-box.avif',
+                'command' => $gifBuilder->getGraphicalFunctions()->IM_commands,
+            ];
+        } else {
+            $result = [
+                'status' => [$this->avifImageGenerationFailedMessage()],
+                'command' => $gifBuilder->getGraphicalFunctions()->IM_commands,
+            ];
+        }
         return $this->getImageTestResponse($result);
     }
 
@@ -1145,9 +1378,19 @@ class EnvironmentController extends AbstractController
         return new FlashMessage(
             'ImageMagick / GraphicsMagick handling is enabled, but the execute'
             . ' command returned an error. Please check your settings, especially'
-            . ' [\'GFX\'][\'processor_path\'] and ensure Ghostscript is installed on your server.',
+            . ' [\'GFX\'][\'processor_path\'] and ensure Ghostscript is installed on your server.'
+            . ' Also ensure that possible codecs needed for specific image/video formats are available on your system.',
             'Image generation failed',
             ContextualFeedbackSeverity::ERROR
+        );
+    }
+
+    protected function avifImageGenerationFailedMessage(): FlashMessage
+    {
+        return new FlashMessage(
+            'Writing AVIF format failed. Please check whether ImageMagick / GraphicsMagick and your system provides and utilizes the necessary codec libraries for writing.',
+            'Skipped test',
+            ContextualFeedbackSeverity::INFO
         );
     }
 

@@ -1,6 +1,5 @@
-// eslint-disable-next-line @typescript-eslint/no-namespace
-namespace TYPO3 {
-  export const AdminPanelSelectors = {
+((): void => {
+  const AdminPanelSelectors = {
     adminPanelRole: 'form[data-typo3-role=typo3-adminPanel]',
     moduleTriggerRole: '[data-typo3-role=typo3-adminPanel-module-trigger]',
     moduleParentClass: '.typo3-adminPanel-module',
@@ -19,7 +18,7 @@ namespace TYPO3 {
     contentPaneRole: '[data-typo3-role=typo3-adminPanel-content-pane]',
   };
 
-  export const AdminPanelClasses = {
+  const AdminPanelClasses = {
     active: 'active',
     activeModule: 'typo3-adminPanel-module-active',
     activeContentSetting: 'typo3-adminPanel-content-settings-active',
@@ -30,12 +29,10 @@ namespace TYPO3 {
     zoomShow: 'typo3-adminPanel-zoom-show',
   };
 
-  export class AdminPanel {
+  class AdminPanel {
     private readonly adminPanel: HTMLFormElement;
     private readonly modules: AdminPanelModule[];
     private readonly popups: AdminPanelPopup[];
-    private readonly panels: AdminPanelPanel[];
-    private readonly contentSettings: AdminPanelContentSetting[];
     private readonly trigger: HTMLElement;
 
     constructor() {
@@ -49,18 +46,18 @@ namespace TYPO3 {
       this.popups = this.querySelectorAll(AdminPanelSelectors.popupTriggerRole).map(
         (popupTrigger: HTMLElement) => new AdminPanelPopup(this, popupTrigger),
       );
-      this.panels = this.querySelectorAll(AdminPanelSelectors.panelTriggerRole).map(
+      this.querySelectorAll(AdminPanelSelectors.panelTriggerRole).forEach(
         (panelTrigger: HTMLElement) => {
           const panelParent = panelTrigger.closest(AdminPanelSelectors.panelParentClass);
-          return new AdminPanelPanel(panelParent, panelTrigger);
+          new AdminPanelPanel(panelParent, panelTrigger);
         },
       );
-      this.contentSettings = this.querySelectorAll(AdminPanelSelectors.contentSettingsTriggerRole).map(
+      this.querySelectorAll(AdminPanelSelectors.contentSettingsTriggerRole).forEach(
         (contentSettingTrigger: HTMLElement) => {
           const contentSettingElement = contentSettingTrigger
             .closest(AdminPanelSelectors.contentParentClass)
             .querySelector(AdminPanelSelectors.contentSettingsParentClass);
-          return new AdminPanelContentSetting(contentSettingElement, contentSettingTrigger);
+          new AdminPanelContentSetting(contentSettingElement, contentSettingTrigger);
         },
       );
       this.trigger = document.querySelector(AdminPanelSelectors.triggerRole) as HTMLElement;
@@ -369,12 +366,10 @@ namespace TYPO3 {
       });
     }
   }
-}
 
-(function(): void {
   window.addEventListener(
     'load',
-    () => new TYPO3.AdminPanel(),
+    () => new AdminPanel(),
     false,
   );
 })();

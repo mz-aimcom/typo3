@@ -13,12 +13,12 @@
 
 import DocumentService from '@typo3/core/document-service';
 import { DateTime } from 'luxon';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import { SeverityEnum } from './enum/severity';
 import { MessageUtility } from './utility/message-utility';
 import NProgress from 'nprogress';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { default as Modal, ModalElement, Sizes as ModalSizes } from './modal';
+import { default as Modal, type ModalElement, Sizes as ModalSizes } from './modal';
 import Notification from './notification';
 import ImmediateAction from '@typo3/backend/action-button/immediate-action';
 import Md5 from '@typo3/backend/hashing/md5';
@@ -26,6 +26,9 @@ import '@typo3/backend/element/icon-element';
 import RegularEvent from '@typo3/core/event/regular-event';
 import DomHelper from '@typo3/backend/utility/dom-helper';
 import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
+import '@typo3/backend/element/progress-bar-element';
+import type { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
+import { FormatUtility } from '@typo3/backend/utility/format-utility';
 
 /**
  * Possible actions for conflicts w/ existing files
@@ -190,6 +193,7 @@ export default class DragUploader {
 
     const dropzoneCloseButton = document.createElement('button');
     dropzoneCloseButton.classList.add('dropzone-close');
+    dropzoneCloseButton.type = 'button';
     dropzoneCloseButton.setAttribute('aria-label', TYPO3.lang['file_upload.dropzone.close']);
     dropzoneCloseButton.addEventListener('click', this.hideDropzone);
     this.dropzone.append(dropzoneCloseButton);
@@ -230,23 +234,31 @@ export default class DragUploader {
   }
 
   public static init(): void {
+    const observer = new MutationObserver((mutations: MutationRecord[]): void => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          for (const node of [...mutation.addedNodes.values()]) {
+            if (!(node instanceof HTMLElement)) {
+              continue;
+            }
+            if (node.matches('.t3js-drag-uploader')) {
+              new DragUploader(node);
+            } else {
+              node.querySelectorAll('.t3js-drag-uploader').forEach((element: HTMLElement): void => {
+                new DragUploader(element);
+              });
+            }
+          }
+        }
+      }
+    });
+    observer.observe(document, { childList: true, subtree: true });
+
     DocumentService.ready().then((): void => {
       document.querySelectorAll('.t3js-drag-uploader').forEach((element: HTMLElement): void => {
         new DragUploader(element);
       });
     });
-  }
-
-  public static fileSizeAsString(size: number): string {
-    const sizeKB: number = size / 1024;
-    let str = '';
-
-    if (sizeKB > 1024) {
-      str = (sizeKB / 1024).toFixed(1) + ' MB';
-    } else {
-      str = sizeKB.toFixed(1) + ' KB';
-    }
-    return str;
   }
 
   /**
@@ -342,9 +354,9 @@ export default class DragUploader {
       // Show the filelist (table)
       this.fileList.parentElement.removeAttribute('hidden');
       // Remove hidden state from table container (also makes column selection etc. visible)
-      this.fileList.closest('.t3-filelist-table-container')?.classList.remove('hidden');
+      this.fileList.closest('.t3-filelist-container')?.classList.remove('hidden');
       // Hide the information container
-      this.fileList.closest('form')?.querySelector('.t3-filelist-info-container')?.setAttribute('hidden', 'hidden');
+      this.fileList.closest('.filelist-main')?.querySelector('.t3-filelist-info-container')?.setAttribute('hidden', 'hidden');
     }
 
     NProgress.start();
@@ -477,11 +489,11 @@ export default class DragUploader {
     : this.askForOverride[i].original.icon}
           </td>
           <td>
-            ${this.askForOverride[i].original.name} (${DragUploader.fileSizeAsString(this.askForOverride[i].original.size)})<br />
+            ${this.askForOverride[i].original.name} (${FormatUtility.fileSizeAsString(this.askForOverride[i].original.size)})<br />
             ${DateTime.fromSeconds(this.askForOverride[i].original.mtime).toLocaleString(DateTime.DATETIME_MED)}
           </td>
           <td>
-            ${this.askForOverride[i].uploaded.name} (${DragUploader.fileSizeAsString(this.askForOverride[i].uploaded.size)})<br />
+            ${this.askForOverride[i].uploaded.name} (${FormatUtility.fileSizeAsString(this.askForOverride[i].uploaded.size)})<br />
             ${DateTime.fromMillis(this.askForOverride[i].uploaded.lastModified).toLocaleString(DateTime.DATETIME_MED)}
           </td>
           <td>
@@ -528,11 +540,11 @@ export default class DragUploader {
         const allActionSelect = document.createElement('span');
         allActionSelect.innerHTML = `
           <select class="form-select t3js-actions-all">
-            <option value="">${TYPO3.lang['file_upload.actions.all.empty']}</option>
+            <option value="" selected>${TYPO3.lang['file_upload.actions.all.empty']}</option>
             ${this.irreObjectUid ? `<option value="${Action.USE_EXISTING}">${TYPO3.lang['file_upload.actions.all.use_existing']}</option>` : ''}
-            <option value="${Action.SKIP}" ${this.defaultAction === Action.SKIP ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.all.skip']}</option>
-            <option value="${Action.RENAME}" ${this.defaultAction === Action.RENAME ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.all.rename']}</option>
-            <option value="${Action.OVERRIDE}" ${this.defaultAction === Action.OVERRIDE ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.all.override']}</option>
+            <option value="${Action.SKIP}">${TYPO3.lang['file_upload.actions.all.skip']}</option>
+            <option value="${Action.RENAME}">${TYPO3.lang['file_upload.actions.all.rename']}</option>
+            <option value="${Action.OVERRIDE}">${TYPO3.lang['file_upload.actions.all.override']}</option>
           </select>
         `;
 
@@ -540,15 +552,12 @@ export default class DragUploader {
       }
     });
 
-    new RegularEvent('change', (event: Event) => {
-      const actionSelect = event.currentTarget as HTMLSelectElement,
-        value = actionSelect.value;
-
-      if (value !== '') {
+    new RegularEvent('change', (event: Event, target: HTMLSelectElement) => {
+      if (target.value !== '') {
         // mass action was selected, apply action to every file
         for (const select of modal.querySelectorAll('.t3js-actions') as NodeListOf<HTMLSelectElement>) {
           const index = parseInt(select.dataset.override, 10);
-          select.value = value;
+          select.value = target.value;
           select.disabled = true;
           this.askForOverride[index].action = <Action>select.value;
         }
@@ -593,15 +602,12 @@ export default class DragUploader {
 class FileQueueItem {
   private readonly row: HTMLElement;
   private readonly progress: HTMLElement;
-  private readonly progressContainer: HTMLElement;
   private readonly file: File;
   private readonly override: Action;
   private readonly selector: HTMLElement;
   private readonly iconCol: HTMLElement;
   private readonly fileName: HTMLElement;
-  private readonly progressBar: HTMLElement;
-  private readonly progressPercentage: HTMLElement;
-  private readonly progressMessage: HTMLElement;
+  private readonly progressBar: ProgressBarElement;
   private readonly dragUploader: DragUploader;
 
   constructor(dragUploader: DragUploader, file: File, override: Action) {
@@ -610,7 +616,7 @@ class FileQueueItem {
     this.override = override;
 
     this.row = document.createElement('tr');
-    this.row.classList.add('upload-queue-item', 'uploading');
+    this.row.classList.add('upload-queue-item');
 
     if (!this.dragUploader.manualTable) {
       // Add selector cell, if this is a real table (e.g. not in FormEngine)
@@ -632,22 +638,8 @@ class FileQueueItem {
     this.progress.setAttribute('colspan', String(this.dragUploader.fileListColumnCount - this.row.querySelectorAll('td').length));
     this.row.append(this.progress);
 
-    this.progressContainer = document.createElement('div');
-    this.progressContainer.classList.add('upload-queue-progress');
-    this.progress.append(this.progressContainer);
-
-    this.progressBar = document.createElement('div');
-    this.progressBar.classList.add('upload-queue-progress-bar');
-    this.progressContainer.append(this.progressBar);
-
-    this.progressPercentage = document.createElement('span');
-    this.progressPercentage.classList.add('upload-queue-progress-percentage');
-    this.progressContainer.append(this.progressPercentage);
-
-    this.progressMessage = document.createElement('span');
-    this.progressMessage.classList.add('upload-queue-progress-message');
-    this.progressContainer.append(this.progressMessage);
-
+    this.progressBar = document.createElement('typo3-backend-progress-bar');
+    this.progress.append(this.progressBar);
 
     // position queue item in filelist
     if (this.dragUploader.fileList.querySelectorAll('tbody tr.upload-queue-item').length === 0) {
@@ -673,26 +665,26 @@ class FileQueueItem {
     if (this.dragUploader.maxFileSize > 0 && this.file.size > this.dragUploader.maxFileSize) {
       this.updateMessage(TYPO3.lang['file_upload.maxFileSizeExceeded']
         .replace(/\{0\}/g, this.file.name)
-        .replace(/\{1\}/g, DragUploader.fileSizeAsString(this.dragUploader.maxFileSize)));
-      this.row.classList.add('error');
+        .replace(/\{1\}/g, FormatUtility.fileSizeAsString(this.dragUploader.maxFileSize)));
+      this.progressBar.value = 100;
+      this.progressBar.severity = SeverityEnum.error;
 
       // check filename/extension against deny pattern
     } else if (this.dragUploader.fileDenyPattern && this.file.name.match(this.dragUploader.fileDenyPattern)) {
       this.updateMessage(TYPO3.lang['file_upload.fileNotAllowed'].replace(/\{0\}/g, this.file.name));
-      this.row.classList.add('error');
+      this.progressBar.value = 100;
+      this.progressBar.severity = SeverityEnum.error;
 
-    } else if (!this.checkAllowedExtensions()) {
-      this.updateMessage(TYPO3.lang['file_upload.fileExtensionExpected']
-        .replace(/\{0\}/g, this.dragUploader.filesExtensionsAllowed),
-      );
-      this.row.classList.add('error');
-    } else if (!this.checkDisallowedExtensions()) {
-      this.updateMessage(TYPO3.lang['file_upload.fileExtensionDisallowed']
-        .replace(/\{0\}/g, this.dragUploader.filesExtensionsDisallowed),
-      );
-      this.row.classList.add('error');
+    } else if (this.isProhibitedByAllowedExtensionsList()) {
+      this.updateMessage(TYPO3.lang['file_upload.fileExtensionExpected'].replace(/\{0\}/g, this.dragUploader.filesExtensionsAllowed));
+      this.progressBar.value = 100;
+      this.progressBar.severity = SeverityEnum.error;
+    } else if (this.isProhibitedByDisallowedExtensionsList()) {
+      this.updateMessage(TYPO3.lang['file_upload.fileExtensionDisallowed'].replace(/\{0\}/g, this.dragUploader.filesExtensionsDisallowed));
+      this.progressBar.value = 100;
+      this.progressBar.severity = SeverityEnum.error;
     } else {
-      this.updateMessage('- ' + DragUploader.fileSizeAsString(this.file.size));
+      this.updateMessage('- ' + FormatUtility.fileSizeAsString(this.file.size));
 
       const formData = new FormData();
       formData.append('data[upload][1][target]', this.dragUploader.target);
@@ -734,7 +726,7 @@ class FileQueueItem {
    * @param {string} message
    */
   public updateMessage(message: string): void {
-    this.progressMessage.textContent = message;
+    this.progressBar.label = message;
   }
 
   /**
@@ -755,7 +747,6 @@ class FileQueueItem {
     try {
       const jsonResponse = JSON.parse(response.responseText) as any;
       const messages = jsonResponse.messages as FlashMessage[];
-      this.progressPercentage.textContent = '';
       if (messages && messages.length) {
         for (const flashMessage of messages) {
           Notification.showMessage(flashMessage.title, flashMessage.message, flashMessage.severity, 10);
@@ -765,7 +756,7 @@ class FileQueueItem {
       // do nothing in case JSON could not be parsed
     }
 
-    this.row.classList.add('error');
+    this.progressBar.severity = SeverityEnum.error;
     this.dragUploader.decrementQueueLength();
     this.dragUploader.trigger?.dispatchEvent(new CustomEvent('uploadError', { detail: [this, response] }));
   }
@@ -774,9 +765,9 @@ class FileQueueItem {
    * @param {ProgressEvent} event
    */
   public updateProgress(event: ProgressEvent): void {
-    const percentage = Math.round((event.loaded / event.total) * 100) + '%';
-    this.progressBar.style.width = percentage;
-    this.progressPercentage.textContent = percentage;
+    const percentage = Math.round((event.loaded / event.total) * 100);
+    this.progressBar.value = percentage;
+    this.progressBar.label = `${TYPO3.lang['file_upload.upload-in-progress']} ${percentage}%`;
     this.dragUploader.trigger?.dispatchEvent(new CustomEvent('updateProgress', { detail: [this, percentage, event] }));
   }
 
@@ -786,13 +777,12 @@ class FileQueueItem {
   public uploadSuccess(data: { upload?: UploadedFile[], messages?: FlashMessage[] }): void {
     if (data.upload) {
       this.dragUploader.decrementQueueLength(data.messages);
-      this.row.classList.remove('uploading');
       this.row.setAttribute('data-type', 'file');
       this.row.setAttribute('data-file-uid', String(data.upload[0].uid));
       this.fileName.textContent = data.upload[0].name;
-      this.progressPercentage.textContent = '';
-      this.progressMessage.textContent = '100%';
-      this.progressBar.style.width = '100%';
+      this.progressBar.value = 100;
+      this.progressBar.label = TYPO3.lang['file_upload.uploadSucceeded'];
+      this.progressBar.severity = SeverityEnum.ok;
 
       const combinedIdentifier: string = String(data.upload[0].id);
 
@@ -810,7 +800,7 @@ class FileQueueItem {
       if (data.upload[0].icon) {
         this.iconCol
           .innerHTML = (
-            '<button type="button" class="btn btn-link p-0" data-contextmenu-trigger="click" data-contextmenu-uid="'
+            '<button type="button" class="btn btn-link" data-contextmenu-trigger="click" data-contextmenu-uid="'
             + combinedIdentifier + '" data-contextmenu-table="sys_file" aria-label="'
             + (TYPO3.lang['labels.contextMenu.open'] || 'Open context menu') + '">'
             + data.upload[0].icon + '</span></button>'
@@ -827,7 +817,7 @@ class FileQueueItem {
             this.row.remove();
             if (this.dragUploader.fileList.querySelectorAll('tr').length === 0) {
               this.dragUploader.fileList.setAttribute('hidden', 'hidden');
-              this.dragUploader.fileList.closest('.t3-filelist-table-container')?.classList.add('hidden');
+              this.dragUploader.fileList.closest('.t3-filelist-container')?.classList.add('hidden');
               this.dragUploader.trigger?.dispatchEvent(new CustomEvent('uploadSuccess', { detail: [this, data] }));
             }
           },
@@ -864,7 +854,7 @@ class FileQueueItem {
     this.row.append(fileExtColumn);
 
     const fileSizeColumn = document.createElement('td');
-    fileSizeColumn.textContent = DragUploader.fileSizeAsString(fileInfo.size);
+    fileSizeColumn.textContent = FormatUtility.fileSizeAsString(fileInfo.size);
     this.row.append(fileSizeColumn);
 
     let permissions = '';
@@ -889,19 +879,19 @@ class FileQueueItem {
     }
   }
 
-  public checkAllowedExtensions(): boolean {
+  public isProhibitedByAllowedExtensionsList(): boolean {
     if (!this.dragUploader.filesExtensionsAllowed) {
-      return true;
+      return false;
     }
     const extension = this.file.name.split('.').pop();
     const allowed = this.dragUploader.filesExtensionsAllowed.split(',');
 
-    return allowed.includes(extension.toLowerCase());
+    return !allowed.includes(extension.toLowerCase());
   }
 
-  public checkDisallowedExtensions(): boolean {
+  public isProhibitedByDisallowedExtensionsList(): boolean {
     if (!this.dragUploader.filesExtensionsDisallowed) {
-      return true;
+      return false;
     }
     const extension = this.file.name.split('.').pop();
     const disallowed = this.dragUploader.filesExtensionsDisallowed.split(',');

@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Utility;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Core\Environment;
@@ -34,7 +35,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class ExtensionManagementUtilityTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
-    protected ?PackageManager $backUpPackageManager;
+    private PackageManager $backUpPackageManager;
 
     protected function setUp(): void
     {
@@ -106,7 +107,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             ->onlyMethods(['isPackageActive'])
             ->disableOriginalConstructor()
             ->getMock();
-        $packageManager->expects(self::once())
+        $packageManager->expects($this->once())
                 ->method('isPackageActive')
                 ->with(self::equalTo($packageName))
                 ->willReturn(false);
@@ -125,14 +126,14 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             ->onlyMethods(['isPackageActive', 'getPackage'])
             ->disableOriginalConstructor()
             ->getMock();
-        $package->expects(self::once())
+        $package->expects($this->once())
                 ->method('getPackagePath')
                 ->willReturn(Environment::getPublicPath() . '/foo/');
-        $packageManager->expects(self::once())
+        $packageManager->expects($this->once())
                 ->method('isPackageActive')
                 ->with(self::equalTo('foo'))
                 ->willReturn(true);
-        $packageManager->expects(self::once())
+        $packageManager->expects($this->once())
                 ->method('getPackage')
                 ->with('foo')
                 ->willReturn($package);
@@ -1152,7 +1153,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             ->onlyMethods(['isPackageActive'])
             ->disableOriginalConstructor()
             ->getMock();
-        $packageManager->expects(self::once())
+        $packageManager->expects($this->once())
             ->method('isPackageActive')
             ->with(self::equalTo($packageName))
             ->willReturn(false);
@@ -1171,11 +1172,196 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
         $packageManager
             ->method('isPackageActive')
             ->willReturn(true);
-        $packageManager->expects(self::once())
+        $packageManager->expects($this->once())
             ->method('deactivatePackage')
             ->with($packageName);
         ExtensionManagementUtility::setPackageManager($packageManager);
         ExtensionManagementUtility::unloadExtension($packageName);
+    }
+
+    //////////////////////////////////
+    // Tests concerning addRecordType
+    //////////////////////////////////
+    #[Test]
+    public function addRecordTypeFailsWithExceptionWithInvalidTcaRegistration(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1725997543);
+
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table] = [
+            'ctrl' => [],
+        ];
+        $item = ['label' => 'mylabel', 'value' => 'examplekey'];
+        ExtensionManagementUtility::addRecordType($item, 'aField', [], '', $table);
+    }
+
+    #[Test]
+    public function addRecordTypeSetsIcon(): void
+    {
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table]['ctrl']['type'] = 'aTypeField';
+        $GLOBALS['TCA'][$table]['columns'] = [
+            'aTypeField' => [
+                'label' => 'my type',
+                'config' => [
+                    'type' => 'select',
+                    'renderType' => 'selectSingle',
+                    'items' => [],
+                ],
+            ],
+        ];
+        $item = ['label' => 'mylabel', 'value' => 'examplekey', 'icon' => 'apps-pagetree-folder-contains'];
+        ExtensionManagementUtility::addRecordType($item, 'aField', [], '', $table);
+        self::assertEquals('apps-pagetree-folder-contains', $GLOBALS['TCA'][$table]['ctrl']['typeicon_classes']['examplekey']);
+    }
+
+    #[Test]
+    public function addRecordTypeOverwritesRecordTypeIcon(): void
+    {
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table]['ctrl']['type'] = 'aTypeField';
+        $GLOBALS['TCA'][$table]['ctrl']['typeicon_classes']['examplekey'] = 'random-icon';
+        $GLOBALS['TCA'][$table]['columns'] = [
+            'aTypeField' => [
+                'label' => 'my type',
+                'config' => [
+                    'type' => 'select',
+                    'renderType' => 'selectSingle',
+                    'items' => [],
+                ],
+            ],
+        ];
+        $item = ['label' => 'mylabel', 'value' => 'examplekey', 'icon' => 'apps-pagetree-folder-contains'];
+        ExtensionManagementUtility::addRecordType($item, 'aField', [], '', $table);
+        self::assertEquals('apps-pagetree-folder-contains', $GLOBALS['TCA'][$table]['ctrl']['typeicon_classes']['examplekey']);
+    }
+
+    #[Test]
+    public function addRecordTypeSetsDefautGroup(): void
+    {
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table]['ctrl']['type'] = 'aTypeField';
+        $GLOBALS['TCA'][$table]['columns'] = [
+            'aTypeField' => [
+                'label' => 'my type',
+                'config' => [
+                    'type' => 'select',
+                    'renderType' => 'selectSingle',
+                    'items' => [],
+                ],
+            ],
+        ];
+        $item = ['label' => 'mylabel', 'value' => 'examplekey', 'icon' => 'apps-pagetree-folder-contains'];
+        ExtensionManagementUtility::addRecordType($item, 'aField', [], '', $table);
+        /** @phpstan-ignore-next-line PHPStan does not understand that the items array gets updated.. */
+        self::assertEquals('default', $GLOBALS['TCA'][$table]['columns']['aTypeField']['config']['items'][0]['group']);
+    }
+
+    public static function addRecordTypeOptimizesShowItemListDataProvider(): iterable
+    {
+        yield 'empty showItemList is not modified' => [
+            '',
+            '',
+        ];
+        yield 'spaces and commas are removed' => [
+            ', aField, ',
+            'aField,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+        ];
+        yield 'extended div is added' => [
+            'fieldX, --palette--;;foo, fieldX1, fieldY',
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+        ];
+        yield 'extended is not added if already somewhere in place' => [
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended, anotherField,',
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended, anotherField,',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('addRecordTypeOptimizesShowItemListDataProvider')]
+    public function addRecordTypeOptimizesShowItemList(string $givenItemList, string $expectedItemList): void
+    {
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table]['ctrl']['type'] = 'aTypeField';
+        $GLOBALS['TCA'][$table]['ctrl']['typeicon_classes']['anotherType'] = 'random-icon';
+        $GLOBALS['TCA'][$table]['columns'] = [
+            'aTypeField' => [
+                'label' => 'my type',
+                'config' => [
+                    'type' => 'select',
+                    'renderType' => 'selectSingle',
+                    'items' => [],
+                ],
+            ],
+        ];
+        $item = ['label' => 'mylabel', 'value' => 'examplekey', 'icon' => 'apps-pagetree-folder-contains'];
+        ExtensionManagementUtility::addRecordType($item, $givenItemList, [], '', $table);
+        self::assertEquals($expectedItemList, $GLOBALS['TCA'][$table]['types']['examplekey']['showitem']);
+    }
+
+    public static function addRecordTypeSetsCorrectPositionDataProvider(): iterable
+    {
+        yield 'no position given' => [
+            '',
+            [
+                ['label' => 'foo', 'value' => 'foo'],
+                ['label' => 'bar', 'value' => 'bar'],
+                ['label' => 'baz', 'value' => 'baz'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+            ],
+        ];
+        yield 'before field' => [
+            'before:foo',
+            [
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'foo', 'value' => 'foo'],
+                ['label' => 'bar', 'value' => 'bar'],
+                ['label' => 'baz', 'value' => 'baz'],
+            ],
+        ];
+        yield 'after field' => [
+            'after:foo',
+            [
+                ['label' => 'foo', 'value' => 'foo'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'bar', 'value' => 'bar'],
+                ['label' => 'baz', 'value' => 'baz'],
+            ],
+        ];
+        yield 'replace field' => [
+            'replace:bar',
+            [
+                ['label' => 'foo', 'value' => 'foo'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'baz', 'value' => 'baz'],
+            ],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('addRecordTypeSetsCorrectPositionDataProvider')]
+    public function addRecordTypeSetsCorrectPosition(string $position, array $expectedItemList): void
+    {
+        $table = 'tx_testtable';
+        $GLOBALS['TCA'][$table]['ctrl']['type'] = 'aTypeField';
+        $GLOBALS['TCA'][$table]['columns'] = [
+            'aTypeField' => [
+                'label' => 'my type',
+                'config' => [
+                    'type' => 'select',
+                    'renderType' => 'selectSingle',
+                    'items' => [
+                        ['label' => 'foo', 'value' => 'foo'],
+                        ['label' => 'bar', 'value' => 'bar'],
+                        ['label' => 'baz', 'value' => 'baz'],
+                    ],
+                ],
+            ],
+        ];
+        $item = ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'];
+        ExtensionManagementUtility::addRecordType($item, '', [], $position, $table);
+        self::assertEquals($expectedItemList, $GLOBALS['TCA'][$table]['columns']['aTypeField']['config']['items']);
     }
 
     ///////////////////////////////
@@ -1190,45 +1376,13 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => $extKey,
                 'icon' => null,
-                'group' => 'default',
+                'group' => 'plugins',
                 'description' => null,
             ],
         ];
-        $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['items'] = [];
-        ExtensionManagementUtility::addPlugin(['label', $extKey], 'list_type', $extKey);
-        self::assertEquals($expectedTCA, $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['items']);
-    }
-
-    #[Test]
-    public function addPluginSetsCorrectItemGroupsEntry(): void
-    {
-        $extKey = 'indexed_search';
-        $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['items'] = [];
-        $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['itemGroups']['my-second-group'] = 'My second group label from list_type';
-        $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['itemGroups']['my-third-group'] = 'My third group label from list_type';
-        $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups']['null-group'] = null;
-        $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups']['my-group'] = 'My group label from CType';
-        $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups']['my-third-group'] = 'My third group label from CType';
-
-        // Won't be added since not defined in list_type or CType
-        ExtensionManagementUtility::addPlugin(['label', $extKey . '_1', '', 'non-existing-group'], 'list_type', $extKey);
-        // Won't be added since invalid value in CType definition
-        ExtensionManagementUtility::addPlugin(['label', $extKey . '_2', '', 'null-group'], 'list_type', $extKey);
-        ExtensionManagementUtility::addPlugin(['label', $extKey . '_3', '', 'my-group'], 'list_type', $extKey);
-        ExtensionManagementUtility::addPlugin(['label', $extKey . '_4', '', 'my-second-group'], 'list_type', $extKey);
-        ExtensionManagementUtility::addPlugin(['label', $extKey . '_5', '', 'my-third-group'], 'list_type', $extKey);
-
-        self::assertSame(
-            [
-                // Group exists in list_type>itemGroups
-                'my-second-group' => 'My second group label from list_type',
-                // Group exists in both - no overwriting
-                'my-third-group' => 'My third group label from list_type',
-                // Group exists in CType>itemGroups
-                'my-group' => 'My group label from CType',
-            ],
-            $GLOBALS['TCA']['tt_content']['columns']['list_type']['config']['itemGroups']
-        );
+        $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'] = [];
+        ExtensionManagementUtility::addPlugin(['label', $extKey]);
+        self::assertEquals($expectedTCA, $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items']);
     }
 
     #[Test]
@@ -1240,14 +1394,14 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => 'felogin',
                 'icon' => 'content-form-login',
-                'group' => 'default',
+                'group' => 'plugins',
                 'description' => null,
             ],
         ];
         $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'] = [];
         $GLOBALS['TCA']['tt_content']['types']['header'] = ['showitem' => 'header,header_link'];
         $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'] = [];
-        ExtensionManagementUtility::addPlugin(['label', $extKey, 'content-form-login'], 'CType', $extKey);
+        ExtensionManagementUtility::addPlugin(['label', $extKey, 'content-form-login']);
         self::assertEquals($expectedTCA, $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items']);
         self::assertEquals([$extKey => 'content-form-login'], $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes']);
         self::assertEquals($GLOBALS['TCA']['tt_content']['types']['header'], $GLOBALS['TCA']['tt_content']['types']['felogin']);
@@ -1262,14 +1416,14 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => 'felogin',
                 'icon' => 'content-form-login',
-                'group' => 'default',
+                'group' => 'plugins',
                 'description' => null,
             ],
         ];
         $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes'] = [];
         $GLOBALS['TCA']['tt_content']['types']['header'] = ['showitem' => 'header,header_link'];
         $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'] = [];
-        ExtensionManagementUtility::addPlugin(new SelectItem('select', 'label', $extKey, 'content-form-login'), 'CType', $extKey);
+        ExtensionManagementUtility::addPlugin(new SelectItem('select', 'label', $extKey, 'content-form-login'));
         self::assertEquals($expectedTCA, $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items']);
         self::assertEquals([$extKey => 'content-form-login'], $GLOBALS['TCA']['tt_content']['ctrl']['typeicon_classes']);
         self::assertEquals($GLOBALS['TCA']['tt_content']['types']['header'], $GLOBALS['TCA']['tt_content']['types']['felogin']);
@@ -1384,6 +1538,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
     }
 
     #[Test]
+    #[DoesNotPerformAssertions]
     public function addServiceDoesNotFailIfValueIsNotSet(): void
     {
         ExtensionManagementUtility::addService(

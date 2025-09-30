@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -91,5 +93,17 @@ class RecyclerGarbageCollectionTask extends AbstractTask
                 $subFolder->delete(true);
             }
         }
+    }
+
+    public function getTaskParameters(): array
+    {
+        return [
+            'number_of_days' => $this->numberOfDays,
+        ];
+    }
+
+    public function setTaskParameters(array $parameters): void
+    {
+        $this->numberOfDays = (int)($parameters['numberOfDays'] ?? $parameters['number_of_days'] ?? 0);
     }
 }

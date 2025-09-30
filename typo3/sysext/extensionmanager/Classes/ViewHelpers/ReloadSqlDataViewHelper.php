@@ -23,7 +23,6 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Registry;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
@@ -40,36 +39,41 @@ final class ReloadSqlDataViewHelper extends AbstractTagBasedViewHelper
      */
     protected $tagName = 'a';
 
-    protected static string $registryNamespace = 'extensionDataImport';
+    private static string $registryNamespace = 'extensionDataImport';
 
-    public function initializeArguments()
+    public function __construct(
+        private readonly IconFactory $iconFactory
+    ) {
+        parent::__construct();
+    }
+
+    public function initializeArguments(): void
     {
         parent::initializeArguments();
-        $this->registerArgument('extension', 'array', 'Extension key', true);
+        $this->registerArgument('extension', 'array', 'Extension details', true);
     }
 
     public function render(): string
     {
         $extension = $this->arguments['extension'];
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-
         $staticSqlDataFile = $extension['packagePath'] . 'ext_tables_static+adt.sql';
+        $registryKey = $extension['key'] . ':ext_tables_static+adt.sql';
         if (!file_exists($staticSqlDataFile)) {
-            return '<span class="btn btn-default disabled">' . $iconFactory->getIcon('empty-empty', IconSize::SMALL)->render() . '</span>';
+            return '<span class="btn btn-default disabled">' . $this->iconFactory->getIcon('empty-empty', IconSize::SMALL)->render() . '</span>';
         }
 
         $registry = GeneralUtility::makeInstance(Registry::class);
-        $oldMd5Hash = $registry->get(self::$registryNamespace, PathUtility::stripPathSitePrefix($staticSqlDataFile));
+        $oldFileHash = $registry->get(self::$registryNamespace, $registryKey);
 
-        $md5HashIsEqual = true;
+        $fileHashIsEqual = true;
         // We used to only store "1" in the database when data was imported
         // No need to compare file content here and just show the reload icon
-        if (!empty($oldMd5Hash) && $oldMd5Hash !== 1) {
-            $currentMd5Hash = md5_file($staticSqlDataFile);
-            $md5HashIsEqual = $oldMd5Hash === $currentMd5Hash;
+        if (!empty($oldFileHash) && $oldFileHash !== 1) {
+            $currentFileHash = hash_file('xxh3', $staticSqlDataFile);
+            $fileHashIsEqual = $oldFileHash === $currentFileHash;
         }
 
-        if ($md5HashIsEqual) {
+        if ($fileHashIsEqual) {
             $iconIdentifier = 'actions-database-reload';
             $languageKey = 'extensionList.databaseReload';
         } else {
@@ -91,12 +95,12 @@ final class ReloadSqlDataViewHelper extends AbstractTagBasedViewHelper
         $this->tag->addAttribute('title', htmlspecialchars($this->getLanguageService()->sL(
             'LLL:EXT:extensionmanager/Resources/Private/Language/locallang.xlf:' . $languageKey
         )));
-        $this->tag->setContent($iconFactory->getIcon($iconIdentifier, IconSize::SMALL)->render());
+        $this->tag->setContent($this->iconFactory->getIcon($iconIdentifier, IconSize::SMALL)->render());
 
         return $this->tag->render();
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

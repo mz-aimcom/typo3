@@ -15,7 +15,7 @@
 
 namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
-use Doctrine\DBAL\Exception as DBALException;
+use Doctrine\DBAL\Driver\Exception as DBALException;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
@@ -31,7 +31,11 @@ use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Resource\FileRepository;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteInterface;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -48,6 +52,37 @@ use TYPO3\CMS\Core\Versioning\VersionState;
  */
 abstract class AbstractItemProvider
 {
+    private IconFactory $iconFactory;
+    private FileRepository $fileRepository;
+    private FlashMessageService $flashMessageService;
+    private ConnectionPool $connectionPool;
+    private TcaSchemaFactory $tcaSchemaFactory;
+
+    public function injectIconFactory(IconFactory $iconFactory): void
+    {
+        $this->iconFactory = $iconFactory;
+    }
+
+    public function injectFileRepository(FileRepository $fileRepository): void
+    {
+        $this->fileRepository = $fileRepository;
+    }
+
+    public function injectTcaSchemaFactory(TcaSchemaFactory $tcaSchemaFactory): void
+    {
+        $this->tcaSchemaFactory = $tcaSchemaFactory;
+    }
+
+    public function injectFlashMessageService(FlashMessageService $flashMessageService): void
+    {
+        $this->flashMessageService = $flashMessageService;
+    }
+
+    public function injectConnectionPool(ConnectionPool $connectionPool): void
+    {
+        $this->connectionPool = $connectionPool;
+    }
+
     /**
      * Resolve "itemProcFunc" of elements.
      *
@@ -123,8 +158,7 @@ abstract class AbstractItemProvider
                 ContextualFeedbackSeverity::ERROR,
                 true
             );
-            $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-            $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+            $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
         }
 
@@ -259,15 +293,11 @@ abstract class AbstractItemProvider
      * @param array $result Result array
      * @param string $fieldName Current handled field name
      * @param array $items Incoming items
-     * @param bool $includeFullRows @internal Hack for category tree to speed up tree processing, adding full db row as _row to item
      * @return array Modified item array
      * @throws \UnexpectedValueException
      */
-    protected function addItemsFromForeignTable(array $result, $fieldName, array $items, bool $includeFullRows = false)
+    protected function addItemsFromForeignTable(array $result, string $fieldName, array $items = []): array
     {
-        $databaseError = null;
-        $queryResult = null;
-        // Guard
         if (empty($result['processedTca']['columns'][$fieldName]['config']['foreign_table'])
             || !is_string($result['processedTca']['columns'][$fieldName]['config']['foreign_table'])
         ) {
@@ -286,21 +316,15 @@ abstract class AbstractItemProvider
             );
         }
 
-        $queryBuilder = $this->buildForeignTableQueryBuilder($result, $fieldName, $includeFullRows);
+        $queryBuilder = $this->buildForeignTableQueryBuilder($result, $fieldName);
         try {
             $queryResult = $queryBuilder->executeQuery();
         } catch (DBALException $e) {
-            $databaseError = $e->getPrevious()->getMessage();
-        }
-
-        // Early return on error with flash message
-        if (!empty($databaseError)) {
-            $msg = $databaseError . '. ';
-            $msg .= $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.database_schema_mismatch');
+            // Early return on error with flash message
+            $msg = $e->getMessage() . '. ' . $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.database_schema_mismatch');
             $msgTitle = $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.database_schema_mismatch_title');
             $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $msg, $msgTitle, ContextualFeedbackSeverity::ERROR, true);
-            $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-            $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+            $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
             return $items;
         }
@@ -310,9 +334,6 @@ abstract class AbstractItemProvider
             $labelPrefix = $result['processedTca']['columns'][$fieldName]['config']['foreign_table_prefix'];
             $labelPrefix = $languageService->sL($labelPrefix);
         }
-
-        $fileRepository = GeneralUtility::makeInstance(FileRepository::class);
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
 
         $allForeignRows = $queryResult->fetchAllAssociative();
         // Find all possible versioned records of the current IDs, so we do not need to overlay each record
@@ -342,25 +363,23 @@ abstract class AbstractItemProvider
                 }
                 $icon = '';
                 if ($isFileReference) {
-                    $references = $fileRepository->findByRelation($foreignTable, $iconFieldName, $foreignRow['uid']);
-                    if (is_array($references) && !empty($references)) {
+                    $references = $this->fileRepository->findByRelation($foreignTable, $iconFieldName, $foreignRow['uid']);
+                    if (!empty($references)) {
                         $icon = reset($references);
                         $icon = $icon->getPublicUrl();
                     }
                 } else {
                     // Else, determine icon based on record type, or a generic fallback
-                    $icon = $iconFactory->mapRecordTypeToIconIdentifier($foreignTable, $foreignRow);
+                    $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($foreignTable, $foreignRow);
                 }
                 $item = [
                     'label' => $labelPrefix . BackendUtility::getRecordTitle($foreignTable, $foreignRow),
                     'value' => $foreignRow['uid'],
                     'icon' => $icon,
                     'group' => $foreignRow[$itemGroupField] ?? null,
+                    // This line is part of the category tree performance hack, which should be used everywhere
+                    '_row' => $foreignRow,
                 ];
-                if ($includeFullRows) {
-                    // @todo: This is part of the category tree performance hack
-                    $item['_row'] = $foreignRow;
-                }
                 $items[] = $item;
             }
         }
@@ -558,46 +577,66 @@ abstract class AbstractItemProvider
     }
 
     /**
-     * Build query to fetch foreign records. Helper method of
-     * addItemsFromForeignTable(), do not call otherwise.
+     * Build wrapped QueryBuilder to fetch full foreign records. Helper method of
+     * {@see self::addItemsFromForeignTable()}, do not call otherwise.
      *
      * @param array $result Result array
      * @param string $localFieldName Current handle field name
-     * @param bool $selectAllFields @internal True to select * all fields of row, otherwise an auto-calculated list.
-     *                              Select * is an optimization hack to speed up category tree calculation.
      */
-    protected function buildForeignTableQueryBuilder(array $result, string $localFieldName, bool $selectAllFields = false): QueryBuilder
+    protected function buildForeignTableQueryBuilder(array $result, string $localFieldName): QueryBuilder
     {
         $backendUser = $this->getBackendUser();
 
         $foreignTableName = $result['processedTca']['columns'][$localFieldName]['config']['foreign_table'];
         $foreignTableClauseArray = $this->processForeignTableClause($result, $foreignTableName, $localFieldName);
 
-        if ($selectAllFields) {
-            $fieldList = [$foreignTableName . '.*'];
-        } else {
-            $fieldList = BackendUtility::getCommonSelectFields($foreignTableName, $foreignTableName . '.');
-            $fieldList = GeneralUtility::trimExplode(',', $fieldList, true);
+        $connection = $this->connectionPool->getConnectionForTable($foreignTableName);
+        $wrapQueryBuilder = $connection->createQueryBuilder();
+        $queryBuilder = $connection->createQueryBuilder();
+
+        // Full foreign table row is wanted for the result, which requires to have `GROUP BY` columns listed
+        // within the `SELECT <fields>` list for some database systems and vice versa. Second requirement is,
+        // that all fields used for `GROUP BY` and listed as select fields needs to be aggregated with a proper
+        // function, for example (MIN(), MAX(), ANY_VALUES(), ...).
+        //
+        // MariaDB is even stricter than MySQL with default and recommend `sql_mode = 'ONLY_FULL_GROUP_BY',
+        // which is also a long time questioned fact why MariaDB differs here from MySQL and also PostgresSQL
+        // without an explicit mode setting.
+        //
+        // To sum up all requirements for all database systems and expectable modes, we ...
+        //
+        //  * can't simply select all foreign table fields, for example with `$foreignTableName . '.*'` as select()
+        //    for the QueryBuilder below.
+        //  * need to ensure that we have grouped fields aggregated.
+        //  * need to use a wrapped SQL query (QueryBuilder) to retrieve full rows of foreign table because we cannot
+        //    use full-table columns information to replace a `*` wildcard here.
+        //
+        // The first step respecting all requirements is, to determine commonly used select fields for the table
+        // and using `ANY_VALUES()` aggregation for the `uid` field.
+        $hasGroupBy = is_array($foreignTableClauseArray['GROUPBY']) && $foreignTableClauseArray['GROUPBY'] !== [];
+        $selectFieldList = [];
+        $schema = $this->tcaSchemaFactory->get($foreignTableName);
+        $commonFieldList = $this->getCommonSelectFields($foreignTableName, $schema);
+        foreach ($commonFieldList as $fieldName) {
+            if ($hasGroupBy && in_array($fieldName, $foreignTableClauseArray['GROUPBY'], true)) {
+                $selectFieldList[] = sprintf('ANY_VALUE(%s)', $queryBuilder->quoteIdentifier($fieldName));
+                continue;
+            }
+            $selectFieldList[] = $queryBuilder->quoteIdentifier($fieldName);
         }
 
-        if ($result['processedTca']['columns'][$localFieldName]['config']['foreign_table_item_group'] ?? false) {
-            $fieldList[] = $foreignTableName . '.' . $result['processedTca']['columns'][$localFieldName]['config']['foreign_table_item_group'];
-        }
-
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable($foreignTableName);
-
+        $wrapQueryBuilder->getRestrictions()->removeAll();
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
 
         $queryBuilder
-            ->select(...$fieldList)
+            ->selectLiteral(...$selectFieldList)
             ->from($foreignTableName)
             ->where($foreignTableClauseArray['WHERE']);
 
-        if (!empty($foreignTableClauseArray['GROUPBY'])) {
+        if ($hasGroupBy) {
             $queryBuilder->groupBy(...$foreignTableClauseArray['GROUPBY']);
         }
 
@@ -606,8 +645,8 @@ abstract class AbstractItemProvider
                 [$fieldName, $order] = $orderPair;
                 $queryBuilder->addOrderBy($fieldName, $order);
             }
-        } elseif (!empty($GLOBALS['TCA'][$foreignTableName]['ctrl']['default_sortby'])) {
-            $orderByClauses = QueryHelper::parseOrderBy($GLOBALS['TCA'][$foreignTableName]['ctrl']['default_sortby']);
+        } elseif ($schema->hasCapability(TcaSchemaCapability::DefaultSorting)) {
+            $orderByClauses = QueryHelper::parseOrderBy($schema->getCapability(TcaSchemaCapability::DefaultSorting)->getValue());
             foreach ($orderByClauses as $orderByClause) {
                 if (!empty($orderByClause[0])) {
                     $queryBuilder->addOrderBy($foreignTableName . '.' . $orderByClause[0], $orderByClause[1]);
@@ -627,23 +666,20 @@ abstract class AbstractItemProvider
         // rootLevel = -1 means that elements can be on the rootlevel OR on any page (pid!=-1)
         // rootLevel = 0 means that elements are not allowed on root level
         // rootLevel = 1 means that elements are only on the root level (pid=0)
-        $rootLevel = 0;
-        if (isset($GLOBALS['TCA'][$foreignTableName]['ctrl']['rootLevel'])) {
-            $rootLevel = (int)$GLOBALS['TCA'][$foreignTableName]['ctrl']['rootLevel'];
-        }
-
-        if ($rootLevel === -1) {
+        /** @var RootLevelCapability $rootLevelCapability */
+        $rootLevelCapability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        if ($rootLevelCapability->getRootLevelType() === -1) {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->neq(
                     $foreignTableName . '.pid',
-                    $queryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
+                    $wrapQueryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
                 )
             );
-        } elseif ($rootLevel === 1) {
+        } elseif ($rootLevelCapability->getRootLevelType() === 1) {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq(
                     $foreignTableName . '.pid',
-                    $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
+                    $wrapQueryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 )
             );
         } else {
@@ -661,17 +697,33 @@ abstract class AbstractItemProvider
         }
 
         // @todo what about PID restriction?
-        if ($this->getBackendUser()->workspace !== 0 && BackendUtility::isTableWorkspaceEnabled($foreignTableName)) {
+        if ($this->getBackendUser()->workspace !== 0 && $schema->hasCapability(TcaSchemaCapability::Workspace)) {
             $queryBuilder
                 ->andWhere(
                     $queryBuilder->expr()->neq(
                         $foreignTableName . '.t3ver_state',
-                        $queryBuilder->createNamedParameter(VersionState::MOVE_POINTER->value, Connection::PARAM_INT)
+                        $wrapQueryBuilder->createNamedParameter(VersionState::MOVE_POINTER->value, Connection::PARAM_INT)
                     )
                 );
         }
 
-        return $queryBuilder;
+        // Second step to respect all database requirements regarding `GROUP BY` and still returning full foreign table
+        // records is using the QueryBuilder (query) as a sub-query, join the table and retrieve the full records using
+        // column wildcard. That ensures that really the full records are retrieved including not TCA managed columns.
+        $wrapQueryBuilder->select('joined_table.*');
+        $wrapQueryBuilder->getConcreteQueryBuilder()->from(
+            '(' . $queryBuilder->getSQL() . ')',
+            $wrapQueryBuilder->quoteIdentifier('inner_table_alias')
+        );
+        $wrapQueryBuilder->innerJoin(
+            'inner_table_alias',
+            $foreignTableName,
+            'joined_table',
+            $wrapQueryBuilder->expr()->and(
+                $wrapQueryBuilder->expr()->eq('joined_table.uid', $wrapQueryBuilder->quoteIdentifier('inner_table_alias.uid'))
+            )
+        );
+        return $wrapQueryBuilder;
     }
 
     /**
@@ -692,7 +744,7 @@ abstract class AbstractItemProvider
      */
     protected function processForeignTableClause(array $result, $foreignTableName, $localFieldName)
     {
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($foreignTableName);
+        $connection = $this->connectionPool->getConnectionForTable($foreignTableName);
         $localTable = $result['tableName'];
         $effectivePid = $result['effectivePid'];
 
@@ -955,6 +1007,9 @@ abstract class AbstractItemProvider
         $currentDatabaseValues = array_key_exists($fieldName, $row)
             ? $row[$fieldName]
             : '';
+        if ($currentDatabaseValues === null) {
+            return [];
+        }
         if (!is_array($currentDatabaseValues)) {
             $currentDatabaseValues = GeneralUtility::trimExplode(',', $currentDatabaseValues, true);
         }
@@ -1062,6 +1117,8 @@ abstract class AbstractItemProvider
                     $helpText = $item['description'];
                 }
             }
+            // @todo This removes `_row` full item row and does not have it in processedTCA later, at lest for
+            //       TcaSelectItems. Consider to keep that information here if available or if dropping is good.
             $itemArray[$key] = [
                 'label' => $label,
                 'value' => $value,
@@ -1131,10 +1188,47 @@ abstract class AbstractItemProvider
         $table = $result['tableName'];
         $row = $result['databaseRow'];
         $uid = $row['uid'] ?? 0;
-        if (BackendUtility::isTableWorkspaceEnabled($table) && (int)($row['t3ver_oid'] ?? 0) > 0) {
+        if ($this->tcaSchemaFactory->has($table) && $this->tcaSchemaFactory->get($table)->hasCapability(TcaSchemaCapability::Workspace) && (int)($row['t3ver_oid'] ?? 0) > 0) {
             $uid = $row['t3ver_oid'];
         }
         return $uid;
+    }
+
+    /**
+     * @internal private on purpose
+     */
+    private function getCommonSelectFields(string $table, TcaSchema $schema): array
+    {
+        $fields = ['uid', 'pid'];
+
+        if ($schema->hasCapability(TcaSchemaCapability::Label)) {
+            $fields = array_merge($fields, $schema->getCapability(TcaSchemaCapability::Label)->getAllLabelFieldNames());
+        }
+        if ($schema->isWorkspaceAware()) {
+            $fields[] = 't3ver_state';
+            $fields[] = 't3ver_wsid';
+        }
+        if ($schema->getRawConfiguration()['selicon_field'] ?? '') {
+            $fields[] = $schema->getRawConfiguration()['selicon_field'];
+        }
+        if ($schema->getRawConfiguration()['typeicon_column'] ?? '') {
+            $fields[] = $schema->getRawConfiguration()['typeicon_column'];
+        }
+
+        $capabilities = [
+            TcaSchemaCapability::SoftDelete,
+            TcaSchemaCapability::RestrictionDisabledField,
+            TcaSchemaCapability::RestrictionStartTime,
+            TcaSchemaCapability::RestrictionEndTime,
+            TcaSchemaCapability::RestrictionUserGroup,
+        ];
+        foreach ($capabilities as $capability) {
+            if ($schema->hasCapability($capability)) {
+                $fields[] = $schema->getCapability($capability)->getFieldName();
+            }
+        }
+        $fields = array_unique($fields);
+        return array_map(static fn(string $value): string => $table . '.' . $value, $fields);
     }
 
     protected function getLanguageService(): LanguageService

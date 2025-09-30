@@ -20,6 +20,8 @@ namespace TYPO3\CMS\Backend\View\ValueFormatter;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
@@ -30,34 +32,30 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  *
  * @internal
  */
-class FlexFormValueFormatter
+readonly class FlexFormValueFormatter
 {
     protected const VALUE_MAX_LENGTH = 50;
 
-    public function format(
-        string $tableName,
-        string $fieldName,
-        ?string $value,
-        int $uid,
-        array $fieldConfiguration
-    ): string {
+    public function __construct(
+        private FlexFormTools $flexFormTools,
+        private TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
+
+    public function format(string $tableName, string $fieldName, ?string $value, int $uid, array $fieldConfiguration): string
+    {
         if ($value === null || $value === '') {
             return '';
         }
-
         $record = BackendUtility::getRecord($tableName, $uid);
         if (is_null($record)) {
             // Record is already deleted
             return '';
         }
-
         // Get FlexForm data and structure
         $flexFormDataArray = GeneralUtility::xml2array($value);
         $flexFormDataStructure = $this->getFlexFormDataStructure($fieldConfiguration, $tableName, $fieldName, $record);
-
         // Map data to FlexForm structure and build an easy to handle array
         $processedSheets = $this->getProcessedSheets($flexFormDataStructure, $flexFormDataArray['data'] ?? []);
-
         // Render a human-readable plain text representation of the FlexForm data
         $renderedPlainValue = $this->renderFlexFormValuePlain($processedSheets);
         return trim($renderedPlainValue, PHP_EOL);
@@ -65,37 +63,28 @@ class FlexFormValueFormatter
 
     /**
      * @param array<string, mixed> $tcaConfiguration
-     * @param string $tableName
-     * @param string $fieldName
      * @param array<string, mixed> $record
-     * @return array
      */
-    protected function getFlexFormDataStructure(
-        array $tcaConfiguration,
-        string $tableName,
-        string $fieldName,
-        array $record
-    ): array {
+    protected function getFlexFormDataStructure(array $tcaConfiguration, string $tableName, string $fieldName, array $record): array
+    {
         $conf['config'] = $tcaConfiguration;
-        $flexFormTools = GeneralUtility::makeInstance(FlexFormTools::class);
-        $flexFormIdentifier = $flexFormTools->getDataStructureIdentifier($conf, $tableName, $fieldName, $record);
-        return $flexFormTools->parseDataStructureByIdentifier($flexFormIdentifier);
+        $schema = $this->tcaSchemaFactory->get($tableName);
+        return $this->flexFormTools->parseDataStructureByIdentifier(
+            $this->flexFormTools->getDataStructureIdentifier($conf, $tableName, $fieldName, $record, $schema),
+            $schema
+        );
     }
 
     /**
      * @param array<string, mixed> $processedData
-     * @param int $currentHierarchy
-     * @return string
      */
     protected function renderFlexFormValuePlain(array $processedData, int $currentHierarchy = 1): string
     {
         $value = '';
         foreach ($processedData as $processedKey => $processedValue) {
             $title = !empty($processedValue['section']) ? $processedKey : $processedValue['title'];
-
             if (!empty($processedValue['children'])) {
                 $children = $this->renderFlexFormValuePlain($processedValue['children'], $currentHierarchy + 1);
-
                 if (empty($processedValue['section']) && empty($processedValue['container'])) {
                     $value .= $this->getSectionHeadline($title) . PHP_EOL . $children . PHP_EOL;
                 } elseif ($children) {
@@ -126,19 +115,14 @@ class FlexFormValueFormatter
     protected function getProcessedSheets(array $dataStructure, array $valueStructure): array
     {
         $processedSheets = [];
-
         foreach ($dataStructure['sheets'] as $sheetKey => $sheetStructure) {
             if (!empty($sheetStructure['ROOT']['el'])) {
                 $sheetTitle = $sheetKey;
                 if (!empty($sheetStructure['ROOT']['sheetTitle'])) {
                     $sheetTitle = $this->getLanguageService()->sL($sheetStructure['ROOT']['sheetTitle']);
                 }
-
                 if (!empty($valueStructure[$sheetKey]['lDEF'])) {
-                    $processedElements = $this->getProcessedElements(
-                        $sheetStructure['ROOT']['el'],
-                        $valueStructure[$sheetKey]['lDEF']
-                    );
+                    $processedElements = $this->getProcessedElements($sheetStructure['ROOT']['el'], $valueStructure[$sheetKey]['lDEF']);
                     $processedSheets[$sheetKey] = [
                         'title' => $sheetTitle,
                         'children' => $processedElements,
@@ -146,27 +130,22 @@ class FlexFormValueFormatter
                 }
             }
         }
-
         return $processedSheets;
     }
 
     protected function getProcessedElements(array $dataStructure, array $valueStructure): array
     {
         $processedElements = [];
-
         // Values used to fake TCA
         $processingTableValue = StringUtility::getUniqueId('processing');
         $processingColumnValue = StringUtility::getUniqueId('processing');
-
         foreach ($dataStructure as $elementKey => $elementStructure) {
             $elementTitle = $this->getElementTitle($elementKey, $elementStructure);
-
             if (($elementStructure['type'] ?? '') === 'array') {
                 // Render section or container
                 if (empty($valueStructure[$elementKey]['el'])) {
                     continue;
                 }
-
                 if (!empty($elementStructure['section'])) {
                     // Render section
                     $processedElements[$elementKey] = [
@@ -190,37 +169,39 @@ class FlexFormValueFormatter
                 }
             } elseif (!empty($elementStructure['config'])) {
                 // Render plain elements
-                $relationTable = $this->getRelationTable($elementStructure['config']);
-                $labelUserFunction = $relationTable !== null ? $this->getRelationLabelUserFunction($relationTable) : null;
-
-                if ($relationTable !== null && $labelUserFunction !== null) {
+                $relationTable = $this->getRelationTable($elementStructure['config']) ?? '';
+                if ($this->tcaSchemaFactory->has($relationTable)
+                    && ($userFunc = ($this->tcaSchemaFactory->get($relationTable)->getCapability(TcaSchemaCapability::Label)->getConfiguration()['generator'] ?? false))
+                ) {
                     $parameters = [
                         'table' => $relationTable,
                         'row' => BackendUtility::getRecord($relationTable, $valueStructure[$elementKey]['vDEF'] ?? ''),
                         'title' => $valueStructure[$elementKey]['vDEF'] ?? '',
+                        'options' => ($this->tcaSchemaFactory->get($relationTable)->getCapability(TcaSchemaCapability::Label)->getConfiguration()['generatorOptions'] ?? []),
                     ];
-                    GeneralUtility::callUserFunction($labelUserFunction, $parameters);
+                    GeneralUtility::callUserFunction($userFunc, $parameters);
                     $processedValue = $parameters['title'];
                 } else {
-                    $GLOBALS['TCA'][$processingTableValue]['columns'][$processingColumnValue]['config'] = $elementStructure['config'];
                     $processedValue = BackendUtility::getProcessedValue(
                         $processingTableValue,
                         $processingColumnValue,
                         $valueStructure[$elementKey]['vDEF'] ?? '',
+                        0,
+                        false,
+                        false,
+                        0,
+                        true,
+                        0,
+                        [],
+                        $elementStructure['config']
                     );
                 }
-
                 $processedElements[$elementKey] = [
                     'title' => $elementTitle,
                     'value' => $processedValue,
                 ];
             }
         }
-
-        if (!empty($GLOBALS['TCA'][$processingTableValue])) {
-            unset($GLOBALS['TCA'][$processingTableValue]);
-        }
-
         return $processedElements;
     }
 
@@ -230,27 +211,12 @@ class FlexFormValueFormatter
         if (($configuration['allowed'] ?? '') !== '' && !str_contains($configuration['allowed'], ',')) {
             return $configuration['allowed'];
         }
-
         return $configuration['foreign_table'] ?? null;
-    }
-
-    /**
-     * @param string $relationTable
-     * @return non-empty-string|null
-     */
-    protected function getRelationLabelUserFunction(string $relationTable): ?string
-    {
-        if (!empty($GLOBALS['TCA'][$relationTable]['ctrl']['label_userFunc'])) {
-            return $GLOBALS['TCA'][$relationTable]['ctrl']['label_userFunc'];
-        }
-
-        return null;
     }
 
     protected function getProcessedSections(array $dataStructure, array $valueStructure): array
     {
         $processedSections = [];
-
         foreach ($valueStructure as $sectionValueIndex => $sectionValueStructure) {
             $processedSections[$sectionValueIndex] = [
                 'section' => true,
@@ -260,7 +226,6 @@ class FlexFormValueFormatter
                 ),
             ];
         }
-
         return $processedSections;
     }
 
@@ -269,7 +234,6 @@ class FlexFormValueFormatter
         if (!empty($structure['label'])) {
             return $this->getLanguageService()->sL($structure['label']);
         }
-
         return $key;
     }
 
@@ -278,12 +242,10 @@ class FlexFormValueFormatter
         if ($value === '') {
             return '';
         }
-
         // If the length of the value is equal or less than the maxlength, no wrapping is needed.
         if ((mb_strlen($title) + mb_strlen($value)) <= self::VALUE_MAX_LENGTH) {
             return $value;
         }
-
         // wordwrap the value and add an indention for each line.
         $multilineIndention = "\t";
         $value = PHP_EOL . $multilineIndention . $value;

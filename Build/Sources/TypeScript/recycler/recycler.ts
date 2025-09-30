@@ -14,6 +14,7 @@
 import DocumentService from '@typo3/core/document-service';
 import NProgress from 'nprogress';
 import '@typo3/backend/input/clearable';
+import '@typo3/backend/element/alert-element';
 import '@typo3/backend/element/icon-element';
 import '@typo3/backend/element/pagination';
 import DeferredAction from '@typo3/backend/action-button/deferred-action';
@@ -22,7 +23,7 @@ import Notification from '@typo3/backend/notification';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import RegularEvent from '@typo3/core/event/regular-event';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 enum Identifiers {
   searchForm = '#recycler-form',
@@ -33,8 +34,8 @@ enum Identifiers {
   recyclerTable = '#itemsInRecycler',
   paginator = '#recycler-index nav',
   reloadAction = 'a[data-action=reload]',
-  undo = 'a[data-action=undo]',
-  delete = 'a[data-action=delete]',
+  undo = 'button[data-action=undo]',
+  delete = 'button[data-action=delete]',
   massUndo = 'button[data-multi-record-selection-action=massundo]',
   massDelete = 'button[data-multi-record-selection-action=massdelete]',
 }
@@ -81,14 +82,13 @@ class Recycler {
     }).delegateTo(document, Identifiers.searchForm);
 
     // changing the search field
-    new RegularEvent('keyup', (event: KeyboardEvent) => {
-      const input = event.currentTarget as HTMLInputElement;
+    new RegularEvent('input', (event: Event, target: HTMLInputElement) => {
       const searchSubmitButton = document.querySelector(Identifiers.searchSubmitBtn) as HTMLButtonElement;
 
-      if (input.value !== '') {
-        searchSubmitButton.classList.remove('disabled');
+      if (target.value !== '') {
+        searchSubmitButton.disabled = false;
       } else {
-        searchSubmitButton.classList.add('disabled');
+        searchSubmitButton.disabled = true;
         this.loadDeletedElements();
       }
     }).delegateTo(document, Identifiers.searchText);
@@ -123,7 +123,7 @@ class Recycler {
       {
         onClear: () => {
           const searchSubmitButton = document.querySelector(Identifiers.searchSubmitBtn) as HTMLButtonElement;
-          searchSubmitButton.classList.add('disabled');
+          searchSubmitButton.disabled = true;
           this.loadDeletedElements();
         },
       },
@@ -153,12 +153,6 @@ class Recycler {
 
       this.loadDeletedElements();
     }).delegateTo(document, Identifiers.paginator);
-
-    if (!TYPO3.settings.Recycler.deleteDisable) {
-      (document.querySelector(Identifiers.massDelete) as HTMLElement).style.display = 'block';
-    } else {
-      document.querySelector(Identifiers.massDelete).remove();
-    }
 
     // checkboxes in the table
     new RegularEvent('multiRecordSelection:checkbox:state:changed', this.handleCheckboxStateChanged.bind(this)).bindTo(document);
@@ -204,13 +198,15 @@ class Recycler {
 
     if (this.markedRecordsForMassAction.length > 0) {
       const massUndo = document.querySelector(Identifiers.massUndo) as HTMLButtonElement;
-      const massDelete = document.querySelector(Identifiers.massDelete) as HTMLButtonElement;
 
       massUndo.querySelector('span.text')
         .textContent = this.createMessage(TYPO3.lang['button.undoselected'], [this.markedRecordsForMassAction.length.toString(10)]);
 
-      massDelete.querySelector('span.text')
-        .textContent = this.createMessage(TYPO3.lang['button.deleteselected'], [this.markedRecordsForMassAction.length.toString(10)]);
+      if (!TYPO3.settings.Recycler.deleteDisable) {
+        const massDelete = document.querySelector(Identifiers.massDelete) as HTMLButtonElement;
+        massDelete.querySelector('span.text')
+          .textContent = this.createMessage(TYPO3.lang['button.deleteselected'], [this.markedRecordsForMassAction.length.toString(10)]);
+      }
     } else {
       this.resetMassActionButtons();
     }
@@ -221,11 +217,15 @@ class Recycler {
    */
   private resetMassActionButtons(): void {
     const massUndo = document.querySelector(Identifiers.massUndo) as HTMLButtonElement;
-    const massDelete = document.querySelector(Identifiers.massDelete) as HTMLButtonElement;
 
     this.markedRecordsForMassAction = [];
     massUndo.querySelector('span.text').textContent = TYPO3.lang['button.undo'];
-    massDelete.querySelector('span.text').textContent = TYPO3.lang['button.delete'];
+
+    if (!TYPO3.settings.Recycler.deleteDisable) {
+      const massDelete = document.querySelector(Identifiers.massDelete) as HTMLButtonElement;
+      massDelete.querySelector('span.text').textContent = TYPO3.lang['button.delete'];
+    }
+
     document.dispatchEvent(new CustomEvent('multiRecordSelection:actions:hide'));
   }
 
@@ -293,10 +293,24 @@ class Recycler {
       start: (this.paging.currentPage - 1) * this.paging.itemsPerPage,
       limit: this.paging.itemsPerPage,
     }).get().then(async (response: AjaxResponse): Promise<AjaxResponse> => {
-      const tableBody = document.querySelector(`${Identifiers.recyclerTable} tbody`);
+      const tableWrapper = document.querySelector(Identifiers.recyclerTable);
+      const tableBody = tableWrapper.querySelector('tbody');
       const data = await response.resolve();
 
-      tableBody.innerHTML = data.rows;
+      if (data.totalItems === 0) {
+        if (tableWrapper.parentElement.querySelector('#no-recycler-records') === null) {
+          const alertElement = document.createElement('typo3-backend-alert');
+          alertElement.id = 'no-recycler-records';
+          alertElement.severity = SeverityEnum.info;
+          alertElement.message = TYPO3.lang['alert.noDeletedRecords'];
+          alertElement.showIcon = true;
+          tableWrapper.parentElement.insertBefore(alertElement, tableWrapper);
+        }
+      } else {
+        tableWrapper.parentElement.querySelector('#no-recycler-records')?.remove();
+        tableBody.innerHTML = data.rows;
+      }
+      tableWrapper.toggleAttribute('hidden', data.totalItems === 0);
       this.buildPaginator(data.totalItems);
 
       return response;

@@ -18,7 +18,7 @@ import Notification from '@typo3/backend/notification';
 import Modal from '@typo3/backend/modal';
 import Md5 from '@typo3/backend/hashing/md5';
 import { fileListOpenElementBrowser } from '@typo3/filelist/file-list';
-import { FileListActionEvent, FileListActionDetail, FileListActionUtility } from './file-list-actions';
+import { FileListActionEvent, type FileListActionDetail, FileListActionUtility } from './file-list-actions';
 
 /**
  * Module: @typo3/filelist/context-menu-actions
@@ -58,6 +58,22 @@ class ContextMenuActions {
         originalAction: null
       };
       document.dispatchEvent(new CustomEvent(FileListActionEvent.rename, { detail: detail }));
+    })();
+  }
+
+  public static replaceFile(table: string, uid: string, dataset: DOMStringMap): void {
+    (async () => {
+      await import('@typo3/filelist/file-list-replace-handler');
+      const resource = FileListActionUtility.createResourceFromContextDataset(dataset);
+      const detail: FileListActionDetail = {
+        event: null,
+        trigger: null,
+        action: FileListActionEvent.rename,
+        resources: [resource],
+        url: null,
+        originalAction: null
+      };
+      document.dispatchEvent(new CustomEvent(FileListActionEvent.replace, { detail: detail }));
     })();
   }
 

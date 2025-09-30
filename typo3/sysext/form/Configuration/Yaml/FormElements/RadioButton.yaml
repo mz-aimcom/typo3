@@ -29,7 +29,6 @@ prototypes:
               enableDeleteRow: true
               removeLastAvailableRowFlashMessageTitle: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageTitle
               removeLastAvailableRowFlashMessageMessage: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageMessage
-              shouldShowPreselectedValueColumn: single
               multiSelection: false
             700:
               identifier: gridColumnViewPortConfiguration
@@ -114,27 +113,20 @@ prototypes:
             properties:
               options: {  }
           label: formEditor.elements.RadioButton.label
+          description: formEditor.elements.RadioButton.description
           group: select
           groupSorting: 300
           iconIdentifier: form-radio-button
         implementationClassName: TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement
         properties:
-          containerClassAttribute: input
-          elementClassAttribute: xlarge
-          elementErrorClassAttribute: error
-        variants:
-          -
-            identifier: template-variant
-            condition: 'getRootFormProperty("renderingOptions.templateVariant") == "version2"'
-            properties:
-              renderFieldset: 1
-              fieldsetClassAttribute: 'form-element form-element-radio mb-3'
-              containerClassAttribute: 'form-check mb-2'
-              elementClassAttribute: form-check-input
-              elementErrorClassAttribute: ~
-              labelClassAttribute: form-check-wrapping-label
-              labelTextClassAttribute: form-check-label
-              legendVisuallyHidden: 1
+          renderFieldset: 1
+          fieldsetClassAttribute: 'form-element form-element-radio mb-3'
+          containerClassAttribute: 'form-check mb-2'
+          elementClassAttribute: form-check-input
+          elementErrorClassAttribute: ~
+          labelClassAttribute: form-check-wrapping-label
+          labelTextClassAttribute: form-check-label
+          legendVisuallyHidden: 1
     formEditor:
       formEditorPartials:
         FormElement-RadioButton: Stage/SelectTemplate

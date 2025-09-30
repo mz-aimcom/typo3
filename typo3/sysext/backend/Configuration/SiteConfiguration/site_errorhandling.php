@@ -12,6 +12,7 @@ return [
             'Fluid' => 'mimetypes-text-html',
             'Page' => 'apps-pagetree-page-content-from-page',
             'PHP' => 'mimetypes-text-php',
+            'LoginRedirect' => 'content-elements-login',
         ],
     ],
     'columns' => [
@@ -30,11 +31,11 @@ return [
                 'valuePicker' => [
                     'mode' => '',
                     'items' => [
-                        ['LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.404', '404'],
-                        ['LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.403', '403'],
-                        ['LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.500', '500'],
-                        ['LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.503', '503'],
-                        ['LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.0', '0'],
+                        ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.404', 'value' => '404'],
+                        ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.403', 'value' => '403'],
+                        ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.500', 'value' => '500'],
+                        ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.503', 'value' => '503'],
+                        ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorCode.0', 'value' => '0'],
                     ],
                 ],
             ],
@@ -50,6 +51,7 @@ return [
                     ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorHandler.fluid', 'value' => 'Fluid'],
                     ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorHandler.page', 'value' => 'Page'],
                     ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorHandler.php', 'value' => 'PHP'],
+                    ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorHandler.loginRedirect', 'value' => 'LoginRedirect'],
                 ],
             ],
         ],
@@ -102,6 +104,26 @@ return [
                 'placeholder' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.errorPhpClassFQCN.placeholder',
             ],
         ],
+        'loginRedirectTarget' => [
+            'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.loginRedirectTarget',
+            'config' => [
+                'type' => 'link',
+                'required' => true,
+                'allowedTypes' => ['page'],
+            ],
+        ],
+        'loginRedirectParameter' => [
+            'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.loginRedirectParameter',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'required' => true,
+                'items' => [
+                    ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.loginRedirectParameter.return_url', 'value' => 'return_url'],
+                    ['label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_tca.xlf:site_errorhandling.loginRedirectParameter.redirect_url', 'value' => 'redirect_url'],
+                ],
+            ],
+        ],
     ],
     'types' => [
         '1' => [
@@ -117,6 +139,9 @@ return [
         ],
         'PHP' => [
             'showitem' => '--palette--;;general, errorPhpClassFQCN',
+        ],
+        'LoginRedirect' => [
+            'showitem' => '--palette--;;general, loginRedirectTarget, loginRedirectParameter',
         ],
     ],
     'palettes' => [

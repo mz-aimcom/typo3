@@ -7,10 +7,11 @@ return [
     // Set the workspace
     'workspace_switch' => [
         'path' => '/workspace/switch',
-        'target' => \TYPO3\CMS\Workspaces\Controller\AjaxController::class . '::switchWorkspaceAction',
+        'target' => \TYPO3\CMS\Workspaces\Controller\WorkspacesToolbarController::class . '::switchWorkspaceAction',
     ],
     'workspace_dispatch' => [
         'path' => '/workspace/dispatch',
-        'target' => \TYPO3\CMS\Workspaces\Controller\AjaxDispatcher::class . '::dispatch',
+        'target' => \TYPO3\CMS\Workspaces\Controller\WorkspacesAjaxController::class . '::dispatch',
+        'inheritAccessFromModule' => 'workspaces_admin',
     ],
 ];

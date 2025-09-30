@@ -114,10 +114,16 @@ class BackendController
         $javaScriptRenderer->addJavaScriptModuleInstruction(
             JavaScriptModuleInstruction::create('@typo3/backend/hotkeys.js')
         );
+        $javaScriptRenderer->addJavaScriptModuleInstruction(
+            JavaScriptModuleInstruction::create('@typo3/backend/user-settings-manager.js')
+        );
         // load the storage API and fill the UC into the PersistentStorage, so no additional AJAX call is needed
         $javaScriptRenderer->addJavaScriptModuleInstruction(
             JavaScriptModuleInstruction::create('@typo3/backend/storage/persistent.js')
                 ->invoke('load', $backendUser->uc)
+        );
+        $javaScriptRenderer->addJavaScriptModuleInstruction(
+            JavaScriptModuleInstruction::create('@typo3/backend/key-bindings.js')
         );
         $javaScriptRenderer->addGlobalAssignment([
             'TYPO3' => [
@@ -135,23 +141,26 @@ class BackendController
         $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_core.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_misc.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_layout.xlf');
+        $pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/wizard.xlf');
 
         // @todo: We can not put this into the template since PageRendererViewHelper does not deal with namespace in addInlineSettings argument
         $pageRenderer->addInlineSetting('ShowItem', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('show_item'));
+        $pageRenderer->addInlineSetting('Resource', 'thumbnailUrl', (string)$this->uriBuilder->buildUriFromRoute('resource_request_thumbnail'));
         $pageRenderer->addInlineSetting('RecordHistory', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('record_history'));
         $pageRenderer->addInlineSetting('NewRecord', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('db_new'));
         $pageRenderer->addInlineSetting('FormEngine', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('record_edit'));
         $pageRenderer->addInlineSetting('RecordCommit', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('tce_db'));
         $pageRenderer->addInlineSetting('FileCommit', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('tce_file'));
         $pageRenderer->addInlineSetting('Clipboard', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('clipboard_process'));
+        $pageRenderer->addInlineSetting('Wizards', 'elementBrowserUrl', (string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser'));
 
         // Needed for FormEngine manipulation (date picker)
         $formatter = new DateFormatter();
         $dateFormat = [];
         $dateFormat[0] = $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] ?? 'Y-m-d');
-        $dateFormat[1] = $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'] ?? 'H:i') . ' ' . $dateFormat[0];
+        $dateFormat[1] = $dateFormat[0] . ' ' . $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'] ?? 'H:i');
         $pageRenderer->addInlineSetting('DateTimePicker', 'DateFormat', $dateFormat);
 
         $typo3Version = 'TYPO3 CMS ' . $this->typo3Version->getVersion();
@@ -241,6 +250,7 @@ class BackendController
         $view->assign('siteName', $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename']);
         $view->assign('toolbarItems', $this->getToolbarItems($request));
         $view->assign('isInWorkspace', $this->getBackendUser()->workspace > 0);
+        $view->assign('isImpersonated', $this->getBackendUser()->getOriginalUserIdWhenInSwitchUserMode() !== null);
     }
 
     /**
@@ -274,8 +284,8 @@ class BackendController
                 // Only redirect to existing non-ajax routes with no restriction to a specific method
                 $router = GeneralUtility::makeInstance(Router::class);
                 $redirect->resolve($router);
-                $module = $router->getRoute($redirect->getName())->getOption('module');
-                if ($this->isSpecialNoModuleRoute($redirect->getName())
+                $module = $router->getRoute($redirect->getName())?->getOption('module');
+                if ($module instanceof ModuleInterface === false
                     || $this->moduleProvider->accessGranted($module->getIdentifier(), $this->getBackendUser())
                 ) {
                     // Only add start module from request in case user has access or it's a no module route,
@@ -387,14 +397,6 @@ class BackendController
                     true
                 )
             );
-    }
-
-    /**
-     * Check if given route identifier is a special "no module" route
-     */
-    protected function isSpecialNoModuleRoute(string $routeIdentifier): bool
-    {
-        return in_array($routeIdentifier, ['record_edit', 'file_edit'], true);
     }
 
     protected function getBackendUser(): BackendUserAuthentication

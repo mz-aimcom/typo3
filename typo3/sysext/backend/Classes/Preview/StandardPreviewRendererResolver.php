@@ -17,6 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Preview;
 
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -28,8 +31,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * Depending on which one is defined and checking the first, type-specific
  * variant first.
  */
+#[Autoconfigure(public: true)]
 class StandardPreviewRendererResolver
 {
+    public function __construct(
+        protected readonly TcaSchemaFactory $tcaSchemaFactory
+    ) {}
+
     /**
      * @param string $table The name of the table the returned PreviewRenderer must work with
      * @param array $row A record from $table which will be previewed - allows returning a different PreviewRenderer based on record attributes
@@ -39,26 +47,29 @@ class StandardPreviewRendererResolver
      */
     public function resolveRendererFor(string $table, array $row, int $pageUid): PreviewRendererInterface
     {
-        $tca = $GLOBALS['TCA'][$table];
-        $tcaTypeField = $tca['ctrl']['type'] ?? null;
+        $schema = $this->tcaSchemaFactory->get($table);
         $previewRendererClassName = null;
-        if ($tcaTypeField) {
-            $tcaTypeOfRow = $row[$tcaTypeField];
-            $typeConfiguration = $tca['types'][$tcaTypeOfRow] ?? [];
-
-            $subTypeValueField = $typeConfiguration['subtype_value_field'] ?? null;
-            if (!empty($typeConfiguration['previewRenderer'])) {
-                if (!empty($subTypeValueField) && is_array($typeConfiguration['previewRenderer'])) {
-                    // An array of subtype_value_field indexed preview renderers was defined, look up the right
-                    // class to use for the sub-type defined in this $row.
-                    $previewRendererClassName = $typeConfiguration['previewRenderer'][$row[$subTypeValueField] ?? ''] ?? null;
+        if ($schema->supportsSubSchema()) {
+            $tcaTypeOfRow = '';
+            $subSchemaTypeInformation = $schema->getSubSchemaTypeInformation();
+            if ($subSchemaTypeInformation->isPointerToForeignFieldInForeignSchema()) {
+                if ($this->tcaSchemaFactory->has($subSchemaTypeInformation->getForeignSchemaName())) {
+                    // Note: We override the schema here to work on the foreign schema from now on.
+                    $schema = $this->tcaSchemaFactory->get($subSchemaTypeInformation->getForeignSchemaName());
+                    if (isset($row[$subSchemaTypeInformation->getFieldName()]) && $schema->hasField($subSchemaTypeInformation->getForeignFieldName())) {
+                        $foreignRecord = BackendUtility::getRecord($subSchemaTypeInformation->getForeignSchemaName(), $row[$subSchemaTypeInformation->getFieldName()], $subSchemaTypeInformation->getForeignFieldName());
+                        $tcaTypeOfRow = (string)($foreignRecord[$subSchemaTypeInformation->getForeignFieldName()] ?? '');
+                    }
                 }
-
-                // If no class was found in the subtype_value_field
-                if (!$previewRendererClassName && !is_array($typeConfiguration['previewRenderer'])) {
-                    // A type-specific preview renderer was configured for the TCA type (and one was not detected
-                    // based on the higher-priority lookups above).
-                    $previewRendererClassName = $typeConfiguration['previewRenderer'];
+            } else {
+                $tcaTypeOfRow = (string)($row[$subSchemaTypeInformation->getFieldName()] ?? '');
+            }
+            if ($schema->hasSubSchema($tcaTypeOfRow)) {
+                // Outdated subschemas may still be present in the database fields, this must not block backend rendering and utilize fallback.
+                $subSchema = $schema->getSubSchema($tcaTypeOfRow);
+                if (is_string($subSchema->getRawConfiguration()['previewRenderer'] ?? false) && $subSchema->getRawConfiguration()['previewRenderer'] !== '') {
+                    // A type-specific preview renderer was configured for the TCA type
+                    $previewRendererClassName = $subSchema->getRawConfiguration()['previewRenderer'];
                 }
             }
         }
@@ -66,11 +77,10 @@ class StandardPreviewRendererResolver
         if (!$previewRendererClassName) {
             // Table either has no type field or no custom preview renderer was defined for the type.
             // Use table's standard renderer if any is defined.
-            $previewRendererClassName = $tca['ctrl']['previewRenderer'] ?? null;
+            $previewRendererClassName = $schema->getRawConfiguration()['previewRenderer'] ?? null;
         }
 
-        if (!empty($previewRendererClassName)) {
-            /** @var string $previewRendererClassName */
+        if (is_string($previewRendererClassName) && $previewRendererClassName !== '') {
             if (!is_a($previewRendererClassName, PreviewRendererInterface::class, true)) {
                 throw new \UnexpectedValueException(
                     sprintf(

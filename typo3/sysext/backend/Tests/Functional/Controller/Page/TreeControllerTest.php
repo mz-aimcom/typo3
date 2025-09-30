@@ -55,13 +55,13 @@ final class TreeControllerTest extends FunctionalTestCase
         $this->withDatabaseSnapshot(function () {
             $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users.csv');
             // Admin user for importing dataset
-            $this->backendUser = $this->setUpBackendUser(1);
-            $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($this->backendUser);
+            $backendUser = $this->setUpBackendUser(1);
+            $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($backendUser);
             $scenarioFile = __DIR__ . '/Fixtures/PagesWithBEPermissions.yaml';
             $factory = DataHandlerFactory::fromYamlFile($scenarioFile);
-            $writer = DataHandlerWriter::withBackendUser($this->backendUser);
+            $writer = DataHandlerWriter::withBackendUser($backendUser);
             $writer->invokeFactory($factory);
-            static::failIfArrayIsNotEmpty($writer->getErrors());
+            self::failIfArrayIsNotEmpty($writer->getErrors());
         }, function () {
             $this->backendUser = $this->setUpBackendUser(1);
             $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($this->backendUser);
@@ -74,11 +74,12 @@ final class TreeControllerTest extends FunctionalTestCase
     #[Test]
     public function getAllEntryPointPageTrees(): void
     {
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees');
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -182,18 +183,19 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getAllEntryPointPageTreesWithRootPageAsMountPoint(): void
     {
         $this->backendUser->setWebMounts([0, 7000]);
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees');
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -265,6 +267,19 @@ final class TreeControllerTest extends FunctionalTestCase
                             ],
                         ],
                     ],
+                    [
+                        // 9100 is shown due to `perms_everybody=15`
+                        'uid' => 9100,
+                        'title' => 'Page 9100',
+                        '_children' => [],
+                    ],
+                    // 9200 is omitted due to `perms_everybody=0`
+                    [
+                        // 9300 is shown due to `perms_everybody=15`
+                        'uid' => 9300,
+                        'title' => 'Page 9300',
+                        '_children' => [],
+                    ],
                 ],
             ],
             [
@@ -295,17 +310,18 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getAllEntryPointPageTreesWithSearch(): void
     {
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 0, 'Groups');
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 0, 'Groups');
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -339,17 +355,18 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getSubtreeForAccessiblePage(): void
     {
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 1200);
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 1200);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -371,44 +388,47 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getSubtreeForNonAccessiblePage(): void
     {
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 1510);
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 1510);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getSubtreeForPageOutsideMountPoint(): void
     {
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 7000);
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 7000);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
     public function getAllEntryPointPageTreesWithMountPointPreservesOrdering(): void
     {
         $this->backendUser->setWebmounts([1210, 1100]);
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees');
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -430,7 +450,7 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
@@ -439,11 +459,12 @@ final class TreeControllerTest extends FunctionalTestCase
         $this->backendUser->workspace = 1;
         $context = $this->get(Context::class);
         $context->setAspect('workspace', new WorkspaceAspect(1));
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees');
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject);
+        $result = $this->sortTreeArray($result);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -555,7 +576,7 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     public static function getAllEntryPointPageTreesInWorkspaceWithSearchDataProvider(): array
@@ -624,11 +645,12 @@ final class TreeControllerTest extends FunctionalTestCase
         $context = $this->get(Context::class);
         $context->setAspect('workspace', new WorkspaceAspect(1));
         // the record was changed from live "Groups" to "Teams modified" in a workspace
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 0, $search);
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 0, $search);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -649,7 +671,7 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
@@ -658,11 +680,12 @@ final class TreeControllerTest extends FunctionalTestCase
         $this->backendUser->workspace = 1;
         $context = $this->get(Context::class);
         $context->setAspect('workspace', new WorkspaceAspect(1));
-        $subject = $this->getAccessibleMock(TreeController::class, null);
-        $actual = $subject->_call('getAllEntryPointPageTrees', 1200);
+        $subject = $this->get(TreeController::class);
+        $method = new \ReflectionMethod($subject, 'getAllEntryPointPageTrees');
+        $result = $method->invoke($subject, 1200);
         $keepProperties = array_flip(['uid', 'title', '_children']);
-        $actual = $this->sortTreeArray($actual);
-        $actual = $this->normalizeTreeArray($actual, $keepProperties);
+        $result = $this->sortTreeArray($result);
+        $result = $this->normalizeTreeArray($result, $keepProperties);
 
         $expected = [
             [
@@ -689,7 +712,7 @@ final class TreeControllerTest extends FunctionalTestCase
                 ],
             ],
         ];
-        self::assertEquals($expected, $actual);
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
@@ -711,12 +734,104 @@ final class TreeControllerTest extends FunctionalTestCase
 
         $request = new ServerRequest(new Uri('https://example.com'));
 
-        (new TreeController())->fetchDataAction($request);
+        $this->get(TreeController::class)->fetchDataAction($request);
 
         self::assertInstanceOf(AfterPageTreeItemsPreparedEvent::class, $afterPageTreeItemsPreparedEvent);
         self::assertEquals($request, $afterPageTreeItemsPreparedEvent->getRequest());
         self::assertCount(12, $afterPageTreeItemsPreparedEvent->getItems());
         self::assertEquals('1000', $afterPageTreeItemsPreparedEvent->getItems()[1]['identifier']);
         self::assertEquals('ACME Inc', $afterPageTreeItemsPreparedEvent->getItems()[1]['name']);
+    }
+
+    public static function fetchDataActionConsidersPermissionsDataProvider(): \Generator
+    {
+        yield 'admin user can see all root pages' => [
+            'backendUser' => 1,
+            'expectation' => ['0', '1000', '2000', '7000', '8000', '9100', '9200', '9300'],
+        ];
+        yield 'editor with Page Tree Entry Points can only see accessible pages' => [
+            'backendUser' => 9,
+            'expectation' => ['0', '1000', '8110'],
+        ];
+        yield 'editor with Page Tree Entry Points cannot see inaccessible pages' => [
+            'backendUser' => 8,
+            'expectation' => ['0'],
+        ];
+        yield 'editor without Page Tree Entry Points cannot see any pages' => [
+            'backendUser' => 7,
+            'expectation' => ['0'],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('fetchDataActionConsidersPermissionsDataProvider')]
+    public function fetchDataActionConsidersPermissions(int $backendUser, array $expectation): void
+    {
+        $this->backendUser = $this->setUpBackendUser($backendUser);
+        $request = (new ServerRequest(new Uri('https://example.com')))->withQueryParams(['depth' => 1]);
+        $response = $this->get(TreeController::class)->fetchDataAction($request);
+        $data = json_decode((string)$response->getBody(), true);
+        $items = array_filter($data, static fn(array $page): bool => $page['depth'] <= 1);
+        $items = array_map(static fn(array $page): string => $page['identifier'], $items);
+        self::assertSame($expectation, array_values($items));
+    }
+
+    public static function filterDataActionResolvesNestedPagesDataProvider(): \Generator
+    {
+        yield 'searching "Forecasts"' => [
+            'query' => 'Forecasts',
+            'expectation' => [
+                [
+                    'identifier' => '0',
+                    'name' => 'New TYPO3 site',
+                    'depth' => 0,
+                    'hasChildren' => true,
+                ],
+                [
+                    'identifier' => '1000',
+                    'name' => 'ACME Inc',
+                    'depth' => 1,
+                    'hasChildren' => true,
+                ],
+                [
+                    'identifier' => '1500',
+                    'name' => 'Internal',
+                    'depth' => 2,
+                    'hasChildren' => true,
+                ],
+                [
+                    'identifier' => '1520',
+                    'name' => 'Forecasts',
+                    'depth' => 3,
+                    // see https://forge.typo3.org/issues/105239
+                    'hasChildren' => true,
+                ],
+                [
+                    'identifier' => '8110',
+                    'name' => 'Europe',
+                    'depth' => 1,
+                    'hasChildren' => true,
+                ],
+            ],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('filterDataActionResolvesNestedPagesDataProvider')]
+    public function filterDataActionResolvesNestedPages(string $query, array $expectation): void
+    {
+        $filterProperties = ['identifier', 'depth', 'name', 'hasChildren'];
+        $request = (new ServerRequest(new Uri('https://example.com')))->withQueryParams(['q' => $query]);
+        $response = $this->get(TreeController::class)->filterDataAction($request);
+        $data = json_decode((string)$response->getBody(), true);
+        $items = array_map(
+            static fn(array $page): array => array_filter(
+                $page,
+                static fn(string $property): bool => in_array($property, $filterProperties, true),
+                ARRAY_FILTER_USE_KEY
+            ),
+            $data,
+        );
+        self::assertSame($expectation, $items);
     }
 }

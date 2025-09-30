@@ -16,7 +16,7 @@ import '@typo3/backend/input/clearable';
 import DocumentService from '@typo3/core/document-service';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import RegularEvent from '@typo3/core/event/regular-event';
-import Mark from '@typo3/backend/contrib/mark';
+import Mark from 'mark.js';
 import DomHelper from '@typo3/backend/utility/dom-helper';
 
 /**
@@ -147,8 +147,8 @@ class CollapseStateSearch {
     }
 
     markInstance.mark(term, {
-      element: 'strong',
-      className: 'text-danger'
+      element: 'span',
+      className: 'text-highlight'
     });
   }
 

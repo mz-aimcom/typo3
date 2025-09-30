@@ -41,7 +41,7 @@ class Locales implements SingletonInterface
      * @var array<non-empty-string, non-empty-string>
      */
     protected array $languages = [
-        'default' => 'English',
+        'default' => 'English', // internally, this is the fallback, the mapping from "default" to "en" is done within LanguageService + LocalizationFactory.
         'af' => 'Afrikaans',
         'ar' => 'Arabic',
         'bs' => 'Bosnian',
@@ -206,7 +206,7 @@ class Locales implements SingletonInterface
     {
         return array_merge(
             ['default'],
-            array_filter(array_values($GLOBALS['TYPO3_CONF_VARS']['EXTCONF']['lang']['availableLanguages'] ?? []))
+            array_filter(array_values($GLOBALS['TYPO3_CONF_VARS']['LANG']['availableLocales'] ?? []))
         );
     }
 
@@ -301,8 +301,7 @@ class Locales implements SingletonInterface
     }
 
     /**
-     * Setting locale based on a SiteLanguage's defined locale.
-     * Used for frontend rendering, previously set within TSFE->settingLocale
+     * Setting locale based on a SiteLanguage's defined locale. Used for frontend rendering.
      *
      * @return bool whether the locale was found on the system (and could be set properly) or not
      */

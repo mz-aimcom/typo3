@@ -28,7 +28,7 @@
                     <action type="CustomResponse" statusCode="403" statusReason="Forbidden" statusDescription="Forbidden" />
                 </rule>
                 <rule name="TYPO3 - Block access to miscellaneous protected files">
-                    <match url="/.*\.(?:bak|co?nf|cfg|ya?ml|ts|typoscript|tsconfig|dist|fla|in[ci]|log|sh|sql|sqlite)$" ignoreCase="true" />
+                    <match url="/.*\.(?:bak|co?nf|cfg|neon|ya?ml|ts|typoscript|tsconfig|dist|fla|in[ci]|log|sh|sql|sqlite)$" ignoreCase="true" />
                     <action type="CustomResponse" statusCode="403" statusReason="Forbidden" statusDescription="Forbidden" />
                 </rule>
                 <rule name="TYPO3 - Block access to recycler and temporary directories">
@@ -60,7 +60,7 @@
                     <action type="Rewrite" url="index.php" appendQueryString="true" />
                 </rule>
                 <rule name="TYPO3 - Version Number in File Name (if set)" stopProcessing="true">
-                    <match url="^(.+)\.(\d+)\.(php|js|css|png|jpg|gif|gz)$" ignoreCase="false" />
+                    <match url="^(.+)\.(\d+)\.(php|js|css|png|jpg|gif|svg|avif|webp|gz)$" ignoreCase="false" />
                     <conditions logicalGrouping="MatchAll">
                         <add input="{REQUEST_FILENAME}" matchType="IsFile" ignoreCase="false" negate="true" />
                         <add input="{REQUEST_FILENAME}" matchType="IsDirectory" ignoreCase="false" negate="true" />

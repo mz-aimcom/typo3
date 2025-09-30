@@ -50,7 +50,6 @@ use TYPO3\CMS\Core\Security\RequestToken;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
-use TYPO3\CMS\Fluid\View\StandaloneView;
 
 /**
  * Controller responsible for rendering the TYPO3 Backend login form.
@@ -65,30 +64,25 @@ use TYPO3\CMS\Fluid\View\StandaloneView;
  *        should either be streamlined to actually work, or (preferred) be thrown away.
  */
 #[AsController]
-class LoginController
+readonly class LoginController
 {
     use PageRendererBackendSetupTrait;
 
-    /**
-     * @deprecated Remove in v14 along with getCurrentRequest()
-     */
-    protected ServerRequestInterface $request;
-
     public function __construct(
-        protected readonly Typo3Information $typo3Information,
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly PageRenderer $pageRenderer,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly Features $features,
-        protected readonly Context $context,
-        protected readonly LoginProviderResolver $loginProviderResolver,
-        protected readonly ExtensionConfiguration $extensionConfiguration,
-        protected readonly BackendEntryPointResolver $backendEntryPointResolver,
-        protected readonly FormProtectionFactory $formProtectionFactory,
-        protected readonly Locales $locales,
-        protected readonly ConnectionPool $connectionPool,
-        protected readonly AuthenticationStyleInformation $authenticationStyleInformation,
-        protected readonly ViewFactoryInterface $viewFactory,
+        protected Typo3Information $typo3Information,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected PageRenderer $pageRenderer,
+        protected UriBuilder $uriBuilder,
+        protected Features $features,
+        protected Context $context,
+        protected LoginProviderResolver $loginProviderResolver,
+        protected ExtensionConfiguration $extensionConfiguration,
+        protected BackendEntryPointResolver $backendEntryPointResolver,
+        protected FormProtectionFactory $formProtectionFactory,
+        protected Locales $locales,
+        protected ConnectionPool $connectionPool,
+        protected AuthenticationStyleInformation $authenticationStyleInformation,
+        protected ViewFactoryInterface $viewFactory,
     ) {}
 
     /**
@@ -97,7 +91,6 @@ class LoginController
      */
     public function formAction(ServerRequestInterface $request): ResponseInterface
     {
-        $this->request = $request;
         return $this->createLoginLogout($request, (bool)($request->getParsedBody()['loginRefresh'] ?? $request->getQueryParams()['loginRefresh'] ?? false));
     }
 
@@ -106,7 +99,6 @@ class LoginController
      */
     public function refreshAction(ServerRequestInterface $request): ResponseInterface
     {
-        $this->request = $request;
         return $this->createLoginLogout($request, true);
     }
 
@@ -140,13 +132,6 @@ class LoginController
         if (($highlightColorStyles = $this->authenticationStyleInformation->getHighlightColorStyles()) !== '') {
             $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, useNonce: true);
         }
-        if (($logo = $this->authenticationStyleInformation->getLogo()) !== '') {
-            $logoAlt = $this->authenticationStyleInformation->getLogoAlt() ?: $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:typo3.altText');
-        } else {
-            $logo = $this->authenticationStyleInformation->getDefaultLogo();
-            $logoAlt = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:typo3.altText');
-            $this->pageRenderer->addCssInlineBlock('loginLogo', $this->authenticationStyleInformation->getDefaultLogoStyles(), useNonce: true);
-        }
         $loginProviderIdentifier = $this->loginProviderResolver->resolveLoginProviderIdentifierFromRequest($request, 'be_lastLoginProvider');
         if (empty($backendUser->user['uid'])) {
             // Show login form
@@ -159,9 +144,6 @@ class LoginController
         }
         $forgotPasswordUrl = $this->uriBuilder->buildUriWithRedirect('password_forget', ['loginProvider' => $loginProviderIdentifier], RouteRedirect::createFromRequest($request));
         $viewVariables = [
-            'logo' => $logo,
-            'logoAlt' => $logoAlt,
-            'images' => $this->authenticationStyleInformation->getSupportingImages(),
             'copyright' => $this->typo3Information->getCopyrightNotice(),
             'loginFootnote' => $this->authenticationStyleInformation->getFooterNote(),
             'referrerCheckEnabled' => $this->features->isFeatureEnabled('security.backend.enforceReferrer'),
@@ -174,7 +156,6 @@ class LoginController
             'requestTokenName' => RequestToken::PARAM_NAME,
             'requestTokenValue' => $this->provideRequestTokenJwt(),
             'forgetPasswordUrl' => $forgotPasswordUrl,
-            'redirectUrl' => GeneralUtility::sanitizeLocalUrl($request->getParsedBody()['redirect_url'] ?? $request->getQueryParams()['redirect_url'] ?? ''),
             'loginRefresh' => $loginRefresh,
             'loginProviders' => $this->loginProviderResolver->getLoginProviders(),
             'loginNewsItems' => $this->getSystemNews(),
@@ -188,35 +169,17 @@ class LoginController
         if (!$loginProvider instanceof LoginProviderInterface) {
             throw new \RuntimeException($loginProviderConfiguration['provider'] . ' must implement LoginProviderInterface', 1724772171);
         }
-        if (method_exists($loginProvider, 'modifyView')) {
-            // @todo / @deprecated: Activate modifyView() in LoginProviderInterface in v14, remove render() fallback.
-            $viewFactoryData = new ViewFactoryData(
-                templateRootPaths: ['EXT:backend/Resources/Private/Templates'],
-                partialRootPaths: ['EXT:backend/Resources/Private/Partials'],
-                layoutRootPaths: ['EXT:backend/Resources/Private/Layouts'],
-                request: $request,
-            );
-            $view = $this->viewFactory->create($viewFactoryData);
-            $view->assignMultiple($viewVariables);
-            $this->eventDispatcher->dispatch(new ModifyPageLayoutOnLoginProviderSelectionEvent($this, $view, $this->pageRenderer, $request));
-            $templateFile = $loginProvider->modifyView($request, $view);
-            $content = $view->render($templateFile);
-        } else {
-            // @deprecated: Will be removed in v14, have modifyView() only.
-            trigger_error(
-                'Method LoginProviderInterface->render() has been marked as deprecated. Implement modifyView() in ' . $loginProviderConfiguration['provider'] . ' instead.',
-                E_USER_DEPRECATED
-            );
-            $view = GeneralUtility::makeInstance(StandaloneView::class);
-            $view->setRequest();
-            $view->setTemplateRootPaths(['EXT:backend/Resources/Private/Templates']);
-            $view->setLayoutRootPaths(['EXT:backend/Resources/Private/Layouts']);
-            $view->setPartialRootPaths(['EXT:backend/Resources/Private/Partials']);
-            $view->assignMultiple($viewVariables);
-            $this->eventDispatcher->dispatch(new ModifyPageLayoutOnLoginProviderSelectionEvent($this, $view, $this->pageRenderer, $request));
-            $loginProvider->render($view, $this->pageRenderer, $this);
-            $content = $view->render();
-        }
+        $viewFactoryData = new ViewFactoryData(
+            templateRootPaths: ['EXT:backend/Resources/Private/Templates'],
+            partialRootPaths: ['EXT:backend/Resources/Private/Partials'],
+            layoutRootPaths: ['EXT:backend/Resources/Private/Layouts'],
+            request: $request,
+        );
+        $view = $this->viewFactory->create($viewFactoryData);
+        $view->assignMultiple($viewVariables);
+        $this->eventDispatcher->dispatch(new ModifyPageLayoutOnLoginProviderSelectionEvent($view, $request));
+        $templateFile = $loginProvider->modifyView($request, $view);
+        $content = $view->render($templateFile);
         $this->pageRenderer->setBodyContent('<body>' . $content);
         $response = $this->pageRenderer->renderResponse();
         return $this->appendLoginProviderCookie($request, $response);
@@ -235,22 +198,6 @@ class LoginController
     }
 
     /**
-     * @deprecated Remove in v14 along with LoginProviderInterface->render()
-     */
-    public function getLoginProviderIdentifier(): string
-    {
-        return $this->loginProviderResolver->resolveLoginProviderIdentifierFromRequest($this->request, 'be_lastLoginProvider');
-    }
-
-    /**
-     * @deprecated Remove in v14 along with LoginProviderInterface->render(). Also removed $this->request property.
-     */
-    public function getCurrentRequest(): ServerRequestInterface
-    {
-        return $this->request;
-    }
-
-    /**
      * @throws PropagateResponseException
      */
     protected function checkRedirect(ServerRequestInterface $request, BackendUserAuthentication $backendUser, bool $loginRefresh): void
@@ -266,8 +213,16 @@ class LoginController
         } else {
             $formProtection->storeSessionTokenInRegistry();
             // @todo: Consolidate RouteDispatcher::evaluateReferrer() when changing 'main' to something different
-            $redirectToURL = (string)($backendUser->getTSConfig()['auth.']['BE.']['redirectToURL'] ?? '')
-                ?: (string)$this->uriBuilder->buildUriWithRedirect('main', [], RouteRedirect::createFromRequest($request));
+            $tsConfigRedirectToURL = (string)($backendUser->getTSConfig()['auth.']['BE.']['redirectToURL'] ?? '');
+            if ($tsConfigRedirectToURL !== '') {
+                trigger_error(
+                    'User TSConfig auth.BE.redirectToURL has been deprecated in TYPO3 v14.0 and will be removed in v15.0.',
+                    E_USER_DEPRECATED
+                );
+            }
+
+            $redirectToURL = $tsConfigRedirectToURL ?:
+                (string)$this->uriBuilder->buildUriWithRedirect('main', [], RouteRedirect::createFromRequest($request));
             throw new PropagateResponseException(new RedirectResponse($redirectToURL, 303), 1724705833);
         }
     }

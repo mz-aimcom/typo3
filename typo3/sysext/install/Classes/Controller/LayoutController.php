@@ -25,6 +25,7 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\JsonResponse;
+use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Package\FailsafePackageManager;
 use TYPO3\CMS\Core\Page\ImportMap;
@@ -54,6 +55,7 @@ class LayoutController extends AbstractController
         private readonly SilentTemplateFileUpgradeService $silentTemplateFileUpgradeService,
         private readonly BackendEntryPointResolver $backendEntryPointResolver,
         private readonly HashService $hashService,
+        private readonly IconRegistry $iconRegistry,
     ) {}
 
     /**
@@ -81,7 +83,7 @@ class LayoutController extends AbstractController
         $view->assignMultiple([
             // time is used as cache bust for js and css resources
             'bust' => $bust,
-            'siteName' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'],
+            'iconCacheIdentifier' => sha1($this->iconRegistry->getBackendIconsCacheIdentifier()),
             'initModule' => $initModule,
             'importmap' => $importMap->render($sitePath, $nonce),
         ]);
@@ -106,6 +108,7 @@ class LayoutController extends AbstractController
         $view = $this->initializeView($request);
         $view->assign('moduleName', 'tools_tools' . ($request->getQueryParams()['install']['module'] ?? 'layout'));
         $view->assign('backendUrl', (string)$this->backendEntryPointResolver->getUriFromRequest($request));
+        $view->assign('frontendUrl', $request->getAttribute('normalizedParams')->getSiteUrl());
         return new JsonResponse([
             'success' => true,
             'html' => $view->render('Layout/MainLayout'),

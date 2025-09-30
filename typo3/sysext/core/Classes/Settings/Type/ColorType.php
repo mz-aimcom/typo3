@@ -135,10 +135,15 @@ readonly class ColorType implements SettingsTypeInterface
             return null;
         }
 
-        if (!preg_match('/^[0-9a-f]+$/', $values)) {
+        if (!preg_match('/^[0-9a-f]+$/i', $values)) {
             return null;
         }
 
         return '#' . $values;
+    }
+
+    public function getJavaScriptModule(): string
+    {
+        return '@typo3/backend/settings/type/color.js';
     }
 }

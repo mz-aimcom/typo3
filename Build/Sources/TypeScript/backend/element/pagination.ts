@@ -12,7 +12,7 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, TemplateResult } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { range } from 'lit/directives/range';
 import { map } from 'lit/directives/map';
 import { classMap } from 'lit/directives/class-map';
@@ -22,17 +22,17 @@ export class PaginationElement extends LitElement {
   @property({ type: Object })
   public paging: Record<string, number> | null = null;
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <ul class="pagination">
         <li class=${classMap({ 'page-item': true, disabled: this.paging.currentPage === 1 })}>
           <button type="button" class="page-link" data-action="previous" ?disabled=${this.paging.currentPage === 1}>
-            <typo3-backend-icon identifier="actions-arrow-left-alt" size="small"></typo3-backend-icon>
+            <typo3-backend-icon identifier="actions-view-paging-previous" size="small"></typo3-backend-icon>
           </button>
         </li>
         ${map(range(1, this.paging.totalPages + 1), (page) => html`
@@ -44,7 +44,7 @@ export class PaginationElement extends LitElement {
         `)}
         <li class=${classMap({ 'page-item': true, disabled: this.paging.currentPage === this.paging.totalPages })}>
           <button type="button" class="page-link" data-action="next" ?disabled=${this.paging.currentPage === this.paging.totalPages}>
-            <typo3-backend-icon identifier="actions-arrow-right-alt" size="small"></typo3-backend-icon>
+            <typo3-backend-icon identifier="actions-view-paging-next" size="small"></typo3-backend-icon>
           </button>
         </li>
       </ul>

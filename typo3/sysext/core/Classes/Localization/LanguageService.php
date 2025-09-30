@@ -17,7 +17,10 @@ namespace TYPO3\CMS\Core\Localization;
 
 use Symfony\Component\DependencyInjection\Attribute\Exclude;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
+use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
+use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 
 /**
@@ -29,12 +32,10 @@ use TYPO3\CMS\Core\Utility\PathUtility;
  * Usually this is injected into $GLOBALS['LANG'] when in backend or CLI context, and
  * populated by the current backend user. Do not rely on $GLOBAL['LANG'] in frontend, as it is only
  * available under certain circumstances!
- * In frontend, this is also used to translate "labels", see TypoScriptFrontendController->sL()
- * for that.
  *
  * As TYPO3 internally does not match the proper ISO locale standard, the "locale" here
  * is actually a list of supported language keys, (see Locales class), whereas "English"
- * has the language key "default".
+ * is always the fallback ("default language").
  *
  * Further usages on setting up your own LanguageService in BE:
  *
@@ -47,9 +48,9 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 class LanguageService
 {
     /**
-     * This is set to the language that is currently running for the user
+     * This is set to the language which is currently running for the user
      */
-    public string $lang = 'default';
+    public string $lang = 'en';
 
     protected ?Locale $locale = null;
 
@@ -99,18 +100,13 @@ class LanguageService
      *
      * @param string $index Label key
      * @param array $localLanguage $LOCAL_LANG array to get label key from
-     * @return string
      */
     protected function getLLL(string $index, array $localLanguage): string
     {
         if (isset($localLanguage[$this->lang][$index])) {
             $value = is_string($localLanguage[$this->lang][$index])
                 ? $localLanguage[$this->lang][$index]
-                : $localLanguage[$this->lang][$index][0]['target'];
-        } elseif (isset($localLanguage['default'][$index])) {
-            $value = is_string($localLanguage['default'][$index])
-                ? $localLanguage['default'][$index]
-                : $localLanguage['default'][$index][0]['target'];
+                : $localLanguage[$this->lang][$index][0];
         } else {
             $value = '';
         }
@@ -128,7 +124,42 @@ class LanguageService
      *
      * This looks up the given .xlf file path in the 'core' extension for label labels.depth_0
      *
+     * Only the plain string contents of a language key, like "Record title: %s" are returned.
+     * Placeholder interpolation must be performed separately, for example via `sprintf()`, like
+     * `LocalizationUtility::translate()` does internally (which should only be used in Extbase
+     * context)
+     *
+     * Example:
+     * Label is defined in `EXT:my_ext/Resources/Private/Language/locallang.xlf` as:
+     *
+     * ```
+     * <trans-unit id="downloaded_times">
+     *     <source>downloaded %d times from %s locations</source>
+     * </trans-unit>
+     * ```
+     *
+     * The following code example assumes `$this->request` to hold the current request object.
+     * There are several ways to create the LanguageService using the Factory, depending on the
+     * context. Please adjust this example to your use case:
+     *
+     * ```
+     * $language = $this->request->getAttribute('language');
+     * $languageService =
+     *   GeneralUtility::makeInstance(LanguageServiceFactory::class)
+     *   ->createFromSiteLanguage($language);
+     * $label = sprintf(
+     *      $languageService->sL(
+     *          'LLL:EXT:my_ext/Resources/Private/Language/locallang.xlf:downloaded_times'
+     *      ),
+     *      27,
+     *      'several'
+     * );
+     * ```
+     *
+     * This will result in `$label` to contain `'downloaded 27 times from several locations'`.
+     *
      * @param string $input Label key/reference
+     * @see LocalizationUtility::translate()
      */
     public function sL($input): string
     {
@@ -155,13 +186,16 @@ class LanguageService
             $restStr = substr(trim($restStr), 4);
             $extensionPrefix = 'EXT:';
         }
+        $output = '';
         $parts = explode(':', trim($restStr));
-        $parts[0] = $extensionPrefix . $parts[0];
-        $labelsFromFile = $this->readLLfile($parts[0]);
-        if (is_array($this->overrideLabels[$parts[0]] ?? null)) {
-            $labelsFromFile = array_replace_recursive($labelsFromFile, $this->overrideLabels[$parts[0]]);
+        if (isset($parts[1])) {
+            $parts[0] = $extensionPrefix . $parts[0];
+            $labelsFromFile = $this->readLLfile($parts[0]);
+            if (is_array($this->overrideLabels[$parts[0]] ?? null)) {
+                $labelsFromFile = array_replace_recursive($labelsFromFile, $this->overrideLabels[$parts[0]]);
+            }
+            $output = $this->getLLL($parts[1], $labelsFromFile);
         }
-        $output = $this->getLLL($parts[1] ?? '', $labelsFromFile);
         $this->runtimeCache->set($cacheIdentifier, $output);
         return $output;
     }
@@ -208,7 +242,7 @@ class LanguageService
     {
         $labelArray = [];
         $labelsFromFile = $this->readLLfile($fileRef);
-        foreach ($labelsFromFile['default'] as $key => $value) {
+        foreach ($labelsFromFile['en'] as $key => $value) {
             $labelArray[$key] = $this->getLLL($key, $labelsFromFile);
         }
         return $labelArray;
@@ -228,35 +262,26 @@ class LanguageService
             return $cacheEntry;
         }
 
+        // Get english first
+        $allLabels = [
+            'en' => $this->localizationFactory->getParsedData($fileRef, 'en'),
+        ];
         $mainLanguageKey = $this->getTypo3LanguageKey();
-        $localLanguage = [];
-        $allLocales = array_merge([$mainLanguageKey], $this->locale->getDependencies());
-        $allLocales = array_reverse($allLocales);
-        foreach ($allLocales as $locale) {
-            $tempLL = $this->localizationFactory->getParsedData($fileRef, $locale);
-            $localLanguage['default'] = $tempLL['default'];
-            if (!isset($localLanguage[$mainLanguageKey])) {
-                $localLanguage[$mainLanguageKey] = $localLanguage['default'];
-            }
-            if ($mainLanguageKey !== 'default') {
-                // Fallback as long as TYPO3 supports "da_DK" and "da-DK"
-                if ((!isset($tempLL[$locale]) || $tempLL[$locale] === []) && str_contains($locale, '-')) {
-                    $underscoredLocale = str_replace('-', '_', $locale);
-                    $tempLL = $this->localizationFactory->getParsedData($fileRef, $underscoredLocale);
-                    if (isset($tempLL[$underscoredLocale])) {
-                        $tempLL[$locale] = $tempLL[$underscoredLocale];
-                    }
-                }
-                if (isset($tempLL[$locale])) {
-                    // Merge current language labels onto labels from previous language
-                    // This way we have a labels with fall back applied
-                    ArrayUtility::mergeRecursiveWithOverrule($localLanguage[$mainLanguageKey], $tempLL[$locale], true, false);
-                }
+        if ($mainLanguageKey !== 'en') {
+            $allLabels[$mainLanguageKey] = $allLabels['en'];
+            $allLocales = array_merge([$mainLanguageKey], $this->locale->getDependencies());
+            $allLocales = array_unique($allLocales);
+            $allLocales = array_reverse($allLocales);
+            foreach ($allLocales as $locale) {
+                // Merge current language labels onto labels from previous language
+                // This way we have a labels with fallback applied
+                $labels = $this->localizationFactory->getParsedData($fileRef, $locale);
+                ArrayUtility::mergeRecursiveWithOverrule($allLabels[$mainLanguageKey], $labels, true, false);
             }
         }
 
-        $this->runtimeCache->set($cacheIdentifier, $localLanguage);
-        return $localLanguage;
+        $this->runtimeCache->set($cacheIdentifier, $allLabels);
+        return $allLabels;
     }
 
     /**
@@ -266,23 +291,61 @@ class LanguageService
     public function overrideLabels(string $fileRef, array $labels): void
     {
         $localLanguage = [
-            'default' => $labels['default'] ?? [],
+            // Default is kept for fallback purposes when coming from TypoScript
+            'en' => $labels['en'] ?? $labels['default'] ?? [],
         ];
         $mainLanguageKey = $this->getTypo3LanguageKey();
-        if ($mainLanguageKey !== 'default') {
+        if ($mainLanguageKey !== 'en') {
+            // Populate the initial values with "en", if no labels for the current language are given
+            $localLanguage[$mainLanguageKey] = $localLanguage['en'];
             $allLocales = array_merge([$mainLanguageKey], $this->locale->getDependencies());
+            $allLocales = array_unique($allLocales);
             $allLocales = array_reverse($allLocales);
             foreach ($allLocales as $language) {
-                // Populate the initial values with default, if no labels for the current language are given
-                if (!isset($localLanguage[$mainLanguageKey])) {
-                    $localLanguage[$mainLanguageKey] = $localLanguage['default'];
-                }
                 if (isset($labels[$language])) {
                     $localLanguage[$mainLanguageKey] = array_replace_recursive($localLanguage[$mainLanguageKey], $labels[$language]);
                 }
             }
         }
         $this->overrideLabels[$fileRef] = $localLanguage;
+    }
+
+    /**
+     * Overwrites labels that are set via TypoScript.
+     *
+     * TS labels have to be configured like:
+     *     plugin.tx_myextension._LOCAL_LANG.languageKey.key = value
+     *
+     * @internal not part of TYPO3 Core API.
+     */
+    public function loadTypoScriptLabelsFromExtension(string $extensionName, FrontendTypoScript $typoScript, string $pluginName = ''): array
+    {
+        $extensionName = str_replace('_', '', $extensionName);
+        $extensionName = strtolower($extensionName);
+
+        $allLabels = $typoScript->getSetupArray()['plugin.']['tx_' . $extensionName . '.']['_LOCAL_LANG.'] ?? [];
+        if ($pluginName !== '') {
+            $allLabels = array_replace_recursive(
+                $allLabels,
+                $typoScript->getSetupArray()['plugin.']['tx_' . $extensionName . '_' . strtolower($pluginName) . '.']['_LOCAL_LANG.'] ?? [],
+            );
+        }
+        $typoScriptService = GeneralUtility::makeInstance(TypoScriptService::class);
+        $allLabels = $typoScriptService->convertTypoScriptArrayToPlainArray($allLabels);
+        $finalLabels = [];
+        foreach ($allLabels as $languageKey => $labels) {
+            foreach ($labels ?? [] as $labelKey => $labelValue) {
+                if (is_string($labelValue)) {
+                    $finalLabels[$languageKey][$labelKey] = $labelValue;
+                } elseif (is_array($labelValue)) {
+                    $labelValue = $typoScriptService->flattenTypoScriptLabelArray($labelValue, $labelKey);
+                    foreach ($labelValue as $key => $value) {
+                        $finalLabels[$languageKey][$key] = $value;
+                    }
+                }
+            }
+        }
+        return $finalLabels;
     }
 
     public function getLocale(): ?Locale
@@ -292,12 +355,6 @@ class LanguageService
 
     private function getTypo3LanguageKey(): string
     {
-        if ($this->locale === null) {
-            return 'default';
-        }
-        if ($this->locale->getName() === 'en') {
-            return 'default';
-        }
-        return $this->locale->getName();
+        return $this->locale?->getName() ?? 'en';
     }
 }

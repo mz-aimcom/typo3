@@ -29,6 +29,9 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\RootLevelRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
+use TYPO3\CMS\Core\Domain\Record;
+use TYPO3\CMS\Core\Domain\RecordInterface;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\ImmediateResponseException;
 use TYPO3\CMS\Core\Http\RedirectResponse;
@@ -36,6 +39,9 @@ use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Resource\Filter\FileNameFilter;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\SysLog\Action as SystemLogGenericAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
@@ -45,7 +51,6 @@ use TYPO3\CMS\Core\Type\Bitmask\BackendGroupMountOption;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\TypoScript\UserTsConfig;
 use TYPO3\CMS\Core\TypoScript\UserTsConfigFactory;
-use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
@@ -313,14 +318,19 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      *
      * @param int|array $idOrRow Page ID or full page record to check
      * @param string $readPerms Content of "->getPagePermsClause(1)" (read-permissions). If not set, they will be internally calculated (but if you have the correct value right away you can save that database lookup!)
+     * @param bool $useDeleteClause Use the deleteClause to check if a record is deleted (default TRUE)
      * @throws \RuntimeException
      * @return int|null The page UID of a page in the rootline that matched a mount point
      */
-    public function isInWebMount($idOrRow, $readPerms = '')
+    public function isInWebMount($idOrRow, $readPerms = '', bool $useDeleteClause = true)
     {
         if ($this->isAdmin()) {
             return 1;
         }
+        $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages');
+        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+        $languageFieldName = $languageCapability->getLanguageField()->getName();
+        $transOrigPointerFieldName = $languageCapability->getTranslationOriginPointerField()->getName();
         $checkRec = [];
         $fetchPageFromDatabase = true;
         if (is_array($idOrRow)) {
@@ -330,7 +340,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $checkRec = $idOrRow;
             $id = (int)$idOrRow['uid'];
             // ensure the required fields are present on the record
-            if (isset($checkRec['t3ver_oid'], $checkRec[$GLOBALS['TCA']['pages']['ctrl']['languageField']], $checkRec[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField']])) {
+            if (isset($checkRec['t3ver_oid'], $checkRec[$languageFieldName], $checkRec[$transOrigPointerFieldName])) {
                 $fetchPageFromDatabase = false;
             }
         } else {
@@ -341,27 +351,28 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $checkRec = BackendUtility::getRecord(
                 'pages',
                 $id,
-                't3ver_oid,'
-                . $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] . ','
-                . $GLOBALS['TCA']['pages']['ctrl']['languageField']
+                't3ver_oid,' . $transOrigPointerFieldName . ',' . $languageFieldName,
+                '',
+                $useDeleteClause,
             );
+        }
+        if (!is_array($checkRec)) {
+            return null;
         }
         if ((int)($checkRec['t3ver_oid'] ?? 0) > 0) {
             $id = (int)$checkRec['t3ver_oid'];
         }
         // if current rec is a translation then get uid from l10n_parent instead
         // because web mounts point to pages in default language and rootline returns uids of default languages
-        if ((int)($checkRec[$GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? null] ?? 0) !== 0
-            && (int)($checkRec[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] ?? null] ?? 0) !== 0
-        ) {
-            $id = (int)$checkRec[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField']];
+        if ((int)($checkRec[$languageFieldName]) !== 0 && (int)($checkRec[$transOrigPointerFieldName]) !== 0) {
+            $id = (int)$checkRec[$transOrigPointerFieldName];
         }
         if (!$readPerms) {
             $readPerms = $this->getPagePermsClause(Permission::PAGE_SHOW);
         }
         if ($id > 0) {
             $wM = $this->getWebmounts();
-            $rL = BackendUtility::BEgetRootLine($id, ' AND ' . $readPerms, true);
+            $rL = BackendUtility::BEgetRootLine($id, ' AND ' . $readPerms, true, [], $useDeleteClause);
             foreach ($rL as $v) {
                 if ($v['uid'] && in_array($v['uid'], $wM)) {
                     return $v['uid'];
@@ -487,16 +498,17 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      * If the user is admin, 31 is returned	(full permissions for all five flags)
      *
      * @param array $row Input page row with all perms_* fields available.
+     * @param bool $useDeleteClause Use the deleteClause to check if a record is deleted (default TRUE)
      * @return int Bitwise representation of the users permissions in relation to input page row, $row
      */
-    public function calcPerms($row)
+    public function calcPerms($row, bool $useDeleteClause = true)
     {
         // Return 31 for admin users.
         if ($this->isAdmin()) {
             return Permission::ALL;
         }
         // Return 0 if page is not within the allowed web mount
-        if (!$this->isInWebMount($row)) {
+        if (!$this->isInWebMount($row, '', $useDeleteClause)) {
             return Permission::NOTHING;
         }
         $out = Permission::NOTHING;
@@ -602,18 +614,26 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     /**
      * Check if user has access to all existing localizations for a certain record
      *
-     * @param string $table The table
+     * @param string|TcaSchema $table The table/schema
      * @param array $record The current record
      * @return bool
      */
-    public function checkFullLanguagesAccess($table, $record)
+    public function checkFullLanguagesAccess(string|TcaSchema $table, array $record): bool
     {
         if (!$this->checkLanguageAccess(0)) {
             return false;
         }
+        if ($table instanceof TcaSchema) {
+            $schema = $table;
+            $table = $table->getName();
+        } else {
+            $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get($table);
+        }
 
-        if (BackendUtility::isTableLocalizable($table)) {
-            $pointerField = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'];
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $languageField = $languageCapability->getLanguageField()->getName();
+            $pointerField = $languageCapability->getTranslationOriginPointerField()->getName();
             $pointerValue = $record[$pointerField] > 0 ? $record[$pointerField] : $record['uid'];
             $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
             $queryBuilder->getRestrictions()
@@ -632,7 +652,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 ->fetchAllAssociative();
 
             foreach ($recordLocalizations as $recordLocalization) {
-                if (!$this->checkLanguageAccess($recordLocalization[$GLOBALS['TCA'][$table]['ctrl']['languageField']])) {
+                if (!$this->checkLanguageAccess($recordLocalization[$languageField])) {
                     return false;
                 }
             }
@@ -642,88 +662,82 @@ class BackendUserAuthentication extends AbstractUserAuthentication
 
     /**
      * Checking if a user has editing access to a record from a $GLOBALS['TCA'] table.
-     * The checks does not take page permissions and other "environmental" things into account.
-     * It only deal with record internals; If any values in the record fields disallows it.
+     * The checks do not take page permissions and other "environmental" things into account.
+     * It only deals with record internals; If any values in the record fields disallows it.
      * For instance languages settings, authMode selector boxes are evaluated (and maybe more in the future).
-     * It will check for workspace dependent access.
+     * It will check for workspace-dependent access.
      * The function takes an ID (int) or row (array) as second argument.
      *
      * @param string $table Table name
-     * @param int|array $idOrRow If integer, then this is the ID of the record. If Array this just represents fields in the record.
+     * @param array|RecordInterface $row Full record row
      * @param bool $newRecord Set, if testing a new (non-existing) record array. Will disable certain checks that doesn't make much sense in that context.
-     * @param bool $deletedRecord Set, if testing a deleted record array.
+     * @param null $_ unused
      * @param bool $checkFullLanguageAccess Set, whenever access to all translations of the record is required
      * @return bool TRUE if OK, otherwise FALSE
      * @internal should only be used from within TYPO3 Core
      */
-    public function recordEditAccessInternals($table, $idOrRow, $newRecord = false, $deletedRecord = false, $checkFullLanguageAccess = false): bool
+    public function recordEditAccessInternals(string $table, array|RecordInterface $row, $newRecord = false, $_ = null, $checkFullLanguageAccess = false): bool
     {
-        if (!isset($GLOBALS['TCA'][$table])) {
+        $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+        if (!$schemaFactory->has($table)) {
             return false;
         }
+        if ($row instanceof RecordInterface) {
+            $row = $row->getRawRecord()->toArray();
+        }
+        $schema = $schemaFactory->get($table);
         // Always return TRUE for Admin users.
         if ($this->isAdmin()) {
             return true;
         }
-        // Fetching the record if the $idOrRow variable was not an array on input:
-        if (!is_array($idOrRow)) {
-            if ($deletedRecord) {
-                $idOrRow = BackendUtility::getRecord($table, $idOrRow, '*', '', false);
-            } else {
-                $idOrRow = BackendUtility::getRecord($table, $idOrRow);
-            }
-            if (!is_array($idOrRow)) {
-                $this->errorMsg = 'ERROR: Record could not be fetched.';
-                return false;
-            }
-        }
         // Checking languages:
-        if ($table === 'pages' && $checkFullLanguageAccess && !$this->checkFullLanguagesAccess($table, $idOrRow)) {
+        if ($table === 'pages' && $checkFullLanguageAccess && !$this->checkFullLanguagesAccess($schema, $row)) {
             return false;
         }
-        if ($GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? false) {
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $languageField = $languageCapability->getLanguageField()->getName();
+
             // Language field must be found in input row - otherwise it does not make sense.
-            if (isset($idOrRow[$GLOBALS['TCA'][$table]['ctrl']['languageField']])) {
-                if (!$this->checkLanguageAccess($idOrRow[$GLOBALS['TCA'][$table]['ctrl']['languageField']])) {
+            if (isset($row[$languageField])) {
+                if (!$this->checkLanguageAccess($row[$languageField])) {
                     $this->errorMsg = 'ERROR: Language was not allowed.';
                     return false;
                 }
                 if (
-                    $checkFullLanguageAccess && $idOrRow[$GLOBALS['TCA'][$table]['ctrl']['languageField']] == 0
-                    && !$this->checkFullLanguagesAccess($table, $idOrRow)
+                    $checkFullLanguageAccess && $row[$languageField] == 0
+                    && !$this->checkFullLanguagesAccess($table, $row)
                 ) {
                     $this->errorMsg = 'ERROR: Related/affected language was not allowed.';
                     return false;
                 }
             } else {
-                $this->errorMsg = 'ERROR: The "languageField" field named "'
-                    . $GLOBALS['TCA'][$table]['ctrl']['languageField'] . '" was not found in testing record!';
+                $this->errorMsg = 'ERROR: The "languageField" field named "' . $languageField . '" was not found in testing record!';
                 return false;
             }
         }
         // Checking authMode fields:
-        if (is_array($GLOBALS['TCA'][$table]['columns'])) {
-            foreach ($GLOBALS['TCA'][$table]['columns'] as $fieldName => $fieldValue) {
-                if (isset($idOrRow[$fieldName])
-                    && ($fieldValue['config']['type'] ?? '') === 'select'
-                    && ($fieldValue['config']['authMode'] ?? false)
-                    && !$this->checkAuthMode($table, $fieldName, $idOrRow[$fieldName])) {
-                    $this->errorMsg = 'ERROR: authMode "' . $fieldValue['config']['authMode']
-                            . '" failed for field "' . $fieldName . '" with value "'
-                            . $idOrRow[$fieldName] . '" evaluated';
-                    return false;
-                }
+        foreach ($schema->getFields() as $fieldName => $fieldType) {
+            if (isset($row[$fieldName])
+                && $fieldType->isType(TableColumnType::SELECT)
+                && ($fieldType->getConfiguration()['authMode'] ?? false)
+                && !$this->checkAuthMode($table, $fieldName, $row[$fieldName])) {
+                $this->errorMsg = 'ERROR: authMode "' . $fieldType->getConfiguration()['authMode']
+                        . '" failed for field "' . $fieldName . '" with value "'
+                        . $row[$fieldName] . '" evaluated';
+                return false;
             }
         }
         // Checking "editlock" feature (doesn't apply to new records)
-        if (!$newRecord && ($GLOBALS['TCA'][$table]['ctrl']['editlock'] ?? false)) {
-            if (isset($idOrRow[$GLOBALS['TCA'][$table]['ctrl']['editlock']])) {
-                if ($idOrRow[$GLOBALS['TCA'][$table]['ctrl']['editlock']]) {
+        if (!$newRecord && $schema->hasCapability(TcaSchemaCapability::EditLock)) {
+            $editLockFieldName = $schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName();
+            if (isset($row[$editLockFieldName])) {
+                if ($row[$editLockFieldName]) {
                     $this->errorMsg = 'ERROR: Record was locked for editing. Only admin users can change this state.';
                     return false;
                 }
             } else {
-                $this->errorMsg = 'ERROR: The "editLock" field named "' . $GLOBALS['TCA'][$table]['ctrl']['editlock']
+                $this->errorMsg = 'ERROR: The "editLock" field named "' . $editLockFieldName
                     . '" was not found in testing record!';
                 return false;
             }
@@ -734,7 +748,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_userauthgroup.php']['recordEditAccessInternals'] ?? [] as $funcRef) {
             $params = [
                 'table' => $table,
-                'idOrRow' => $idOrRow,
+                'idOrRow' => $row,
                 'newRecord' => $newRecord,
             ];
             if (!GeneralUtility::callUserFunction($funcRef, $params, $this)) {
@@ -771,13 +785,13 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         }
         // Workspace setting allows to "live edit" records of tables without versioning
         if (($this->workspaceRec['live_edit'] ?? false)
-            && !BackendUtility::isTableWorkspaceEnabled($table)
+            && !$this->getTcaSchema($table)?->isWorkspaceAware()
         ) {
             return true;
         }
-        // Always for Live workspace AND if live-edit is enabled
+        // Always for Live workspace, AND if live-edit is enabled
         // and tables are completely without versioning it is ok as well.
-        if ($GLOBALS['TCA'][$table]['ctrl']['versioningWS_alwaysAllowLiveEdit'] ?? false) {
+        if ($this->getTcaSchema($table)?->getRawConfiguration()['versioningWS_alwaysAllowLiveEdit'] ?? false) {
             return true;
         }
         // If the answer is FALSE it means the only valid way to create or edit records by creating records in the workspace
@@ -795,7 +809,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     public function workspaceCanCreateNewRecord(string $table): bool
     {
         // If LIVE records cannot be created due to workspace restrictions, prepare creation of placeholder-record
-        if (!$this->workspaceAllowsLiveEditingInTable($table) && !BackendUtility::isTableWorkspaceEnabled($table)) {
+        if (!$this->workspaceAllowsLiveEditingInTable($table) && !$this->getTcaSchema($table)?->isWorkspaceAware()) {
             return false;
         }
         return true;
@@ -811,14 +825,14 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      * @return bool TRUE if user is allowed access
      * @internal should only be used from within TYPO3 Core
      */
-    public function workspaceCheckStageForCurrent($stage)
+    public function workspaceCheckStageForCurrent($stage): bool
     {
         // Always allow for admins
         if ($this->isAdmin()) {
             return true;
         }
         // Always OK for live workspace
-        if ($this->workspace === 0 || !ExtensionManagementUtility::isLoaded('workspaces')) {
+        if ($this->workspace === 0 || $this->getTcaSchema('sys_workspace') === null) {
             return true;
         }
         $stage = (int)$stage;
@@ -890,23 +904,6 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     public function getUserTsConfig(): ?UserTsConfig
     {
         return $this->userTsConfig;
-    }
-
-    /**
-     * Returns an array with the webmounts.
-     * If no webmounts, and empty array is returned.
-     * Webmounts permissions are checked in fetchGroupData()
-     *
-     * @return list<numeric-string> of web mounts uids (may include '0')
-     * @deprecated will be removed in TYPO3 v14, use getWebmounts() instead.
-     */
-    public function returnWebmounts()
-    {
-        trigger_error('BackendUserAuthentication::returnWebmounts() will be removed in TYPO3 v14. Use getWebmounts() instead.', E_USER_DEPRECATED);
-        $webMounts = $this->groupData['webmounts'] ?? null;
-        return is_string($webMounts) && $webMounts !== ''
-            ? explode(',', $webMounts)
-            : [];
     }
 
     /**
@@ -1192,7 +1189,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 $this->fileStorages[$storageObject->getUid()] = $storageObject;
             }
         } else {
-            // Regular users only have storages that are defined in their filemounts
+            // Regular users only have storages that are defined in their file mounts
             // Permissions and file mounts for the storage are added in StoragePermissionAspect
             foreach ($this->getFileMountRecords() as $row) {
                 if (!str_contains($row['identifier'] ?? '', ':')) {
@@ -1274,8 +1271,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $fileMounts = array_intersect($fileMounts, $workspaceFileMounts);
         }
 
-        if (!empty($fileMounts)) {
-            $orderBy = $GLOBALS['TCA']['sys_filemounts']['ctrl']['default_sortby'] ?? 'sorting';
+        if ($fileMounts !== []) {
+            $schema = $this->getTcaSchema('sys_filemounts');
+            $orderBy = $schema->hasCapability(TcaSchemaCapability::DefaultSorting)
+                ? $schema->getCapability(TcaSchemaCapability::DefaultSorting)->getValue()
+                : 'sorting';
 
             $queryBuilder = $connectionPool->getQueryBuilderForTable('sys_filemounts');
             $queryBuilder->getRestrictions()
@@ -1297,7 +1297,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $fileMountRecords = $queryBuilder->executeQuery()->fetchAllAssociative();
             if ($fileMountRecords !== false) {
                 foreach ($fileMountRecords as $fileMount) {
-                    $readOnlySuffix = (bool)$fileMount['read_only'] ? '-readonly' : '';
+                    $readOnlySuffix = $fileMount['read_only'] ? '-readonly' : '';
                     $fileMountRecordCache[$fileMount['identifier'] . $readOnlySuffix] = $fileMount;
                 }
             }
@@ -1343,7 +1343,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             }
         }
 
-        // Personal or Group filemounts are not accessible if file mount list is set in workspace record
+        // Personal or Group file mounts are not accessible if file mount list is set in workspace record
         if ($this->workspace <= 0 || empty($this->workspaceRec['file_mountpoints'])) {
             // If userHomePath is set, we attempt to mount it
             if ($GLOBALS['TYPO3_CONF_VARS']['BE']['userHomePath'] ?? false) {
@@ -1402,9 +1402,9 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     }
 
     /**
-     * Returns an array with the filemounts for the user.
-     * Each filemount is represented with an array of a "name", "path" and "type".
-     * If no filemounts an empty array is returned.
+     * Returns an array with the file mounts for the user.
+     * Each file mount is represented with an array of a "name", "path" and "type".
+     * If no file mounts an empty array is returned.
      *
      * @return \TYPO3\CMS\Core\Resource\ResourceStorage[]
      */
@@ -1420,7 +1420,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     /**
      * Adds filters based on what the user has set
      * this should be done in this place, and called whenever needed,
-     * but only when needed
+     * but only when needed.
      */
     public function evaluateUserSpecificFileFilterSettings()
     {
@@ -1522,7 +1522,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     {
         // Initializing workspace by evaluating and setting the workspace, possibly updating it in the user record!
         $this->setWorkspace($this->user['workspace_id']);
-        // Limiting the DB mountpoints if there any selected in the workspace record
+        // Limiting the Page Tree Entry Points if there any selected in the workspace record
         $this->initializeDbMountpointsInWorkspace();
         $allowed_languages = (string)($this->getTSConfig()['options.']['workspaces.']['allowed_languages.'][$this->workspace] ?? '');
         if ($allowed_languages !== '') {
@@ -1531,7 +1531,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     }
 
     /**
-     * Limiting the DB mountpoints if there are any selected in the workspace record
+     * Limiting the Page Tree Entry Points if there are any selected in the workspace record
      */
     protected function initializeDbMountpointsInWorkspace()
     {
@@ -1546,7 +1546,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             // as usual anyway before the page tree is rendered.
             $readPerms = '1=1';
             // Traverse mount points of the workspace, add them,
-            // but make sure they match against the users' DB mounts
+            // but make sure they match against the users' Page Tree Entry Points
 
             $workspaceWebMounts = GeneralUtility::intExplode(',', $dbMountpoints);
             $webMountsOfUser = GeneralUtility::intExplode(',', (string)($this->groupData['webmounts'] ?? ''));
@@ -1558,15 +1558,15 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 $entryPointRootLineUids[$webMountPageId] = array_map(intval(...), array_column($rootLine, 'uid'));
             }
             foreach ($entryPointRootLineUids as $webMountOfUser => $uidsOfRootLine) {
-                // Remove the DB mounts of the user if the DB mount is not in the list of
+                // Remove the Page Tree Entry Point of the user if the Page Tree Entry Point is not in the list of
                 // workspace mounts
                 foreach ($workspaceWebMounts as $webmountOfWorkspace) {
-                    // This workspace DB mount is somewhere in the rootline of the users' web mount,
+                    // This workspace's Page Tree Entry Point is somewhere in the rootline of the users' web mount,
                     // so this is "OK" to be included
                     if (in_array($webmountOfWorkspace, $uidsOfRootLine, true)) {
                         continue;
                     }
-                    // Remove the user's DB Mount (possible via array_combine, see above)
+                    // Remove the user's Page Tree Entry Points (possible via array_combine, see above)
                     unset($webMountsOfUser[$webMountOfUser]);
                 }
             }
@@ -1595,7 +1595,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         if (!is_array($wsRec)) {
             if ($wsRec === 0) {
                 $wsRec = ['uid' => 0];
-            } elseif (ExtensionManagementUtility::isLoaded('workspaces')) {
+            } elseif ($this->getTcaSchema('sys_workspace')) {
                 $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_workspace');
                 $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(RootLevelRestriction::class));
                 $wsRec = $queryBuilder
@@ -1691,7 +1691,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 ['workspace_id' => $this->user['workspace_id']],
                 ['uid' => (int)$this->user['uid']]
             );
-            $this->writelog(SystemLogType::EXTENSION, SystemLogGenericAction::UNDEFINED, SystemLogErrorClassification::MESSAGE, 0, 'User changed workspace to "{workspace}"', ['workspace' => $this->workspace]);
+            $this->writelog(SystemLogType::EXTENSION, SystemLogGenericAction::UNDEFINED, SystemLogErrorClassification::MESSAGE, null, 'User changed workspace to "{workspace}"', ['workspace' => $this->workspace]);
         }
     }
 
@@ -1734,7 +1734,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      */
     protected function getDefaultWorkspace(): int
     {
-        if (!ExtensionManagementUtility::isLoaded('workspaces')) {
+        if ($this->getTcaSchema('sys_workspace') === null) {
             return 0;
         }
         // Online is default
@@ -1759,61 +1759,53 @@ class BackendUserAuthentication extends AbstractUserAuthentication
 
     /**
      * Writes an entry in the logfile/table
-     * Documentation in "TYPO3 Core API"
      *
      * @param int $type Denotes which module that has submitted the entry. See "TYPO3 Core API". Use "4" for extensions.
      * @param int $action Denotes which specific operation that wrote the entry. Use "0" when no sub-categorizing applies
      * @param int $error Flag. 0 = message, 1 = error (user problem), 2 = System Error (which should not happen), 3 = security notice (admin)
-     * @param int $details_nr The message number. Specific for each $type and $action. This will make it possible to translate errormessages to other languages
-     * @param string $details Default text that follows the message (in english!). Possibly translated by identification through type/action/details_nr
+     * @param null $_ unused
+     * @param string $details Default text that follows the message (in english!). Possibly translated by identification through type/action
      * @param array $data Data that follows the log. Might be used to carry special information. If an array the first 5 entries (0-4) will be sprintf'ed with the details-text
      * @param string $tablename Table name. Special field used by tce_main.php.
      * @param int|string $recuid Record UID. Special field used by tce_main.php.
-     * @param int|string $recpid Record PID. Special field used by tce_main.php. OBSOLETE
+     * @param null $__ unused
      * @param int $event_pid The page_uid (pid) where the event occurred. Used to select log-content for specific pages.
-     * @param string $NEWid Special field used by tce_main.php. NEWid string of newly created records.
+     * @param null $___ unused
      * @param int $userId Alternative Backend User ID (used for logging login actions where this is not yet known).
      * @return int Log entry ID.
      */
-    public function writelog($type, $action, $error, $details_nr, $details, $data, $tablename = '', $recuid = '', $recpid = '', $event_pid = -1, $NEWid = '', $userId = 0)
+    public function writelog($type, $action, $error, $_, $details, $data, $tablename = '', $recuid = '', $__ = null, $event_pid = -1, $___ = null, $userId = 0)
     {
         if (!$userId && !empty($this->user['uid'])) {
             $userId = $this->user['uid'];
         }
-
         if ($backuserid = $this->getOriginalUserIdWhenInSwitchUserMode()) {
             if (empty($data)) {
                 $data = [];
             }
             $data['originalUser'] = $backuserid;
         }
-
         // @todo Remove this once this method is properly typed.
         $type = (int)$type;
-
-        $fields = [
-            'userid' => (int)$userId,
-            'type' => $type,
-            'channel' => Type::toChannel($type),
-            'level' => Type::toLevel($type),
-            'action' => (int)$action,
-            'error' => (int)$error,
-            'details_nr' => (int)$details_nr,
-            'details' => $details,
-            'log_data' => empty($data) ? '' : json_encode($data),
-            'tablename' => $tablename,
-            'recuid' => (int)$recuid,
-            'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
-            'tstamp' => $GLOBALS['EXEC_TIME'] ?? time(),
-            'event_pid' => (int)$event_pid,
-            'NEWid' => $NEWid,
-            'workspace' => $this->workspace,
-        ];
-
         $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_log');
         $connection->insert(
             'sys_log',
-            $fields,
+            [
+                'userid' => (int)$userId,
+                'type' => $type,
+                'channel' => Type::toChannel($type),
+                'level' => Type::toLevel($type),
+                'action' => (int)$action,
+                'error' => (int)$error,
+                'details' => $details,
+                'log_data' => empty($data) ? '' : json_encode($data),
+                'tablename' => $tablename,
+                'recuid' => (int)$recuid,
+                'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                'tstamp' => $GLOBALS['EXEC_TIME'] ?? time(),
+                'event_pid' => (int)$event_pid,
+                'workspace' => $this->workspace,
+            ],
             [
                 Connection::PARAM_INT,
                 Connection::PARAM_INT,
@@ -1821,7 +1813,6 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 Connection::PARAM_STR,
                 Connection::PARAM_INT,
                 Connection::PARAM_INT,
-                Connection::PARAM_INT,
                 Connection::PARAM_STR,
                 Connection::PARAM_STR,
                 Connection::PARAM_STR,
@@ -1829,11 +1820,9 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 Connection::PARAM_STR,
                 Connection::PARAM_INT,
                 Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
+                Connection::PARAM_INT,
             ]
         );
-
         return (int)$connection->lastInsertId();
     }
 
@@ -1884,7 +1873,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         if ($this->loginSessionStarted && !($this->getSessionData('mfa') ?? false)) {
             // Handling user logged in. By checking for the mfa session key, it's ensured, the
             // handling is only done once, since MfaController does the handling on its own.
-            $this->handleUserLoggedIn();
+            $this->handleUserLoggedIn($request);
         }
     }
 
@@ -2132,5 +2121,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     public function shallDisplayDebugInformation(): bool
     {
         return ($GLOBALS['TYPO3_CONF_VARS']['BE']['debug'] ?? false) && $this->isAdmin();
+    }
+
+    protected function getTcaSchema(string $table): ?TcaSchema
+    {
+        $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+        return $schemaFactory->has($table) ? $schemaFactory->get($table) : null;
     }
 }

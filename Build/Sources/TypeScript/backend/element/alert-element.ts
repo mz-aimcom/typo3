@@ -12,8 +12,8 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
-import { ClassInfo, classMap } from 'lit/directives/class-map';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
+import { classMap, type ClassInfo } from 'lit/directives/class-map';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import Severity from '../severity';
 import '@typo3/backend/element/icon-element';
@@ -55,11 +55,11 @@ export class AlertElement extends LitElement {
     return icons[severity] || 'actions-info';
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult | symbol {
+  protected override render(): TemplateResult | symbol {
 
     return html`
       <div

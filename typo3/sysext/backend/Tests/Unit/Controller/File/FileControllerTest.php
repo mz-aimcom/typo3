@@ -27,7 +27,7 @@ use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Resource\File;
-use TYPO3\CMS\Core\Resource\FolderInterface;
+use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\File\ExtendedFileUtility;
@@ -41,7 +41,6 @@ final class FileControllerTest extends UnitTestCase
     {
         parent::setUp();
 
-        $parentFolderMock = $this->createMock(FolderInterface::class);
         $this->fileResourceMock = $this->getMockBuilder(File::class)
             ->onlyMethods(['toArray', 'getModificationTime', 'getExtension', 'getParentFolder'])
             ->disableOriginalConstructor()
@@ -49,7 +48,7 @@ final class FileControllerTest extends UnitTestCase
         $this->fileResourceMock->method('toArray')->willReturn(['id' => 'foo']);
         $this->fileResourceMock->method('getModificationTime')->willReturn(123456789);
         $this->fileResourceMock->method('getExtension')->willReturn('html');
-        $this->fileResourceMock->method('getParentFolder')->willReturn($parentFolderMock);
+        $this->fileResourceMock->method('getParentFolder')->willReturn($this->createMock(Folder::class));
     }
 
     #[Test]
@@ -65,7 +64,7 @@ final class FileControllerTest extends UnitTestCase
     {
         $iconFactoryMock = $this->createMock(IconFactory::class);
         $icon = $this->createMock(Icon::class);
-        $icon->expects(self::once())->method('render')->willReturn('');
+        $icon->expects($this->once())->method('render')->willReturn('');
         $iconFactoryMock->method('getIconForFileExtension')->willReturn($icon);
         $subject = $this->getAccessibleMock(
             FileController::class,
@@ -108,7 +107,7 @@ final class FileControllerTest extends UnitTestCase
         );
         $subject->_set('fileData', ['delete' => [true]]);
         $subject->_set('redirect', false);
-        $subject->expects(self::once())->method('main');
+        $subject->expects($this->once())->method('main');
         $subject->processAjaxRequest(new ServerRequest());
     }
 
@@ -128,7 +127,7 @@ final class FileControllerTest extends UnitTestCase
         );
         $subject->_set('fileData', ['editfile' => [true]]);
         $subject->_set('redirect', false);
-        $subject->expects(self::once())->method('main');
+        $subject->expects($this->once())->method('main');
         $subject->processAjaxRequest(new ServerRequest());
     }
 

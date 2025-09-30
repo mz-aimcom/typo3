@@ -1,4 +1,5 @@
 <?php
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -38,7 +39,7 @@ return [
     ],
     'GFX' => [ // Configuration of the image processing features in TYPO3. 'IM' and 'GD' are short for ImageMagick and GD library respectively.
         'thumbnails' => true,
-        'imagefile_ext' => 'gif,jpg,jpeg,tif,tiff,bmp,pcx,tga,png,pdf,ai,svg,webp',
+        'imagefile_ext' => 'gif,jpg,jpeg,tif,tiff,bmp,pcx,tga,png,pdf,ai,svg,webp,avif',
         'processor_enabled' => true,
         'processor_path' => '/usr/bin/',
         'processor' => 'ImageMagick',
@@ -51,18 +52,21 @@ return [
         'processor_interlace' => 'None',
         'jpg_quality' => 85,
         'webp_quality' => 85,
+        'avif_quality' => 85,
+    ],
+    'LANG' => [
+        // english is implicit
+        'availableLocales' => [],
+        'format' => [
+            'priority' => 'xlf',
+        ],
+        'loader' => [
+            'xlf' => \TYPO3\CMS\Core\Localization\Loader\XliffLoader::class,
+        ],
+        'requireApprovedLocalizations' => true,
+        'resourceOverrides' => [],
     ],
     'SYS' => [
-        // System related concerning both frontend and backend.
-        'lang' => [
-            'requireApprovedLocalizations' => true,
-            'format' => [
-                'priority' => 'xlf',
-            ],
-            'parser' => [
-                'xlf' => \TYPO3\CMS\Core\Localization\Parser\XliffParser::class,
-            ],
-        ],
         'session' => [
             'BE' => [
                 'backend' => \TYPO3\CMS\Core\Session\Backend\DatabaseSessionBackend::class,
@@ -81,6 +85,8 @@ return [
         'fileCreateMask' => '0664',
         'folderCreateMask' => '2775',
         'features' => [
+            'extbase.consistentDateTimeHandling' => true,
+            'frontend.cache.autoTagging' => false,
             'redirects.hitCount' => false,
             'security.backend.htmlSanitizeRte' => false,
             'security.backend.enforceReferrer' => true,
@@ -88,6 +94,11 @@ return [
             'security.frontend.reportContentSecurityPolicy' => false,
             'security.frontend.allowInsecureSiteResolutionByQueryParameters' => false,
             'security.frontend.allowInsecureFrameOptionInShowImageController' => false,
+            // only file extensions configured in 'textfile_ext', 'mediafile_ext', 'miscfile_ext' are accepted
+            'security.system.enforceAllowedFileExtensions' => false,
+            // only files having file-extension to mime-type matches are allowed
+            // (adjustable by `$GLOBALS['TYPO3_CONF_VARS']['SYS']['FileInfo']['mimeTypeCompatibility']`)
+            'security.system.enforceFileExtensionMimeTypeConsistency' => true,
         ],
         'createGroup' => '',
         'sitename' => 'TYPO3',
@@ -98,8 +109,9 @@ return [
         'hhmm' => 'H:i',
         'loginCopyrightWarrantyProvider' => '',
         'loginCopyrightWarrantyURL' => '',
-        'textfile_ext' => 'txt,ts,typoscript,html,htm,css,tmpl,js,sql,xml,csv,xlf,yaml,yml',
-        'mediafile_ext' => 'gif,jpg,jpeg,bmp,png,webp,pdf,svg,ai,mp3,wav,mp4,ogg,flac,opus,webm,youtube,vimeo',
+        'textfile_ext' => 'css,csv,htm,html,js,json,md,rst,rtf,sql,srt,tmpl,ts,txt,typoscript,xlf,xml,yaml,yml',
+        'mediafile_ext' => '3gp,aac,ai,aif,avif,bmp,flac,gif,heic,ico,jpeg,jpg,m4a,m4v,mov,mp3,mp4,ogg,opus,pdf,png,psd,svg,vimeo,wav,webm,webp,youtube',
+        'miscfile_ext' => '7z,doc,docm,docx,dot,dotm,dotx,epub,gz,ics,mobi,odp,ods,odt,potm,potx,ppam,pps,ppsm,ppsx,ppt,pptm,pptx,rar,sldm,sldx,tar,vcard,vcf,xlam,xls,xlsb,xlsm,xlsx,xlt,xltm,xltx,zip',
         'binPath' => '',
         'binSetup' => '',
         'setMemoryLimit' => 0,
@@ -258,11 +270,13 @@ return [
         'productionExceptionHandler' => \TYPO3\CMS\Core\Error\ProductionExceptionHandler::class,
         'debugExceptionHandler' => \TYPO3\CMS\Core\Error\DebugExceptionHandler::class,
         'errorHandler' => \TYPO3\CMS\Core\Error\ErrorHandler::class,
-        'errorHandlerErrors' => E_ALL & ~(E_STRICT | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR),
-        'exceptionalErrors' => E_ALL & ~(E_STRICT | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR | E_DEPRECATED | E_USER_DEPRECATED | E_WARNING | E_USER_ERROR | E_USER_NOTICE | E_USER_WARNING),
-        'belogErrorReporting' => E_ALL & ~(E_STRICT | E_NOTICE),
+        // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
+        //        and only kept here here because possible custom PHP extensions may still use it.
+        //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
+        'errorHandlerErrors' => E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR),
+        'exceptionalErrors' => E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR | E_DEPRECATED | E_USER_DEPRECATED | E_WARNING | E_USER_ERROR | E_USER_NOTICE | E_USER_WARNING),
+        'belogErrorReporting' => E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE),
         'allowedPhpDisableFunctions' => [],
-        'locallangXMLOverride' => [], // For extension/overriding of the arrays in 'locallang' files in frontend  and backend.
         'generateApacheHtaccess' => 1,
         'ipAnonymization' => 1,
         'Objects' => [],
@@ -349,14 +363,124 @@ return [
             ],
         ],
         'FileInfo' => [
-            // Static mapping for file extensions to mime types.
-            // In special cases the mime type is not detected correctly.
-            // Use this array only if the automatic detection does not work correct!
-            'fileExtensionToMimeType' => [
-                'svg' => 'image/svg+xml',
-                'youtube' => 'video/youtube',
-                'vimeo' => 'video/vimeo',
+            // List of extensions/mimetypes that are detected as a more generic mimetype
+            // by finfo_file()/mime_content_type(), but are allowed to be
+            // mapped to a concrete MIME type by their file extension
+            // (but only if the file was detected as the generalized mime type!)
+            'mimeTypeCompatibility' => [
+                // mime-db/db.json only knows: "application/octet-stream", "application/x-msdos-program", "application/x-msdownload"
+                // So we map all other possible .exe types to this.
+                'application/x-dosexec' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-mz-executable' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-wine-extension-mz' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-executable' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/binary' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-ms-application' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/dos-exe' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-ms-dos-executable' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/vnd.microsoft.portable-executable' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                'application/x-winexe' => [
+                    'exe' => 'application/x-msdos-program',
+                ],
+                // Encrypted Office Open XML documents
+                'application/encrypted' => [
+                    'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'sldx' => 'application/vnd.openxmlformats-officedocument.presentationml.slide',
+                    'ppsx' => 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                    'potx' => 'application/vnd.openxmlformats-officedocument.presentationml.template',
+                    'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'xltx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+                    'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'dotx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                ],
+                // Word
+                // https://support.microsoft.com/en-us/office/open-xml-formats-and-file-name-extensions-5200d93c-3449-4380-8e11-31ef14555b18#ID0EDFBF
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => [
+                    // Macro-enabled document
+                    'docm' => 'application/vnd.ms-word.document.macroenabled.12',
+                    // Template
+                    'dotx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                    // Macro-enabled template
+                    'dotm' => 'application/vnd.ms-word.template.macroenabled.12',
+                ],
+                // PowerPoint
+                // https://support.microsoft.com/en-us/office/open-xml-formats-and-file-name-extensions-5200d93c-3449-4380-8e11-31ef14555b18#ID0EDBBF
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation' => [
+                    // Macro-enabled presentation
+                    'pptm' => 'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                    // Template
+                    'potx' => 'application/vnd.openxmlformats-officedocument.presentationml.template',
+                    // Macro-enabled template
+                    'potm' => 'application/vnd.ms-powerpoint.template.macroenabled.12',
+                    // Macro-enabled add-in
+                    'ppam' => 'application/vnd.ms-powerpoint.addin.macroenabled.12',
+                    // Show
+                    'ppsx' => 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                    // Macro-enabled show
+                    'ppsm' => 'application/vnd.ms-powerpoint.slideshow.macroenabled.12',
+                    // Slide
+                    'sldx' => 'application/vnd.openxmlformats-officedocument.presentationml.slide',
+                    // Macro-enabled slide
+                    'sldm' => 'application/vnd.ms-powerpoint.slide.macroenabled.12',
+                    // Office theme
+                    'thmx' => 'application/vnd.ms-officetheme',
+                ],
+                // Excel
+                // https://support.microsoft.com/en-us/office/open-xml-formats-and-file-name-extensions-5200d93c-3449-4380-8e11-31ef14555b18#ID0EDDBF
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => [
+                    // Macro-enabled workbook
+                    'xlsm' => 'application/vnd.ms-excel.sheet.macroenabled.12',
+                    // Template
+                    'xltx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+                    // Macro-enabled template
+                    'xltm' => 'application/vnd.ms-excel.template.macroenabled.12',
+                    // Non-XML binary workbook
+                    'xlsb' => 'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                    // Macro-enabled add-in
+                    'xlam' => 'application/vnd.ms-excel.addin.macroenabled.12',
+                ],
+                'font/sfnt' => [
+                    'otf' => 'font/otf',
+                    'ttf' => 'font/ttf',
+                ],
+                'image/jpeg' => [
+                    'jfif' => 'image/pjpeg',
+                ],
+                'text/plain' => [
+                    'json' => 'application/json',
+                    'srt' => 'application/x-subrip',
+                    'vimeo' => 'video/vimeo',
+                    'yaml' => 'application/yaml',
+                    'yml' => 'application/yaml',
+                    'youtube' => 'video/youtube',
+                ],
+                'text/xml' => [
+                    'opml' => 'text/x-opml',
+                ],
             ],
+            // Former static mapping for file extensions to mime types,
+            // for special cases the mime type is not detected correctly.
+            // This array was used if the automatic detection does not work correct!
+            // Please use 'mimeTypeCompatibility' instead.
+            'fileExtensionToMimeType' => [],
         ],
         'fluid' => [
             'interceptors' => [],
@@ -364,6 +488,7 @@ return [
                 \TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\EscapingModifierTemplateProcessor::class,
                 \TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\PassthroughSourceModifierTemplateProcessor::class,
                 \TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\NamespaceDetectionTemplateProcessor::class,
+                \TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\RemoveCommentsTemplateProcessor::class,
             ],
             'expressionNodeTypes' => [
                 \TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\Expression\CastingExpressionNode::class,
@@ -562,29 +687,30 @@ return [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessShowitem::class,
                         ],
                     ],
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaCountry::class => [
+                        'depends' => [
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseSystemLanguageRows::class,
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
+                        ],
+                    ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaLanguage::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseSystemLanguageRows::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
                         ],
                     ],
-                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class => [
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRecordTypeValue::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseSystemLanguageRows::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaLanguage::class,
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaCountry::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\InitializeProcessedTca::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
                         ],
                     ],
-                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class => [
-                        'depends' => [
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
-                        ],
-                    ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldDescriptions::class => [
                         'depends' => [
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class,
                         ],
                     ],
@@ -634,7 +760,7 @@ return [
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaSlug::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRecordOverrideValues::class,
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class,
                         ],
                     ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaGroup::class => [
@@ -653,7 +779,6 @@ return [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabasePageRootline::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\PageTsConfigMerged::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\InitializeProcessedTca::class,
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaFlexPrepare::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaFolder::class,
@@ -708,6 +833,11 @@ return [
                     \TYPO3\CMS\Backend\Form\FormDataProvider\EvaluateDisplayConditions::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaRecordTitle::class,
+                        ],
+                    ],
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\SystemMaintainerAsReadonly::class => [
+                        'depends' => [
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\EvaluateDisplayConditions::class,
                         ],
                     ],
                 ],
@@ -836,7 +966,12 @@ return [
                     ],
                 ],
                 'flexFormSegment' => [
-                    \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowDefaultValues::class => [],
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowDateTimeFields::class => [],
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowDefaultValues::class => [
+                        'depends' => [
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowDateTimeFields::class,
+                        ],
+                    ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\SiteResolving::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowDefaultValues::class,
@@ -877,6 +1012,11 @@ return [
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaUuid::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaJson::class,
+                        ],
+                    ],
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaCountry::class => [
+                        'depends' => [
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\SiteResolving::class,
                         ],
                     ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaRadioItems::class => [
@@ -1171,7 +1311,7 @@ return [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessShowitem::class,
                         ],
                     ],
-                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class => [
+                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class => [
                         'depends' => [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRecordTypeValue::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseSystemLanguageRows::class,
@@ -1179,14 +1319,8 @@ return [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
                         ],
                     ],
-                    \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class => [
-                        'depends' => [
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
-                        ],
-                    ],
                     \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldDescriptions::class => [
                         'depends' => [
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class,
                         ],
                     ],
@@ -1224,7 +1358,7 @@ return [
                             \TYPO3\CMS\Backend\Form\FormDataProvider\DatabasePageRootline::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\PageTsConfigMerged::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\InitializeProcessedTca::class,
-                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaTypesShowitem::class,
+                            \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsProcessFieldLabels::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaColumnsRemoveUnused::class,
                             \TYPO3\CMS\Backend\Form\FormDataProvider\TcaCheckboxItems::class,
                         ],
@@ -1309,7 +1443,7 @@ return [
         // Backend Configuration.
         'entryPoint' => '/typo3',
         'fileadminDir' => 'fileadmin/',
-        'lockRootPath' => '',
+        'lockRootPath' => [],
         'lockBackendFile' => '',
         'userHomePath' => '',
         'groupHomePath' => '',
@@ -1337,9 +1471,10 @@ return [
         'disable_exec_function' => false,
         'compressionLevel' => 0,
         'installToolPassword' => '',
+        'installToolSessionHandler' => [
+            'className' => \TYPO3\CMS\Install\Service\Session\FileSessionHandler::class,
+        ],
         'contentSecurityPolicyReportingUrl' => '',
-        'defaultUserTSconfig' => '', // @deprecated since TYPO3 v13.0, will be removed in TYPO3 v14.0. Add to SilentConfigurationUpgradeService.
-        'defaultPageTSconfig' => '', // @deprecated since TYPO3 v13.0, will be removed in TYPO3 v14.0. Add to SilentConfigurationUpgradeService.
         // String (exclude).Enter lines of default page TSconfig.
         'defaultPermissions' => [],
         'defaultUC' => [],
@@ -1427,6 +1562,7 @@ return [
                 '_gl',
                 // Google ads
                 'gad',
+                'gad_campaignid',
                 'gad_source',
                 'gbraid',
                 'gclid',
@@ -1459,6 +1595,8 @@ return [
                 'hsCtaTracking',
                 // HubSpot Form Tracking Parameters
                 'submissionGuid',
+                // LinkedIn First-Party Ad Tracking ID
+                'li_fat_id',
             ],
             'requireCacheHashPresenceParameters' => [],
             'excludeAllEmptyParameters' => false,

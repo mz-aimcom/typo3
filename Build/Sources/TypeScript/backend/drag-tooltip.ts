@@ -11,13 +11,15 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators';
 import { BroadcastMessage } from '@typo3/backend/broadcast-message';
 import BroadcastService from '@typo3/backend/broadcast-service';
 import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
 import type { PropertyValues, ReactiveElement } from '@lit/reactive-element';
 import type { WritablePart } from '@typo3/core/utility/types';
+import '@typo3/backend/element/thumbnail-element';
+import { ThumbnailSize } from '@typo3/backend/element/thumbnail-element';
 
 /**
  * Contains basic types for allowing dragging + dropping in trees
@@ -68,10 +70,10 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     // This only accepts drag images that are preloaded.
     // So we are creating this image early in the process.
     this.ghostImage = new Image();
-    this.ghostImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=';
+    this.ghostImage.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///////yH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     super.connectedCallback();
     const capture = true, passive = true;
     // own drags (including frames)
@@ -92,7 +94,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     this.eventAbortController = new AbortController();
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     super.disconnectedCallback();
     const capture = true;
     //window.removeEventListener('drag', this.updatePositionFromDragEvent, { capture: true });
@@ -117,11 +119,11 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     if (this.visible) {
       this.broadcast('visible');
     }
-  }
+  };
 
   public trackDragOverAllowed = (event: DragEvent): void => {
     this.dragAllowed = event.defaultPrevented;
-  }
+  };
 
   protected reset() {
     this.active = true;
@@ -136,7 +138,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     this.dragAllowed = false;
   }
 
-  protected updated(changedProperties: PropertyValues<this>) {
+  protected override updated(changedProperties: PropertyValues<this>): void {
     if (this.skipNextUpdateBroadcast) {
       this.skipNextUpdateBroadcast = false;
       return;
@@ -151,7 +153,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     }
 
     const newProperties = propertyNames.map((propName: keyof this) => [ propName, this[propName] ]);
-    this.broadcast('changedProperties', Object.fromEntries(newProperties))
+    this.broadcast('changedProperties', Object.fromEntries(newProperties));
   }
 
   protected broadcast(eventName: string, payload?: unknown) {
@@ -162,26 +164,26 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     let x = 0, y = 0;
 
     if (contentWindow === currentWindow) {
-      return { x, y }
+      return { x, y };
     }
 
-    const parentOffset = this.calculateIframeOffset(contentWindow.parent, currentWindow)
+    const parentOffset = this.calculateIframeOffset(contentWindow.parent, currentWindow);
     x += parentOffset.x;
     y += parentOffset.y;
 
     const iframe = contentWindow.frameElement;
     if (iframe) {
       const rect = iframe.getBoundingClientRect();
-      x += rect.x
-      y += rect.y
+      x += rect.x;
+      y += rect.y;
     }
 
-    return { x, y }
+    return { x, y };
   }
 
   protected trackDragEnd = (): void => {
     this.active = false;
-  }
+  };
 
   protected trackDragStart = (event: DragEvent): void => {
     if (event.defaultPrevented) {
@@ -196,17 +198,17 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
       Object.assign(this, metadata);
       this.broadcast('visible');
     }
-  }
+  };
 
   protected onMetadataUpdate = (event: CustomEvent<DragTooltipMetadata>): void => {
     const metadata = event.detail;
     Object.assign(this, metadata);
-  }
+  };
 
   protected onBroadcastVisible = () => {
     // Another tab is dragging, hide our instance
     this.visible = false;
-  }
+  };
 
   protected onBroadcastChangedProperties = (event: CustomEvent<{ payload: Partial<WritablePart<DragToolTip>> }>) => {
     const newProperties = event.detail.payload;
@@ -214,7 +216,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
       (this[key] as unknown) = newProperties[key];
     });
     this.skipNextUpdateBroadcast = true;
-  }
+  };
 
   protected onIframeLoaded = (event: Event) => {
     let win: Window;
@@ -234,13 +236,13 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
       win.addEventListener('dragend', this.trackDragEnd, { capture, passive, signal });
       win.addEventListener('dragstart', this.trackDragStart, { passive, signal });
     }
-  }
+  };
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): typeof nothing | TemplateResult {
+  protected override render(): typeof nothing | TemplateResult {
     if (!this.active || !this.visible) {
       return nothing;
     }
@@ -250,7 +252,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
     }
 
     return html`
-      <div class="dragging-tooltip" style="top: ${this.posY + 18}px; left: ${this.posX + 18}px;">
+      <div class="dragging-tooltip" style="top: ${this.posY + 18 + 'px'}; left: ${this.posX + 18 + 'px'};">
         <div class="dragging-tooltip-control">
           <typo3-backend-icon identifier="${this.dragAllowed ? (this.statusIconIdentifier ?? 'actions-question') : 'actions-ban'}" size="small">
           </typo3-backend-icon>
@@ -266,7 +268,7 @@ export class DragToolTip extends LitElement implements DragTooltipMetadata {
           ${this.thumbnails.length === 0 ? nothing : html`
             <div class="dragging-tooltip-thumbnails">
               ${this.thumbnails.slice(0, 3).map(image => html`
-                <img src="${image.src}" width="${image.width}" height="${image.height}">
+                <typo3-backend-thumbnail url=${image.src} size=${ThumbnailSize.small} width=${image.width} height=${image.height}></typo3-backend-thumbnail>
               `)}
             </div>
           `}

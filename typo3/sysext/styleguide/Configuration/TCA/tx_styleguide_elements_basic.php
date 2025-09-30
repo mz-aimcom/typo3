@@ -148,14 +148,6 @@ return [
                 'eval' => 'upper',
             ],
         ],
-        'input_24' => [
-            'label' => 'input_24',
-            'description' => 'eval=year',
-            'config' => [
-                'type' => 'input',
-                'eval' => 'year',
-            ],
-        ],
         'input_26' => [
             'label' => 'input_26',
             'description' => 'default="input_26", value for input_27 and input_28',
@@ -192,10 +184,10 @@ return [
                 'eval' => 'trim',
                 'valuePicker' => [
                     'items' => [
-                        [ 'spring', 'Spring'],
-                        [ 'summer', 'Summer'],
-                        [ 'autumn', 'Autumn'],
-                        [ 'winter', 'Winter'],
+                        [ 'value' => 'spring', 'label' => 'Spring'],
+                        [ 'value' => 'summer', 'label' => 'Summer'],
+                        [ 'value' => 'autumn', 'label' => 'Autumn'],
+                        [ 'value' => 'winter', 'label' => 'Winter'],
                     ],
                 ],
             ],
@@ -210,10 +202,10 @@ return [
                 'valuePicker' => [
                     'mode' => 'append',
                     'items' => [
-                        [ 'spring', 'Spring'],
-                        [ 'summer', 'Summer'],
-                        [ 'autumn', 'Autumn'],
-                        [ 'winter', 'Winter'],
+                        [ 'label' => 'Spring', 'value' => 'spring'],
+                        [ 'label' => 'Summer', 'value' => 'summer'],
+                        [ 'label' => 'Autumn', 'value' => 'autumn'],
+                        [ 'label' => 'Winter', 'value' => 'winter'],
                     ],
                 ],
             ],
@@ -228,10 +220,10 @@ return [
                 'valuePicker' => [
                     'mode' => 'prepend',
                     'items' => [
-                        [ 'spring', 'Spring'],
-                        [ 'summer', 'Summer'],
-                        [ 'autumn', 'Autumn'],
-                        [ 'winter', 'Winter'],
+                        [ 'label' => 'spring', 'value' => 'Spring'],
+                        [ 'label' => 'summer', 'value' => 'Summer'],
+                        [ 'label' => 'autumn', 'value' => 'Autumn'],
+                        [ 'label' => 'winter', 'value' => 'Winter'],
                     ],
                 ],
             ],
@@ -365,6 +357,18 @@ return [
                 ],
             ],
         ],
+        'inputdatetime_34' => [
+            'label' => 'inputdatetime_34',
+            'description' => 'default=0, range.lower=1627208536 [2021-07-25T10:22:16Z], range.upper=1729755199 [2024-10-24T07:33:19Z]',
+            'config' => [
+                'type' => 'datetime',
+                'default' => 0,
+                'range' => [
+                    'lower' => 1627208536,
+                    'upper' => 1729755199,
+                ],
+            ],
+        ],
         'inputdatetime_12' => [
             'label' => 'inputdatetime_12',
             'description' => 'dbType=time format=time',
@@ -479,13 +483,10 @@ return [
         ],
         'inputdatetime_31' => [
             'label' => 'inputdatetime_31',
-            'description' => 'default=0, range.lower=1627208536 nullable=true',
+            'description' => 'default=0, nullable=true',
             'config' => [
                 'type' => 'datetime',
                 'default' => 0,
-                'range' => [
-                    'lower' => 1627208536,
-                ],
                 'nullable' => true,
             ],
         ],
@@ -509,6 +510,17 @@ return [
                 'nullable' => true,
             ],
         ],
+        'inputdatetime_35' => [
+            'label' => 'inputdatetime_35',
+            'description' => 'range.lower=1627208536 nullable=true',
+            'config' => [
+                'type' => 'datetime',
+                'range' => [
+                    'lower' => 1627208536,
+                ],
+                'nullable' => true,
+            ],
+        ],
 
         'link_1' => [
             'label' => 'link_1',
@@ -519,12 +531,12 @@ return [
         ],
         'link_2' => [
             'label' => 'link_2',
-            'description' => 'type=link allowedTypes=file allowedOptions=allowedFileExtensions=png',
+            'description' => 'type=link allowedTypes=file allowedOptions=allowedFileExtensions=jpg,png',
             'config' => [
                 'type' => 'link',
                 'allowedTypes' => ['file'],
                 'appearance' => [
-                    'allowedFileExtensions' => ['png'],
+                    'allowedFileExtensions' => ['jpg', 'png'],
                 ],
             ],
         ],
@@ -684,9 +696,9 @@ return [
                 'size' => 10,
                 'valuePicker' => [
                     'items' => [
-                        [ 'blue', '#0000FF'],
-                        [ 'red', '#FF0000'],
-                        [ 'typo3 orange', '#FF8700'],
+                        [ 'label' => 'blue', 'value' => '#0000FF'],
+                        [ 'label' => 'red', 'value' => '#FF0000'],
+                        [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
                     ],
                 ],
             ],
@@ -779,8 +791,8 @@ return [
                 'format' => 'decimal',
                 'size' => 5,
                 'range' => [
-                    'lower' => -90,
-                    'upper' => 90,
+                    'lower' => -90.5,
+                    'upper' => 90.5,
                 ],
                 'default' => 14.5,
                 'slider' => [
@@ -837,7 +849,7 @@ return [
                 'type' => 'email',
                 'valuePicker' => [
                     'items' => [
-                        ['Example email', 'info@example.org'],
+                        ['label' => 'Example email', 'value' => 'info@example.org'],
                     ],
                 ],
             ],
@@ -985,9 +997,9 @@ return [
                 'rows' => '5',
                 'valuePicker' => [
                     'items' => [
-                        ['Option 1', 'Dummy Text for Option 1'],
-                        ['Option 2', 'Dummy Text for Option 2'],
-                        ['Option 3', 'Dummy Text for Option 3'],
+                        ['label' => 'Option 1', 'value' => 'Dummy Text for Option 1'],
+                        ['label' => 'Option 2', 'value' => 'Dummy Text for Option 2'],
+                        ['label' => 'Option 3', 'value' => 'Dummy Text for Option 3'],
                     ],
                 ],
             ],
@@ -1056,6 +1068,21 @@ backend_layout {
             ],
         ],
 
+        'json_1' => [
+            'label' => 'json_1',
+            'description' => 'json',
+            'config' => [
+                'type' => 'json',
+            ],
+        ],
+        'json_2' => [
+            'label' => 'json_2 readonly',
+            'description' => 'json readonly',
+            'config' => [
+                'type' => 'json',
+                'readOnly' => true,
+            ],
+        ],
         'uuid_1' => [
             'label' => 'uuid_1',
             'description' => 'uuid',
@@ -1550,6 +1577,29 @@ backend_layout {
                 'format' => 'datetime',
             ],
         ],
+        'none_4' => [
+            'label' => 'none_4',
+            'description' => 'format=date with format configuration',
+            'config' => [
+                'type' => 'none',
+                'format' => 'date',
+                'format.' => [
+                    'option' => '%d-%m',
+                    'strftime' => true,
+                ],
+            ],
+        ],
+        'none_5' => [
+            'label' => 'none_5',
+            'description' => 'format=date with appendAge',
+            'config' => [
+                'type' => 'none',
+                'format' => 'date',
+                'format.' => [
+                    'appendAge' => true,
+                ],
+            ],
+        ],
 
         'passthrough_1' => [
             'label' => 'passthrough_1',
@@ -1599,269 +1649,283 @@ backend_layout {
             'label' => 'flex_1',
             'config' => [
                 'type' => 'flex',
-                'ds' => [
-                    'default' => '
-                        <T3DataStructure>
-                            <sheets>
+                'ds' => '
+                    <T3DataStructure>
+                        <sheets>
 
-                                <sInput>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>input</sheetTitle>
-                                        <el>
-                                            <input_1>
-                                                <label>input_1</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>input</type>
-                                                    <eval>trim</eval>
-                                                </config>
-                                            </input_1>
-                                            <input_2>
-                                                <label>input_2 renderyType textTable</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>text</type>
-                                                    <renderType>textTable</renderType>
-                                                    <cols>30</cols>
-                                                    <rows>5</rows>
-                                                </config>
-                                            </input_2>
-                                            <input_3>
-                                                <label>input_3 valuePicker</label>
-                                                <config>
-                                                    <type>input</type>
-                                                    <valuePicker>
-                                                        <items>
-                                                            <numIndex index="0">
-                                                                <numIndex index="0">Foo</numIndex>
-                                                                <numIndex index="1">foo</numIndex>
-                                                            </numIndex>
-                                                            <numIndex index="1">
-                                                                <numIndex index="0">Bar</numIndex>
-                                                                <numIndex index="1">bar</numIndex>
-                                                            </numIndex>
-                                                        </items>
-                                                    </valuePicker>
-                                                </config>
-                                            </input_3>
-                                        </el>
-                                    </ROOT>
-                                </sInput>
-
-                                <sInputDateTime>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>inputDateTime</sheetTitle>
-                                        <el>
-                                            <inputDateTime_1>
-                                                <label>inputDateTime_1 format=date description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>datetime</type>
-                                                    <format>date</format>
-                                                </config>
-                                            </inputDateTime_1>
-                                            <inputDateTime_2>
-                                                <label>inputDateTime_2 dbType=date format=date</label>
-                                                <config>
-                                                    <type>datetime</type>
-                                                    <format>date</format>
-                                                    <dbType>date</dbType>
-                                                </config>
-                                            </inputDateTime_2>
-                                            <inputDateTime_3>
-                                                <label>inputDateTime_3 type=datetime</label>
-                                                <config>
-                                                    <type>datetime</type>
-                                                </config>
-                                            </inputDateTime_3>
-                                            <inputDateTime_4>
-                                                <label>inputDateTime_4 dbType=datetime format=date</label>
-                                                <config>
-                                                    <type>datetime</type>
-                                                    <format>date</format>
-                                                    <dbType>datetime</dbType>
-                                                </config>
-                                            </inputDateTime_4>
-                                            <inputDateTime_5>
-                                                <label>inputDateTime_5 format=time</label>
-                                                <config>
-                                                    <type>datetime</type>
-                                                    <format>time</format>
-                                                </config>
-                                            </inputDateTime_5>
-                                            <inputDateTime_6>
-                                                <label>inputDateTime_6 format=timesec</label>
-                                                <config>
-                                                    <type>datetime</type>
-                                                    <format>timesec</format>
-                                                </config>
-                                            </inputDateTime_6>
-                                        </el>
-                                    </ROOT>
-                                </sInputDateTime>
-
-                                <sText>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>text</sheetTitle>
-                                        <el>
-                                            <text_1>
-                                                <label>text_1 cols=20, rows=4 description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>text</type>
-                                                    <cols>20</cols>
-                                                    <rows>4</rows>
-                                                </config>
-                                            </text_1>
-                                        </el>
-                                    </ROOT>
-                                </sText>
-
-                                <sLink>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>link</sheetTitle>
-                                        <el>
-                                            <link_1>
-                                                <label>link_1</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>link</type>
-                                                    <allowedTypes>
-                                                        <numIndex index="0">page</numIndex>
-                                                        <numIndex index="1">file</numIndex>
-                                                        <numIndex index="2">url</numIndex>
-                                                        <numIndex index="3">record</numIndex>
-                                                        <numIndex index="4">telephone</numIndex>
-                                                    </allowedTypes>
-                                                    <appearance>
-                                                        <browserTitle>Link</browserTitle>
-                                                    </appearance>
-                                                </config>
-                                            </link_1>
-                                        </el>
-                                    </ROOT>
-                                </sLink>
-
-                                <sCheck>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>check</sheetTitle>
-                                        <el>
-                                            <check_1>
-                                                <label>check_1 description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>check</type>
+                            <sInput>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>input</sheetTitle>
+                                    <el>
+                                        <input_1>
+                                            <label>input_1</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>input</type>
+                                                <eval>trim</eval>
+                                            </config>
+                                        </input_1>
+                                        <input_2>
+                                            <label>input_2 renderyType textTable</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>text</type>
+                                                <renderType>textTable</renderType>
+                                                <cols>30</cols>
+                                                <rows>5</rows>
+                                            </config>
+                                        </input_2>
+                                        <input_3>
+                                            <label>input_3 valuePicker</label>
+                                            <config>
+                                                <type>input</type>
+                                                <valuePicker>
                                                     <items>
                                                         <numIndex index="0">
                                                             <label>Foo</label>
+                                                            <value>foo</value>
                                                         </numIndex>
                                                         <numIndex index="1">
                                                             <label>Bar</label>
-                                                        </numIndex>
-                                                        <numIndex index="2">
-                                                            <label>FooBar</label>
+                                                            <value>bar</value>
                                                         </numIndex>
                                                     </items>
-                                                </config>
-                                            </check_1>
-                                            <check_2>
-                                                <label>check_2 invertStateDisplay</label>
-                                                <config>
-                                                    <type>check</type>
-                                                    <items>
-                                                        <numIndex index="0">
-                                                            <label>Foo</label>
-                                                            <invertStateDisplay>1</invertStateDisplay>
-                                                        </numIndex>
-                                                        <numIndex index="1">
-                                                            <label>Bar</label>
-                                                            <invertStateDisplay>1</invertStateDisplay>
-                                                        </numIndex>
-                                                        <numIndex index="2">
-                                                            <label>FooBar</label>
-                                                            <invertStateDisplay>1</invertStateDisplay>
-                                                        </numIndex>
-                                                    </items>
-                                                </config>
-                                            </check_2>
-                                        </el>
-                                    </ROOT>
-                                </sCheck>
+                                                </valuePicker>
+                                            </config>
+                                        </input_3>
+                                    </el>
+                                </ROOT>
+                            </sInput>
 
-                                <sRadio>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>radio</sheetTitle>
-                                        <el>
-                                            <radio_1>
-                                                <label>radio_1 description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>radio</type>
-                                                    <items>
-                                                        <numIndex index="0">
-                                                            <label>Foo</label>
-                                                            <value>1</value>
-                                                        </numIndex>
-                                                        <numIndex index="1">
-                                                            <label>Bar</label>
-                                                            <value>2</value>
-                                                        </numIndex>
-                                                    </items>
-                                                </config>
-                                            </radio_1>
-                                            <radio_2>
-                                                <label>radio_2 description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>radio</type>
-                                                    <items>
-                                                        <numIndex index="0">
-                                                            <label>NoFoo (empty)</label>
-                                                            <value></value>
-                                                        </numIndex>
-                                                        <numIndex index="1">
-                                                            <label>Foo</label>
-                                                            <value>fooValue</value>
-                                                        </numIndex>
-                                                        <numIndex index="2">
-                                                            <label>Bar</label>
-                                                            <value>barValue</value>
-                                                        </numIndex>
-                                                    </items>
-                                                </config>
-                                            </radio_2>
-                                        </el>
-                                    </ROOT>
-                                </sRadio>
+                            <sInputDateTime>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>inputDateTime</sheetTitle>
+                                    <el>
+                                        <inputDateTime_1>
+                                            <label>inputDateTime_1 format=date description</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>date</format>
+                                            </config>
+                                        </inputDateTime_1>
+                                        <inputDateTime_2>
+                                            <label>inputDateTime_2 dbType=date format=date</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>date</format>
+                                                <dbType>date</dbType>
+                                            </config>
+                                        </inputDateTime_2>
+                                        <inputDateTime_3>
+                                            <label>inputDateTime_3 type=datetime</label>
+                                            <config>
+                                                <type>datetime</type>
+                                            </config>
+                                        </inputDateTime_3>
+                                        <inputDateTime_4>
+                                            <label>inputDateTime_4 dbType=datetime format=datetime</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>datetime</format>
+                                                <dbType>datetime</dbType>
+                                            </config>
+                                        </inputDateTime_4>
+                                        <inputDateTime_5>
+                                            <label>inputDateTime_5 format=time</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>time</format>
+                                            </config>
+                                        </inputDateTime_5>
+                                        <inputDateTime_6>
+                                            <label>inputDateTime_6 format=timesec</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>timesec</format>
+                                            </config>
+                                        </inputDateTime_6>
+                                        <inputDateTime_7>
+                                            <label>inputDateTime_7 format=time</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>time</format>
+                                                <dbType>time</dbType>
+                                            </config>
+                                        </inputDateTime_7>
+                                        <inputDateTime_8>
+                                            <label>inputDateTime_8 format=timesec</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>timesec</format>
+                                                <dbType>time</dbType>
+                                            </config>
+                                        </inputDateTime_8>
+                                    </el>
+                                </ROOT>
+                            </sInputDateTime>
 
-                                <sPassthrough>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>passthrough</sheetTitle>
-                                        <el>
-                                            <passthrough_1>
-                                                <label>passthrough_1</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>passthrough</type>
-                                                </config>
-                                            </passthrough_1>
-                                        </el>
-                                    </ROOT>
-                                </sPassthrough>
+                            <sText>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>text</sheetTitle>
+                                    <el>
+                                        <text_1>
+                                            <label>text_1 cols=20, rows=4 description</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>text</type>
+                                                <cols>20</cols>
+                                                <rows>4</rows>
+                                            </config>
+                                        </text_1>
+                                    </el>
+                                </ROOT>
+                            </sText>
+
+                            <sLink>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>link</sheetTitle>
+                                    <el>
+                                        <link_1>
+                                            <label>link_1</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>link</type>
+                                                <allowedTypes>
+                                                    <numIndex index="0">page</numIndex>
+                                                    <numIndex index="1">file</numIndex>
+                                                    <numIndex index="2">url</numIndex>
+                                                    <numIndex index="3">record</numIndex>
+                                                    <numIndex index="4">telephone</numIndex>
+                                                </allowedTypes>
+                                                <appearance>
+                                                    <browserTitle>Link</browserTitle>
+                                                </appearance>
+                                            </config>
+                                        </link_1>
+                                    </el>
+                                </ROOT>
+                            </sLink>
+
+                            <sCheck>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>check</sheetTitle>
+                                    <el>
+                                        <check_1>
+                                            <label>check_1 description</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>check</type>
+                                                <items>
+                                                    <numIndex index="0">
+                                                        <label>Foo</label>
+                                                    </numIndex>
+                                                    <numIndex index="1">
+                                                        <label>Bar</label>
+                                                    </numIndex>
+                                                    <numIndex index="2">
+                                                        <label>FooBar</label>
+                                                    </numIndex>
+                                                </items>
+                                            </config>
+                                        </check_1>
+                                        <check_2>
+                                            <label>check_2 invertStateDisplay</label>
+                                            <config>
+                                                <type>check</type>
+                                                <items>
+                                                    <numIndex index="0">
+                                                        <label>Foo</label>
+                                                        <invertStateDisplay>1</invertStateDisplay>
+                                                    </numIndex>
+                                                    <numIndex index="1">
+                                                        <label>Bar</label>
+                                                        <invertStateDisplay>1</invertStateDisplay>
+                                                    </numIndex>
+                                                    <numIndex index="2">
+                                                        <label>FooBar</label>
+                                                        <invertStateDisplay>1</invertStateDisplay>
+                                                    </numIndex>
+                                                </items>
+                                            </config>
+                                        </check_2>
+                                    </el>
+                                </ROOT>
+                            </sCheck>
+
+                            <sRadio>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>radio</sheetTitle>
+                                    <el>
+                                        <radio_1>
+                                            <label>radio_1 description</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>radio</type>
+                                                <items>
+                                                    <numIndex index="0">
+                                                        <label>Foo</label>
+                                                        <value>1</value>
+                                                    </numIndex>
+                                                    <numIndex index="1">
+                                                        <label>Bar</label>
+                                                        <value>2</value>
+                                                    </numIndex>
+                                                </items>
+                                            </config>
+                                        </radio_1>
+                                        <radio_2>
+                                            <label>radio_2 description</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>radio</type>
+                                                <items>
+                                                    <numIndex index="0">
+                                                        <label>NoFoo (empty)</label>
+                                                        <value></value>
+                                                    </numIndex>
+                                                    <numIndex index="1">
+                                                        <label>Foo</label>
+                                                        <value>fooValue</value>
+                                                    </numIndex>
+                                                    <numIndex index="2">
+                                                        <label>Bar</label>
+                                                        <value>barValue</value>
+                                                    </numIndex>
+                                                </items>
+                                            </config>
+                                        </radio_2>
+                                    </el>
+                                </ROOT>
+                            </sRadio>
+
+                            <sPassthrough>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>passthrough</sheetTitle>
+                                    <el>
+                                        <passthrough_1>
+                                            <label>passthrough_1</label>
+                                            <description>field description</description>
+                                            <config>
+                                                <type>passthrough</type>
+                                            </config>
+                                        </passthrough_1>
+                                    </el>
+                                </ROOT>
+                            </sPassthrough>
 
 
 
-                            </sheets>
-                        </T3DataStructure>
+                        </sheets>
+                    </T3DataStructure>
                     ',
-                ],
             ],
         ],
 
@@ -1880,15 +1944,15 @@ backend_layout {
                 --div--;input,
                     input_1, input_40, input_2, input_3, input_41, input_42, input_43, input_4, input_5, input_10,
                     input_11, input_12, input_13, input_15, input_16, input_19,
-                    input_21, input_22, input_23, input_24, input_26, input_27, input_14, input_28,
+                    input_21, input_22, input_23, input_26, input_27, input_14, input_28,
                     input_33, input_35, input_36,
                 --div--;inputDateTime,
                     inputdatetime_1, inputdatetime_2, inputdatetime_3, inputdatetime_4, inputdatetime_5,
                     inputdatetime_6, inputdatetime_7, inputdatetime_8, inputdatetime_9, inputdatetime_10,
-                    inputdatetime_11, inputdatetime_12, inputdatetime_13,
+                    inputdatetime_11, inputdatetime_34, inputdatetime_12, inputdatetime_13,
                     inputdatetime_21, inputdatetime_22, inputdatetime_23, inputdatetime_24, inputdatetime_25,
                     inputdatetime_26, inputdatetime_27, inputdatetime_28, inputdatetime_29, inputdatetime_30,
-                    inputdatetime_31, inputdatetime_32, inputdatetime_33,
+                    inputdatetime_31, inputdatetime_32, inputdatetime_33, inputdatetime_35,
                 --div--;link,
                     link_1,link_2,link_3,link_4,link_5,
                 --div--;password,
@@ -1903,6 +1967,8 @@ backend_layout {
                     text_1, text_2, text_3, text_4, text_5, text_6, text_7, text_9, text_10,
                     text_11, text_12, text_13, text_18, text_14, text_15, text_16, text_17, text_19,
                     text_20,
+                --div--;json,
+                    json_1, json_2,
                 --div--;uuid,
                     uuid_1, uuid_2, uuid_3,
                 --div--;check,
@@ -1914,7 +1980,7 @@ backend_layout {
                 --div--;language,
                     language_1,
                 --div--;none,
-                    none_1, none_2, none_3,
+                    none_1, none_2, none_3, none_4, none_5,
                 --div--;passthrough,
                     passthrough_1, passthrough_2,
                 --div--;user,

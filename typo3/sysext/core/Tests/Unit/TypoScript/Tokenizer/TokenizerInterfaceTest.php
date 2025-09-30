@@ -32,7 +32,6 @@ use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\IdentifierFunctionLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\IdentifierReferenceLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\IdentifierUnsetLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\ImportLine;
-use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\ImportOldLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\InvalidLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\LineStream;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\LosslessTokenizer;
@@ -3496,6 +3495,185 @@ final class TokenizerInterfaceTest extends UnitTestCase
                                     ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}'))
                                     ->append(new Token(TokenType::T_VALUE, '42'))
                             )
+                    ),
+            ],
+            'identifier, function, function name, value with constants and values separated with comma' => [
+                'foo := addToList(23, {$some.constant}, {$other.constant}, 42)',
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setTokenStream(
+                                (new TokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 3))
+                                    ->append(new Token(TokenType::T_OPERATOR_FUNCTION, ':=', 0, 4))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 6))
+                                    ->append(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_START, '(', 0, 16))
+                                    ->append(new Token(TokenType::T_VALUE, '23, ', 0, 17))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}', 0, 21))
+                                    ->append(new Token(TokenType::T_VALUE, ', ', 0, 37))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}', 0, 39))
+                                    ->append(new Token(TokenType::T_VALUE, ', 42', 0, 56))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_STOP, ')', 0, 60))
+                            )
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                            ->setFunctionValueTokenStream(
+                                (new ConstantAwareTokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, '23, ', 0, 17))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}', 0, 21))
+                                    ->append(new Token(TokenType::T_VALUE, ', ', 0, 37))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}', 0, 39))
+                                    ->append(new Token(TokenType::T_VALUE, ', 42', 0, 56))
+                            )
+                    ),
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo'))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList'))
+                            ->setFunctionValueTokenStream(
+                                (new ConstantAwareTokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, '23, '))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}'))
+                                    ->append(new Token(TokenType::T_VALUE, ', '))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}'))
+                                    ->append(new Token(TokenType::T_VALUE, ', 42'))
+                            )
+                    ),
+            ],
+            'identifier, function, function name, value with constants and values and parenthesis arguments, separated with comma' => [
+                'foo := addToList({$some.constant}uidList in (1,2,3) or pid in (4,5,6){$other.constant})',
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setTokenStream(
+                                (new TokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 3))
+                                    ->append(new Token(TokenType::T_OPERATOR_FUNCTION, ':=', 0, 4))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 6))
+                                    ->append(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_START, '(', 0, 16))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}', 0, 17))
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)', 0, 33))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}', 0, 69))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_STOP, ')', 0, 86))
+                            )
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                            ->setFunctionValueTokenStream(
+                                (new ConstantAwareTokenStream())
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}', 0, 17))
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)', 0, 33))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}', 0, 69))
+                            ),
+                    ),
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo'))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList'))
+                            ->setFunctionValueTokenStream(
+                                (new ConstantAwareTokenStream())
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$some.constant}'))
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)'))
+                                    ->append(new Token(TokenType::T_CONSTANT, '{$other.constant}'))
+                            ),
+                    ),
+            ],
+            'identifier, function, function name, value with parenthesis arguments, separated with comma' => [
+                'foo := addToList(uidList in (1,2,3) or pid in (4,5,6))',
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setTokenStream(
+                                (new TokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 3))
+                                    ->append(new Token(TokenType::T_OPERATOR_FUNCTION, ':=', 0, 4))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 6))
+                                    ->append(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_START, '(', 0, 16))
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)', 0, 17))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_STOP, ')', 0, 53))
+                            )
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                            ->setFunctionValueTokenStream(
+                                (new TokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)', 0, 17))
+                            ),
+                    ),
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo'))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList'))
+                            ->setFunctionValueTokenStream(
+                                (new TokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,2,3) or pid in (4,5,6)'))
+                            ),
+                    ),
+            ],
+            'identifier, function, function name, value with invalid parenthesis arguments, separated with comma' => [
+                'foo := addToList(uidList in (1,(2))))),3( or pid in (4,5,6))',
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setTokenStream(
+                                (new TokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 3))
+                                    ->append(new Token(TokenType::T_OPERATOR_FUNCTION, ':=', 0, 4))
+                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 6))
+                                    ->append(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_START, '(', 0, 16))
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,(2))', 0, 17))
+                                    ->append(new Token(TokenType::T_FUNCTION_VALUE_STOP, ')', 0, 35))
+                                    ->append(new Token(TokenType::T_COMMENT_ONELINE_HASH, ')),3( or pid in (4,5,6))', 0, 36))
+                            )
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo', 0, 0))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList', 0, 7))
+                            ->setFunctionValueTokenStream(
+                                (new TokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,(2))', 0, 17))
+                            ),
+                    ),
+                (new LineStream())
+                    ->append(
+                        (new IdentifierFunctionLine())
+                            ->setIdentifierTokenStream(
+                                (new IdentifierTokenStream())
+                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'foo'))
+                            )
+                            ->setFunctionNameToken(new Token(TokenType::T_FUNCTION_NAME, 'addToList'))
+                            ->setFunctionValueTokenStream(
+                                (new TokenStream())
+                                    ->append(new Token(TokenType::T_VALUE, 'uidList in (1,(2))'))
+                            ),
                     ),
             ],
             'identifier, function, function name with value, hash comment' => [
@@ -7721,19 +7899,19 @@ final class TokenizerInterfaceTest extends UnitTestCase
                     ),
             ],
 
-            'old import keyword' => [
+            'old import keyword is invalid line' => [
                 '<INCLUDE_TYPOSCRIPT:',
                 (new LineStream())
                     ->append(
                         (new InvalidLine())
                             ->setTokenStream(
                                 (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0)),
+                                    ->append(new Token(TokenType::T_VALUE, '<INCLUDE_TYPOSCRIPT:', 0, 0)),
                             )
                     ),
                 new LineStream(),
             ],
-            'whitespace, old import keyword' => [
+            'whitespace, old import keyword is invalid line' => [
                 ' <INCLUDE_TYPOSCRIPT:',
                 (new LineStream())
                     ->append(
@@ -7741,12 +7919,12 @@ final class TokenizerInterfaceTest extends UnitTestCase
                             ->setTokenStream(
                                 (new TokenStream())
                                     ->append(new Token(TokenType::T_BLANK, ' ', 0, 0))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 1)),
+                                    ->append(new Token(TokenType::T_VALUE, '<INCLUDE_TYPOSCRIPT:', 0, 1)),
                             )
                     ),
                 new LineStream(),
             ],
-            'tab, old import keyword' => [
+            'tab, old import keyword is invalid line' => [
                 "\t<INCLUDE_TYPOSCRIPT:",
                 (new LineStream())
                     ->append(
@@ -7754,7 +7932,7 @@ final class TokenizerInterfaceTest extends UnitTestCase
                             ->setTokenStream(
                                 (new TokenStream())
                                     ->append(new Token(TokenType::T_BLANK, "\t", 0, 0))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 1)),
+                                    ->append(new Token(TokenType::T_VALUE, '<INCLUDE_TYPOSCRIPT:', 0, 1)),
                             )
                     ),
                 new LineStream(),
@@ -7771,460 +7949,29 @@ final class TokenizerInterfaceTest extends UnitTestCase
                     ),
                 new LineStream(),
             ],
-            'old import keyword, stop' => [
+            'old import keyword, stop is invalid line' => [
                 '<INCLUDE_TYPOSCRIPT:>',
                 (new LineStream())
                     ->append(
                         (new InvalidLine())
                             ->setTokenStream(
                                 (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 20)),
+                                    ->append(new Token(TokenType::T_VALUE, '<INCLUDE_TYPOSCRIPT:>', 0, 0))
                             )
                     ),
                 new LineStream(),
             ],
-            'old import keyword, whitespace, value looks like hash comment' => [
-                '<INCLUDE_TYPOSCRIPT: # not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' # not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' # not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' # not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, tab, value looks like hash comment' => [
-                "<INCLUDE_TYPOSCRIPT:\t# not recognized as comment",
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, "\t# not recognized as comment", 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t# not recognized as comment", 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t# not recognized as comment"))
-                    ),
-            ],
-            'old import keyword, value looks like hash comment' => [
-                '<INCLUDE_TYPOSCRIPT:# not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, '# not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, '# not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, '# not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, whitespace, value looks like doubleslash comment' => [
-                '<INCLUDE_TYPOSCRIPT: // not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' // not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' // not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' // not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, tab, value looks like doubleslash comment' => [
-                "<INCLUDE_TYPOSCRIPT:\t// not recognized as comment",
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, "\t// not recognized as comment", 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t// not recognized as comment", 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t// not recognized as comment"))
-                    ),
-            ],
-            'old import keyword, value looks like doubleslash comment' => [
-                '<INCLUDE_TYPOSCRIPT:// not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, '// not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, '// not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, '// not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, whitespace, value looks like multiline comment' => [
-                '<INCLUDE_TYPOSCRIPT: /* not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' /* not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' /* not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' /* not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, tab, value looks like multiline comment' => [
-                "<INCLUDE_TYPOSCRIPT:\t/* not recognized as comment",
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, "\t/* not recognized as comment", 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t/* not recognized as comment", 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, "\t/* not recognized as comment"))
-                    ),
-            ],
-            'old import keyword, value looks like multiline comment' => [
-                '<INCLUDE_TYPOSCRIPT:/* not recognized as comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, '/* not recognized as comment', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, '/* not recognized as comment', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, '/* not recognized as comment'))
-                    ),
-            ],
-            'old import keyword, invalid value, no stop but still ok' => [
-                '<INCLUDE_TYPOSCRIPT:somethingValid',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, 'somethingValid', 0, 20)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, 'somethingValid', 0, 20)),
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, 'somethingValid')),
-                    ),
-            ],
-            'old import keyword, value, no stop' => [
-                '<INCLUDE_TYPOSCRIPT: source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is include in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"', 0, 20))
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"'))
-                    ),
-            ],
-            'old import keyword, value, stop' => [
+            'old import keyword, value, stop is invalid line' => [
                 '<INCLUDE_TYPOSCRIPT: source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript">',
                 (new LineStream())
                     ->append(
-                        (new ImportOldLine())
+                        (new InvalidLine())
                             ->setTokenStream(
                                 (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is include in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 86)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript"'))
-                    ),
-            ],
-            'old import keyword, longer value, stop' => [
-                '<INCLUDE_TYPOSCRIPT: source="DIR:..." condition="...">',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is included in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 53)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="..."', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="..."'))
-                    ),
-            ],
-            'old import keyword, condition, stop' => [
-                '<INCLUDE_TYPOSCRIPT: source="DIR:..." condition="[tree.level = 2]">',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is included in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level = 2]"', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 66)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level = 2]"', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level = 2]"'))
-                    ),
-            ],
-            'old import keyword, condition syntax with greater sign, stop' => [
-                '<INCLUDE_TYPOSCRIPT: source="DIR:..." condition="[tree.level >= 2]">',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is included in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level >= 2]"', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 67)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level >= 2]"', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[tree.level >= 2]"'))
-                    ),
-            ],
-            'old import keyword, condition syntax with greater sign and quoted doubleticks, stop' => [
-                '<INCLUDE_TYPOSCRIPT: source="DIR:..." condition="[traverse(page, \"title\") == \"fo>o\"]">',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    // Note whitespace is included in 'T_VALUE' here, and not parsed
-                                    ->append(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[traverse(page, \"title\") == \"fo>o\"]"', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 89)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[traverse(page, \"title\") == \"fo>o\"]"', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="DIR:..." condition="[traverse(page, \"title\") == \"fo>o\"]"'))
-                    ),
-            ],
-            'old import keyword, value, stop, comment' => [
-                '<INCLUDE_TYPOSCRIPT: source="..."> # a comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 33))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 34))
-                                    ->append(new Token(TokenType::T_COMMENT_ONELINE_HASH, '# a comment', 0, 35)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."'))
-                    ),
-            ],
-            'old import keyword, value, stop, doubleslash comment' => [
-                '<INCLUDE_TYPOSCRIPT: source="..."> // a comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 33))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 34))
-                                    ->append(new Token(TokenType::T_COMMENT_ONELINE_DOUBLESLASH, '// a comment', 0, 35)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."'))
-                    ),
-            ],
-            'old import keyword, value, stop, multiline comment' => [
-                "<INCLUDE_TYPOSCRIPT: source=\"...\"> /* a comment\n" .
-                "endOf = comment */\n" .
-                'someIdentifier = someValue',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 33))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 34))
-                                    ->append(new Token(TokenType::T_COMMENT_MULTILINE_START, '/*', 0, 35))
-                                    ->append(new Token(TokenType::T_VALUE, ' a comment', 0, 37))
-                                    ->append(new Token(TokenType::T_NEWLINE, "\n", 0, 47))
-                                    ->append(new Token(TokenType::T_VALUE, 'endOf = comment ', 1, 0))
-                                    ->append(new Token(TokenType::T_COMMENT_MULTILINE_STOP, '*/', 1, 16))
-                                    ->append(new Token(TokenType::T_NEWLINE, "\n", 1, 18))
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                    )
-                    ->append(
-                        (new IdentifierAssignmentLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'someIdentifier', 2, 0))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 2, 14))
-                                    ->append(new Token(TokenType::T_OPERATOR_ASSIGNMENT, '=', 2, 15))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 2, 16))
-                                    ->append(new Token(TokenType::T_VALUE, 'someValue', 2, 17))
-                            )
-                            ->setIdentifierTokenStream(
-                                (new IdentifierTokenStream())
-                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'someIdentifier', 2, 0))
-                            )
-                            ->setValueTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_VALUE, 'someValue', 2, 17))
+                                    ->append(new Token(TokenType::T_VALUE, '<INCLUDE_TYPOSCRIPT: source="FILE:EXT:foo/Resources/Private/TypoScript/bar.typoscript">', 0, 0))
                             )
                     ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."'))
-                    )
-                    ->append(
-                        (new IdentifierAssignmentLine())
-                            ->setIdentifierTokenStream(
-                                (new IdentifierTokenStream())
-                                    ->append(new IdentifierToken(TokenType::T_IDENTIFIER, 'someIdentifier'))
-                            )
-                            ->setValueTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_VALUE, 'someValue'))
-                            )
-                    ),
-            ],
-            'old import keyword, value, stop, multiline comment one line' => [
-                '<INCLUDE_TYPOSCRIPT: source="..."> /* a comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 33))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 34))
-                                    ->append(new Token(TokenType::T_COMMENT_MULTILINE_START, '/*', 0, 35))
-                                    ->append(new Token(TokenType::T_VALUE, ' a comment', 0, 37)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."'))
-                    ),
-            ],
-            'old import keyword, value, stop, force comment' => [
-                '<INCLUDE_TYPOSCRIPT: source="..."> a comment',
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setTokenStream(
-                                (new TokenStream())
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD, '<INCLUDE_TYPOSCRIPT:', 0, 0))
-                                    ->append(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                                    ->append(new Token(TokenType::T_IMPORT_KEYWORD_OLD_STOP, '>', 0, 33))
-                                    ->append(new Token(TokenType::T_BLANK, ' ', 0, 34))
-                                    ->append(new Token(TokenType::T_COMMENT_ONELINE_HASH, 'a comment', 0, 35)),
-                            )
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."', 0, 20))
-                    ),
-                (new LineStream())
-                    ->append(
-                        (new ImportOldLine())
-                            ->setValueToken(new Token(TokenType::T_VALUE, ' source="..."'))
-                    ),
+                (new LineStream()),
             ],
         ];
     }

@@ -19,9 +19,9 @@ namespace TYPO3\CMS\Workspaces\Dependency;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3\CMS\Core\DataHandling\DataHandler;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 
 /**
@@ -29,54 +29,12 @@ use TYPO3\CMS\Core\Versioning\VersionState;
  *
  * @internal
  */
-#[Autoconfigure(public: true, shared: false)]
-class ElementEntityProcessor
+#[Autoconfigure(public: true)]
+readonly class ElementEntityProcessor
 {
-    protected int $workspace;
-    protected ?DataHandler $dataHandler;
-
     public function __construct(
-        protected readonly TcaSchemaFactory $tcaSchemaFactory
+        private TcaSchemaFactory $tcaSchemaFactory,
     ) {}
-
-    /**
-     * Sets the current workspace.
-     */
-    public function setWorkspace(int $workspace): void
-    {
-        $this->workspace = $workspace;
-    }
-
-    /**
-     * Gets the current workspace.
-     */
-    public function getWorkspace(): int
-    {
-        return $this->workspace;
-    }
-
-    public function getDataHandler(): DataHandler
-    {
-        if (!isset($this->dataHandler)) {
-            $this->dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-        }
-        return $this->dataHandler;
-    }
-
-    /**
-     * Transforms dependent elements to use the liveId as array key.
-     *
-     * @param ElementEntity[] $elements
-     */
-    public function transformDependentElementsToUseLiveId(array $elements): array
-    {
-        $transformedElements = [];
-        foreach ($elements as $element) {
-            $elementName = ElementEntity::getIdentifier($element->getTable(), $element->getDataValue('liveId'));
-            $transformedElements[$elementName] = $element;
-        }
-        return $transformedElements;
-    }
 
     /**
      * Callback to determine whether a new child reference shall be considered in the dependency resolver utility.
@@ -91,7 +49,7 @@ class ElementEntityProcessor
         }
         $schema = $this->tcaSchemaFactory->get($caller->getTable());
         $fieldConfiguration = $schema->getField($callerArguments['field'])->getConfiguration();
-        $inlineFieldType = $this->getDataHandler()->getRelationFieldType($fieldConfiguration);
+        $inlineFieldType = $this->getRelationFieldType($fieldConfiguration);
         if (!$fieldConfiguration || ($fieldConfiguration['type'] !== 'flex' && $inlineFieldType !== 'field' && $inlineFieldType !== 'list')) {
             return ElementEntity::RESPONSE_Skip;
         }
@@ -107,7 +65,7 @@ class ElementEntityProcessor
     {
         $schema = $this->tcaSchemaFactory->get($callerArguments['table']);
         $fieldConfiguration = $schema->getField($callerArguments['field'])->getConfiguration();
-        $inlineFieldType = $this->getDataHandler()->getRelationFieldType($fieldConfiguration);
+        $inlineFieldType = $this->getRelationFieldType($fieldConfiguration);
         if (!$fieldConfiguration || ($fieldConfiguration['type'] !== 'flex' && $inlineFieldType !== 'field' && $inlineFieldType !== 'list')) {
             return ElementEntity::RESPONSE_Skip;
         }
@@ -125,7 +83,7 @@ class ElementEntityProcessor
         $response = $this->createNewDependentElementChildReferenceCallback($callerArguments, $targetArgument, $caller, $eventName);
         if (empty($response)) {
             $record = BackendUtility::getRecord($callerArguments['table'], $callerArguments['id']);
-            if (VersionState::tryFrom($record['t3ver_state'] ?? 0) !== VersionState::DELETE_PLACEHOLDER->value) {
+            if (VersionState::tryFrom($record['t3ver_state'] ?? 0) !== VersionState::DELETE_PLACEHOLDER) {
                 $response = ElementEntity::RESPONSE_Skip;
             }
         }
@@ -143,7 +101,7 @@ class ElementEntityProcessor
         $response = $this->createNewDependentElementParentReferenceCallback($callerArguments, $targetArgument, $caller, $eventName);
         if (empty($response)) {
             $record = BackendUtility::getRecord($callerArguments['table'], $callerArguments['id']);
-            if (VersionState::tryFrom($record['t3ver_state'] ?? 0) !== VersionState::DELETE_PLACEHOLDER->value) {
+            if (VersionState::tryFrom($record['t3ver_state'] ?? 0) !== VersionState::DELETE_PLACEHOLDER) {
                 $response = ElementEntity::RESPONSE_Skip;
             }
         }
@@ -155,7 +113,8 @@ class ElementEntityProcessor
      */
     public function createNewDependentElementCallback(array $callerArguments, array $targetArgument, ElementEntity $caller, string $eventName): void
     {
-        if (!BackendUtility::isTableWorkspaceEnabled($caller->getTable())) {
+        $schema = $this->tcaSchemaFactory->get($caller->getTable());
+        if (!$schema->isWorkspaceAware()) {
             $caller->setInvalid(true);
             return;
         }
@@ -165,18 +124,23 @@ class ElementEntityProcessor
         // that the reference index still has an old reference pointer, which is "fine" for deleted parents
         if (empty($versionRecord)) {
             throw new \RuntimeException(
-                'Element "' . $caller::getIdentifier($caller->getTable(), $caller->getId()) . '" does not exist',
+                'Element "' . $caller->getTable() . ':' . $caller->getId() . '" does not exist',
                 1393960943
             );
         }
 
-        $deleteFieldName = $GLOBALS['TCA'][$caller->getTable()]['ctrl']['delete'] ?? null;
+        if (!MathUtility::canBeInterpretedAsInteger($targetArgument['workspace'] ?? false)) {
+            throw new \RuntimeException('Target argument workspace must be given', 1738175659);
+        }
+        $workspace = (int)$targetArgument['workspace'];
+
+        $deleteFieldName = $schema->hasCapability(TcaSchemaCapability::SoftDelete) ? $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName() : null;
         // If version is on live workspace, but an "offline" ID is set, mark the record as invalid.
-        // This happens if a change has been discarded (clearWSID) - it will be removed from the command map.
+        // This happens if a change has been discarded (previously known as "flush" or "clearWSID") - it will be removed from the command map.
         if (
             (int)$versionRecord['t3ver_oid'] > 0 && (
                 (int)$versionRecord['t3ver_wsid'] === 0 // behavior prior to v10.1 (backward compatibility)
-                || !empty($deleteFieldName) && (int)$versionRecord['t3ver_wsid'] === $this->getWorkspace()
+                || !empty($deleteFieldName) && (int)$versionRecord['t3ver_wsid'] === $workspace
                     && (int)$versionRecord[$deleteFieldName] > 0 // behavior since v10.1
             )
         ) {
@@ -186,13 +150,13 @@ class ElementEntityProcessor
         }
         if ($caller->hasDataValue('liveId') === false) {
             // Set the original uid from the version record
-            if (!empty($versionRecord['t3ver_oid']) && (int)$versionRecord['t3ver_wsid'] === $this->getWorkspace()) {
+            if (!empty($versionRecord['t3ver_oid']) && (int)$versionRecord['t3ver_wsid'] === $workspace) {
                 $caller->setDataValue('liveId', $versionRecord['t3ver_oid']);
             } elseif ((int)$versionRecord['t3ver_wsid'] === 0 || (int)$versionRecord['t3ver_oid'] === 0) {
                 // The current version record is actually a live record or an accordant placeholder for live
                 $caller->setDataValue('liveId', $caller->getId());
                 $versionRecord = BackendUtility::getWorkspaceVersionOfRecord(
-                    $this->getWorkspace(),
+                    $workspace,
                     $caller->getTable(),
                     $caller->getId(),
                     'uid,t3ver_state'
@@ -211,5 +175,30 @@ class ElementEntityProcessor
                 $caller->setInvalid(true);
             }
         }
+    }
+
+    /**
+     * This is a copy of DataHandler->getRelationFieldType(), but the logic
+     * should be simplified since the implementation is rather confusing.
+     */
+    protected function getRelationFieldType(array $conf): bool|string
+    {
+        if (
+            empty($conf['foreign_table'])
+            || !in_array($conf['type'] ?? '', ['inline', 'file'], true)
+            || ($conf['type'] === 'file' && !($conf['foreign_field'] ?? false))
+        ) {
+            return false;
+        }
+        if ($conf['foreign_field'] ?? false) {
+            // The reference to the parent is stored in a pointer field in the child record
+            return 'field';
+        }
+        if ($conf['MM'] ?? false) {
+            // Regular MM intermediate table is used to store data
+            return 'mm';
+        }
+        // An item list (separated by comma) is stored (like select type is doing)
+        return 'list';
     }
 }

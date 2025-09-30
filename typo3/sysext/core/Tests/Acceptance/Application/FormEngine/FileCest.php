@@ -26,7 +26,7 @@ use TYPO3\CMS\Core\Tests\Acceptance\Support\Helper\PageTree;
  */
 final class FileCest
 {
-    private static string $filenameSelector = '.form-irre-header-body > span > dl.row:first-child > dd.col';
+    private static string $filenameSelector = '.form-irre-header-body > span > span';
     private static string $saveButtonLink = '//*/button[@name="_savedok"][1]';
 
     /**
@@ -64,7 +64,7 @@ final class FileCest
 
         $I->click($hideButtonSelector);
         $I->click(self::$saveButtonLink);
-        $I->seeElement('.tab-content .t3-form-field-container-inline-hidden');
+        $I->seeElement('.tab-content .t3-form-field-container-files-hidden');
     }
 
     public function deleteFalRelation(ApplicationTester $I, ModalDialog $modalDialog): void

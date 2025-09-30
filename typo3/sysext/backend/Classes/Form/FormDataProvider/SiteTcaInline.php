@@ -34,6 +34,11 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  */
 class SiteTcaInline extends AbstractDatabaseRecordProvider implements FormDataProviderInterface
 {
+    public function __construct(
+        private readonly SiteFinder $siteFinder,
+        private readonly InlineStackProcessor $inlineStackProcessor,
+    ) {}
+
     /**
      * Resolve inline fields
      */
@@ -118,9 +123,8 @@ class SiteTcaInline extends AbstractDatabaseRecordProvider implements FormDataPr
         $connectedUids = [];
         if ($result['command'] === 'edit') {
             $siteConfigurationForPageUid = (int)$result['databaseRow']['rootPageId'][0];
-            $siteFinder = GeneralUtility::makeInstance(SiteFinder::class);
             try {
-                $site = $siteFinder->getSiteByRootPageId($siteConfigurationForPageUid);
+                $site = $this->siteFinder->getSiteByRootPageId($siteConfigurationForPageUid);
             } catch (SiteNotFoundException $e) {
                 $site = null;
             }
@@ -156,9 +160,7 @@ class SiteTcaInline extends AbstractDatabaseRecordProvider implements FormDataPr
         $parentConfig = $result['processedTca']['columns'][$parentFieldName]['config'];
         $childTableName = $parentConfig['foreign_table'];
 
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByGivenStructure($result['inlineStructure']);
-        $inlineTopMostParent = $inlineStackProcessor->getStructureLevel(0);
+        $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($result['inlineStructure'], 0);
 
         $formDataCompiler = GeneralUtility::makeInstance(FormDataCompiler::class);
         $formDataCompilerInput = [

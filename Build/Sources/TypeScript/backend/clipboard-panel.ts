@@ -11,13 +11,13 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators';
 import { until } from 'lit/directives/until';
 import { unsafeHTML } from 'lit/directives/unsafe-html';
 import { classMap } from 'lit/directives/class-map';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import Notification from '@typo3/backend/notification';
 import '@typo3/backend/element/spinner-element';
 import '@typo3/backend/element/icon-element';
@@ -77,13 +77,13 @@ export class ClipboardPanel extends LitElement {
     `;
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     // const renderRoot = this.attachShadow({mode: 'open'});
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       ${until(this.renderPanel(), ClipboardPanel.renderLoader())}
     `;
@@ -107,7 +107,7 @@ export class ClipboardPanel extends LitElement {
                   <tbody>
                     ${clipboardData.tabs.map((tab: ClipboardTab): TemplateResult => this.renderTab(tab, clipboardData))}
                   </tbody>
-                </tabel>
+                </table>
               </div>
             </div>
           `;

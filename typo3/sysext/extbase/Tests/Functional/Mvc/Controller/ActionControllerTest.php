@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -34,14 +35,15 @@ use TYPO3\CMS\Extbase\Mvc\View\JsonView;
 use TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller\Fixture\Validation\Validator\CustomValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\ConjunctionValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
+use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
-use TYPO3Fluid\Fluid\View\TemplateView as FluidTemplateView;
 use TYPO3Tests\ActionControllerTest\Controller\TestController;
+use TYPO3Tests\ActionControllerTest\Domain\Model\Model;
 
 final class ActionControllerTest extends FunctionalTestCase
 {
     protected array $testExtensionsToLoad = [
-        'typo3/sysext/extbase/Tests/Functional/Mvc/Controller/Fixture/Extension/action_controller_test',
+        'typo3/sysext/extbase/Tests/Functional/Fixtures/Extensions/action_controller_test',
     ];
 
     #[Test]
@@ -237,13 +239,13 @@ final class ActionControllerTest extends FunctionalTestCase
             (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
 
-        $viewMock = $this->createMock(FluidTemplateView::class);
-        $viewMock->expects(self::exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('custom-header-data', '');
+        $viewMock = $this->createMock(FluidViewAdapter::class);
+        $viewMock->expects($this->exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('custom-header-data', '');
         $expectedHeader = 'custom-header-data';
 
         $pageRenderer = $this->createMock(PageRenderer::class);
-        $pageRenderer->expects(self::atLeastOnce())->method('addHeaderData')->with($expectedHeader);
-        $pageRenderer->expects(self::never())->method('addFooterData');
+        $pageRenderer->expects($this->atLeastOnce())->method('addHeaderData')->with($expectedHeader);
+        $pageRenderer->expects($this->never())->method('addFooterData');
         GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
 
         $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
@@ -262,13 +264,13 @@ final class ActionControllerTest extends FunctionalTestCase
             (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
 
-        $viewMock = $this->createMock(FluidTemplateView::class);
-        $viewMock->expects(self::exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('', 'custom-footer-data');
+        $viewMock = $this->createMock(FluidViewAdapter::class);
+        $viewMock->expects($this->exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('', 'custom-footer-data');
         $expectedFooter = 'custom-footer-data';
 
         $pageRenderer = $this->createMock(PageRenderer::class);
-        $pageRenderer->expects(self::never())->method('addHeaderData');
-        $pageRenderer->expects(self::atLeastOnce())->method('addFooterData')->with($expectedFooter);
+        $pageRenderer->expects($this->never())->method('addHeaderData');
+        $pageRenderer->expects($this->atLeastOnce())->method('addFooterData')->with($expectedFooter);
         GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
 
         $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
@@ -309,5 +311,53 @@ final class ActionControllerTest extends FunctionalTestCase
         self::assertSame($messageBody, $messages[0]->getMessage());
         self::assertSame($messageTitle, $messages[0]->getTitle());
         self::assertSame($messageSeverity, $messages[0]->getSeverity());
+    }
+
+    #[Test]
+    public function mapRequestArgumentsToControllerArgumentsMapsUploadedFilesToArgument(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        $testFilename = $this->createTestFile('testfile.txt', 'TYPO3 - Inspiring People To Share');
+        $uploadedFile = new UploadedFile($testFilename, 100, UPLOAD_ERR_OK, 'testfile.txt');
+
+        $extbaseRequestParameters = new ExtbaseRequestParameters();
+        $extbaseRequestParameters->setUploadedFiles(['fooParam' => [$uploadedFile]]);
+
+        $serverRequest = (new ServerRequest('https://example.com/', 'POST'))
+            ->withAttribute('extbase', $extbaseRequestParameters);
+        $request = (new Request($serverRequest))
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('bar')
+            ->withPluginName('Pi1')
+            ->withArgument('fooParam', new Model());
+
+        $subject = $this->get(TestController::class);
+        $subject->arguments = new Arguments();
+        $subject->actionMethodName = 'fooAction';
+        $subject->request = $request;
+        $subject->initializeActionMethodArguments();
+        $subject->mapRequestArgumentsToControllerArguments();
+
+        self::assertSame([$uploadedFile], $subject->arguments['fooParam']->getUploadedFiles());
+    }
+
+    /**
+     * Helper function to create a test file with the given content.
+     */
+    protected function createTestFile(string $filename, string $content): string
+    {
+        $path = $this->instancePath . '/tmp';
+        $testFilename = $path . $filename;
+
+        GeneralUtility::mkdir($path);
+        touch($testFilename);
+        file_put_contents($testFilename, $content);
+
+        return $testFilename;
     }
 }

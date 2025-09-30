@@ -26,7 +26,12 @@ use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationCollection;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationOrigin;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationOriginType;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Scope;
+use TYPO3\CMS\Core\Site\Set\InvalidCategoryDefinitionsException;
+use TYPO3\CMS\Core\Site\Set\InvalidSetException;
+use TYPO3\CMS\Core\Site\Set\InvalidSettingsDefinitionsException;
+use TYPO3\CMS\Core\Site\Set\InvalidSettingsException;
 use TYPO3\CMS\Core\Site\Set\SetCollector;
+use TYPO3\CMS\Core\Site\Set\SetError;
 use TYPO3\CMS\Core\Site\Set\YamlSetDefinitionProvider;
 use TYPO3\CMS\Core\Type\Map;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -177,9 +182,15 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
         return $icons;
     }
 
-    public static function configureSetCollector(ContainerInterface $container, SetCollector $setCollector, ?string $path = null): SetCollector
-    {
-        $path = $path ?? static::getPackagePath();
+    public static function configureSetCollector(
+        ContainerInterface $container,
+        SetCollector $setCollector,
+        ?string $path = null,
+        ?string $packageName = null,
+    ): SetCollector {
+        $path ??= static::getPackagePath();
+        $packageName ??= static::getPackageName();
+        $extensionKey = $container->get(PackageManager::class)->getPackage($packageName)->getPackageKey();
         $setPath = $path . 'Configuration/Sets';
 
         try {
@@ -187,6 +198,7 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
                 ->files()
                 ->sortByName()
                 ->depth(1)
+                ->ignoreUnreadableDirs()
                 ->name('config.yaml')
                 ->in($setPath);
         } catch (\InvalidArgumentException) {
@@ -194,14 +206,42 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
             return $setCollector;
         }
 
-        $setProvider = new YamlSetDefinitionProvider();
+        $setProvider = $container->get(YamlSetDefinitionProvider::class);
         foreach ($finder as $fileInfo) {
+            $errorMap = [
+                InvalidSettingsDefinitionsException::class => [
+                    'error' => SetError::invalidSettingsDefinitions,
+                    'logLine' => 'Set {setName} invalidated {file} because of invalid settings.definitions.yaml: {reason}',
+                ],
+                InvalidCategoryDefinitionsException::class => [
+                    'error' => SetError::invalidCategoryDefinitions,
+                    'logLine' => 'Set {setName} invalidated {file} because of invalid category in settings.definitions.yaml: {reason}',
+                ],
+                InvalidSettingsException::class => [
+                    'error' => SetError::invalidSettings,
+                    'logLine' => 'Set {setName} invalidated {file} because of invalid settings.yaml: {reason}',
+                ],
+                InvalidSetException::class => [
+                    'error' => SetError::invalidSet,
+                    'logLine' => 'Invalid set {setName} in {file}: {reason}',
+                ],
+            ];
+
             try {
-                $setCollector->add($setProvider->get($fileInfo));
-            } catch (\RuntimeException $e) {
+                $virtualSetPath = 'EXT:' . $extensionKey . '/Configuration/Sets/' . basename(dirname($fileInfo->getPathname())) . '/';
+                $setCollector->add($setProvider->get($fileInfo, $virtualSetPath));
+            } catch (InvalidSettingsDefinitionsException|InvalidCategoryDefinitionsException|InvalidSettingsException|InvalidSetException $e) {
+                $errorDetails = $errorMap[get_class($e)];
+                $setCollector->addError(
+                    $errorDetails['error'],
+                    $e->getSetName(),
+                    $e->getMessage(),
+                );
+
                 $logger = $container->get(LogManager::class)->getLogger(self::class);
-                $logger->error('Invalid set in {file}: {reason}', [
+                $logger->error($errorDetails['logLine'], [
                     'file' => $fileInfo->getPathname(),
+                    'setName' => $e->getSetName(),
                     'reason' => $e->getMessage(),
                 ]);
             }

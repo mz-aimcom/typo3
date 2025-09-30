@@ -18,7 +18,7 @@
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { TsRef } from './ts-ref';
 import { TsParser } from './ts-parser';
-import { CompletionResult, Proposal } from './completion-result';
+import { CompletionResult, type Proposal } from './completion-result';
 
 import type { CodeMirror5CompatibleCompletionState } from '../language/typoscript';
 
@@ -27,7 +27,7 @@ export type ContentObjectIdentifier = string;
 export type TsObjTree = {
   c?: Record<string, TsObjTree>;
   v?: ContentObjectIdentifier;
-}
+};
 
 export class TsCodeCompletion {
   public extTsObjTree: TsObjTree = {};

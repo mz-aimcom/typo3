@@ -31,8 +31,11 @@ integration various php 8.2 pre-merge:
     - Build/Scripts/runTests.sh -s checkBom -p 8.2
     - Build/Scripts/runTests.sh -s checkComposer -p 8.2
     - Build/Scripts/runTests.sh -s checkIntegrityPhp -p 8.2
+    - Build/Scripts/runTests.sh -s checkIntegritySetLabels -p 8.2
     - Build/Scripts/runTests.sh -s lintServicesYaml -p 8.2
     - Build/Scripts/runTests.sh -s lintYaml -p 8.2
+    - Build/Scripts/runTests.sh -s checkFilesAndPathsForSpaces -p 8.2
+    - Build/Scripts/runTests.sh -s checkCharsets -p 8.2
 
 lint php pre-merge:
   stage: main
@@ -44,7 +47,7 @@ lint php pre-merge:
       - main
   script:
     - Build/Scripts/runTests.sh -s lintPhp -p 8.2
-    - Build/Scripts/runTests.sh -s lintPhp -p 8.4
+    - Build/Scripts/runTests.sh -s lintPhp -p 8.5
 
 grunt scss ts html pre-merge:
   stage: main

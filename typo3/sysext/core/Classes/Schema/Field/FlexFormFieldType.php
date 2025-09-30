@@ -17,23 +17,34 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class FlexFormFieldType extends AbstractFieldType implements FieldTypeInterface
+final readonly class FlexFormFieldType extends AbstractFieldType
 {
-    public function __construct(
-        protected string $name,
-        protected array $configuration,
-    ) {}
-
     public function getType(): string
     {
         return 'flex';
     }
 
-    public static function __set_state(array $state): self
+    public function isSearchable(): bool
     {
-        return new self(...$state);
+        return (bool)($this->configuration['searchable'] ?? true);
+    }
+
+    public function getDataStructure(): string
+    {
+        if (!isset($this->configuration['ds'])) {
+            return '';
+        }
+
+        return is_string($this->configuration['ds']) ? $this->configuration['ds'] : '';
+    }
+
+    public function isNullable(): false
+    {
+        return false;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

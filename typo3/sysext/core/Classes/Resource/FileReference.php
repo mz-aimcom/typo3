@@ -20,6 +20,8 @@ namespace TYPO3\CMS\Core\Resource;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
 use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -30,8 +32,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * It acts as a decorator over the original file in the way that most method calls are
  * directly passed along to the original file object.
  *
- * All file related methods are directly passed along; only meta data functionality is adopted
- * in this decorator class to priorities possible overrides for the metadata for this specific usage
+ * All file related methods are directly passed along; only meta-data functionality is adopted
+ * in this decorator class to prioritize possible overrides for the metadata for this specific usage
  * of the file.
  */
 class FileReference implements FileInterface
@@ -39,37 +41,28 @@ class FileReference implements FileInterface
     /**
      * Various properties of the FileReference. Note that these information can be different
      * to the ones found in the originalFile.
-     *
-     * @var array
      */
-    protected $propertiesOfFileReference;
+    protected array $propertiesOfFileReference;
 
     /**
      * Reference to the original File object underlying this FileReference.
-     *
-     * @var FileInterface
      */
-    protected $originalFile;
+    protected File $originalFile;
 
     /**
      * Properties merged with the parent object (File) if
      * the value is not defined (NULL). Thus, FileReference properties act
      * as overlays for the defined File properties.
-     *
-     * @var array
      */
-    protected $mergedProperties = [];
+    protected array $mergedProperties = [];
 
     /**
      * Constructor for a file in use object. Should normally not be used
      * directly, use the corresponding factory methods instead.
      *
-     * @param ResourceFactory $factory
-     *
      * @throws \InvalidArgumentException
-     * @throws Exception\FileDoesNotExistException
      */
-    public function __construct(array $fileReferenceData, $factory = null)
+    public function __construct(array $fileReferenceData, ?ResourceFactory $factory = null)
     {
         $this->propertiesOfFileReference = $fileReferenceData;
         if (!$fileReferenceData['uid_local']) {
@@ -78,11 +71,7 @@ class FileReference implements FileInterface
         $this->originalFile = $this->getFileObject((int)$fileReferenceData['uid_local'], $factory);
     }
 
-    /**
-     * @param ResourceFactory|null $factory
-     * @throws Exception\FileDoesNotExistException
-     */
-    private function getFileObject(int $uidLocal, ?ResourceFactory $factory = null): FileInterface
+    private function getFileObject(int $uidLocal, ?ResourceFactory $factory = null): File
     {
         if ($factory === null) {
             $factory = GeneralUtility::makeInstance(ResourceFactory::class);
@@ -122,10 +111,9 @@ class FileReference implements FileInterface
      * Gets a property of the file reference.
      *
      * @param string $key The property to be looked up
-     * @return mixed
      * @throws \InvalidArgumentException
      */
-    public function getReferenceProperty($key)
+    public function getReferenceProperty(string $key): mixed
     {
         if (!array_key_exists($key, $this->propertiesOfFileReference)) {
             throw new \InvalidArgumentException('Property "' . $key . '" of file reference was not found.', 1360684914);
@@ -135,10 +123,8 @@ class FileReference implements FileInterface
 
     /**
      * Gets all properties, falling back to values of the parent.
-     *
-     * @return array
      */
-    public function getProperties()
+    public function getProperties(): array
     {
         if (empty($this->mergedProperties)) {
             $this->mergedProperties = $this->propertiesOfFileReference;
@@ -151,7 +137,6 @@ class FileReference implements FileInterface
             );
             array_walk($this->mergedProperties, $this->restoreNonNullValuesCallback(...));
         }
-
         return $this->mergedProperties;
     }
 
@@ -170,10 +155,8 @@ class FileReference implements FileInterface
 
     /**
      * Gets all properties of the file reference.
-     *
-     * @return array
      */
-    public function getReferenceProperties()
+    public function getReferenceProperties(): array
     {
         return $this->propertiesOfFileReference;
     }
@@ -187,10 +170,8 @@ class FileReference implements FileInterface
      * Returns the title text to this image
      *
      * @todo Possibly move this to the image domain object instead
-     *
-     * @return string
      */
-    public function getTitle()
+    public function getTitle(): string
     {
         return (string)$this->getProperty('title');
     }
@@ -199,10 +180,8 @@ class FileReference implements FileInterface
      * Returns the alternative text to this image
      *
      * @todo Possibly move this to the image domain object instead
-     *
-     * @return string
      */
-    public function getAlternative()
+    public function getAlternative(): string
     {
         return (string)$this->getProperty('alternative');
     }
@@ -211,10 +190,8 @@ class FileReference implements FileInterface
      * Returns the description text to this file
      *
      * @todo Possibly move this to the image domain object instead
-     *
-     * @return string
      */
-    public function getDescription()
+    public function getDescription(): string
     {
         return (string)$this->getProperty('description');
     }
@@ -223,20 +200,16 @@ class FileReference implements FileInterface
      * Returns the link that should be active when clicking on this image
      *
      * @todo Move this to the image domain object instead
-     *
-     * @return string
      */
-    public function getLink()
+    public function getLink(): string
     {
         return $this->propertiesOfFileReference['link'];
     }
 
     /**
      * Returns the uid of this File In Use
-     *
-     * @return int
      */
-    public function getUid()
+    public function getUid(): int
     {
         return (int)$this->propertiesOfFileReference['uid'];
     }
@@ -292,7 +265,7 @@ class FileReference implements FileInterface
      */
     public function getModificationTime(): int
     {
-        return (int)$this->originalFile->getModificationTime();
+        return $this->originalFile->getModificationTime();
     }
 
     /**
@@ -300,25 +273,31 @@ class FileReference implements FileInterface
      */
     public function getCreationTime(): int
     {
-        return (int)$this->originalFile->getCreationTime();
+        return $this->originalFile->getCreationTime();
     }
 
     /**
      * Returns the fileType of this file
-     *
-     * @return int $fileType
      */
-    public function getType()
+    public function getType(): int
     {
-        return (int)$this->originalFile->getType();
+        return $this->originalFile->getType();
+    }
+
+    public function isType(FileType $fileType): bool
+    {
+        return $this->getFileType() === $fileType;
+    }
+
+    public function getFileType(): FileType
+    {
+        return $this->originalFile->getFileType();
     }
 
     /**
      * Check if file is marked as missing by indexer
-     *
-     * @return bool
      */
-    public function isMissing()
+    public function isMissing(): bool
     {
         return (bool)$this->originalFile->getProperty('missing');
     }
@@ -338,6 +317,7 @@ class FileReference implements FileInterface
      * Replace the current file contents with the given string
      *
      * @param string $contents The contents to write to the file.
+     *
      * @return $this
      */
     public function setContents(string $contents): self
@@ -372,7 +352,7 @@ class FileReference implements FileInterface
      *
      * @return string Combined storage and file identifier, e.g. StorageUID:path/and/fileName.png
      */
-    public function getCombinedIdentifier()
+    public function getCombinedIdentifier(): string
     {
         return $this->originalFile->getCombinedIdentifier();
     }
@@ -383,14 +363,15 @@ class FileReference implements FileInterface
      */
     public function delete(): bool
     {
+        $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('sys_file_reference');
         $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
-        $tcaDeleteFieldname = $GLOBALS['TCA']['sys_file_reference']['ctrl']['delete'] ?? null;
-        if ($tcaDeleteFieldname) {
+        if ($schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+            $softDeleteFieldName = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
             $affectedRows = $connectionPool->getConnectionForTable('sys_file_reference')
                 ->update(
                     'sys_file_reference',
                     [
-                        $tcaDeleteFieldname => 1,
+                        $softDeleteFieldName => 1,
                     ],
                     [
                         'uid' => $this->getUid(),
@@ -421,10 +402,9 @@ class FileReference implements FileInterface
      * Renames the fileName in this particular usage.
      *
      * @param non-empty-string $newName The new file name
-     * @param string|DuplicationBehavior $conflictMode
-     * @todo change $conflictMode parameter type to DuplicationBehavior in TYPO3 v14.0
+     * @param DuplicationBehavior $conflictMode
      */
-    public function rename(string $newName, $conflictMode = DuplicationBehavior::RENAME): FileInterface
+    public function rename(string $newName, DuplicationBehavior $conflictMode = DuplicationBehavior::RENAME): FileInterface
     {
         // @todo Implement this function. This should only rename the
         // FileReference (sys_file_reference) record, not the file itself.
@@ -480,16 +460,13 @@ class FileReference implements FileInterface
      */
     public function toArray(): array
     {
-        $array = array_merge($this->originalFile->toArray(), $this->propertiesOfFileReference);
-        return $array;
+        return array_merge($this->originalFile->toArray(), $this->propertiesOfFileReference);
     }
 
     /**
      * Gets the original file being referenced.
-     *
-     * @return File
      */
-    public function getOriginalFile()
+    public function getOriginalFile(): File
     {
         return $this->originalFile;
     }

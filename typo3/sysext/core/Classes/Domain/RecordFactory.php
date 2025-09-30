@@ -17,9 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Domain;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\DataHandling\RecordFieldTransformer;
+use TYPO3\CMS\Core\Domain\Event\RecordCreationEvent;
+use TYPO3\CMS\Core\Domain\Exception\IncompleteRecordException;
+use TYPO3\CMS\Core\Domain\Exception\RecordPropertyNotFoundException;
+use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
 use TYPO3\CMS\Core\Domain\Record\ComputedProperties;
 use TYPO3\CMS\Core\Domain\Record\LanguageInfo;
 use TYPO3\CMS\Core\Domain\Record\SystemProperties;
@@ -55,6 +60,7 @@ readonly class RecordFactory
     public function __construct(
         protected TcaSchemaFactory $schemaFactory,
         protected RecordFieldTransformer $fieldTransformer,
+        protected EventDispatcherInterface $eventDispatcher,
     ) {}
 
     /**
@@ -64,7 +70,7 @@ readonly class RecordFactory
      * This method does not handle special expansion of fields.
      * @todo Now unused - we might want to remove this again
      */
-    public function createFromDatabaseRow(string $table, array $record): Record
+    public function createFromDatabaseRow(string $table, array $record): RecordInterface
     {
         $rawRecord = $this->createRawRecord($table, $record);
         $schema = $this->schemaFactory->get($table);
@@ -76,12 +82,17 @@ readonly class RecordFactory
         // Only use the fields that are defined in the schema
         $properties = [];
         foreach ($record as $fieldName => $fieldValue) {
-            if ($subSchema && !$subSchema->hasField($fieldName)) {
+            if ($subSchema) {
+                if (!$subSchema->hasField($fieldName)) {
+                    continue;
+                }
+                $schema = $subSchema;
+            } elseif (!$schema->hasField($fieldName)) {
                 continue;
             }
             $properties[$fieldName] = $fieldValue;
         }
-        return $this->createRecord($rawRecord, $properties);
+        return $this->createRecord($rawRecord, $properties, $schema);
     }
 
     /**
@@ -89,9 +100,14 @@ readonly class RecordFactory
      * their values resolved and extended. A typical use-case is resolving
      * of related records, or using \DateTimeImmutable objects for datetime fields.
      */
-    public function createResolvedRecordFromDatabaseRow(string $table, array $record, ?Context $context = null): Record
+    public function createResolvedRecordFromDatabaseRow(string $table, array $record, ?Context $context = null, ?RecordIdentityMap $recordIdentityMap = null): RecordInterface
     {
         $context = $context ?? GeneralUtility::makeInstance(Context::class);
+        /** @var RecordIdentityMap $recordIdentityMap */
+        $recordIdentityMap = $recordIdentityMap ?? GeneralUtility::makeInstance(RecordIdentityMap::class);
+        if ($recordIdentityMap->hasIdentifier($table, (int)($record['uid'] ?? 0))) {
+            return $recordIdentityMap->findByIdentifier($table, (int)$record['uid']);
+        }
         $properties = [];
         $rawRecord = $this->createRawRecord($table, $record);
         $schema = $this->schemaFactory->get($table);
@@ -114,10 +130,13 @@ readonly class RecordFactory
             $properties[$fieldName] = $this->fieldTransformer->transformField(
                 $fieldInformation,
                 $rawRecord,
-                $context
+                $context,
+                $recordIdentityMap
             );
         }
-        return $this->createRecord($rawRecord, $properties);
+        $resolvedRecord = $this->createRecord($rawRecord, $properties, $schema, $context, $recordIdentityMap);
+        $recordIdentityMap->add($resolvedRecord);
+        return $resolvedRecord;
     }
 
     /**
@@ -133,9 +152,9 @@ readonly class RecordFactory
         }
         $schema = $this->schemaFactory->get($table);
         $fullType = $table;
-        $subSchemaDivisorField = $schema->getSubSchemaDivisorField();
-        if ($subSchemaDivisorField !== null) {
-            $subSchemaDivisorFieldName = $subSchemaDivisorField->getName();
+        if ($schema->supportsSubSchema() && ($subSchemaTypeInformation = $schema->getSubSchemaTypeInformation())->isPointerToForeignFieldInForeignSchema() === false) {
+            // @todo Limitation to local SubSchemaDivisorField, because the actual record type is defined in foreign record.
+            $subSchemaDivisorFieldName = $subSchemaTypeInformation->getFieldName();
             if (!isset($record[$subSchemaDivisorFieldName])) {
                 throw new \InvalidArgumentException(
                     'Missing typeField "' . $subSchemaDivisorFieldName . '" in record of requested table "' . $table . '".',
@@ -146,21 +165,28 @@ readonly class RecordFactory
             $fullType .= '.' . $recordType;
         }
         $computedProperties = $this->extractComputedProperties($record);
-        return new RawRecord((int)$record['uid'], (int)$record['pid'], $record, $computedProperties, $fullType);
+        // @todo We might want to throw an exception in case uid / pid are not defined.
+        return new RawRecord((int)($record['uid'] ?? 0), (int)($record['pid'] ?? 0), $record, $computedProperties, $fullType);
     }
 
     /**
      * Quick helper function in order to avoid duplicate code.
      */
-    protected function createRecord(RawRecord $rawRecord, array $properties): Record
+    protected function createRecord(RawRecord $rawRecord, array $properties, TcaSchema $schema, ?Context $context = null, ?RecordIdentityMap $recordIdentityMap = null): RecordInterface
     {
-        $schema = $this->schemaFactory->get($rawRecord->getMainType());
+        $context = $context ?? GeneralUtility::makeInstance(Context::class);
+        $mainSchema = $this->schemaFactory->get($rawRecord->getMainType());
+        $recordIdentityMap = $recordIdentityMap ?? GeneralUtility::makeInstance(RecordIdentityMap::class);
         [$properties, $systemProperties] = $this->extractSystemInformation(
-            $schema,
+            $mainSchema,
             $rawRecord,
             $properties,
         );
-        return new Record($rawRecord, $properties, $systemProperties);
+        $event = new RecordCreationEvent($properties, $rawRecord, $systemProperties, $context, $recordIdentityMap, $schema);
+        $this->eventDispatcher->dispatch($event);
+        return $event->isPropagationStopped()
+            ? $event->getRecord()
+            : new Record($event->getRawRecord(), $event->getProperties(), $event->getSystemProperties());
     }
 
     protected function extractComputedProperties(array &$record): ComputedProperties
@@ -189,15 +215,22 @@ readonly class RecordFactory
             $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
             $languageField = $languageCapability->getLanguageField()->getName();
             $transOrigPointerField = $languageCapability->getTranslationOriginPointerField()->getName();
-            $translationSourceField = $languageCapability->hasTranslationSourceField() ? $languageCapability->getTranslationSourceField()->getName() : null;
-            $systemProperties['language'] = new LanguageInfo(
-                (int)$rawRecord[$languageField],
-                (int)$rawRecord[$transOrigPointerField],
-                $translationSourceField ? (int)$rawRecord[$translationSourceField] : null,
-            );
+            $translationSourceField = $languageCapability->getTranslationSourceField()?->getName() ?? '';
+            try {
+                $systemProperties['language'] = new LanguageInfo(
+                    (int)$rawRecord->get($languageField),
+                    (int)$rawRecord->get($transOrigPointerField),
+                    $rawRecord->has($translationSourceField) ? (int)$rawRecord->get($translationSourceField) : null,
+                );
+            } catch (RecordPropertyNotFoundException $e) {
+                throw new IncompleteRecordException(
+                    'Table "' . $schema->getName() . '" is defined as language aware but the record misses necessary fields: ' . $e->getMessage(),
+                    1726046917
+                );
+            }
             unset($properties[$languageField]);
             unset($properties[$transOrigPointerField]);
-            if ($translationSourceField !== null) {
+            if ($translationSourceField !== '') {
                 unset($properties[$translationSourceField]);
             }
             if ($languageCapability->hasDiffSourceField()) {
@@ -208,12 +241,19 @@ readonly class RecordFactory
 
         // Workspaces.
         if ($schema->isWorkspaceAware()) {
-            $systemProperties['version'] = new VersionInfo(
-                (int)$rawRecord['t3ver_wsid'],
-                (int)$rawRecord['t3ver_oid'],
-                VersionState::tryFrom((int)$rawRecord['t3ver_state']),
-                (int)$rawRecord['t3ver_stage'],
-            );
+            try {
+                $systemProperties['version'] = new VersionInfo(
+                    (int)$rawRecord->get('t3ver_wsid'),
+                    (int)$rawRecord->get('t3ver_oid'),
+                    VersionState::tryFrom((int)$rawRecord->get('t3ver_state')),
+                    (int)$rawRecord->get('t3ver_stage'),
+                );
+            } catch (RecordPropertyNotFoundException $e) {
+                throw new IncompleteRecordException(
+                    'Table "' . $schema->getName() . '" is defined as workspace aware but the record misses necessary fields: ' . $e->getMessage(),
+                    1726046918
+                );
+            }
             unset(
                 $properties['t3ver_wsid'],
                 $properties['t3ver_oid'],
@@ -230,43 +270,45 @@ readonly class RecordFactory
             /** @var SystemInternalFieldCapability|FieldCapability $capabilityInstance */
             $capabilityInstance = $schema->getCapability($capability);
             $fieldName = $capabilityInstance->getFieldName();
-            // Field is not set in the original record, just skip it
-            if (!$rawRecord->isDefined($fieldName)) {
-                continue;
+            if (!$rawRecord->has($fieldName)) {
+                throw new IncompleteRecordException(
+                    'Table "' . $schema->getName() . '" has capability "' . $capability->name . '" set but the record misses the corresponding field "' . $fieldName . '"',
+                    1726046919
+                );
             }
             switch ($capability) {
                 case TcaSchemaCapability::CreatedAt:
-                    $systemProperties['createdAt'] = (new \DateTimeImmutable())->setTimestamp($rawRecord[$fieldName]);
+                    $systemProperties['createdAt'] = DateTimeFactory::createFromTimestamp($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::UpdatedAt:
-                    $systemProperties['lastUpdatedAt'] = (new \DateTimeImmutable())->setTimestamp($rawRecord[$fieldName]);
+                    $systemProperties['lastUpdatedAt'] = DateTimeFactory::createFromTimestamp($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::RestrictionStartTime:
-                    $systemProperties['publishAt'] = (new \DateTimeImmutable())->setTimestamp($rawRecord[$fieldName]);
+                    $systemProperties['publishAt'] = DateTimeFactory::createFromTimestamp($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::RestrictionEndTime:
-                    $systemProperties['publishUntil'] = (new \DateTimeImmutable())->setTimestamp($rawRecord[$fieldName]);
+                    $systemProperties['publishUntil'] = DateTimeFactory::createFromTimestamp($rawRecord->get($fieldName));
                     break;
 
                 case TcaSchemaCapability::SoftDelete:
-                    $systemProperties['isDeleted'] = (bool)($rawRecord[$fieldName]);
+                    $systemProperties['isDeleted'] = (bool)($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::EditLock:
-                    $systemProperties['isLockedForEditing'] = (bool)($rawRecord[$fieldName]);
+                    $systemProperties['isLockedForEditing'] = (bool)($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::RestrictionDisabledField:
-                    $systemProperties['isDisabled'] = (bool)($rawRecord[$fieldName]);
+                    $systemProperties['isDisabled'] = (bool)($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::InternalDescription:
-                    $systemProperties['description'] = $rawRecord[$fieldName];
+                    $systemProperties['description'] = $rawRecord->get($fieldName);
                     break;
                 case TcaSchemaCapability::SortByField:
-                    $systemProperties['sorting'] = (int)($rawRecord[$fieldName]);
+                    $systemProperties['sorting'] = (int)($rawRecord->get($fieldName));
                     break;
                 case TcaSchemaCapability::RestrictionUserGroup:
                     $systemProperties['userGroupRestriction'] = GeneralUtility::intExplode(
                         ',',
-                        $rawRecord[$fieldName],
+                        $rawRecord->get($fieldName),
                         true
                     );
                     break;

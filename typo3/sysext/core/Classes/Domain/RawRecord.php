@@ -17,23 +17,30 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Domain;
 
+use TYPO3\CMS\Core\Domain\Exception\RecordPropertyNotFoundException;
 use TYPO3\CMS\Core\Domain\Record\ComputedProperties;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Holds all properties of a raw database row with unfiltered and unprocessed values.
  *
  * @internal not part of public API, as this needs to be streamlined and proven
  */
-readonly class RawRecord implements \ArrayAccess, RecordInterface
+readonly class RawRecord implements RecordInterface
 {
+    protected string $mainType;
+    protected ?string $recordType;
+
     public function __construct(
         protected int $uid,
         protected int $pid,
         protected array $properties,
         protected ComputedProperties $computedProperties,
-        protected string $type
-    ) {}
+        protected string $fullType
+    ) {
+        $parts = $this->normalizeTypeParts($this->fullType);
+        $this->mainType = $parts[0] ?? '';
+        $this->recordType = $parts[1] ?? null;
+    }
 
     public function getUid(): int
     {
@@ -47,60 +54,66 @@ readonly class RawRecord implements \ArrayAccess, RecordInterface
 
     public function getFullType(): string
     {
-        return $this->type;
+        return $this->fullType;
     }
 
+    /**
+     * @return non-empty-string|null
+     */
     public function getRecordType(): ?string
     {
-        if (str_contains($this->type, '.')) {
-            return GeneralUtility::revExplode('.', $this->type, 2)[1];
-        }
-        return null;
+        return $this->recordType;
     }
 
     public function getMainType(): string
     {
-        if (str_contains($this->type, '.')) {
-            return explode('.', $this->type)[0];
+        return $this->mainType;
+    }
+
+    public function toArray(bool $includeComputedProperties = false): array
+    {
+        $properties = ['uid' => $this->uid, 'pid' => $this->pid] + $this->properties;
+        if ($includeComputedProperties) {
+            $properties += ['_computed' => $this->computedProperties->toArray()];
         }
-        return $this->type;
+        return $properties;
     }
 
-    public function toArray(): array
+    public function has(string $id): bool
     {
-        return $this->properties + ['uid' => $this->uid, 'pid' => $this->pid];
+        return array_key_exists($id, $this->properties);
     }
 
-    /**
-     * In addition to `isset()`, this considers `null` values as well.
-     */
-    public function isDefined(int|string $offset): bool
+    public function get(string $id): mixed
     {
-        return array_key_exists($offset, $this->properties);
-    }
+        if (!$this->has($id)) {
+            throw new RecordPropertyNotFoundException(
+                'Record property "' . $id . '" is not available.',
+                1725892140
+            );
+        }
 
-    public function offsetExists(mixed $offset): bool
-    {
-        return isset($this->properties[$offset]);
-    }
-
-    public function offsetGet(mixed $offset): mixed
-    {
-        return $this->properties[$offset] ?? null;
-    }
-
-    public function offsetSet(mixed $offset, mixed $value): void
-    {
-        throw new \InvalidArgumentException('Record properties cannot be set.', 1712139284);
-    }
-
-    public function offsetUnset(mixed $offset): void
-    {
-        throw new \InvalidArgumentException('Record properties cannot be unset.', 1712139283);
+        return $this->properties[$id] ?? null;
     }
 
     public function getComputedProperties(): ComputedProperties
     {
         return $this->computedProperties;
+    }
+
+    public function getRawRecord(): RawRecord
+    {
+        return $this;
+    }
+
+    /**
+     * @return array{0?: string, 1?: string}
+     */
+    protected function normalizeTypeParts(string $type): array
+    {
+        return array_filter(
+            array_map(trim(...), explode('.', $type, 2)),
+            static fn(string $part): bool => $part !== ''
+        );
     }
 }

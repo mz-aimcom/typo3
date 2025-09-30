@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Backend\RecordList;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UriInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Clipboard\Clipboard;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
@@ -32,7 +33,6 @@ use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
 use TYPO3\CMS\Backend\Template\Components\Buttons\GenericButton;
-use TYPO3\CMS\Backend\Template\Components\MultiRecordSelection\Action;
 use TYPO3\CMS\Backend\Tree\Repository\PageTreeRepository;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
@@ -46,7 +46,10 @@ use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
+use TYPO3\CMS\Core\Domain\Record;
+use TYPO3\CMS\Core\Domain\RecordFactory;
+use TYPO3\CMS\Core\Domain\RecordInterface;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\LinkHandling\Exception\UnknownLinkHandlerException;
@@ -54,6 +57,12 @@ use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\Field\DateTimeFieldType;
+use TYPO3\CMS\Core\Schema\Field\NumberFieldType;
+use TYPO3\CMS\Core\Schema\SearchableSchemaFieldsCollector;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Service\DependencyOrderingService;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -402,6 +411,8 @@ class DatabaseRecordList
 
     protected ServerRequestInterface $request;
 
+    protected ?RecordIdentityMap $recordIdentityMap = null;
+
     public function __construct(
         protected readonly IconFactory $iconFactory,
         protected readonly UriBuilder $uriBuilder,
@@ -409,24 +420,30 @@ class DatabaseRecordList
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly BackendViewFactory $backendViewFactory,
         protected readonly ModuleProvider $moduleProvider,
+        protected readonly SearchableSchemaFieldsCollector $searchableSchemaFieldsCollector,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly RecordFactory $recordFactory,
     ) {
         $this->calcPerms = new Permission();
         $this->spaceIcon = '<span class="btn btn-default disabled" aria-hidden="true">' . $this->iconFactory->getIcon('empty-empty', IconSize::SMALL)->render() . '</span>';
     }
 
-    public function setRequest(ServerRequestInterface $request)
+    public function setRequest(ServerRequestInterface $request): void
     {
         $this->request = $request;
     }
 
     /**
-     * Returns a list of all fields / columns including meta columns such as
+     * Returns a list of all fields / columns including meta-columns such as
      * "_REF_" or "_PATH_" which should be rendered for the database table.
      */
     public function getColumnsToRender(string $table, bool $includeMetaColumns, string $selectedPreset = ''): array
     {
-        $titleCol = $GLOBALS['TCA'][$table]['ctrl']['label'] ?? '';
-
+        $schema = $this->tcaSchemaFactory->get($table);
+        $columnsToSelect = [];
+        if ($schema->getCapability(TcaSchemaCapability::Label)->hasPrimaryField()) {
+            $columnsToSelect[] = $schema->getCapability(TcaSchemaCapability::Label)->getPrimaryFieldName();
+        }
         // Setting fields selected in columnSelectorBox (saved in uc)
         $rowListArray = [];
         if (is_array($this->setFields[$table] ?? null)) {
@@ -438,12 +455,10 @@ class DatabaseRecordList
             $rowListArray = array_intersect($rowListArray, $this->setFields[$table]);
         }
         // if no columns have been specified, show description (if configured)
-        if (!empty($GLOBALS['TCA'][$table]['ctrl']['descriptionColumn']) && empty($rowListArray)) {
-            $rowListArray[] = $GLOBALS['TCA'][$table]['ctrl']['descriptionColumn'];
+        if ($schema->hasCapability(TcaSchemaCapability::InternalDescription) && empty($rowListArray)) {
+            $rowListArray[] = $schema->getCapability(TcaSchemaCapability::InternalDescription)->getFieldName();
         }
 
-        // Initialize columns to select
-        $columnsToSelect = [$titleCol];
         if ($includeMetaColumns) {
             // If meta columns are enabled, add the record icon
             array_unshift($columnsToSelect, 'icon');
@@ -460,7 +475,7 @@ class DatabaseRecordList
                 $columnsToSelect[] = '_PATH_';
             }
             // Localization
-            if (BackendUtility::isTableLocalizable($table)) {
+            if ($schema->isLanguageAware()) {
                 $columnsToSelect[] = '_LOCALIZATION_';
                 // Do not show the "Localize to:" field when only translated records should be shown
                 if (!$this->showOnlyTranslatedRecords) {
@@ -531,6 +546,7 @@ class DatabaseRecordList
      * database fields to be selected from the query string.
      *
      * @return string[] a list of all database table fields
+     * @internal: This method should be placed in another location in the future
      */
     public function getFieldsToSelect(string $table, array $columnsToRender): array
     {
@@ -546,31 +562,46 @@ class DatabaseRecordList
             $selectFields[] = 'shortcut_mode';
             $selectFields[] = 'mount_pid';
         }
-        if (is_array($GLOBALS['TCA'][$table]['ctrl']['enablecolumns'] ?? null)) {
-            $selectFields = array_merge($selectFields, array_values($GLOBALS['TCA'][$table]['ctrl']['enablecolumns']));
-        }
-        foreach (['type', 'typeicon_column', 'editlock'] as $field) {
-            if ($GLOBALS['TCA'][$table]['ctrl'][$field] ?? false) {
-                $selectFields[] = $GLOBALS['TCA'][$table]['ctrl'][$field];
+        $schema = $this->tcaSchemaFactory->get($table);
+        foreach ([TcaSchemaCapability::RestrictionDisabledField,
+            TcaSchemaCapability::RestrictionEndTime,
+            TcaSchemaCapability::RestrictionStartTime,
+            TcaSchemaCapability::RestrictionUserGroup,
+            TcaSchemaCapability::CreatedAt,
+            TcaSchemaCapability::UpdatedAt,
+            TcaSchemaCapability::SoftDelete,
+            TcaSchemaCapability::SortByField,
+            TcaSchemaCapability::InternalDescription,
+            TcaSchemaCapability::EditLock] as $capability) {
+            if ($schema->hasCapability($capability)) {
+                $selectFields[] = $schema->getCapability($capability)->getFieldName();
             }
         }
-        if (BackendUtility::isTableWorkspaceEnabled($table)) {
+        if ($schema->supportsSubSchema()) {
+            $selectFields[] = $schema->getSubSchemaTypeInformation()->getFieldName();
+        }
+        if ($schema->getRawConfiguration()['typeicon_column'] ?? false) {
+            $selectFields[] = $schema->getRawConfiguration()['typeicon_column'];
+        }
+        if ($schema->isWorkspaceAware()) {
+            $selectFields[] = 't3ver_stage';
             $selectFields[] = 't3ver_state';
             $selectFields[] = 't3ver_wsid';
             $selectFields[] = 't3ver_oid';
         }
-        if (BackendUtility::isTableLocalizable($table)) {
-            $selectFields[] = $GLOBALS['TCA'][$table]['ctrl']['languageField'];
-            $selectFields[] = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'];
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $selectFields[] = $languageCapability->getLanguageField()->getName();
+            $selectFields[] = $languageCapability->getTranslationOriginPointerField()->getName();
+            if ($languageCapability->hasTranslationSourceField()) {
+                $selectFields[] = $languageCapability->getTranslationSourceField()->getName();
+            }
+            if ($languageCapability->hasDiffSourceField()) {
+                $selectFields[] = $languageCapability->getDiffSourceField()->getName();
+            }
         }
-        if ($GLOBALS['TCA'][$table]['ctrl']['label_alt'] ?? false) {
-            $selectFields = array_merge(
-                $selectFields,
-                GeneralUtility::trimExplode(',', $GLOBALS['TCA'][$table]['ctrl']['label_alt'], true)
-            );
-        }
-        // Unique list!
-        $selectFields = array_unique($selectFields);
+        $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+        $selectFields = array_unique(array_merge($selectFields, $labelCapability->getAllLabelFieldNames()));
         $fieldListFields = BackendUtility::getAllowedFieldsForTable($table, false);
         // Making sure that the fields in the field-list ARE in the field-list from TCA!
         return array_intersect($selectFields, $fieldListFields);
@@ -583,7 +614,7 @@ class DatabaseRecordList
      * @throws \UnexpectedValueException
      * @return string HTML table with the listing for the record.
      */
-    public function getTable($table)
+    public function getTable(string $table): string
     {
         // Finding the total amount of records on the page
         $queryBuilderTotalItems = $this->getQueryBuilder($table, ['*'], false, 0, 1);
@@ -595,35 +626,32 @@ class DatabaseRecordList
         if ($totalItems === 0) {
             return '';
         }
+        $schema = $this->tcaSchemaFactory->get($table);
         // Setting the limits for the amount of records to be displayed in the list and single table view.
-        // Using the default value and overwriting with page TSconfig and TCA config. The limit is forced
+        // Using the default value and overwriting with page TSconfig. The limit is forced
         // to be in the range of 0 - 10000.
-
         // default 100 for single table view
         $itemsLimitSingleTable = MathUtility::forceIntegerInRange((int)(
-            $GLOBALS['TCA'][$table]['interface']['maxSingleDBListItems'] ??
-            $this->modTSconfig['itemsLimitSingleTable'] ??
-            100
+            $this->modTSconfig['itemsLimitSingleTable'] ?? 100
         ), 0, 10000);
 
         // default 20 for list view
         $itemsLimitPerTable = MathUtility::forceIntegerInRange((int)(
-            $GLOBALS['TCA'][$table]['interface']['maxDBListItems'] ??
-            $this->modTSconfig['itemsLimitPerTable'] ??
-            20
+            $this->modTSconfig['itemsLimitPerTable'] ?? 20
         ), 0, 10000);
 
-        // Set limit depending on the view (single table vs. default)
-        $itemsPerPage = $this->table ? $itemsLimitSingleTable : $itemsLimitPerTable;
-
-        // Set limit defined by calling code
         if ($this->showLimit) {
+            // Set limit defined by calling code
             $itemsPerPage = $this->showLimit;
+        } else {
+            // Set limit depending on the view (single table vs. default)
+            $itemsPerPage = $this->table ? $itemsLimitSingleTable : $itemsLimitPerTable;
         }
 
         // Init
-        $titleCol = $GLOBALS['TCA'][$table]['ctrl']['label'];
-        $l10nEnabled = BackendUtility::isTableLocalizable($table);
+        $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+        $titleCol = $labelCapability->getPrimaryFieldName() ?? '';
+        $l10nEnabled = $schema->isLanguageAware();
 
         $this->fieldArray = $this->getColumnsToRender($table, true);
         // Creating the list of fields to include in the SQL query
@@ -657,6 +685,9 @@ class DatabaseRecordList
             return '';
         }
 
+        // Initialize RecordIdentityMap for this request
+        $this->recordIdentityMap = GeneralUtility::makeInstance(RecordIdentityMap::class);
+
         // Get configuration of collapsed tables from user uc
         $lang = $this->getLanguageService();
 
@@ -670,7 +701,7 @@ class DatabaseRecordList
             $tableTitle = htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:pageTranslation'));
             $tableIdentifier = 'pages_translated';
         } else {
-            $tableTitle = htmlspecialchars($lang->sL($GLOBALS['TCA'][$table]['ctrl']['title']));
+            $tableTitle = htmlspecialchars($schema->getTitle($lang->sL(...)));
             if ($tableTitle === '') {
                 $tableTitle = $table;
             }
@@ -682,7 +713,7 @@ class DatabaseRecordList
         // Header line is drawn
         $theData = [];
         if ($this->disableSingleTableView) {
-            $theData[$titleCol] = $tableTitle . ' (<span class="t3js-table-total-items">' . $totalItems . '</span>)';
+            $theData[$titleCol] = $tableTitle . ' (<span>' . $totalItems . '</span>)';
         } else {
             $icon = $this->table // @todo separate table header from contract/expand link
                 ? $this->iconFactory
@@ -693,7 +724,7 @@ class DatabaseRecordList
                     ->getIcon('actions-view-table-expand', IconSize::SMALL)
                     ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:expandView'))
                     ->render();
-            $theData[$titleCol] = $this->linkWrapTable($table, $tableTitle . ' (<span class="t3js-table-total-items">' . $totalItems . '</span>) ' . $icon);
+            $theData[$titleCol] = $this->linkWrapTable($table, $tableTitle . ' (<span>' . $totalItems . '</span>) ' . $icon);
         }
         $tableActions = '';
         $tableHeader = $theData[$titleCol];
@@ -713,7 +744,7 @@ class DatabaseRecordList
         if (!$onlyShowRecordsInSingleTableMode || $this->table) {
             // Fixing an order table for sortby tables
             $this->currentTable = [];
-            $allowManualSorting = ($GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? false) && !$this->sortField;
+            $allowManualSorting = $schema->hasCapability(TcaSchemaCapability::SortByField) && !$this->sortField;
             $prevUid = 0;
             $prevPrevUid = 0;
             // Get first two rows and initialize prevPrevUid and prevUid if on page > 1
@@ -724,24 +755,37 @@ class DatabaseRecordList
                 $prevUid = $row['uid'];
             }
             $accRows = [];
-            // Accumulate rows here
-            while ($row = $queryResult->fetchAssociative()) {
-                if (!$this->isRowListingConditionFulfilled($table, $row)) {
+            // Accumulate Record objects here
+            while ($rowData = $queryResult->fetchAssociative()) {
+                if (!$this->isRowListingConditionFulfilled($this->recordFactory->createResolvedRecordFromDatabaseRow(
+                    $table,
+                    $rowData,
+                    null,
+                    $this->recordIdentityMap
+                ))) {
                     continue;
                 }
                 // In offline workspace, look for alternative record
-                BackendUtility::workspaceOL($table, $row, $backendUser->workspace, true);
-                if (is_array($row)) {
-                    $accRows[] = $row;
-                    $currentIdList[] = $row['uid'];
+                BackendUtility::workspaceOL($table, $rowData, $backendUser->workspace, true);
+                if (is_array($rowData)) {
+                    // Create Record object from database row
+                    $record = $this->recordFactory->createResolvedRecordFromDatabaseRow(
+                        $table,
+                        $rowData,
+                        null,
+                        $this->recordIdentityMap
+                    );
+
+                    $accRows[] = $record;
+                    $currentIdList[] = $record->getUid();
                     if ($allowManualSorting) {
                         if ($prevUid) {
-                            $this->currentTable['prev'][$row['uid']] = $prevPrevUid;
-                            $this->currentTable['next'][$prevUid] = '-' . $row['uid'];
-                            $this->currentTable['prevUid'][$row['uid']] = $prevUid;
+                            $this->currentTable['prev'][$record->getUid()] = $prevPrevUid;
+                            $this->currentTable['next'][$prevUid] = '-' . $record->getUid();
+                            $this->currentTable['prevUid'][$record->getUid()] = $prevUid;
                         }
-                        $prevPrevUid = isset($this->currentTable['prev'][$row['uid']]) ? -$prevUid : $row['pid'];
-                        $prevUid = $row['uid'];
+                        $prevPrevUid = isset($this->currentTable['prev'][$record->getUid()]) ? -$prevUid : $record->getPid();
+                        $prevUid = $record->getUid();
                     }
                 }
             }
@@ -754,7 +798,7 @@ class DatabaseRecordList
             // records are either default or All language and here we will not select translations
             // which point to the main record:
             $listTranslatedRecords = $l10nEnabled && $this->searchString === '' && !($this->hideTranslations === '*' || GeneralUtility::inList($this->hideTranslations, $table));
-            foreach ($accRows as $row) {
+            foreach ($accRows as $record) {
                 // Render item row if counter < limit
                 if ($cc < $itemsPerPage) {
                     $cc++;
@@ -765,26 +809,42 @@ class DatabaseRecordList
                     // Only set to TRUE if TranslationConfigurationProvider::translationInfo() returns
                     // an array indicating the record can be translated.
                     $translationEnabled = false;
+                    $languageFieldName = $schema->isLanguageAware() ? $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName() : '';
                     // Guard clause so we can quickly return if a record is localized to "all languages"
                     // It should only be possible to localize a record off default (uid 0)
-                    if ($l10nEnabled && ($row[$GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? null] ?? false) !== -1) {
-                        $translationsRaw = $this->translateTools->translationInfo($table, $row['uid'], 0, $row, $selectFields);
+                    if ($l10nEnabled && $record->getRawRecord()?->has($languageFieldName) && (int)$record->getRawRecord()->get($languageFieldName) !== -1) {
+                        $translationsRaw = $this->translateTools->translationInfo($table, $record->getUid(), 0, $record->getRawRecord()->toArray(), '*');
                         if (is_array($translationsRaw)) {
                             $translationEnabled = true;
                             $translations = $translationsRaw['translations'] ?? [];
                         }
                     }
-                    $rowOutput .= $this->renderListRow($table, $row, 0, $translations, $translationEnabled);
+                    $rowOutput .= $this->renderListRow($table, $record, 0, $translations, $translationEnabled);
                     if ($listTranslatedRecords) {
                         foreach ($translations ?? [] as $lRow) {
-                            if (!$this->isRowListingConditionFulfilled($table, $lRow)) {
+                            if (!$this->isRowListingConditionFulfilled(
+                                $this->recordFactory->createResolvedRecordFromDatabaseRow(
+                                    $table,
+                                    $lRow,
+                                    null,
+                                    $this->recordIdentityMap
+                                )
+                            )) {
                                 continue;
                             }
                             // In offline workspace, look for alternative record:
                             BackendUtility::workspaceOL($table, $lRow, $backendUser->workspace, true);
-                            if (is_array($lRow) && $backendUser->checkLanguageAccess($lRow[$GLOBALS['TCA'][$table]['ctrl']['languageField']])) {
-                                $currentIdList[] = $lRow['uid'];
-                                $rowOutput .= $this->renderListRow($table, $lRow, 1, [], false);
+                            if (is_array($lRow) && $backendUser->checkLanguageAccess($lRow[$languageFieldName])) {
+                                // Create Record object for translation
+                                $translationRecord = $this->recordFactory->createResolvedRecordFromDatabaseRow(
+                                    $table,
+                                    $lRow,
+                                    null,
+                                    $this->recordIdentityMap
+                                );
+
+                                $currentIdList[] = $translationRecord->getUid();
+                                $rowOutput .= $this->renderListRow($table, $translationRecord, 1, [], false);
                             }
                         }
                     }
@@ -799,7 +859,7 @@ class DatabaseRecordList
                 $rowOutput .= '
                     <tr data-multi-record-selection-element="true">
                         <td colspan="' . (count($this->fieldArray)) . '">
-                            <a href="' . htmlspecialchars($this->listURL() . '&table=' . rawurlencode($tableIdentifier)) . '" class="btn btn-sm btn-default">
+                            <a href="' . htmlspecialchars((string)$this->listURL(null, $tableIdentifier)) . '" class="btn btn-sm btn-default">
                                 ' . $this->iconFactory->getIcon('actions-caret-down', IconSize::SMALL)->render() . '
                                 ' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.expandTable') . '
                             </a>
@@ -827,7 +887,7 @@ class DatabaseRecordList
 
         $recordListMessages = '';
         $recordlistMessageEntries = [];
-        if ($backendUser->workspace > 0 && ExtensionManagementUtility::isLoaded('workspaces') && !BackendUtility::isTableWorkspaceEnabled($table)) {
+        if ($backendUser->workspace > 0 && ExtensionManagementUtility::isLoaded('workspaces') && !$schema->hasCapability(TcaSchemaCapability::Workspace)) {
             // In case the table is not editable in workspace inform the user about the missing actions
             if ($backendUser->workspaceAllowsLiveEditingInTable($table)) {
                 $recordlistMessageEntries[] = [
@@ -854,7 +914,7 @@ class DatabaseRecordList
         $dataState = $tableCollapsed && !$this->table ? 'collapsed' : 'expanded';
         return '
             <div class="recordlist" id="t3-table-' . htmlspecialchars($tableIdentifier) . '" data-multi-record-selection-identifier="t3-table-' . htmlspecialchars($tableIdentifier) . '">
-                <form action="' . htmlspecialchars($this->listURL()) . '#t3-table-' . htmlspecialchars($tableIdentifier) . '" method="post" name="list-table-form-' . htmlspecialchars($tableIdentifier) . '">
+                <form action="' . htmlspecialchars((string)$this->listURL()) . '#t3-table-' . htmlspecialchars($tableIdentifier) . '" method="post" name="list-table-form-' . htmlspecialchars($tableIdentifier) . '">
                     <input type="hidden" name="cmd_table" value="' . htmlspecialchars($tableIdentifier) . '" />
                     <input type="hidden" name="cmd" />
                     <div class="recordlist-heading ' . ($multiRecordSelectionActions !== '' ? 'multi-record-selection-panel' : '') . '">
@@ -898,26 +958,24 @@ class DatabaseRecordList
             return null;
         }
 
+        if ($table === 'tt_content') {
+            // No button with tt_content table, content elements should be managed using page module.
+            return null;
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+
         $tag = 'a';
         $iconIdentifier = 'actions-plus';
         $label = sprintf(
             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:newRecordOfType'),
-            $this->getLanguageService()->sL($GLOBALS['TCA'][$table]['ctrl']['title'])
+            $schema->getTitle($this->getLanguageService()->sL(...)),
         );
         $attributes = [
             'data-recordlist-action' => 'new',
         ];
 
-        if ($table === 'tt_content') {
-            $tag = 'typo3-backend-new-content-element-wizard-button';
-            $attributes['url'] = (string)$this->uriBuilder->buildUriFromRoute(
-                'new_content_element_wizard',
-                [
-                    'id' => $this->id,
-                    'returnUrl' => $this->listURL(),
-                ]
-            );
-        } elseif ($table === 'pages') {
+        if ($table === 'pages') {
             $iconIdentifier = 'actions-page-new';
             $attributes['data-new'] = 'page';
             $attributes['href'] = (string)$this->uriBuilder->buildUriFromRoute(
@@ -969,16 +1027,25 @@ class DatabaseRecordList
             return null;
         }
 
+        $schema = $this->tcaSchemaFactory->get($table);
+
         $downloadButtonLabel = $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_download.xlf:download');
         $downloadButtonTitle = sprintf($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_download.xlf:' . ($totalItems === 1 ? 'downloadRecord' : 'downloadRecords')), $totalItems);
         $downloadCancelTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel');
         $downloadSettingsUrl = (string)$this->uriBuilder->buildUriFromRoute(
             'ajax_record_download_settings',
-            ['id' => $this->id, 'table' => $table, 'searchString' => $this->searchString, 'searchLevels' => $this->searchLevels]
+            [
+                'id' => $this->id,
+                'table' => $table,
+                'searchString' => $this->searchString,
+                'searchLevels' => $this->searchLevels,
+                'sortField' => $this->sortField,
+                'sortRev' => $this->sortRev,
+            ],
         );
         $downloadSettingsTitle = sprintf(
             $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_download.xlf:' . ($totalItems === 1 ? 'downloadRecordSettings' : 'downloadRecordsSettings')),
-            $this->getLanguageService()->sL($GLOBALS['TCA'][$table]['ctrl']['title'] ?? '') ?: $table,
+            $schema->getTitle($this->getLanguageService()->sL(...)) ?: $table,
             $totalItems
         );
 
@@ -1022,6 +1089,8 @@ class DatabaseRecordList
             return null;
         }
 
+        $schema = $this->tcaSchemaFactory->get($table);
+
         $lang = $this->getLanguageService();
         $tableIdentifier = $table . (($table === 'pages' && $this->showOnlyTranslatedRecords) ? '_translated' : '');
         $columnSelectorUrl = (string)$this->uriBuilder->buildUriFromRoute(
@@ -1030,7 +1099,7 @@ class DatabaseRecordList
         );
         $columnSelectorTitle = sprintf(
             $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:showColumnsSelection'),
-            $lang->sL($GLOBALS['TCA'][$table]['ctrl']['title'] ?? '') ?: $table,
+            $schema->getTitle($lang->sL(...)) ?: $table,
         );
 
         $button = GeneralUtility::makeInstance(GenericButton::class);
@@ -1040,7 +1109,7 @@ class DatabaseRecordList
         $button->setIcon($this->iconFactory->getIcon('actions-options', IconSize::SMALL));
         $button->setAttributes([
             'data-url' => $columnSelectorUrl,
-            'data-target' => $this->listURL() . '#t3-table-' . $tableIdentifier,
+            'data-target' => (string)($this->listURL()->withFragment('#t3-table-' . $tableIdentifier)),
             'data-title' => $columnSelectorTitle,
             'data-button-ok' => $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_column_selector.xlf:updateColumnView'),
             'data-button-close' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel'),
@@ -1057,13 +1126,15 @@ class DatabaseRecordList
             return null;
         }
 
+        $schema = $this->tcaSchemaFactory->get($table);
+
         $tableIdentifier = $table . (($table === 'pages' && $this->showOnlyTranslatedRecords) ? '_translated' : '');
         $tableCollapsed = (bool)($this->moduleData?->get('collapsedTables')[$tableIdentifier] ?? false);
 
         $button = GeneralUtility::makeInstance(GenericButton::class);
         $button->setLabel(sprintf(
             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:collapseExpandTable'),
-            $this->getLanguageService()->sL($GLOBALS['TCA'][$table]['ctrl']['title'])
+            $schema->getTitle($this->getLanguageService()->sL(...))
         ));
         $button->setClasses('t3js-toggle-recordlist');
         $button->setIcon($this->iconFactory->getIcon(($tableCollapsed ? 'actions-view-list-expand' : 'actions-view-list-collapse'), IconSize::SMALL));
@@ -1078,26 +1149,13 @@ class DatabaseRecordList
         return $button;
     }
 
-    /**
-     * Get preview link for pages or tt_content records
-     */
-    protected function getPreviewUriBuilder(string $table, array $row): PreviewUriBuilder
+    protected function getPreviewUriBuilder(string $table, RecordInterface $record): PreviewUriBuilder
     {
-        if ($table === 'tt_content') {
-            // Link to a content element, possibly translated and with anchor
-            $previewUriBuilder = PreviewUriBuilder::create($this->id)
-                ->withSection('#c' . $row['uid'])
-                ->withLanguage((int)($row[$GLOBALS['TCA']['tt_content']['ctrl']['languageField'] ?? null] ?? 0));
-        } elseif ($table === 'pages' && ($row[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] ?? null] ?? 0) > 0) {
-            // Link to a page translation needs uid of default language page as id
-            $previewUriBuilder = PreviewUriBuilder::create((int)$row[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField']])
-                ->withSection('#c' . $row['uid'])
-                ->withLanguage((int)($row[$GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? null] ?? 0));
-        } else {
-            // Link to a page in the default language
-            $previewUriBuilder = PreviewUriBuilder::create((int)($row['uid'] ?? 0));
-        }
-        return $previewUriBuilder;
+        return PreviewUriBuilder::createForRecordPreview(
+            $table,
+            $record,
+            (int)($table === 'pages' ? $record->getUid() : ($this->pageRow['uid'] ?? 0))
+        );
     }
 
     /**
@@ -1105,11 +1163,10 @@ class DatabaseRecordList
      *
      * This function serves as a dummy method to be overridden in extending classes.
      *
-     * @param string $table Table name
-     * @param string[] $row Record
+     * @param RecordInterface $record Record
      * @return bool True, if all conditions are fulfilled.
      */
-    protected function isRowListingConditionFulfilled($table, $row)
+    protected function isRowListingConditionFulfilled(RecordInterface $record): bool
     {
         return true;
     }
@@ -1118,7 +1175,6 @@ class DatabaseRecordList
      * Rendering a single row for the list
      *
      * @param string $table Table name
-     * @param mixed[] $row Current record
      * @param int $indent Indent from left.
      * @param array $translations Array of already existing translations for the current record
      * @param bool $translationEnabled Whether the record can be translated
@@ -1126,36 +1182,35 @@ class DatabaseRecordList
      * @internal
      * @see getTable()
      */
-    public function renderListRow($table, array $row, int $indent, array $translations, bool $translationEnabled)
+    public function renderListRow($table, RecordInterface $record, int $indent, array $translations, bool $translationEnabled)
     {
-        $titleCol = $GLOBALS['TCA'][$table]['ctrl']['label'] ?? '';
+        $titleCol = '';
+        $schema = $this->tcaSchemaFactory->get($table);
+        if ($schema->hasCapability(TcaSchemaCapability::Label)) {
+            $titleCol = $schema->getCapability(TcaSchemaCapability::Label)->getPrimaryFieldName();
+        }
         $languageService = $this->getLanguageService();
         $rowOutput = '';
         $id_orig = $this->id;
         // If in search mode, make sure the preview will show the correct page
-        if ((string)$this->searchString !== '') {
-            $this->id = $row['pid'];
+        if ($this->searchString !== '') {
+            $this->id = $record->getPid();
         }
 
         $tagAttributes = [
             'class' => [],
             'data-table' => $table,
-            'title' => 'id=' . $row['uid'],
+            'title' => 'id=' . $record->getUid(),
         ];
 
         // Add active class to record of current link
         if (
             isset($this->currentLink['tableNames'])
-            && (int)$this->currentLink['uid'] === (int)$row['uid']
+            && (int)$this->currentLink['uid'] === (int)$record->getUid()
             && GeneralUtility::inList($this->currentLink['tableNames'], $table)
         ) {
             $tagAttributes['class'][] = 'active';
         }
-        // Overriding with versions background color if any:
-        if (!empty($row['_CSSCLASS'])) {
-            $tagAttributes['class'] = [$row['_CSSCLASS']];
-        }
-
         $tagAttributes['class'][] = 't3js-entity';
 
         // Preparing and getting the data-array
@@ -1163,10 +1218,10 @@ class DatabaseRecordList
         $deletePlaceholderClass = '';
         foreach ($this->fieldArray as $fCol) {
             if ($fCol === $titleCol) {
-                $recTitle = BackendUtility::getRecordTitle($table, $row, false, true);
+                $recTitle = BackendUtility::getRecordTitle($table, $record);
                 $warning = '';
                 // If the record is edit-locked	by another user, we will show a little warning sign:
-                $lockInfo = BackendUtility::isRecordLocked($table, $row['uid']);
+                $lockInfo = BackendUtility::isRecordLocked($table, $record->getUid());
                 if ($lockInfo) {
                     $warning = '<span tabindex="0"'
                         . ' title="' . htmlspecialchars($lockInfo['msg']) . '"'
@@ -1174,7 +1229,7 @@ class DatabaseRecordList
                         . $this->iconFactory->getIcon('status-user-backend', IconSize::SMALL, 'overlay-edit')->render()
                         . '</span>';
                 }
-                if ($this->isRecordDeletePlaceholder($row)) {
+                if ($this->isRecordDeletePlaceholder($record)) {
                     // Delete placeholder records do not link to formEngine edit and are rendered strike-through
                     $deletePlaceholderClass = ' deletePlaceholder';
                     $theData[$fCol] = $theData['__label'] =
@@ -1183,50 +1238,53 @@ class DatabaseRecordList
                             . htmlspecialchars($recTitle)
                         . '</span>';
                 } else {
-                    $theData[$fCol] = $theData['__label'] = $warning . $this->linkWrapItems($table, $row['uid'], $recTitle, $row);
+                    $theData[$fCol] = $theData['__label'] = $warning . $this->linkWrapItems($table, $record->getUid(), $recTitle, $record);
                 }
             } elseif ($fCol === 'pid') {
-                $theData[$fCol] = $row[$fCol];
+                $theData[$fCol] = $record->getPid();
             } elseif ($fCol === '_SELECTOR_') {
                 if ($table !== 'pages' || !$this->showOnlyTranslatedRecords) {
                     // Add checkbox for all tables except the special page translations table
-                    $theData[$fCol] = $this->makeCheckbox($table, $row);
+                    $theData[$fCol] = $this->makeCheckbox($table, $record);
                 } else {
                     // Remove "_SELECTOR_", which is always the first item, from the field list
                     array_splice($this->fieldArray, 0, 1);
                 }
             } elseif ($fCol === 'icon') {
+                $rowArray = $record->getRawRecord()?->toArray() ?? [];
                 $icon = $this->iconFactory
-                    ->getIconForRecord($table, $row, IconSize::SMALL)
-                    ->setTitle(BackendUtility::getRecordIconAltText($row, $table, false))
+                    ->getIconForRecord($table, $rowArray, IconSize::SMALL)
+                    ->setTitle(BackendUtility::getRecordIconAltText($record, $table, false))
                     ->render();
                 $theData[$fCol] = ''
                     . ($indent ? '<span class="indent indent-inline-block" style="--indent-level: ' . $indent . '"></span> ' : '')
-                    . (($this->clickMenuEnabled && !$this->isRecordDeletePlaceholder($row)) ? BackendUtility::wrapClickMenuOnIcon($icon, $table, $row['uid']) : $icon);
+                    . (($this->clickMenuEnabled && !$this->isRecordDeletePlaceholder($record)) ? BackendUtility::wrapClickMenuOnIcon($icon, $table, $record->getUid()) : $icon);
             } elseif ($fCol === '_PATH_') {
-                $theData[$fCol] = $this->recPath($row['pid']);
+                $theData[$fCol] = $this->recPath($record->getPid());
             } elseif ($fCol === '_REF_') {
-                $theData[$fCol] = $this->generateReferenceToolTip($table, $row['uid']);
+                $theData[$fCol] = $this->generateReferenceToolTip($table, $record->getUid());
             } elseif ($fCol === '_CONTROL_') {
-                $theData[$fCol] = $this->makeControl($table, $row);
+                /** @var Record $record */
+                $theData[$fCol] = $this->makeControl($table, $record);
             } elseif ($fCol === '_LOCALIZATION_') {
-                // Language flag an title
-                $theData[$fCol] = $this->languageFlag($table, $row);
+                // Language flag and title
+                $theData[$fCol] = $this->languageFlag($table, $record);
                 // Localize record
-                $localizationPanel = $translationEnabled ? $this->makeLocalizationPanel($table, $row, $translations) : '';
+                $localizationPanel = $translationEnabled ? $this->makeLocalizationPanel($table, $record, $translations) : '';
                 if ($localizationPanel !== '') {
                     $theData['_LOCALIZATION_b'] = '<div class="btn-group">' . $localizationPanel . '</div>';
                     $this->showLocalizeColumn[$table] = true;
                 }
             } elseif ($fCol !== '_LOCALIZATION_b') {
                 // default for all other columns, except "_LOCALIZATION_b"
-                $pageId = $table === 'pages' ? $row['uid'] : $row['pid'];
-                $tmpProc = BackendUtility::getProcessedValueExtra($table, $fCol, $row[$fCol], 100, $row['uid'], true, $pageId);
-                $theData[$fCol] = $this->linkUrlMail(htmlspecialchars((string)$tmpProc), (string)($row[$fCol] ?? ''));
+                $pageId = $table === 'pages' ? $record->getUid() : $record->getPid();
+                $fieldValue = $record->getRawRecord()?->has($fCol) ? $record->getRawRecord()->get($fCol) : '';
+                $tmpProc = BackendUtility::getProcessedValueExtra($table, $fCol, $fieldValue, 100, $record->getUid(), true, $pageId, $record->getRawRecord()?->toArray());
+                $theData[$fCol] = $this->linkUrlMail(htmlspecialchars((string)$tmpProc), (string)$fieldValue);
             }
         }
         // Reset the ID if it was overwritten
-        if ((string)$this->searchString !== '') {
+        if ($this->searchString !== '') {
             $this->id = $id_orig;
         }
         // Add classes to table cells
@@ -1239,11 +1297,9 @@ class DatabaseRecordList
         $this->addElement_tdCssClass['_LOCALIZATION_'] = 'col-localizationa';
         $this->addElement_tdCssClass['_LOCALIZATION_b'] = 'col-localizationb';
         // Create element in table cells:
-        $theData['uid'] = $row['uid'];
-        if (isset($GLOBALS['TCA'][$table]['ctrl']['languageField'])
-            && isset($GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'])
-        ) {
-            $theData['_l10nparent_'] = $row[$GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField']];
+        $theData['uid'] = $record->getUid();
+        if ($schema->isLanguageAware() && $record instanceof Record) {
+            $theData['_l10nparent_'] = $record->getLanguageInfo()?->getTranslationParent();
         }
 
         $tagAttributes = array_map(
@@ -1291,27 +1347,18 @@ class DatabaseRecordList
      */
     public function renderListHeader($table, $currentIdList)
     {
-        $tsConfig = BackendUtility::getPagesTSconfig($this->id)['TCEFORM.'][$table . '.'] ?? null;
-        $tsConfigOfTable = is_array($tsConfig) ? $tsConfig : null;
-
         $lang = $this->getLanguageService();
+        $currentIdList = is_array($currentIdList) ? $currentIdList : [];
+
         // Init:
         $theData = [];
         // Traverse the fields:
-        foreach ($this->fieldArray as $fCol) {
-            // Calculate users permissions to edit records in the table:
-            if ($table === 'pages') {
-                $permsEdit = $this->calcPerms->editPagePermissionIsGranted();
-            } else {
-                $permsEdit = $this->calcPerms->editContentPermissionIsGranted();
-            }
-
-            $permsEdit = $permsEdit && $this->overlayEditLockPermissions($table);
-            switch ((string)$fCol) {
+        foreach ($this->fieldArray as $field) {
+            switch ((string)$field) {
                 case '_SELECTOR_':
                     if ($table !== 'pages' || !$this->showOnlyTranslatedRecords) {
                         // Add checkbox actions for all tables except the special page translations table
-                        $theData[$fCol] = $this->renderCheckboxActions();
+                        $theData[$field] = $this->renderCheckboxActions();
                     } else {
                         // Remove "_SELECTOR_", which is always the first item, from the field list
                         array_splice($this->fieldArray, 0, 1);
@@ -1323,98 +1370,32 @@ class DatabaseRecordList
                     if (!in_array('_SELECTOR_', $this->fieldArray, true)
                         || ($table === 'pages' && $this->showOnlyTranslatedRecords)
                     ) {
-                        $theData[$fCol] = '';
+                        $theData[$field] = '';
                     }
                     break;
                 case '_CONTROL_':
-                    $theData[$fCol] = '<i class="hidden">' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels._CONTROL_')) . '</i>';
+                    $theData[$field] = '<i class="hidden">' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels._CONTROL_')) . '</i>';
                     // In single table view, add button to edit displayed fields of marked / listed records
-                    if ($this->table && $permsEdit && is_array($currentIdList) && $this->isEditable($table)) {
+                    if ($this->table && $this->canEditTable($table) && $currentIdList !== [] && $this->isEditable($table)) {
                         $label = htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:editShownColumns'));
-                        $theData[$fCol] = '<button type="button"'
+                        $theData[$field] = '<button type="button"'
                             . ' class="btn btn-default t3js-record-edit-multiple"'
                             . ' title="' . $label . '"'
                             . ' aria-label="' . $label . '"'
-                            . ' data-return-url="' . htmlspecialchars($this->listURL()) . '"'
+                            . ' data-return-url="' . htmlspecialchars((string)$this->listURL()) . '"'
                             . ' data-columns-only="' . GeneralUtility::jsonEncodeForHtmlAttribute(array_values($this->fieldArray)) . '">'
                             . $this->iconFactory->getIcon('actions-document-open', IconSize::SMALL)->render()
                             . '</button>';
                     }
                     break;
-                case '_PATH_':
-                    // Path
-                    $theData[$fCol] = '<i>' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels._PATH_')) . '</i>';
-                    break;
-                case '_REF_':
-                    // References
-                    $theData[$fCol] = '<i>' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels._REF_')) . '</i>';
-                    break;
-                case '_LOCALIZATION_':
-                    // Show language of record
-                    $theData[$fCol] = '<i>' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels._LOCALIZATION_')) . '</i>';
-                    break;
                 case '_LOCALIZATION_b':
                     // Show translation options
                     if ($this->showLocalizeColumn[$table] ?? false) {
-                        $theData[$fCol] = '<i>' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:Localize')) . '</i>';
+                        $theData[$field] = '<i>' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:Localize')) . '</i>';
                     }
                     break;
                 default:
-                    // Regular fields header
-                    $theData[$fCol] = '';
-
-                    // Check if $fCol is really a field and get the label and remove the colons at the end
-                    $sortLabel = BackendUtility::getItemLabel($table, $fCol);
-                    if ($sortLabel !== null) {
-                        // Field label
-                        $fieldTSConfig = [];
-                        if (isset($tsConfigOfTable[$fCol . '.'])
-                            && is_array($tsConfigOfTable[$fCol . '.'])
-                        ) {
-                            $fieldTSConfig = $tsConfigOfTable[$fCol . '.'];
-                        }
-                        $sortLabel = $lang->translateLabel(
-                            $fieldTSConfig['label.'] ?? [],
-                            $fieldTSConfig['label'] ?? $sortLabel
-                        );
-                        $sortLabel = htmlspecialchars(rtrim(trim($sortLabel), ':'));
-                    } elseif ($specialLabel = $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.' . $fCol)) {
-                        // Special label exists for this field (Probably a management field, e.g. sorting)
-                        $sortLabel = htmlspecialchars($specialLabel);
-                    } else {
-                        // No TCA field, only output the $fCol variable with square brackets []
-                        $sortLabel = htmlspecialchars($fCol);
-                        $sortLabel = '<i>[' . rtrim(trim($sortLabel), ':') . ']</i>';
-                    }
-
-                    if ($this->table && is_array($currentIdList)) {
-                        // If the numeric clipboard pads are selected, show duplicate sorting link:
-                        if ($this->noControlPanels === false
-                            && $this->isClipboardFunctionalityEnabled($table)
-                            && $this->clipObj->current !== 'normal'
-                        ) {
-                            $theData[$fCol] .= '<a class="btn btn-default" href="' . htmlspecialchars($this->listURL() . '&duplicateField=' . $fCol)
-                                . '" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_duplicates')) . '">'
-                                . $this->iconFactory->getIcon('actions-document-duplicates-select', IconSize::SMALL)->render() . '</a>';
-                        }
-                        // If the table can be edited, add link for editing THIS field for all
-                        // listed records:
-                        if ($this->isEditable($table) && $permsEdit && ($GLOBALS['TCA'][$table]['columns'][$fCol] ?? false)) {
-                            $iTitle = sprintf($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:editThisColumn'), $sortLabel);
-                            $theData[$fCol] .= '<button type="button"'
-                                . ' class="btn btn-default t3js-record-edit-multiple"'
-                                . ' title="' . htmlspecialchars($iTitle) . '"'
-                                . ' aria-label="' . htmlspecialchars($iTitle) . '"'
-                                . ' data-return-url="' . htmlspecialchars($this->listURL()) . '"'
-                                . ' data-columns-only="' . GeneralUtility::jsonEncodeForHtmlAttribute([$fCol]) . '">'
-                                . $this->iconFactory->getIcon('actions-document-open', IconSize::SMALL)->render()
-                                . '</button>';
-                        }
-                        if (strlen($theData[$fCol]) > 0) {
-                            $theData[$fCol] = '<div class="btn-group">' . $theData[$fCol] . '</div> ';
-                        }
-                    }
-                    $theData[$fCol] .= $this->addSortLink($sortLabel, $fCol, $table);
+                    $theData[$field] = $this->renderListTableFieldHeader($table, $field, $currentIdList);
             }
         }
 
@@ -1424,6 +1405,147 @@ class DatabaseRecordList
 
         // Create and return header table row:
         return $this->addElement($event->getColumns(), GeneralUtility::implodeAttributes($event->getHeaderAttributes(), true), 'th');
+    }
+
+    protected function renderListTableFieldHeader(string $table, string $field, array $currentIdList): string
+    {
+        $schema = $this->tcaSchemaFactory->get($table);
+        $label = $this->getFieldLabel($schema, $field);
+        $sortField = $field;
+
+        if (in_array($field, ['_SELECTOR_', '_CONTROL_', '_REF_', '_LOCALIZATION_', '_PATH_'])) {
+            return '<i>' . $label . '</i>';
+        }
+
+        $dropdownExtraItems = [];
+        if ($currentIdList !== []) {
+            // If the numeric clipboard pads are selected, show duplicate sorting link:
+            if ($this->table
+                && $this->noControlPanels === false
+                && $this->isClipboardFunctionalityEnabled($table)
+                && $this->clipObj->current !== 'normal'
+            ) {
+                $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_duplicates');
+                $attributes = [
+                    'class' => 'dropdown-item',
+                    'href' => $this->listURL() . '&duplicateField=' . $field,
+                    'title' => $title,
+                    'aria-label' => $title,
+                ];
+                $dropdownExtraItems[] = '
+                    <a ' . GeneralUtility::implodeAttributes($attributes, true) . '>
+                        <span class="dropdown-item-columns">
+                            <span class="dropdown-item-column dropdown-item-column-icon">
+                                ' . $this->iconFactory->getIcon('actions-document-duplicates-select', IconSize::SMALL)->render() . '
+                            </span>
+                            <span class="dropdown-item-column dropdown-item-column-title">
+                                ' . htmlspecialchars($title) . '
+                            </span>
+                        </span>
+                    </a>
+                ';
+            }
+            // If the table and field can be edited, add link for editing THIS field for all listed records:
+            if ($this->isEditable($table, $field) && $this->canEditTable($table)) {
+                $title = sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:editThisColumn'), $label);
+                $attributes = [
+                    'type' => 'button',
+                    'class' => 'dropdown-item t3js-record-edit-multiple',
+                    'title' => $title,
+                    'aria-label' => $title,
+                    'data-return-url' => (string)$this->listURL(),
+                    'data-columns-only' => json_encode([$field]),
+                ];
+                $dropdownExtraItems[] = '
+                    <button ' . GeneralUtility::implodeAttributes($attributes, true) . '>
+                        <span class="dropdown-item-columns">
+                            <span class="dropdown-item-column dropdown-item-column-icon">
+                                ' . $this->iconFactory->getIcon('actions-document-open', IconSize::SMALL)->render() . '
+                            </span>
+                            <span class="dropdown-item-column dropdown-item-column-title">
+                                ' . htmlspecialchars($title) . '
+                            </span>
+                        </span>
+                    </button>
+                ';
+            }
+        }
+
+        $dropdownSortingItems = [];
+        if (!$this->disableSingleTableView) {
+            // Sort ascending
+            $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.asc');
+            $attributes = [
+                'class' => 'dropdown-item',
+                'href' => $this->listURL(null, $table, ['sortField', 'sortRev', 'table', 'pointer']) . '&sortField=' . $sortField . '&sortRev=0',
+                'title' => $title,
+                'aria-label' => $title,
+            ];
+            $dropdownSortingItems[] = '
+                <a ' . GeneralUtility::implodeAttributes($attributes, true) . '>
+                    <span class="dropdown-item-columns">
+                        <span class="dropdown-item-column dropdown-item-column-icon text-primary">
+                            ' . ($this->sortField === $sortField && !$this->sortRev ? $this->iconFactory->getIcon('actions-dot', IconSize::SMALL)->render() : '') . '
+                        </span>
+                        <span class="dropdown-item-column dropdown-item-column-title">
+                            ' . htmlspecialchars($title) . '
+                        </span>
+                    </span>
+                </a>
+            ';
+
+            // Sort decending
+            $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.desc');
+            $attributes = [
+                'class' => 'dropdown-item',
+                'href' => $this->listURL(null, $table, ['sortField', 'sortRev', 'table', 'pointer']) . '&sortField=' . $sortField . '&sortRev=1',
+                'title' => $title,
+                'aria-label' => $title,
+            ];
+            $dropdownSortingItems[] = '
+                <a ' . GeneralUtility::implodeAttributes($attributes, true) . '>
+                    <span class="dropdown-item-columns">
+                        <span class="dropdown-item-column dropdown-item-column-icon text-primary">
+                            ' . ($this->sortField === $sortField && $this->sortRev ? $this->iconFactory->getIcon('actions-dot', IconSize::SMALL)->render() : '') . '
+                        </span>
+                        <span class="dropdown-item-column dropdown-item-column-title">
+                            ' . htmlspecialchars($title) . '
+                        </span>
+                    </span>
+                </a>
+            ';
+        }
+
+        $dropdownExtraHasItems = $dropdownExtraItems !== [];
+        $dropdownSortingHasItems = $dropdownSortingItems !== [];
+        if (!$dropdownExtraHasItems && !$dropdownSortingHasItems) {
+            return $label;
+        }
+
+        $icon = '';
+        if ($dropdownSortingHasItems) {
+            $icon = $this->sortField === $sortField
+                ? $this->iconFactory->getIcon('actions-sort-amount-' . ($this->sortRev ? 'down' : 'up'), IconSize::SMALL)->render()
+                : $this->iconFactory->getIcon('empty-empty', IconSize::SMALL)->render();
+        }
+
+        return '
+            <div class="dropdown dropdown-static">
+                <button
+                    class="dropdown-toggle dropdown-toggle-link"
+                    type="button"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
+                >
+                    ' . htmlspecialchars($label) . ' <div class="' . ($this->sortField === $sortField ? 'text-primary' : '') . '">' . $icon . '</div>
+                </button>
+                <ul class="dropdown-menu">
+                    ' . implode('', array_map(static fn($item) => '<li>' . $item . '</li>', $dropdownSortingItems)) . '
+                    ' . ($dropdownExtraHasItems && $dropdownSortingHasItems ? '<li><hr class="dropdown-divider" aria-hidden="true"></li>' : '') . '
+                    ' . implode('', array_map(static fn($item) => '<li>' . $item . '</li>', $dropdownExtraItems)) . '
+                </ul>
+            </div>
+        ';
     }
 
     /**
@@ -1447,7 +1569,7 @@ class DatabaseRecordList
         }
         $view = $this->backendViewFactory->create($this->request);
         return $view->assignMultiple([
-            'currentUrl' => $this->listURL('', $table, 'pointer'),
+            'currentUrl' => $this->listURL(null, $table, ['pointer']),
             'currentPage' => $currentPage,
             'totalPages' => $totalPages,
             'firstElement' => ((($currentPage - 1) * $itemsPerPage) + 1),
@@ -1467,65 +1589,48 @@ class DatabaseRecordList
      * Creates the control panel for a single record in the listing.
      *
      * @param string $table The table
-     * @param mixed[] $row The record for which to make the control panel.
      * @throws \UnexpectedValueException
      * @return string HTML table with the control panel (unless disabled)
      */
-    public function makeControl($table, $row)
+    public function makeControl($table, RecordInterface $record)
     {
         $backendUser = $this->getBackendUserAuthentication();
+        $schema = $this->tcaSchemaFactory->get($table);
         $userTsConfig = $backendUser->getTSConfig();
-        $rowUid = $row['uid'];
-        if (isset($row['_ORIG_uid'])) {
-            $rowUid = $row['_ORIG_uid'];
-        }
-        $isDeletePlaceHolder = $this->isRecordDeletePlaceholder($row);
+        $isDeletePlaceHolder = $this->isRecordDeletePlaceholder($record);
         $cells = [
             'primary' => [],
             'secondary' => [],
         ];
-
-        // Hide the move elements for localized records - doesn't make much sense to perform these options for them
-        $isL10nOverlay = (int)($row[$GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? null] ?? 0) !== 0;
-        $localCalcPerms = $this->getPagePermissionsForRecord($table, $row);
-        if ($table === 'pages') {
-            $permsEdit = ($backendUser->checkLanguageAccess($row[$GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? null] ?? 0))
-                && $localCalcPerms->editPagePermissionIsGranted();
-        } else {
-            $permsEdit = $localCalcPerms->editContentPermissionIsGranted() && $backendUser->recordEditAccessInternals($table, $row);
+        $languageFieldName = $transOrigPointerFieldName = '';
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $languageFieldName = $languageCapability->getLanguageField()->getName();
+            $transOrigPointerFieldName = $languageCapability->getTranslationOriginPointerField()->getName();
         }
-        $permsEdit = $this->overlayEditLockPermissions($table, $row, $permsEdit);
+        // Hide the move elements for localized records - doesn't make much sense to perform these options for them
+        $isL10nOverlay = $record->getRawRecord()?->has($transOrigPointerFieldName) && $record->getRawRecord()->get($transOrigPointerFieldName) > 0;
+        $localCalcPerms = $this->getPagePermissionsForRecord($record);
+        if ($table === 'pages') {
+            $permsEdit = $backendUser->checkLanguageAccess($record->getRawRecord()?->has($languageFieldName) ? $record->getRawRecord()->get($languageFieldName) : 0) && $localCalcPerms->editPagePermissionIsGranted();
+        } else {
+            $permsEdit = $localCalcPerms->editContentPermissionIsGranted() && $backendUser->recordEditAccessInternals($table, $record);
+        }
+        $permsEdit = $this->overlayEditLockPermissions($table, $record, $permsEdit);
 
-        // "Show" link (only pages and tt_content elements)
-        $tsConfig = BackendUtility::getPagesTSconfig($this->id)['mod.']['web_list.'] ?? [];
-        if ((
-            $table === 'pages'
-                && isset($row['doktype'])
-                && !in_array((int)$row['doktype'], $this->getNoViewWithDokTypes($tsConfig), true)
-        )
-            || (
-                $table === 'tt_content'
-                && isset($this->pageRow['doktype'])
-                && !in_array((int)$this->pageRow['doktype'], $this->getNoViewWithDokTypes($tsConfig), true)
-            )
-        ) {
-            if (!$isDeletePlaceHolder
-                && ($attributes = $this->getPreviewUriBuilder($table, $row)->serializeDispatcherAttributes()) !== null
-            ) {
-                $viewAction = '<button'
-                    . ' type="button"'
-                    . ' class="btn btn-default" ' . $attributes
-                    . ' title="' . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage')) . '">';
-                if ($table === 'pages') {
-                    $viewAction .= $this->iconFactory->getIcon('actions-view-page', IconSize::SMALL)->render();
-                } else {
-                    $viewAction .= $this->iconFactory->getIcon('actions-view', IconSize::SMALL)->render();
-                }
-                $viewAction .= '</button>';
-                $this->addActionToCellGroup($cells, $viewAction, 'view');
+        // "Show" link
+        if (($attributes = $this->getPreviewUriBuilder($table, $record)->serializeDispatcherAttributes()) !== null) {
+            $viewAction = '<button'
+                . ' type="button"'
+                . ' class="btn btn-default" ' . $attributes
+                . ' title="' . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage')) . '">';
+            if ($table === 'pages') {
+                $viewAction .= $this->iconFactory->getIcon('actions-view-page', IconSize::SMALL)->render();
             } else {
-                $this->addActionToCellGroup($cells, $this->spaceIcon, 'view');
+                $viewAction .= $this->iconFactory->getIcon('actions-view', IconSize::SMALL)->render();
             }
+            $viewAction .= '</button>';
+            $this->addActionToCellGroup($cells, $viewAction, 'view');
         } else {
             $this->addActionToCellGroup($cells, $this->spaceIcon, 'view');
         }
@@ -1535,14 +1640,14 @@ class DatabaseRecordList
             $params = [
                 'edit' => [
                     $table => [
-                        $row['uid'] => 'edit',
+                        $record->getUid() => 'edit',
                     ],
                 ],
             ];
             $iconIdentifier = 'actions-open';
             if ($table === 'pages') {
                 // Disallow manual adjustment of the language field for pages
-                $params['overrideVals']['pages']['sys_language_uid'] = $row[$GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? null] ?? 0;
+                $params['overrideVals']['pages']['sys_language_uid'] = $record->getRawRecord()?->has($languageFieldName) ? $record->getRawRecord()->get($languageFieldName) : 0;
                 $iconIdentifier = 'actions-page-open';
             }
             $params['returnUrl'] = $this->listURL();
@@ -1559,7 +1664,7 @@ class DatabaseRecordList
             $label = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:showInfo'));
             $viewBigAction = '<button type="button" aria-haspopup="dialog"'
                 . ' class="btn btn-default" '
-                . $this->createShowItemTagAttributes($table . ',' . ($row['uid'] ?? 0))
+                . $this->createShowItemTagAttributes($table . ',' . $record->getUid())
                 . ' title="' . $label . '"'
                 . ' aria-label="' . $label . '">'
                 . $this->iconFactory->getIcon('actions-document-info', IconSize::SMALL)->render()
@@ -1573,23 +1678,26 @@ class DatabaseRecordList
         if ($permsEdit && ($table === 'tt_content' || $table === 'pages') && $this->isEditable($table)) {
             if ($isL10nOverlay || $isDeletePlaceHolder) {
                 $moveAction = $this->spaceIcon;
-            } elseif ($table === 'pages') {
-                $linkTitleLL = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:move_page'));
-                $icon = $this->iconFactory->getIcon('actions-page-move', IconSize::SMALL);
-                $url = (string)$this->uriBuilder->buildUriFromRoute('move_page', [
-                    'uid' => $row['uid'],
-                    'table' => $table,
-                    'expandPage' => $row['pid'] ?? 0,
-                ]);
-                $moveAction = '<typo3-move-record-wizard-button class="btn btn-default" subject="' . $linkTitleLL . '" url="' . htmlspecialchars($url) . '" aria-label="' . $linkTitleLL . '" table="' . (string)$table . '">' . $icon->render() . '</a>';
             } else {
-                $linkTitleLL = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:move_record'));
-                $icon = $this->iconFactory->getIcon('actions-document-move', IconSize::SMALL);
-                $url = (string)$this->uriBuilder->buildUriFromRoute('move_element', [
-                    'uid' => $row['uid'],
-                    'returnUrl' => $this->listURL(),
-                ]);
-                $moveAction = '<a class="btn btn-default" href="' . htmlspecialchars($url) . '" aria-label="' . $linkTitleLL . '">' . $icon->render() . '</a>';
+                if ($table === 'pages') {
+                    $linkTitleLL = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:move_page'));
+                    $icon = $this->iconFactory->getIcon('actions-page-move', IconSize::SMALL);
+                    $url = (string)$this->uriBuilder->buildUriFromRoute('move_page', [
+                        'uid' => $record->getUid(),
+                        'table' => $table,
+                        'expandPage' => $record->getPid(),
+                    ]);
+                } else {
+                    $linkTitleLL = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:move_record'));
+                    $icon = $this->iconFactory->getIcon('actions-document-move', IconSize::SMALL);
+                    $url = (string)$this->uriBuilder->buildUriFromRoute('move_element', [
+                        'uid' => $record->getUid(),
+                        'originalPid' => $record->getPid(),
+                        'expandPage' => $record->getPid(),
+                        'returnUrl' => $this->listURL(),
+                    ]);
+                }
+                $moveAction = '<typo3-backend-dispatch-modal-button class="btn btn-default" subject="' . $linkTitleLL . '" url="' . htmlspecialchars($url) . '" aria-label="' . $linkTitleLL . '">' . $icon->render() . ' ' . $linkTitleLL . '</typo3-backend-dispatch-modal-button>';
             }
             $this->addActionToCellGroup($cells, $moveAction, 'move');
         }
@@ -1597,13 +1705,13 @@ class DatabaseRecordList
         // If the table is NOT a read-only table, then show these links:
         if ($this->isEditable($table)) {
             // "Revert" link (history/undo)
-            if (\trim($userTsConfig['options.']['showHistory.'][$table] ?? $userTsConfig['options.']['showHistory'] ?? '1')) {
+            if (trim($userTsConfig['options.']['showHistory.'][$table] ?? $userTsConfig['options.']['showHistory'] ?? '1')) {
                 if (!$isDeletePlaceHolder) {
                     $moduleUrl = $this->uriBuilder->buildUriFromRoute('record_history', [
-                        'element' => $table . ':' . $row['uid'],
+                        'element' => $table . ':' . $record->getUid(),
                         'returnUrl' => $this->listURL(),
-                    ]) . '#latest';
-                    $historyAction = '<a class="btn btn-default" href="' . htmlspecialchars($moduleUrl) . '" title="'
+                    ])->withFragment('#latest');
+                    $historyAction = '<a class="btn btn-default" href="' . htmlspecialchars((string)$moduleUrl) . '" title="'
                         . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:history')) . '">'
                         . $this->iconFactory->getIcon('actions-document-history-open', IconSize::SMALL)->render() . '</a>';
                     $this->addActionToCellGroup($cells, $historyAction, 'history');
@@ -1618,7 +1726,7 @@ class DatabaseRecordList
                     $permsAction = $this->spaceIcon;
                 } else {
                     $params = [
-                        'id' => $row['uid'],
+                        'id' => $record->getUid(),
                         'action' => 'edit',
                         'returnUrl' => $this->listURL(),
                     ];
@@ -1632,7 +1740,7 @@ class DatabaseRecordList
 
             // "New record after" link (ONLY if the records in the table are sorted by a "sortby"-row
             // or if default values can depend on previous record):
-            if ((($GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? false) || ($GLOBALS['TCA'][$table]['ctrl']['useColumnsForDefaultValues'] ?? false)) && $permsEdit) {
+            if (($schema->hasCapability(TcaSchemaCapability::SortByField) || ($schema->getRawConfiguration()['useColumnsForDefaultValues'] ?? false)) && $permsEdit) {
                 $neededPermission = $table === 'pages' ? Permission::PAGE_NEW : Permission::CONTENT_EDIT;
                 if ($this->calcPerms->isGranted($neededPermission)) {
                     if ($isL10nOverlay || $isDeletePlaceHolder) {
@@ -1641,14 +1749,14 @@ class DatabaseRecordList
                         $params = [
                             'edit' => [
                                 $table => [
-                                    (0 - (($row['_MOVE_PLH'] ?? 0) ? $row['_MOVE_PLH_uid'] : $row['uid'])) => 'new',
+                                    (0 - $record->getUid()) => 'new',
                                 ],
                             ],
                             'returnUrl' => $this->listURL(),
                         ];
                         $icon = ($table === 'pages' ? $this->iconFactory->getIcon('actions-page-new', IconSize::SMALL) : $this->iconFactory->getIcon('actions-plus', IconSize::SMALL));
                         $titleLabel = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:new');
-                        if ($GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? false) {
+                        if ($schema->hasCapability(TcaSchemaCapability::SortByField)) {
                             $titleLabel = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:newRecord');
                             if ($table === 'pages') {
                                 $titleLabel = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:newPage');
@@ -1663,12 +1771,11 @@ class DatabaseRecordList
             }
 
             // "Hide/Unhide" links:
-            $hiddenField = $GLOBALS['TCA'][$table]['ctrl']['enablecolumns']['disabled'] ?? null;
-            if ($hiddenField !== null
-                && !empty($GLOBALS['TCA'][$table]['columns'][$hiddenField])
-                && (empty($GLOBALS['TCA'][$table]['columns'][$hiddenField]['exclude']) || $backendUser->check('non_exclude_fields', $table . ':' . $hiddenField))
+            $hiddenField = $schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField) ? $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getFieldName() : '';
+            if (!empty($hiddenField)
+                && ($schema->getField($hiddenField)->supportsAccessControl() || $backendUser->check('non_exclude_fields', $table . ':' . $hiddenField))
             ) {
-                if (!$permsEdit || $isDeletePlaceHolder || $this->isRecordCurrentBackendUser($table, $row)) {
+                if (!$permsEdit || $isDeletePlaceHolder || $this->isRecordCurrentBackendUser($record)) {
                     $hideAction = $this->spaceIcon;
                 } else {
                     $visibleTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:hide' . ($table === 'pages' ? 'Page' : ''));
@@ -1677,7 +1784,7 @@ class DatabaseRecordList
                     $hiddenTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:unHide' . ($table === 'pages' ? 'Page' : ''));
                     $hiddenIcon = 'actions-edit-unhide';
                     $hiddenValue = '1';
-                    if ($row[$hiddenField] ?? false) {
+                    if (($rawRecord = $record->getRawRecord())?->has($hiddenField) && ($rawRecord->get($hiddenField) ?? false)) {
                         $titleLabel = $hiddenTitle;
                         $iconIdentifier = $hiddenIcon;
                         $status = 'hidden';
@@ -1686,22 +1793,18 @@ class DatabaseRecordList
                         $iconIdentifier = $visibleIcon;
                         $status = 'visible';
                     }
+
                     $attributesString = GeneralUtility::implodeAttributes(
                         [
                             'class' => 'btn btn-default',
                             'type' => 'button',
                             'title' => $titleLabel,
                             'data-datahandler-action' => 'visibility',
-                            'data-datahandler-table' => $table,
-                            'data-datahandler-uid' => $rowUid,
-                            'data-datahandler-field' => $hiddenField,
                             'data-datahandler-status' => $status,
                             'data-datahandler-visible-label' => $visibleTitle,
                             'data-datahandler-visible-value' => $visibleValue,
-                            'data-datahandler-visible-icon' => $visibleIcon,
                             'data-datahandler-hidden-label' => $hiddenTitle,
                             'data-datahandler-hidden-value' => $hiddenValue,
-                            'data-datahandler-hidden-icon' => $hiddenIcon,
                         ],
                         true
                     );
@@ -1713,12 +1816,12 @@ class DatabaseRecordList
             }
 
             // "Up/Down" links
-            if ($permsEdit && ($GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? false) && !$this->sortField && !$this->searchLevels) {
-                if (!$isL10nOverlay && !$isDeletePlaceHolder && isset($this->currentTable['prev'][$row['uid']])) {
+            if ($permsEdit && $schema->hasCapability(TcaSchemaCapability::SortByField) && !$this->sortField && !$this->searchLevels) {
+                if (!$isL10nOverlay && !$isDeletePlaceHolder && isset($this->currentTable['prev'][$record->getUid()])) {
                     // Up
                     $params = [];
                     $params['redirect'] = $this->listURL();
-                    $params['cmd'][$table][$row['uid']]['move'] = $this->currentTable['prev'][$row['uid']];
+                    $params['cmd'][$table][$record->getUid()]['move'] = $this->currentTable['prev'][$record->getUid()];
                     $url = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
                     $moveUpAction = '<a class="btn btn-default" href="' . htmlspecialchars($url) . '" title="' . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:moveUp')) . '">'
                         . $this->iconFactory->getIcon('actions-move-up', IconSize::SMALL)->render() . '</a>';
@@ -1727,11 +1830,11 @@ class DatabaseRecordList
                 }
                 $this->addActionToCellGroup($cells, $moveUpAction, 'moveUp');
 
-                if (!$isL10nOverlay && !$isDeletePlaceHolder && !empty($this->currentTable['next'][$row['uid']])) {
+                if (!$isL10nOverlay && !$isDeletePlaceHolder && !empty($this->currentTable['next'][$record->getUid()])) {
                     // Down
                     $params = [];
                     $params['redirect'] = $this->listURL();
-                    $params['cmd'][$table][$row['uid']]['move'] = $this->currentTable['next'][$row['uid']];
+                    $params['cmd'][$table][$record->getUid()]['move'] = $this->currentTable['next'][$record->getUid()];
                     $url = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
                     $moveDownAction = '<a class="btn btn-default" href="' . htmlspecialchars($url) . '" title="' . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:moveDown')) . '">'
                         . $this->iconFactory->getIcon('actions-move-down', IconSize::SMALL)->render() . '</a>';
@@ -1742,46 +1845,54 @@ class DatabaseRecordList
             }
 
             // "Delete" link:
-            $disableDelete = (bool)\trim((string)($userTsConfig['options.']['disableDelete.'][$table] ?? $userTsConfig['options.']['disableDelete'] ?? ''));
+            $disableDelete = (bool)trim((string)($userTsConfig['options.']['disableDelete.'][$table] ?? $userTsConfig['options.']['disableDelete'] ?? ''));
             if ($permsEdit
                 && !$disableDelete
                 && (($table === 'pages' && $localCalcPerms->deletePagePermissionIsGranted()) || ($table !== 'pages' && $this->calcPerms->editContentPermissionIsGranted()))
-                && !$this->isRecordCurrentBackendUser($table, $row)
+                && !$this->isRecordCurrentBackendUser($record)
                 && !$isDeletePlaceHolder
             ) {
                 $actionName = 'delete';
-                $recordInfo = BackendUtility::getRecordTitle($table, $row);
+                $recordInfo = BackendUtility::getRecordTitle($table, $record);
                 if ($this->getBackendUserAuthentication()->shallDisplayDebugInformation()) {
-                    $recordInfo .= ' [' . $table . ':' . $row['uid'] . ']';
+                    $recordInfo .= ' [' . $table . ':' . $record->getUid() . ']';
                 }
                 $refCountMsg = BackendUtility::referenceCount(
                     $table,
-                    $row['uid'],
+                    $record->getUid(),
                     LF . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.referencesToRecord'),
-                    (string)$this->getReferenceCount($table, $row['uid'])
+                    (string)$this->getReferenceCount($table, $record->getUid())
                 ) . BackendUtility::translationCount(
                     $table,
-                    $row['uid'],
+                    $record->getUid(),
                     LF . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.translationsOfRecord')
                 );
 
                 $warningText = sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:' . $actionName . 'Warning'), trim($recordInfo)) . $refCountMsg;
-                $params = 'cmd[' . $table . '][' . $row['uid'] . '][delete]=1';
                 $icon = $this->iconFactory->getIcon('actions-edit-' . $actionName, IconSize::SMALL)->render();
                 $linkTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:' . $actionName);
                 $titleText = $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_alt_doc.xlf:label.confirm.delete_record.title');
-                $l10nParentField = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? '';
 
                 $deleteActionAttributes = GeneralUtility::implodeAttributes([
                     'type' => 'button',
-                    'class' => 'btn btn-default t3js-record-delete',
+                    'class' => 'btn btn-default t3js-modal-trigger',
                     'title' => $linkTitle,
+                    'data-severity' => 'warning',
                     'aria-label' => $linkTitle,
                     'aria-haspopup' => 'dialog',
                     'data-button-ok-text' => $linkTitle,
-                    'data-l10nparent' => $l10nParentField ? (string)$row[$l10nParentField] : '',
-                    'data-params' => $params,
-                    'data-message' => $warningText,
+                    'data-button-close-text' => $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:cancel'),
+                    'data-bs-content' => $warningText,
+                    'data-uri' => (string)$this->uriBuilder->buildUriFromRoute('tce_db', [
+                        'cmd' => [
+                            $table => [
+                                $record->getUid() => [
+                                    'delete' => true,
+                                ],
+                            ],
+                        ],
+                        'redirect' => $this->listURL(),
+                    ]),
                     'data-title' => $titleText,
                 ], true, true);
                 $deleteAction = '<button ' . $deleteActionAttributes . '>' . $icon . '</button>';
@@ -1797,7 +1908,7 @@ class DatabaseRecordList
                     if (!$isDeletePlaceHolder && !$isL10nOverlay) {
                         $params = [];
                         $params['redirect'] = $this->listURL();
-                        $params['cmd'][$table][$row['uid']]['move'] = -$this->id;
+                        $params['cmd'][$table][$record->getUid()]['move'] = -$this->id;
                         $url = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
                         $label = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:prevLevel'));
                         $moveLeftAction = '<a class="btn btn-default"'
@@ -1812,15 +1923,19 @@ class DatabaseRecordList
                     }
                 }
                 // Down (Paste as subpage to the page right above)
-                if (!$isL10nOverlay && !$isDeletePlaceHolder && !empty($this->currentTable['prevUid'][$row['uid']])) {
+                if (!$isL10nOverlay && !$isDeletePlaceHolder && !empty($this->currentTable['prevUid'][$record->getUid()])) {
                     $localCalcPerms = $this->getPagePermissionsForRecord(
-                        'pages',
-                        BackendUtility::getRecord('pages', $this->currentTable['prevUid'][$row['uid']]) ?? []
+                        $this->recordFactory->createResolvedRecordFromDatabaseRow(
+                            'pages',
+                            BackendUtility::getRecord('pages', $this->currentTable['prevUid'][$record->getUid()]) ?? [],
+                            null,
+                            $this->recordIdentityMap
+                        )
                     );
                     if ($localCalcPerms->createPagePermissionIsGranted()) {
                         $params = [];
                         $params['redirect'] = $this->listURL();
-                        $params['cmd'][$table][$row['uid']]['move'] = $this->currentTable['prevUid'][$row['uid']];
+                        $params['cmd'][$table][$record->getUid()]['move'] = $this->currentTable['prevUid'][$record->getUid()];
                         $url = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
                         $label = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:nextLevel'));
                         $moveRightAction = '<a class="btn btn-default"'
@@ -1839,10 +1954,10 @@ class DatabaseRecordList
         }
 
         // Add clipboard related actions
-        $this->makeClip($table, $row, $cells);
+        $this->makeClip($table, $record, $cells);
 
         $event = $this->eventDispatcher->dispatch(
-            new ModifyRecordListRecordActionsEvent($cells, $table, $row, $this)
+            new ModifyRecordListRecordActionsEvent($cells, $table, $record->getRawRecord()?->toArray(), $this)
         );
 
         $output = '';
@@ -1874,7 +1989,7 @@ class DatabaseRecordList
                         );
                         // In case we added the title as tag content, we can remove the attribute,
                         // since this is duplicated and would trigger a tooltip with the same content.
-                        if (!empty($title[0] ?? '')) {
+                        if (!empty($title[0])) {
                             $action = str_replace($title[0], '', $action);
                         }
                     }
@@ -1885,8 +2000,8 @@ class DatabaseRecordList
                     $icon = $this->iconFactory->getIcon('actions-menu-alternative', IconSize::SMALL);
                     $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.more');
                     $output .= ' <div class="btn-group dropdown" title="' . htmlspecialchars($title) . '">' .
-                        '<a href="#actions_' . $table . '_' . $row['uid'] . '" class="btn btn-default dropdown-toggle dropdown-toggle-no-chevron" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false">' . $icon->render() . '</a>' .
-                        '<ul id="actions_' . $table . '_' . $row['uid'] . '" class="dropdown-menu">' . $cellOutput . '</ul>' .
+                        '<a href="#actions_' . $table . '_' . $record->getUid() . '" class="btn btn-default dropdown-toggle dropdown-toggle-no-chevron" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false">' . $icon->render() . '</a>' .
+                        '<ul id="actions_' . $table . '_' . $record->getUid() . '" class="dropdown-menu">' . $cellOutput . '</ul>' .
                         '</div>';
                 } else {
                     $output .= ' <div class="btn-group">' . $this->spaceIcon . '</div>';
@@ -1903,26 +2018,27 @@ class DatabaseRecordList
      * Creates the clipboard actions for a single record in the listing.
      *
      * @param string $table The table
-     * @param array $row The record for which to create the clipboard actions
+     * @param RecordInterface $record The record for which to create the clipboard actions
      * @param array $cells The already defined cells from makeControl
      */
-    public function makeClip(string $table, array $row, array &$cells): void
+    public function makeClip(string $table, RecordInterface $record, array &$cells): void
     {
         // Return, if disabled:
-        if (!$this->isClipboardFunctionalityEnabled($table, $row)) {
+        if (!$this->isClipboardFunctionalityEnabled($table, $record)) {
             return;
         }
         $clipboardCells = [];
         $isEditable = $this->isEditable($table);
+        $schema = $this->tcaSchemaFactory->get($table);
 
         if ($this->clipObj->current !== 'normal') {
             $clipboardCells['copy'] = $clipboardCells['cut'] = $this->spaceIcon;
         } else {
             $this->addDividerToCellGroup($cells);
-            $isSel = $this->clipObj->isSelected($table, $row['uid']);
+            $isSel = $this->clipObj->isSelected($table, $record->getUid());
 
             $copyTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.' . ($isSel === 'copy' ? 'copyrelease' : 'copy'));
-            $copyUrl = $this->clipObj->selUrlDB($table, (int)$row['uid'], true, $isSel === 'copy');
+            $copyUrl = $this->clipObj->selUrlDB($table, (int)$record->getUid(), true, $isSel === 'copy');
             $clipboardCells['copy'] = '
                 <a class="btn btn-default" href="' . htmlspecialchars($copyUrl) . '" title="' . htmlspecialchars($copyTitle) . '" aria-label="' . htmlspecialchars($copyTitle) . '">
                     ' . $this->iconFactory->getIcon($isSel === 'copy' ? 'actions-edit-copy-release' : 'actions-edit-copy', IconSize::SMALL)->render() . '
@@ -1930,16 +2046,16 @@ class DatabaseRecordList
 
             // Calculate permission to cut page or content
             if ($table === 'pages') {
-                $localCalcPerms = $this->getPagePermissionsForRecord('pages', $row);
+                $localCalcPerms = $this->getPagePermissionsForRecord($record);
                 $permsEdit = $localCalcPerms->editPagePermissionIsGranted();
             } else {
-                $permsEdit = $this->calcPerms->editContentPermissionIsGranted() && $this->getBackendUserAuthentication()->recordEditAccessInternals($table, $row);
+                $permsEdit = $this->calcPerms->editContentPermissionIsGranted() && $this->getBackendUserAuthentication()->recordEditAccessInternals($table, $record);
             }
-            if (!$isEditable || !$this->overlayEditLockPermissions($table, $row, $permsEdit)) {
+            if (!$isEditable || !$this->overlayEditLockPermissions($table, $record, $permsEdit)) {
                 $clipboardCells['cut'] = $this->spaceIcon;
             } else {
                 $cutTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.' . ($isSel === 'cut' ? 'cutrelease' : 'cut'));
-                $cutUrl = $this->clipObj->selUrlDB($table, (int)$row['uid'], false, $isSel === 'cut');
+                $cutUrl = $this->clipObj->selUrlDB($table, (int)$record->getUid(), false, $isSel === 'cut');
                 $clipboardCells['cut'] = '
                     <a class="btn btn-default" href="' . htmlspecialchars($cutUrl) . '" title="' . htmlspecialchars($cutTitle) . '" aria-label="' . htmlspecialchars($cutTitle) . '">
                         ' . $this->iconFactory->getIcon($isSel === 'cut' ? 'actions-edit-cut-release' : 'actions-edit-cut', IconSize::SMALL)->render() . '
@@ -1948,18 +2064,17 @@ class DatabaseRecordList
         }
 
         // Now, looking for selected elements from the current table:
-        $elFromTable = $this->clipObj->elFromTable($table);
         if (!$isEditable
-            || empty($GLOBALS['TCA'][$table]['ctrl']['sortby'])
+            || !$schema->hasCapability(TcaSchemaCapability::SortByField)
             || $this->clipObj->elFromTable($table) === []
-            || !$this->overlayEditLockPermissions($table, $row)
+            || !$this->overlayEditLockPermissions($table, $record)
         ) {
             $clipboardCells['pasteAfter'] = $this->spaceIcon;
         } else {
             $this->addDividerToCellGroup($cells);
-            $pasteAfterUrl = $this->clipObj->pasteUrl($table, -$row['uid']);
+            $pasteAfterUrl = $this->clipObj->pasteUrl($table, -$record->getUid());
             $pasteAfterTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_pasteAfter');
-            $pasteAfterContent = $this->clipObj->confirmMsgText($table, $row, 'after', $elFromTable);
+            $pasteAfterContent = $this->clipObj->confirmMsgText($table, $record->getRawRecord()?->toArray(), 'after');
             $clipboardCells['pasteAfter'] = '
                 <button type="button" class="btn btn-default t3js-modal-trigger" data-severity="warning" aria-haspopup="dialog" title="' . htmlspecialchars($pasteAfterTitle) . '" aria-label="' . htmlspecialchars($pasteAfterTitle) . '" data-uri="' . htmlspecialchars($pasteAfterUrl) . '" data-bs-content="' . htmlspecialchars($pasteAfterContent) . '">
                     ' . $this->iconFactory->getIcon('actions-document-paste-after', IconSize::SMALL)->render() . '
@@ -1971,9 +2086,9 @@ class DatabaseRecordList
             $clipboardCells['pasteInto'] = $this->spaceIcon;
         } else {
             $this->addDividerToCellGroup($cells);
-            $pasteIntoUrl = $this->clipObj->pasteUrl('', $row['uid']);
+            $pasteIntoUrl = $this->clipObj->pasteUrl('', $record->getUid());
             $pasteIntoTitle = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_pasteInto');
-            $pasteIntoContent = $this->clipObj->confirmMsgText($table, $row, 'into', $elFromTable);
+            $pasteIntoContent = $this->clipObj->confirmMsgText($table, $record->getRawRecord()?->toArray(), 'into');
             $clipboardCells['pasteInto'] = '
                 <button type="button" class="btn btn-default t3js-modal-trigger" aria-haspopup="dialog" data-severity="warning" title="' . htmlspecialchars($pasteIntoTitle) . '" aria-label="' . htmlspecialchars($pasteIntoTitle) . '" data-uri="' . htmlspecialchars($pasteIntoUrl) . '" data-bs-content="' . htmlspecialchars($pasteIntoContent) . '">
                     ' . $this->iconFactory->getIcon('actions-document-paste-into', IconSize::SMALL)->render() . '
@@ -1990,14 +2105,21 @@ class DatabaseRecordList
      * Adds the checkbox to select a single record in the listing
      *
      * @param string $table The table
-     * @param array $row The record for which to make the checkbox
      * @return string The checkbox for the record
      */
-    public function makeCheckbox(string $table, array $row): string
+    public function makeCheckbox(string $table, RecordInterface $record): string
     {
-        // Early return if current record is a "delete placeholder" or a translation
-        if ($this->isRecordDeletePlaceholder($row)
-            || (int)($row[$GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? null] ?? 0) !== 0
+        // Early return if current record is a "delete placeholder"
+        if ($this->isRecordDeletePlaceholder($record)) {
+            return '';
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+        // Early return if current record is a translation
+        if ($schema->isLanguageAware()
+            && ($transPointerField = $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName())
+            && $record->getRawRecord()?->has($transPointerField)
+            && $record->getRawRecord()->get($transPointerField) !== 0
         ) {
             return '';
         }
@@ -2012,13 +2134,14 @@ class DatabaseRecordList
 
         // For the numeric clipboard pads (showing checkboxes where one can select elements on/off)
         // Setting name of the element in ->CBnames array:
-        $identifier = $table . '|' . $row['uid'];
+        $identifier = $table . '|' . $record->getUid();
         $this->CBnames[] = $identifier;
         $isSelected = false;
         // If the "duplicateField" value is set then select all elements which are duplicates...
-        if ($this->duplicateField && isset($row[$this->duplicateField])) {
-            $isSelected = in_array((string)$row[$this->duplicateField], $this->duplicateStack, true);
-            $this->duplicateStack[] = (string)$row[$this->duplicateField];
+        if ($this->duplicateField && $record->getRawRecord()?->has($this->duplicateField)) {
+            $fieldValue = (string)$record->getRawRecord()->get($this->duplicateField);
+            $isSelected = in_array($fieldValue, $this->duplicateStack, true);
+            $this->duplicateStack[] = $fieldValue;
         }
         // Adding the checkbox to the panel:
         return '
@@ -2029,11 +2152,8 @@ class DatabaseRecordList
 
     /**
      * Creates the localization panel
-     *
-     * @param string $table The table
-     * @param mixed[] $row The record for which to make the localization panel.
      */
-    public function makeLocalizationPanel($table, $row, array $translations): string
+    public function makeLocalizationPanel(string $table, RecordInterface $record, array $translations): string
     {
         $out = '';
         // All records excluding pages
@@ -2045,25 +2165,25 @@ class DatabaseRecordList
         }
 
         // Traverse page translations and add icon for each language that does NOT yet exist and is included in site configuration:
-        $pageId = (int)($table === 'pages' ? $row['uid'] : $row['pid']);
+        $pageId = $table === 'pages' ? $record->getUid() : $record->getPid();
         $languageInformation = $this->translateTools->getSystemLanguages($pageId);
 
         foreach ($possibleTranslations as $lUid_OnPage) {
             if ($this->isEditable($table)
-                && !$this->isRecordDeletePlaceholder($row)
+                && !$this->isRecordDeletePlaceholder($record)
                 && !isset($translations[$lUid_OnPage])
                 && $this->getBackendUserAuthentication()->checkLanguageAccess($lUid_OnPage)
             ) {
                 $redirectUrl = (string)$this->uriBuilder->buildUriFromRoute(
                     'record_edit',
                     [
-                        'justLocalized' => $table . ':' . $row['uid'] . ':' . $lUid_OnPage,
+                        'justLocalized' => $table . ':' . $record->getUid() . ':' . $lUid_OnPage,
                         'returnUrl' => $this->listURL(),
                     ]
                 );
                 $params = [];
                 $params['redirect'] = $redirectUrl;
-                $params['cmd'][$table][$row['uid']]['localize'] = $lUid_OnPage;
+                $params['cmd'][$table][$record->getUid()]['localize'] = $lUid_OnPage;
                 $href = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
                 $title = htmlspecialchars($languageInformation[$lUid_OnPage]['title'] ?? '');
 
@@ -2087,49 +2207,6 @@ class DatabaseRecordList
      *********************************/
 
     /**
-     * Creates a sort-by link on the input string ($code).
-     * It will automatically detect if sorting should be ascending or descending depending on $this->sortRev.
-     * Also some fields will not be possible to sort (including if single-table-view is disabled).
-     *
-     * @param string $label The string to link (text)
-     * @param string $field The fieldname represented by the title ($code)
-     * @param string $table Table name
-     * @return string Linked $code variable
-     */
-    public function addSortLink($label, $field, $table): string
-    {
-        // Certain circumstances just return string right away (no links):
-        if ($this->disableSingleTableView
-            || in_array($field, ['_SELECTOR', '_CONTROL_', '_LOCALIZATION_', '_REF_'], true)
-        ) {
-            return $label;
-        }
-
-        // If "_PATH_" (showing record path) is selected, force sorting by pid field (will at least group the records!)
-        if ($field === '_PATH_') {
-            $field = 'pid';
-        }
-
-        // Create the sort link:
-        $url = $this->listURL('', $table, 'sortField,sortRev,table,pointer')
-            . '&sortField=' . $field . '&sortRev=' . ($this->sortRev || $this->sortField != $field ? 0 : 1);
-        $icon = $this->sortField === $field
-            ? $this->iconFactory->getIcon('actions-sort-amount-' . ($this->sortRev ? 'down' : 'up'), IconSize::SMALL)->render()
-            : $this->iconFactory->getIcon('actions-sort-amount', IconSize::SMALL)->render();
-
-        // Return linked field:
-        $attributes = [
-            'class' => 'table-sorting-button ' . ($this->sortField === $field ? 'table-sorting-button-active' : ''),
-            'href' => $url,
-        ];
-
-        return '<a ' . GeneralUtility::implodeAttributes($attributes, true) . '>
-            <span class="table-sorting-label">' . $label . '</span>
-            <span class="table-sorting-icon">' . $icon . '</span>
-            </a>';
-    }
-
-    /**
      * Returns the path for a certain pid
      * The result is cached internally for the session, thus you can call
      * this function as much as you like without performance problems.
@@ -2137,7 +2214,7 @@ class DatabaseRecordList
      * @param int $pid The page id for which to get the path
      * @return mixed[] The path.
      */
-    public function recPath($pid)
+    public function recPath(int $pid): mixed
     {
         if (!isset($this->recPath_cache[$pid])) {
             $this->recPath_cache[$pid] = BackendUtility::getRecordPath($pid, $this->perms_clause, 20);
@@ -2149,11 +2226,20 @@ class DatabaseRecordList
      * Helper method around fetching the permissions of a record, by incorporating the record information AND the
      * current user information.
      */
-    protected function getPagePermissionsForRecord(string $table, array $row): Permission
+    protected function getPagePermissionsForRecord(RecordInterface $record): Permission
     {
+        $pageId = $record->getPid();
+        $schema = $this->tcaSchemaFactory->get($record->getMainType());
+        if ($schema->isLanguageAware()
+            && $record->getMainType() === 'pages'
+            && ($transOrigPointerField = $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName())
+            && $record->getRawRecord()?->has($transOrigPointerField)
+        ) {
+            $pageId = $record->getRawRecord()->get($transOrigPointerField) ?: $record->getUid();
+        }
+
         // If the listed table is 'pages' we have to request the permission settings for each page.
         // If the listed table is not 'pages' we have to request the permission settings from the parent page
-        $pageId = (int)($table === 'pages' ? ($row['l10n_parent'] ?: $row['uid']) : $row['pid']);
         if (!isset($this->pagePermsCache[$pageId])) {
             $this->pagePermsCache[$pageId] = new Permission($this->getBackendUserAuthentication()->calcPerms(BackendUtility::getRecord('pages', $pageId)));
         }
@@ -2166,7 +2252,7 @@ class DatabaseRecordList
      * @param string $table Table name
      * @return bool Returns TRUE if a link for creating new records should be displayed for $table
      */
-    public function showNewRecLink($table)
+    public function showNewRecLink(string $table): bool
     {
         // No deny/allow tables are set:
         if (empty($this->allowedNewTables) && empty($this->deniedNewTables)) {
@@ -2200,23 +2286,19 @@ class DatabaseRecordList
 
     /**
      * Check if the record represents the current backend user
-     *
-     * @param string $table
-     * @param array $row
-     * @return bool
      */
-    protected function isRecordCurrentBackendUser($table, $row)
+    protected function isRecordCurrentBackendUser(RecordInterface $record): bool
     {
-        return $table === 'be_users' && (int)($row['uid'] ?? 0) === (int)$this->getBackendUserAuthentication()->user['uid'];
+        return $record->getMainType() === 'be_users' && $record->getUid() === (int)$this->getBackendUserAuthentication()->user['uid'];
     }
 
     /**
      * Check if user is in workspace and given record is a delete placeholder
      */
-    protected function isRecordDeletePlaceholder(array $row): bool
+    protected function isRecordDeletePlaceholder(RecordInterface $record): bool
     {
         return $this->getBackendUserAuthentication()->workspace > 0
-            && VersionState::tryFrom($row['t3ver_state'] ?? 0) === VersionState::DELETE_PLACEHOLDER;
+            && $record instanceof Record && $record->getVersionInfo()?->getState() === VersionState::DELETE_PLACEHOLDER;
     }
 
     public function setIsEditable(bool $isEditable): void
@@ -2225,39 +2307,63 @@ class DatabaseRecordList
     }
 
     /**
-     * Check if the table is readonly or editable
+     * Check if the table (and field) is readonly or editable.
      */
-    public function isEditable(string $table): bool
+    public function isEditable(string $table, string $field = ''): bool
     {
         $backendUser = $this->getBackendUserAuthentication();
-        return !($GLOBALS['TCA'][$table]['ctrl']['readOnly'] ?? false)
+        $schema = $this->tcaSchemaFactory->get($table);
+        return !($schema->hasCapability(TcaSchemaCapability::AccessReadOnly))
             && $this->editable
-            && ($backendUser->isAdmin() || $backendUser->check('tables_modify', $table))
-            && (BackendUtility::isTableWorkspaceEnabled($table) || $backendUser->workspaceAllowsLiveEditingInTable($table));
+            && $backendUser->check('tables_modify', $table)
+            && ($schema->isWorkspaceAware() || $backendUser->workspaceAllowsLiveEditingInTable($table))
+            && (
+                $field === ''
+                || (
+                    $schema->hasField($field)
+                    && !($schema->getField($field)->getConfiguration()['readOnly'] ?? false)
+                )
+            );
+    }
+
+    /**
+     * Check if user can edit records in the table
+     */
+    protected function canEditTable(string $table): bool
+    {
+        if ($table === 'pages') {
+            $permsEdit = $this->calcPerms->editPagePermissionIsGranted();
+        } else {
+            $permsEdit = $this->calcPerms->editContentPermissionIsGranted();
+        }
+
+        return $permsEdit && $this->overlayEditLockPermissions($table);
     }
 
     /**
      * Check if the current record is locked by editlock. Pages are locked if their editlock flag is set,
      * records are if they are locked themselves or if the page they are on is locked (a page’s editlock
      * is transitive for its content elements).
-     *
-     * @param string $table
-     * @param array $row
-     * @param bool $editPermission
-     * @return bool
      */
-    protected function overlayEditLockPermissions($table, $row = [], $editPermission = true)
+    protected function overlayEditLockPermissions(string $table, ?RecordInterface $record = null, bool $editPermission = true): bool
     {
         if ($editPermission && !$this->getBackendUserAuthentication()->isAdmin()) {
+            $pagesEditLockFieldName = $this->tcaSchemaFactory->get('pages')->hasCapability(TcaSchemaCapability::EditLock) ? $this->tcaSchemaFactory->get('pages')->getCapability(TcaSchemaCapability::EditLock)->getFieldName() : '';
             // If no $row is submitted we only check for general edit lock of current page (except for table "pages")
-            $pageHasEditLock = !empty($this->pageRow['editlock']);
-            if (empty($row)) {
+            $pageHasEditLock = (bool)($this->pageRow[$pagesEditLockFieldName] ?? false);
+            if (empty($record)) {
                 return ($table === 'pages') || !$pageHasEditLock;
             }
-            if (($table === 'pages' && ($row['editlock'] ?? false)) || ($table !== 'pages' && $pageHasEditLock)) {
+            if (($table === 'pages' && $pagesEditLockFieldName && $record->getRawRecord()?->has($pagesEditLockFieldName) && $record->getRawRecord()->get($pagesEditLockFieldName))
+                || ($table !== 'pages' && $pageHasEditLock)
+            ) {
                 $editPermission = false;
-            } elseif (isset($GLOBALS['TCA'][$table]['ctrl']['editlock']) && ($row[$GLOBALS['TCA'][$table]['ctrl']['editlock']] ?? false)) {
-                $editPermission = false;
+            } else {
+                $schema = $this->tcaSchemaFactory->get($table);
+                $recordEditLockFieldName = $schema->hasCapability(TcaSchemaCapability::EditLock) ? $schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName() : '';
+                if ($record->getRawRecord()?->has($recordEditLockFieldName) && $record->getRawRecord()->get($recordEditLockFieldName)) {
+                    $editPermission = false;
+                }
             }
         }
         return $editPermission;
@@ -2278,17 +2384,22 @@ class DatabaseRecordList
      * @param int $levels Number of levels to search down the page tree
      * @param int $showLimit Limit of records to be listed.
      */
-    public function start($id, $table, $pointer, $search = '', $levels = 0, $showLimit = 0)
+    public function start(int $id, string $table, int $pointer, string $search = '', int $levels = 0, int $showLimit = 0): void
     {
         $backendUser = $this->getBackendUserAuthentication();
         // Setting internal variables:
         // sets the parent id
         $this->id = (int)$id;
-        if ($GLOBALS['TCA'][$table] ?? false) {
+        if ($this->tcaSchemaFactory->has($table)) {
             // Setting single table mode, if table exists:
             $this->table = $table;
         }
-        $this->page = MathUtility::forceIntegerInRange((int)$pointer, 1, 1000);
+        // Resolve unique table identifier for page translations. See getTable()
+        if ($table === 'pages_translated') {
+            $this->table = 'pages';
+            $this->showOnlyTranslatedRecords = true;
+        }
+        $this->page = MathUtility::forceIntegerInRange((int)$pointer, 1, 10000000);
         $this->showLimit = MathUtility::forceIntegerInRange((int)$showLimit, 0, 10000);
         $this->searchString = trim($search);
         $this->searchLevels = (int)$levels;
@@ -2355,7 +2466,7 @@ class DatabaseRecordList
         $backendUser = $this->getBackendUserAuthentication();
 
         // pre-process tables and add sorting instructions
-        $tableNames = array_flip(array_keys($GLOBALS['TCA']));
+        $tableNames = array_flip($this->tcaSchemaFactory->all()->getNames());
         foreach ($tableNames as $tableName => $_) {
             $hideTable = false;
 
@@ -2371,7 +2482,8 @@ class DatabaseRecordList
             if (!$hideTable) {
                 // Don't show table if hidden by TCA ctrl section
                 // Don't show table if hidden by page TSconfig mod.web_list.hideTables
-                $hideTable = !empty($GLOBALS['TCA'][$tableName]['ctrl']['hideTable'])
+                $schema = $this->tcaSchemaFactory->get($tableName);
+                $hideTable = $schema->hasCapability(TcaSchemaCapability::HideInUi)
                     || in_array($tableName, $hideTablesArray, true)
                     || in_array('*', $hideTablesArray, true);
                 // Override previous selection if table is enabled or hidden by TSconfig TCA override mod.web_list.table
@@ -2429,24 +2541,24 @@ class DatabaseRecordList
         $queryBuilder
             ->select(...$fields)
             ->from($table);
+        $schema = $this->tcaSchemaFactory->get($table);
 
         // Additional constraints
-        if (($GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? false)
-            && ($GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? false)) {
+        if ($schema->isLanguageAware()) {
             // Only restrict to the default language if no search request is in place
             // And if only translations should be shown
             if ($this->searchString === '' && !$this->showOnlyTranslatedRecords) {
                 $queryBuilder->andWhere(
                     $queryBuilder->expr()->or(
-                        $queryBuilder->expr()->lte($GLOBALS['TCA'][$table]['ctrl']['languageField'], 0),
-                        $queryBuilder->expr()->eq($GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'], 0)
+                        $queryBuilder->expr()->lte($schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(), 0),
+                        $queryBuilder->expr()->eq($schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(), 0)
                     )
                 );
             }
         }
-        if ($table === 'pages' && $this->showOnlyTranslatedRecords) {
+        if ($table === 'pages' && $this->showOnlyTranslatedRecords && $schema->isLanguageAware()) {
             $queryBuilder->andWhere($queryBuilder->expr()->in(
-                $GLOBALS['TCA']['pages']['ctrl']['languageField'],
+                $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                 $queryBuilder->quoteArrayBasedValueListToIntegerList(
                     array_keys($this->languagesAllowedForUser)
                 )
@@ -2463,7 +2575,13 @@ class DatabaseRecordList
             if ($this->sortField && in_array($this->sortField, BackendUtility::getAllowedFieldsForTable($table, false))) {
                 $queryBuilder->orderBy($this->sortField, $this->sortRev ? 'DESC' : 'ASC');
             } else {
-                $orderBy = ($GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? '') ?: $GLOBALS['TCA'][$table]['ctrl']['default_sortby'] ?? '';
+                if ($schema->hasCapability(TcaSchemaCapability::SortByField)) {
+                    $orderBy = $schema->getCapability(TcaSchemaCapability::SortByField)->getFieldName();
+                } elseif ($schema->hasCapability(TcaSchemaCapability::DefaultSorting)) {
+                    $orderBy = (string)$schema->getCapability(TcaSchemaCapability::DefaultSorting)->getValue();
+                } else {
+                    $orderBy = '';
+                }
                 $orderBys = QueryHelper::parseOrderBy($orderBy);
                 foreach ($orderBys as $orderBy) {
                     $queryBuilder->addOrderBy($orderBy[0], $orderBy[1]);
@@ -2484,21 +2602,21 @@ class DatabaseRecordList
         }
 
         // Filter out records that are translated, if TSconfig mod.web_list.hideTranslations is set
-        if (!empty($GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'])
+        if ($schema->isLanguageAware()
             && (GeneralUtility::inList($this->hideTranslations, $table) || $this->hideTranslations === '*')
         ) {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'],
+                    $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                     0
                 )
             );
-        } elseif (!empty($GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField']) && $this->showOnlyTranslatedRecords) {
+        } elseif ($schema->isLanguageAware() && $this->showOnlyTranslatedRecords) {
             // When only translated records should be shown, it is necessary to use l10n_parent=pageId, instead of
             // a check to the PID
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'],
+                    $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                     $queryBuilder->createNamedParameter(
                         $this->id,
                         Connection::PARAM_INT
@@ -2541,71 +2659,72 @@ class DatabaseRecordList
             return '';
         }
 
-        $searchableFields = [];
+        $searchableFields = $this->searchableSchemaFieldsCollector->getFields($table);
+        [$subSchemaDivisorFieldName, $fieldsSubSchemaTypes] = $this->searchableSchemaFieldsCollector->getSchemaFieldSubSchemaTypes($table);
         // Get fields from ctrl section of TCA first
-        if (isset($GLOBALS['TCA'][$table]['ctrl']['searchFields'])) {
-            $searchableFields = GeneralUtility::trimExplode(',', $GLOBALS['TCA'][$table]['ctrl']['searchFields'], true);
-        }
-
         if (MathUtility::canBeInterpretedAsInteger($this->searchString)) {
             $constraints[] = $expressionBuilder->eq('uid', (int)$this->searchString);
-            foreach ($searchableFields as $fieldName) {
-                if (!isset($GLOBALS['TCA'][$table]['columns'][$fieldName])) {
-                    continue;
-                }
-                $fieldConfig = $GLOBALS['TCA'][$table]['columns'][$fieldName]['config'];
-                $fieldType = $fieldConfig['type'];
-                if (($fieldType === 'number' && ($fieldConfig['format'] ?? 'integer') === 'integer')
-                    || ($fieldType === 'datetime' && !in_array($fieldConfig['dbType'] ?? '', QueryHelper::getDateTimeTypes(), true))
-                ) {
-                    if (!isset($fieldConfig['search']['pidonly'])
-                        || ($fieldConfig['search']['pidonly'] && $currentPid > 0)
-                    ) {
-                        $constraints[] = $expressionBuilder->and(
-                            $expressionBuilder->eq($fieldName, (int)$this->searchString),
-                            $expressionBuilder->eq($tablePidField, (int)$currentPid)
-                        );
-                    }
-                } elseif ($this->isTextFieldType($fieldType)) {
-                    $constraints[] = $expressionBuilder->like(
-                        $fieldName,
+            foreach ($searchableFields as $field) {
+                $searchConstraint = null;
+                if ($field instanceof NumberFieldType || $field instanceof DateTimeFieldType) {
+                    $searchConstraint = $expressionBuilder->and(
+                        $expressionBuilder->eq($field->getName(), (int)$this->searchString),
+                        $expressionBuilder->eq($tablePidField, $currentPid)
+                    );
+                } else {
+                    $searchConstraint = $expressionBuilder->like(
+                        $field->getName(),
                         $queryBuilder->quote('%' . $this->searchString . '%')
                     );
                 }
+
+                // If this table has subtypes (e.g. tt_content.CType), we want to ensure that only CType that contain
+                // e.g. "bodytext" in their list of fields, to search through them. This is important when a field
+                // is filled but its type has been changed.
+                if ($subSchemaDivisorFieldName !== ''
+                    && isset($fieldsSubSchemaTypes[$field->getName()])
+                    && $fieldsSubSchemaTypes[$field->getName()] !== []
+                ) {
+                    // Using `IN()` with a string-value quoted list is fine for all database systems, even when
+                    // used on integer-typed fields and no additional work required here to mitigate something.
+                    $searchConstraint = $queryBuilder->expr()->and(
+                        $searchConstraint,
+                        $queryBuilder->expr()->in(
+                            $subSchemaDivisorFieldName,
+                            $queryBuilder->quoteArrayBasedValueListToStringList($fieldsSubSchemaTypes[$field->getName()])
+                        ),
+                    );
+                }
+
+                $constraints[] = $searchConstraint;
             }
-        } elseif (!empty($searchableFields)) {
+        } elseif ($searchableFields->count() > 0) {
             $like = $queryBuilder->quote('%' . $queryBuilder->escapeLikeWildcards($this->searchString) . '%');
-            foreach ($searchableFields as $fieldName) {
-                if (!isset($GLOBALS['TCA'][$table]['columns'][$fieldName])) {
-                    continue;
-                }
-                $fieldConfig = $GLOBALS['TCA'][$table]['columns'][$fieldName]['config'];
-                $fieldType = $fieldConfig['type'];
-                $searchConstraint = $expressionBuilder->and(
-                    $expressionBuilder->comparison(
-                        'LOWER(' . $queryBuilder->castFieldToTextType($fieldName) . ')',
-                        'LIKE',
-                        'LOWER(' . $like . ')'
-                    )
+            foreach ($searchableFields as $field) {
+                $searchConstraint = $expressionBuilder->comparison(
+                    'LOWER(' . $queryBuilder->castFieldToTextType($field->getName()) . ')',
+                    'LIKE',
+                    'LOWER(' . $like . ')'
                 );
-                if (is_array($fieldConfig['search'] ?? null)) {
-                    $searchConfig = $fieldConfig['search'];
-                    if ($searchConfig['case'] ?? false) {
-                        // Replace case insensitive default constraint
-                        $searchConstraint = $expressionBuilder->and($expressionBuilder->like($fieldName, $like));
-                    }
-                    if (($searchConfig['pidonly'] ?? false) && $currentPid > 0) {
-                        $searchConstraint = $searchConstraint->with($expressionBuilder->eq($tablePidField, (int)$currentPid));
-                    }
-                    if ($searchConfig['andWhere'] ?? false) {
-                        $searchConstraint = $searchConstraint->with(
-                            QueryHelper::quoteDatabaseIdentifiers($queryBuilder->getConnection(), QueryHelper::stripLogicalOperatorPrefix($fieldConfig['search']['andWhere']))
-                        );
-                    }
+                // If this table has subtypes (e.g. tt_content.CType), we want to ensure that only CType that contain
+                // e.g. "bodytext" in their list of fields, to search through them. This is important when a field
+                // is filled but its type has been changed.
+                if ($subSchemaDivisorFieldName !== ''
+                    && isset($fieldsSubSchemaTypes[$field->getName()])
+                    && $fieldsSubSchemaTypes[$field->getName()] !== []
+                ) {
+                    // Using `IN()` with a string-value quoted list is fine for all database systems, even when
+                    // used on integer-typed fields and no additional work required here to mitigate something.
+                    $searchConstraint = $queryBuilder->expr()->and(
+                        $searchConstraint,
+                        $queryBuilder->expr()->in(
+                            $subSchemaDivisorFieldName,
+                            $queryBuilder->quoteArrayBasedValueListToStringList($fieldsSubSchemaTypes[$field->getName()])
+                        ),
+                    );
                 }
-                if ($this->isTextFieldType($fieldType) && $searchConstraint->count() !== 0) {
-                    $constraints[] = $searchConstraint;
-                }
+
+                $constraints[] = $searchConstraint;
             }
         }
         // If no search field conditions have been built ensure no results are returned
@@ -2627,23 +2746,20 @@ class DatabaseRecordList
     public function linkWrapTable(string $table, string $label): string
     {
         if ($this->table !== $table) {
-            $url = $this->listURL('', $table, 'pointer');
+            $url = $this->listURL('', $table, ['pointer']);
         } else {
-            $url = $this->listURL('', '', 'sortField,sortRev,table,pointer');
+            $url = $this->listURL('', '', ['sortField', 'sortRev', 'table', 'pointer']);
         }
-        return '<a href="' . htmlspecialchars($url) . '">' . $label . '</a>';
+        return '<a href="' . htmlspecialchars((string)$url) . '">' . $label . '</a>';
     }
 
     /**
      * Returns the title (based on $code) of a record (from table $table) with the proper link around (that is for 'pages'-records a link to the level of that record...)
      *
-     * @param string $table Table name
-     * @param int $uid Item uid
      * @param string $code Item title (not htmlspecialchars()'ed yet)
-     * @param mixed[] $row Item row
      * @return string The item title. Ready for HTML output (is htmlspecialchars()'ed)
      */
-    public function linkWrapItems($table, $uid, $code, $row)
+    public function linkWrapItems(string $table, int $uid, string $code, RecordInterface $record): string
     {
         $lang = $this->getLanguageService();
         $origCode = $code;
@@ -2652,26 +2768,26 @@ class DatabaseRecordList
             $code = '<i>[' . htmlspecialchars(
                 $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.no_title')
             ) . ']</i> - '
-                . htmlspecialchars(BackendUtility::getRecordTitle($table, $row));
+                . htmlspecialchars(BackendUtility::getRecordTitle($table, $record));
         } else {
             $code = htmlspecialchars($code);
         }
-        switch ((string)$this->clickTitleMode) {
+        switch ($this->clickTitleMode) {
             case 'edit':
                 // If the listed table is 'pages' we have to request the permission settings for each page:
                 if ($table === 'pages') {
-                    $localCalcPerms = $this->getPagePermissionsForRecord('pages', $row);
+                    $localCalcPerms = $this->getPagePermissionsForRecord($record);
                     $permsEdit = $localCalcPerms->editPagePermissionIsGranted();
                 } else {
                     $backendUser = $this->getBackendUserAuthentication();
-                    $permsEdit = $this->calcPerms->editContentPermissionIsGranted() && $backendUser->recordEditAccessInternals($table, $row);
+                    $permsEdit = $this->calcPerms->editContentPermissionIsGranted() && $backendUser->recordEditAccessInternals($table, $record);
                 }
                 // "Edit" link: ( Only if permissions to edit the page-record of the content of the parent page ($this->id)
                 if ($permsEdit && $this->isEditable($table)) {
                     $params = [
                         'edit' => [
                             $table => [
-                                $row['uid'] => 'edit',
+                                $record->getUid() => 'edit',
                             ],
                         ],
                         'returnUrl' => $this->listURL(),
@@ -2685,10 +2801,8 @@ class DatabaseRecordList
                 }
                 break;
             case 'show':
-                // "Show" link (only pages and tt_content elements)
-                if (($table === 'pages' || $table === 'tt_content')
-                    && ($attributes = $this->getPreviewUriBuilder($table, $row)->serializeDispatcherAttributes()) !== null
-                ) {
+                // "Show" link
+                if (($attributes = $this->getPreviewUriBuilder($table, $record)->serializeDispatcherAttributes()) !== null) {
                     $title = htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'));
                     $code = '<button ' . $attributes
                         . ' title="' . $title . '"'
@@ -2700,7 +2814,7 @@ class DatabaseRecordList
                 // "Info": (All records)
                 $label = htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:showInfo'));
                 $code = '<a href="#" role="button"' // @todo add handler that triggers click on space key
-                    . $this->createShowItemTagAttributes($table . ',' . (int)$row['uid'])
+                    . $this->createShowItemTagAttributes($table . ',' . (int)$record->getUid())
                     . ' title="' . $label . '"'
                     . ' aria-label="' . $label . '"'
                     . ' aria-haspopup="dialog">'
@@ -2711,7 +2825,7 @@ class DatabaseRecordList
                 // Output the label now:
                 if ($table === 'pages') {
                     $code = '<a href="' . htmlspecialchars(
-                        $this->listURL((string)$uid, '', 'pointer')
+                        (string)$this->listURL($uid, null, ['pointer'])
                     ) . '">' . $code . '</a>';
                 } else {
                     $code = $this->linkUrlMail($code, $origCode);
@@ -2747,12 +2861,11 @@ class DatabaseRecordList
      * Fixed GPvars are id, table, returnUrl, searchTerm, and search_levels
      * The GPvars "sortField" and "sortRev" are also included UNLESS they are found in the $exclList variable.
      *
-     * @param string $altId Alternative id value. Enter blank string for the current id ($this->id)
-     * @param string $table Table name to display. Enter "-1" for the current table.
-     * @param string $exclList Comma separated list of fields NOT to include ("sortField", "sortRev" or "pointer")
-     * @return string URL
+     * @param string|int|null $altId Alternative id value. Enter blank string for the current id ($this->id)
+     * @param string|null $table Table name to display. Use null for the current table.
+     * @param string|array|null $exclList List of fields NOT to include ("sortField", "sortRev" or "pointer")
      */
-    public function listURL($altId = '', $table = '-1', $exclList = '')
+    public function listURL(string|int|null $altId = null, ?string $table = null, array|string|null $exclList = null): UriInterface
     {
         $urlParameters = [];
         if ((string)$altId !== '') {
@@ -2760,31 +2873,30 @@ class DatabaseRecordList
         } else {
             $urlParameters['id'] = $this->id;
         }
-        if ($table === '-1') {
-            $urlParameters['table'] = $this->table;
-        } else {
-            $urlParameters['table'] = $table;
-        }
+        $urlParameters['table'] = $table ?? $this->table;
         if ($this->returnUrl) {
             $urlParameters['returnUrl'] = $this->returnUrl;
         }
-        if ((!$exclList || !GeneralUtility::inList($exclList, 'searchTerm')) && $this->searchString) {
+        if (!is_array($exclList)) {
+            $exclList = GeneralUtility::trimExplode(',', (string)$exclList, true);
+        }
+        if (($exclList === [] || !in_array('searchTerm', $exclList, true)) && $this->searchString) {
             $urlParameters['searchTerm'] = $this->searchString;
         }
         if ($this->searchLevels) {
             $urlParameters['search_levels'] = $this->searchLevels;
         }
-        if ((!$exclList || !GeneralUtility::inList($exclList, 'pointer')) && $this->page) {
+        if (($exclList === [] || !in_array('pointer', $exclList, true)) && $this->page) {
             $urlParameters['pointer'] = $this->page;
         }
-        if ((!$exclList || !GeneralUtility::inList($exclList, 'sortField')) && $this->sortField) {
+        if (($exclList === [] || !in_array('sortField', $exclList, true)) && $this->sortField) {
             $urlParameters['sortField'] = $this->sortField;
         }
-        if ((!$exclList || !GeneralUtility::inList($exclList, 'sortRev')) && $this->sortRev) {
+        if (($exclList === [] || !in_array('sortRev', $exclList, true)) && $this->sortRev) {
             $urlParameters['sortRev'] = $this->sortRev;
         }
 
-        return (string)$this->uriBuilder->buildUriFromRequest(
+        return $this->uriBuilder->buildUriFromRequest(
             $this->request,
             array_replace($urlParameters, $this->overrideUrlParameters)
         );
@@ -2795,7 +2907,7 @@ class DatabaseRecordList
      *
      * @param string[] $urlParameters
      */
-    public function setOverrideUrlParameters(array $urlParameters, ServerRequestInterface $request)
+    public function setOverrideUrlParameters(array $urlParameters, ServerRequestInterface $request): void
     {
         $currentUrlParameter = $request->getParsedBody()['curUrl'] ?? $request->getQueryParams()['curUrl'] ?? '';
         if (isset($currentUrlParameter['url'])) {
@@ -2816,7 +2928,7 @@ class DatabaseRecordList
      * @param array $orderInformation
      * @throws \UnexpectedValueException
      */
-    public function setTableDisplayOrder(array $orderInformation)
+    public function setTableDisplayOrder(array $orderInformation): void
     {
         foreach ($orderInformation as $tableName => &$configuration) {
             if (isset($configuration['before'])) {
@@ -2851,7 +2963,7 @@ class DatabaseRecordList
     /**
      * @param int[]|array $overridePageIdList
      */
-    public function setOverridePageIdList(array $overridePageIdList)
+    public function setOverridePageIdList(array $overridePageIdList): void
     {
         $this->overridePageIdList = array_map(intval(...), $overridePageIdList);
     }
@@ -3029,9 +3141,13 @@ class DatabaseRecordList
         if ($availableSystemLanguageUids === []) {
             return [];
         }
+        $pagesSchema = $this->tcaSchemaFactory->get('pages');
+        if (!$pagesSchema->isLanguageAware()) {
+            return [];
+        }
         // Look up page overlays:
-        $localizationParentField = $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] ?? '';
-        $languageField = $GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? '';
+        $localizationParentField = $pagesSchema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName();
+        $languageField = $pagesSchema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
             ->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()
@@ -3064,13 +3180,26 @@ class DatabaseRecordList
      *
      * @return string Language icon
      */
-    protected function languageFlag(string $table, array $row): string
+    protected function languageFlag(string $table, RecordInterface $record): string
     {
-        $pageId = (int)($table === 'pages' ? ($row[$GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField']] ?: $row['uid']) : $row['pid']);
-        $languageUid = (int)($row[$GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? null] ?? 0);
+        $schema = $this->tcaSchemaFactory->get($table);
+        $pageId = $record->getPid();
+        $languageUid = 0;
+        if ($schema->isLanguageAware()) {
+            if ($table === 'pages'
+                && ($transOrigPointerField = $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName())
+                && $record->getRawRecord()?->has($transOrigPointerField)
+            ) {
+                $pageId = $record->getRawRecord()->get($transOrigPointerField) ?: $record->getUid();
+            }
+            if (($languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()) && $record->getRawRecord()?->has($languageField)) {
+                $languageUid = $record->getRawRecord()->get($languageField);
+            }
+        }
+
         $languageInformation = $this->translateTools->getSystemLanguages($pageId);
         $title = htmlspecialchars($languageInformation[$languageUid]['title'] ?? '');
-        $indent = $this->isLocalized($table, $row) ? '<span class="indent indent-inline-block" style="--indent-level: 1"></span> ' : '';
+        $indent = !$this->showOnlyTranslatedRecords && $this->isLocalized($record) ? '<span class="indent indent-inline-block" style="--indent-level: 1"></span> ' : '';
         if ($languageInformation[$languageUid]['flagIcon'] ?? false) {
             return $indent . $this->iconFactory
                 ->getIcon($languageInformation[$languageUid]['flagIcon'], IconSize::SMALL)
@@ -3116,7 +3245,7 @@ class DatabaseRecordList
 
         $dropdownItems['checkAll'] = '
             <li>
-                <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-all" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')) . '">
+                <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')) . '">
                     ' . $this->iconFactory->getIcon('actions-selection-elements-all', IconSize::SMALL)->render() . '
                     ' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')) . '
                 </button>
@@ -3124,7 +3253,7 @@ class DatabaseRecordList
 
         $dropdownItems['checkNone'] = '
             <li>
-                <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-none" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')) . '">
+                <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')) . '">
                     ' . $this->iconFactory->getIcon('actions-selection-elements-none', IconSize::SMALL)->render() . '
                     ' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')) . '
                 </button>
@@ -3132,7 +3261,7 @@ class DatabaseRecordList
 
         $dropdownItems['toggleSelection'] = '
             <li>
-                <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="toggle" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.toggleSelection')) . '">
+                <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="toggle" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.toggleSelection')) . '">
                     ' . $this->iconFactory->getIcon('actions-selection-elements-invert', IconSize::SMALL)->render() . '
                     ' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.toggleSelection')) . '
                 </button>
@@ -3156,6 +3285,7 @@ class DatabaseRecordList
     {
         $actions = [];
         $lang = $this->getLanguageService();
+        $schema = $this->tcaSchemaFactory->get($table);
         $userTsConfig = $this->getBackendUserAuthentication()->getTSConfig();
         $addClipboardActions = $this->showClipboardActions && $this->isClipboardFunctionalityEnabled($table);
         $editPermission = (
@@ -3167,7 +3297,7 @@ class DatabaseRecordList
             $editActionConfiguration = [
                 'idField' => 'uid',
                 'tableName' => $table,
-                'returnUrl' =>  $this->listURL(),
+                'returnUrl' => (string)$this->listURL(),
             ];
             $actions['edit'] = '
                 <div class="btn-group">
@@ -3196,9 +3326,11 @@ class DatabaseRecordList
             if (!(bool)trim((string)($userTsConfig['options.']['disableDelete.'][$table] ?? $userTsConfig['options.']['disableDelete'] ?? ''))) {
                 $deleteActionConfiguration = GeneralUtility::jsonEncodeForHtmlAttribute([
                     'idField' => 'uid',
-                    'ok' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.delete'),
+                    'tableName' => $table,
+                    'ok' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:button.delete'),
+                    'cancel' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:button.cancel'),
                     'title' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_deleteMarked'),
-                    'content' => sprintf($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_deleteMarkedWarning'), $lang->sL($GLOBALS['TCA'][$table]['ctrl']['title'])),
+                    'content' => sprintf($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_deleteMarkedWarning'), $schema->getTitle($lang->sL(...))),
                 ], true);
                 $actions['delete'] = '
                     <button
@@ -3219,7 +3351,8 @@ class DatabaseRecordList
         if ($addClipboardActions && (string)($this->modTSconfig['enableClipBoard'] ?? '') !== 'deactivated') {
             $copyMarked = '
                 <button type="button"
-                    class="btn btn-sm btn-default ' . ($this->clipObj->current === 'normal' ? 'disabled' : '') . '"
+                    class="btn btn-sm btn-default"
+                    ' . ($this->clipObj->current === 'normal' ? 'disabled' : '') . '
                     title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.transferToClipboard')) . '"
                     data-multi-record-selection-action="copyMarked"
                 >
@@ -3228,7 +3361,8 @@ class DatabaseRecordList
                 </button>';
             $removeMarked = '
                 <button type="button"
-                    class="btn btn-sm btn-default ' . ($this->clipObj->current === 'normal' ? 'disabled' : '') . '"
+                    class="btn btn-sm btn-default"
+                    ' . ($this->clipObj->current === 'normal' ? 'disabled' : '') . '
                     title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.removeFromClipboard')) . '"
                     data-multi-record-selection-action="removeMarked"
                 >
@@ -3267,7 +3401,7 @@ class DatabaseRecordList
      * If enabled, only translations are shown (= only with l10n_parent)
      * See the use case in RecordList class, where a list of page translations is rendered before.
      */
-    public function showOnlyTranslatedRecords(bool $showOnlyTranslatedRecords)
+    public function showOnlyTranslatedRecords(bool $showOnlyTranslatedRecords): void
     {
         $this->showOnlyTranslatedRecords = $showOnlyTranslatedRecords;
     }
@@ -3283,6 +3417,33 @@ class DatabaseRecordList
         ], true);
     }
 
+    protected function getFieldLabel(TcaSchema $schema, string $field): string
+    {
+        $table = $schema->getName();
+        // Check if $field is really a field and get the label and remove the colons at the end
+        if ($schema->hasField($field) && $schema->getField($field)->getLabel()) {
+            $label = $schema->getField($field)->getLabel();
+            $tsConfig = BackendUtility::getPagesTSconfig($this->id)['TCEFORM.'][$table . '.'] ?? null;
+            $tsConfigForTable = is_array($tsConfig) ? $tsConfig : null;
+            $tsConfigForField = isset($tsConfigForTable[$field . '.']) && is_array($tsConfigForTable[$field . '.'])
+                ? $tsConfigForTable[$field . '.']
+                : [];
+            $label = $this->getLanguageService()->translateLabel(
+                $tsConfigForField['label.'] ?? [],
+                $tsConfigForField['label'] ?? $label
+            );
+            $label = htmlspecialchars(rtrim(trim($label), ':'));
+        } elseif ($specialLabel = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.' . $field)) {
+            // Special label exists for this field (Probably a management field, e.g. sorting)
+            $label = htmlspecialchars($specialLabel);
+        } else {
+            // No TCA field, only output the $field variable with square brackets []
+            $label = '[' . rtrim(trim(htmlspecialchars($field)), ':') . ']';
+        }
+
+        return $label;
+    }
+
     protected function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
@@ -3294,33 +3455,21 @@ class DatabaseRecordList
         return $this;
     }
 
-    /**
-     * Check if a given record is a localization
-     */
-    protected function isLocalized(string $table, array $row): bool
+    protected function isLocalized(RecordInterface $record): bool
     {
-        $languageField = $GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? '';
-        $transOrigPointerField = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? '';
-
-        return ($row[$languageField] ?? false) && ($row[$transOrigPointerField] ?? false);
-    }
-
-    /**
-     * Returns the configuration of mod.web_list.noViewWithDokTypes or the
-     * default value 254 (Sys Folders) and 199 (Spacer), if not set.
-     */
-    protected function getNoViewWithDokTypes(array $tsConfig): array
-    {
-        if (isset($tsConfig['noViewWithDokTypes'])) {
-            $noViewDokTypes = GeneralUtility::intExplode(',', (string)$tsConfig['noViewWithDokTypes'], true);
-        } else {
-            $noViewDokTypes = [
-                PageRepository::DOKTYPE_SPACER,
-                PageRepository::DOKTYPE_SYSFOLDER,
-            ];
+        if ($record instanceof Record) {
+            return $record->getLanguageId() > 0 && $record->getLanguageInfo()?->getTranslationParent() > 0;
         }
-
-        return $noViewDokTypes;
+        $schema = $this->tcaSchemaFactory->get($record->getMainType());
+        if ($schema->isLanguageAware() && ($rawRecord = $record->getRawRecord()) !== null) {
+            $languageFieldName = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+            $transPointerFieldName = $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName();
+            return $rawRecord->has($languageFieldName)
+                && $rawRecord->get($languageFieldName) > 0
+                && $rawRecord->has($transPointerFieldName)
+                && $rawRecord->get($transPointerFieldName) > 0;
+        }
+        return false;
     }
 
     /**
@@ -3328,18 +3477,20 @@ class DatabaseRecordList
      * In case a row is given, this checks if the record is neither
      * a "delete placeholder", nor a translation, nor a version
      */
-    protected function isClipboardFunctionalityEnabled(string $table, array $row = []): bool
+    protected function isClipboardFunctionalityEnabled(string $table, ?RecordInterface $record = null): bool
     {
+        $schema = $this->tcaSchemaFactory->get($table);
+        $transOrigPointerFieldName = $schema->isLanguageAware() ? $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName() : '';
         return $this->clipObj !== null
             && ($table !== 'pages' || !$this->showOnlyTranslatedRecords)
             && (
-                $row === []
+                $record === null
                 || (
-                    !$this->isRecordDeletePlaceholder($row)
-                    && (int)($row[$GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? null] ?? 0) === 0
+                    !$this->isRecordDeletePlaceholder($record)
+                    && (!$transOrigPointerFieldName || ($record->getRawRecord()?->has($transOrigPointerFieldName) && (int)($record->getRawRecord()->get($transOrigPointerFieldName) === 0)))
                 )
             )
-            && (BackendUtility::isTableWorkspaceEnabled($table) || $this->getBackendUserAuthentication()->workspaceAllowsLiveEditingInTable($table));
+            && ($schema->isWorkspaceAware() || $this->getBackendUserAuthentication()->workspaceAllowsLiveEditingInTable($table));
     }
 
     /**
@@ -3350,22 +3501,5 @@ class DatabaseRecordList
         if (!($cells['secondary']['divider'] ?? false)) {
             $this->addActionToCellGroup($cells, '<hr class="dropdown-divider">', 'divider');
         }
-    }
-
-    protected function isTextFieldType(string $fieldType): bool
-    {
-        $textFieldTypes = [
-            'input',
-            'text',
-            'json',
-            'flex',
-            'email',
-            'link',
-            'slug',
-            'color',
-            'uuid',
-        ];
-
-        return in_array($fieldType, $textFieldTypes, true);
     }
 }

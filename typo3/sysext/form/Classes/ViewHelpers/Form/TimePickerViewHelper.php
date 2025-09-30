@@ -38,11 +38,10 @@ final class TimePickerViewHelper extends AbstractFormFieldViewHelper
      */
     protected $tagName = 'select';
 
-    protected PropertyMapper $propertyMapper;
-
-    public function injectPropertyMapper(PropertyMapper $propertyMapper)
-    {
-        $this->propertyMapper = $propertyMapper;
+    public function __construct(
+        private readonly PropertyMapper $propertyMapper,
+    ) {
+        parent::__construct();
     }
 
     public function initializeArguments(): void
@@ -75,7 +74,7 @@ final class TimePickerViewHelper extends AbstractFormFieldViewHelper
         return $content;
     }
 
-    protected function getSelectedDate(): ?\DateTime
+    private function getSelectedDate(): ?\DateTime
     {
         /** @var FormRuntime $formRuntime */
         $formRuntime = $this->renderingContext
@@ -100,7 +99,7 @@ final class TimePickerViewHelper extends AbstractFormFieldViewHelper
         return null;
     }
 
-    protected function buildHourSelector(?\DateTime $date = null): string
+    private function buildHourSelector(?\DateTime $date = null): string
     {
         $value = $date !== null ? $date->format('H') : null;
         $hourSelector = clone $this->tag;
@@ -115,7 +114,7 @@ final class TimePickerViewHelper extends AbstractFormFieldViewHelper
         return $hourSelector->render();
     }
 
-    protected function buildMinuteSelector(?\DateTime $date = null): string
+    private function buildMinuteSelector(?\DateTime $date = null): string
     {
         $value = $date !== null ? $date->format('i') : null;
         $minuteSelector = clone $this->tag;

@@ -25,13 +25,10 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class CategoryCollectionTest extends FunctionalTestCase
 {
-    /**
-     * @var array
-     */
-    private $collectionRecord = [];
+    private array $collectionRecord = [];
 
     protected array $testExtensionsToLoad = [
-        'typo3/sysext/core/Tests/Functional/Category/Collection/Fixtures/Extensions/test_tca',
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_tca',
     ];
 
     /**

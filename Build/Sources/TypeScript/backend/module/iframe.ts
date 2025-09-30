@@ -11,10 +11,10 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, TemplateResult, nothing } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { customElement, property, query } from 'lit/decorators';
-import { ModuleState } from '../module';
 import { lll } from '@typo3/core/lit-helper';
+import type { ModuleState } from '../module';
 
 /**
  * Module: @typo3/backend/module/iframe
@@ -28,7 +28,7 @@ export class IframeModuleElement extends LitElement {
 
   @query('iframe', true) iframe: HTMLIFrameElement;
 
-  public attributeChangedCallback(name: string, old: string, value: string) {
+  public override attributeChangedCallback(name: string, old: string, value: string): void {
     super.attributeChangedCallback(name, old, value);
 
     if (name === 'endpoint' && value === old) {
@@ -38,20 +38,20 @@ export class IframeModuleElement extends LitElement {
     }
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     super.connectedCallback();
     if (this.endpoint) {
       this.dispatch('typo3-iframe-load', { url: this.endpoint, title: null });
     }
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Disable shadow root as <iframe> needs to be accessible
     // via top.list_frame for legacy-code and backwards compatibility.
     return this;
   }
 
-  protected render(): TemplateResult | symbol {
+  protected override render(): TemplateResult | symbol {
     if (!this.endpoint) {
       return nothing;
     }
@@ -63,7 +63,6 @@ export class IframeModuleElement extends LitElement {
         id="typo3-contentIframe"
         class="scaffold-content-module-iframe t3js-scaffold-content-module-iframe"
         title="${lll('iframe.listFrame')}"
-        scrolling="no"
         @load="${this._loaded}"
       ></iframe>
     `;

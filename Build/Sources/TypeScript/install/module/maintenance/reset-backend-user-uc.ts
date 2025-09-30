@@ -12,17 +12,17 @@
  */
 
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInlineModule, ActionResponse } from '../abstract-inline-module';
+import { AbstractInlineModule, type ActionResponse } from '../abstract-inline-module';
 import Notification from '@typo3/backend/notification';
 import Router from '../../router';
-import MessageInterface from '@typo3/install/message-interface';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type MessageInterface from '@typo3/install/message-interface';
 
 /**
  * Module: @typo3/install/module/reset-backend-user-uc
  */
 class ResetBackendUserUc extends AbstractInlineModule {
-  public initialize($trigger: HTMLButtonElement): void {
+  public override initialize($trigger: HTMLButtonElement): void {
     this.setButtonState($trigger, false);
 
     (new AjaxRequest(Router.getUrl('resetBackendUserUc')))

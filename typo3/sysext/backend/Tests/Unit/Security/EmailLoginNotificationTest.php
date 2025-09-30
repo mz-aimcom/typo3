@@ -45,7 +45,7 @@ final class EmailLoginNotificationTest extends UnitTestCase
 
         $mailMessage = $this->setUpMailMessageMock();
         $mailerMock = $this->createMock(MailerInterface::class);
-        $mailerMock->expects(self::once())->method('send')->with($mailMessage);
+        $mailerMock->expects($this->once())->method('send')->with($mailMessage);
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
@@ -66,11 +66,10 @@ final class EmailLoginNotificationTest extends UnitTestCase
             'email' => 'test@acme.com',
         ];
         $mailerMock = $this->createMock(MailerInterface::class);
+        $mailerMock->expects($this->never())->method('send');
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
-
-        // no additional assertion here, as the test would fail due to missing mail mocking if it actually tried to send an email
     }
 
     #[Test]
@@ -88,11 +87,10 @@ final class EmailLoginNotificationTest extends UnitTestCase
             'email' => 'dot.com',
         ];
         $mailerMock = $this->createMock(MailerInterface::class);
+        $mailerMock->expects($this->never())->method('send');
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
-
-        // no additional assertion here, as the test would fail due to missing mail mocking if it actually tried to send an email
     }
 
     #[Test]
@@ -113,7 +111,7 @@ final class EmailLoginNotificationTest extends UnitTestCase
 
         $mailMessage = $this->setUpMailMessageMock('typo3-admin@acme.com');
         $mailerMock = $this->createMock(MailerInterface::class);
-        $mailerMock->expects(self::once())->method('send')->with($mailMessage);
+        $mailerMock->expects($this->once())->method('send')->with($mailMessage);
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
@@ -137,7 +135,7 @@ final class EmailLoginNotificationTest extends UnitTestCase
 
         $mailMessage = $this->setUpMailMessageMock('typo3-admin@acme.com');
         $mailerMock = $this->createMock(MailerInterface::class);
-        $mailerMock->expects(self::once())->method('send')->with($mailMessage);
+        $mailerMock->expects($this->once())->method('send')->with($mailMessage);
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
@@ -161,7 +159,7 @@ final class EmailLoginNotificationTest extends UnitTestCase
 
         $mailMessage = $this->setUpMailMessageMock('typo3-admin@acme.com');
         $mailerMock = $this->createMock(MailerInterface::class);
-        $mailerMock->expects(self::once())->method('send')->with($mailMessage);
+        $mailerMock->expects($this->once())->method('send')->with($mailMessage);
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
@@ -183,11 +181,10 @@ final class EmailLoginNotificationTest extends UnitTestCase
             'username' => 'karl',
         ];
         $mailerMock = $this->createMock(MailerInterface::class);
+        $mailerMock->expects($this->never())->method('send');
 
         $subject = new EmailLoginNotification($mailerMock);
         $subject->emailAtLogin(new AfterUserLoggedInEvent($backendUser));
-
-        // no additional assertion here as the test would fail due to not mocking the email API
     }
 
     protected function setUpMailMessageMock(string $recipient = ''): FluidEmail&MockObject
@@ -197,7 +194,7 @@ final class EmailLoginNotificationTest extends UnitTestCase
         if ($recipient === '') {
             $mailMessage->method('to')->withAnyParameters()->willReturn($mailMessage);
         } else {
-            $mailMessage->expects(self::atLeastOnce())->method('to')->with($recipient)->willReturn($mailMessage);
+            $mailMessage->expects($this->atLeastOnce())->method('to')->with($recipient)->willReturn($mailMessage);
         }
         $mailMessage->method('setTemplate')->withAnyParameters()->willReturn($mailMessage);
         $mailMessage->method('from')->withAnyParameters()->willReturn($mailMessage);

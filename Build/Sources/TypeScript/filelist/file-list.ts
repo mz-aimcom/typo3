@@ -15,22 +15,20 @@ import { lll } from '@typo3/core/lit-helper';
 import DocumentService from '@typo3/core/document-service';
 import Notification from '@typo3/backend/notification';
 import InfoWindow from '@typo3/backend/info-window';
-import { BroadcastMessage } from '@typo3/backend/broadcast-message';
-import broadcastService from '@typo3/backend/broadcast-service';
-import { FileListActionEvent, FileListActionDetail, FileListActionSelector, FileListActionUtility } from '@typo3/filelist/file-list-actions';
+import { FileListActionEvent, type FileListActionDetail, FileListActionSelector, FileListActionUtility } from '@typo3/filelist/file-list-actions';
 import NProgress from 'nprogress';
 import Icons from '@typo3/backend/icons';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { ModuleStateStorage } from '@typo3/backend/storage/module-state-storage';
-import { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import Severity from '@typo3/backend/severity';
 import { MultiRecordSelectionSelectors } from '@typo3/backend/multi-record-selection';
 import ContextMenu from '@typo3/backend/context-menu';
-import { ResourceInterface } from '@typo3/backend/resource/resource';
+import type { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
+import type { ResourceInterface } from '@typo3/backend/resource/resource';
 
 type QueryParameters = Record<string, string>;
 
@@ -67,8 +65,6 @@ export const fileListOpenElementBrowser = 'typo3:filelist:openElementBrowser';
  */
 export default class Filelist {
   constructor() {
-    Filelist.processTriggers();
-
     new RegularEvent(fileListOpenElementBrowser, (event: CustomEvent): void => {
       const url = new URL(event.detail.actionUrl, window.location.origin);
 
@@ -93,19 +89,24 @@ export default class Filelist {
       const resource = detail.resources[0];
       const resourceElement: HTMLElement = detail.trigger.closest('[data-default-language-access]') as HTMLElement;
       if (resource.type === 'file' && resourceElement !== null) {
-        window.location.href = top.TYPO3.settings.FormEngine.moduleUrl
-          + '&edit[sys_file_metadata][' + resource.metaUid + ']=edit'
-          + '&returnUrl=' + Filelist.getReturnUrl('');
+        const formEngineUrl = new URL(top.TYPO3.settings.FormEngine.moduleUrl, window.location.origin);
+        if (resource.metaUid > 0) {
+          formEngineUrl.searchParams.set('edit[sys_file_metadata][' + resource.metaUid + ']', 'edit');
+        } else {
+          formEngineUrl.searchParams.set('edit[sys_file_metadata][0]', 'new');
+          formEngineUrl.searchParams.set('defVals[sys_file_metadata][file]', resource.uid.toString(10));
+        }
+        formEngineUrl.searchParams.set('returnUrl', Filelist.getReturnUrl(''));
+        window.location.href = formEngineUrl.toString();
       }
       if (resource.type === 'folder') {
         const parameters = Filelist.parseQueryParameters(document.location);
         parameters.id = resource.identifier;
-        let parameterString = '';
-        Object.keys(parameters).forEach(key => {
-          if (parameters[key] === '') { return; }
-          parameterString = parameterString + '&' + key + '=' + parameters[key];
-        });
-        window.location.href = window.location.pathname + '?' + parameterString.substring(1);
+        const url = new URL(window.location.pathname, window.location.origin);
+        for (const [key, value] of Object.entries(parameters)) {
+          url.searchParams.set(key, value);
+        }
+        window.location.href = url.toString();
       }
     }).bindTo(document);
 
@@ -124,7 +125,7 @@ export default class Filelist {
     new RegularEvent(FileListActionEvent.download, (event: CustomEvent): void => {
       const detail: FileListActionDetail = event.detail;
       const resource = detail.resources[0];
-      this.triggerDownload([resource.identifier], detail.url, detail.trigger);
+      this.triggerDownload([resource], detail.url, detail.trigger);
     }).bindTo(document);
 
     new RegularEvent(FileListActionEvent.updateOnlineMedia, (event: CustomEvent): void => {
@@ -134,6 +135,8 @@ export default class Filelist {
     }).bindTo(document);
 
     DocumentService.ready().then((): void => {
+      Filelist.processTriggers();
+
       new RegularEvent('click', (e: Event, trigger: HTMLAnchorElement): void => {
         e.preventDefault();
 
@@ -201,40 +204,24 @@ export default class Filelist {
       return;
     }
     // update ModuleStateStorage to the current folder identifier
-    const id = encodeURIComponent(mainElement.dataset.filelistCurrentIdentifier);
-    ModuleStateStorage.update('media', id, true, undefined);
-    // emit event for currently shown folder so the folder tree gets updated
-    Filelist.emitTreeUpdateRequest(
-      mainElement.dataset.filelistCurrentIdentifier
-    );
-  }
-
-  private static emitTreeUpdateRequest(identifier: string): void {
-    const message = new BroadcastMessage(
-      'filelist',
-      'treeUpdateRequested',
-      { type: 'folder', identifier: identifier }
-    );
-    broadcastService.post(message);
+    ModuleStateStorage.update('media', mainElement.dataset.filelistCurrentIdentifier);
   }
 
   private static parseQueryParameters(location: Location): QueryParameters {
-    const queryParameters: QueryParameters = {};
-    if (location && Object.prototype.hasOwnProperty.call(location, 'search')) {
-      const parameters = location.search.substr(1).split('&');
-      for (let i = 0; i < parameters.length; i++) {
-        const parameter = parameters[i].split('=');
-        queryParameters[decodeURIComponent(parameter[0])] = decodeURIComponent(parameter[1]);
-      }
-    }
-    return queryParameters;
+    const searchParams = new URLSearchParams(location.search);
+    return Object.fromEntries(searchParams.entries());
   }
 
   private static getReturnUrl(returnUrl: string): string {
     if (returnUrl === '') {
-      returnUrl = top.list_frame.document.location.pathname + top.list_frame.document.location.search;
+      const form = top.list_frame.document.forms.namedItem('fileListForm');
+      if (form !== null) {
+        returnUrl = form.action;
+      } else {
+        returnUrl = top.list_frame.document.location.pathname + top.list_frame.document.location.search;
+      }
     }
-    return encodeURIComponent(returnUrl);
+    return returnUrl;
   }
 
   private deleteMultiple(e: CustomEvent): void {
@@ -280,14 +267,14 @@ export default class Filelist {
     });
 
     if (list.length) {
-      let uri = top.TYPO3.settings.FormEngine.moduleUrl
-        + '&edit[' + configuration.table + '][' + list.join(',') + ']=edit'
-        + '&returnUrl=' + Filelist.getReturnUrl(configuration.returnUrl || '');
+      const url = new URL(top.TYPO3.settings.FormEngine.moduleUrl, window.location.origin);
+      url.searchParams.set('edit[' + configuration.table + '][' + list.join(',') + ']', 'edit');
+      url.searchParams.set('returnUrl', Filelist.getReturnUrl(configuration.returnUrl || ''));
       const columnsOnly = configuration.columnsOnly || [];
-      if (columnsOnly.length > 0) {
-        uri += columnsOnly.map((column: string, i: number): string => '&columnsOnly[' + configuration.table + '][' + i + ']=' + column).join('');
-      }
-      window.location.href = uri;
+      columnsOnly.forEach((column: string, i: number): void => {
+        url.searchParams.set('columnsOnly[' + configuration.table + '][' + i + ']', column);
+      });
+      window.location.href = url.toString();
     } else {
       Notification.warning('The selected elements can not be edited.');
     }
@@ -295,16 +282,17 @@ export default class Filelist {
 
   private readonly downloadFilesAndFolders = (event: CustomEvent): void => {
     event.preventDefault();
+
     const target: HTMLElement = event.target as HTMLElement;
     const eventDetails: ActionEventDetails = (event.detail as ActionEventDetails);
     const configuration: DownloadConfiguration = (eventDetails.configuration as DownloadConfiguration);
 
-    const filesAndFolders: Array<string> = [];
+    const filesAndFolders: ResourceInterface[] = [];
     eventDetails.checkboxes.forEach((checkbox: HTMLInputElement) => {
       if (checkbox.checked) {
         const element = checkbox.closest(FileListActionSelector.elementSelector) as HTMLInputElement;
         const resource = FileListActionUtility.getResourceForElement(element);
-        filesAndFolders.unshift(resource.identifier);
+        filesAndFolders.unshift(resource);
       }
     });
 
@@ -315,7 +303,16 @@ export default class Filelist {
     }
   };
 
-  private triggerDownload(items: Array<string>, downloadUrl: string, button: HTMLElement | null): void {
+  private triggerDownload(items: ResourceInterface[], downloadUrl: string, button: HTMLElement | null): void {
+    if (items.length === 1) {
+      const item = items.at(0);
+      if (item.type === 'file') {
+        // We deal with a single file in the selection, download directly
+        this.invokeDownload(item.url, item.name);
+        return;
+      }
+    }
+
     // Add notification about the download being prepared
     Notification.info(lll('file_download.prepare'), '', 2);
     // Store the targets' (button) content and replace with a spinner
@@ -328,11 +325,14 @@ export default class Filelist {
         button.innerHTML = spinner;
       });
     }
+
     // Configure and start the progress bar, while preparing
     NProgress
       .configure({ parent: '#typo3-filelist', showSpinner: false })
       .start();
-    (new AjaxRequest(downloadUrl)).post({ items: items })
+
+    const itemIdentifiers = items.map((resource: ResourceInterface) => resource.identifier);
+    (new AjaxRequest(downloadUrl)).post({ items: itemIdentifiers })
       .then(async (response: AjaxResponse): Promise<void> => {
         let fileName = response.response.headers.get('Content-Disposition');
         if (!fileName) {
@@ -348,13 +348,7 @@ export default class Filelist {
         const data = await response.raw().arrayBuffer();
         const blob = new Blob([data], { type: response.raw().headers.get('Content-Type') });
         const downloadUrl = URL.createObjectURL(blob);
-        const anchorTag = document.createElement('a');
-        anchorTag.href = downloadUrl;
-        anchorTag.download = fileName;
-        document.body.appendChild(anchorTag);
-        anchorTag.click();
-        URL.revokeObjectURL(downloadUrl);
-        document.body.removeChild(anchorTag);
+        this.invokeDownload(downloadUrl, fileName);
         // Add notification about successful preparation
         Notification.success(lll('file_download.success'), '', 2);
       })
@@ -388,5 +382,15 @@ export default class Filelist {
         NProgress.done();
         window.location.reload();
       });
+  }
+
+  private invokeDownload(downloadUrl: string, fileName: string): void {
+    const anchorTag = document.createElement('a');
+    anchorTag.href = downloadUrl;
+    anchorTag.download = fileName;
+    document.body.appendChild(anchorTag);
+    anchorTag.click();
+    URL.revokeObjectURL(downloadUrl);
+    document.body.removeChild(anchorTag);
   }
 }

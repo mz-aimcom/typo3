@@ -13,7 +13,7 @@
 
 import NProgress from 'nprogress';
 import Notification from '@typo3/backend/notification';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import RegularEvent from '@typo3/core/event/regular-event';
 
@@ -64,7 +64,7 @@ class ExtensionManagerUpdate {
     let reload = false;
 
     NProgress.start();
-    new AjaxRequest(url).get().then(async (response: AjaxResponse): Promise<void> => {
+    new AjaxRequest(url).post({}).then(async (response: AjaxResponse): Promise<void> => {
       const data = await response.resolve();
       // Something went wrong, show message
       if (data.errorMessage.length) {

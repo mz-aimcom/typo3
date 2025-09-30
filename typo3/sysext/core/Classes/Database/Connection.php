@@ -30,9 +30,11 @@ use Doctrine\DBAL\Types\Type;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Database\Platform\PlatformInformation;
 use TYPO3\CMS\Core\Database\Query\BulkInsertQuery;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Database\Schema\SchemaInformation;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -77,6 +79,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
 
     private ExpressionBuilder $expressionBuilder;
     private array $prepareConnectionCommands = [];
+    public string $defaultRestrictionContainer = DefaultRestrictionContainer::class;
 
     /**
      * Initializes a new instance of the Connection class.
@@ -112,7 +115,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      */
     public function createQueryBuilder(): QueryBuilder
     {
-        return GeneralUtility::makeInstance(QueryBuilder::class, $this);
+        return GeneralUtility::makeInstance(QueryBuilder::class, $this, GeneralUtility::makeInstance($this->defaultRestrictionContainer));
     }
 
     /**
@@ -208,12 +211,20 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      */
     public function bulkInsert(string $tableName, array $data, array $columns = [], array $types = []): int
     {
-        $query = GeneralUtility::makeInstance(BulkInsertQuery::class, $this, $tableName, $columns);
-        foreach ($data as $values) {
-            $this->ensureDatabaseValueTypes($tableName, $values, $types);
-            $query->addValues($values, $types);
+        $totalAffectedRows = 0;
+        $columnLength = $columns !== [] ? count($columns) : 1000;
+        $maxBindParameters = PlatformInformation::getMaxBindParameters($this->getDatabasePlatform());
+        $maxChunkSize = (int)(($maxBindParameters / $columnLength) / 2);
+        $chunks = array_chunk($data, $maxChunkSize);
+        foreach ($chunks as $chunk) {
+            $query = GeneralUtility::makeInstance(BulkInsertQuery::class, $this, $tableName, $columns);
+            foreach ($chunk as $values) {
+                $this->ensureDatabaseValueTypes($tableName, $values, $types);
+                $query->addValues($values, $types);
+            }
+            $totalAffectedRows += $query->execute();
         }
-        return $query->execute();
+        return $totalAffectedRows;
     }
 
     /**
@@ -351,7 +362,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
             $platform instanceof DoctrineMariaDBPlatform => 'MySQL' . $version,
             $platform instanceof DoctrineMySQLPlatform => 'MySQL' . $version,
             $platform instanceof DoctrinePostgreSQLPlatform => 'PostgreSQL' . $version,
-            default => (str_replace('Platform', '', array_reverse(explode('\\', $platform::class))[0] ?? '')) . $version,
+            default => (str_replace('Platform', '', array_reverse(explode('\\', $platform::class))[0])) . $version,
         };
     }
 
@@ -432,5 +443,27 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
             $this,
             GeneralUtility::makeInstance(CacheManager::class)->getCache('database_schema')
         );
+    }
+
+    /**
+     * Executes a function in a transaction.
+     *
+     * The function gets passed this Connection instance as an (optional) parameter.
+     *
+     * If an exception occurs during execution of the function or transaction commit,
+     * the transaction is rolled back and the exception re-thrown.
+     *
+     * @param \Closure(self):T $func The function to execute transactionally.
+     *
+     * @return T The value returned by $func
+     *
+     * @throws \Throwable
+     *
+     * @template T
+     */
+    public function transactional(\Closure $func): mixed
+    {
+        /** @var \Closure(\Doctrine\DBAL\Connection):T $func Required to satisfy PHPStan. */
+        return parent::transactional($func);
     }
 }

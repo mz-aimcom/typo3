@@ -42,12 +42,12 @@ interface Configuration extends Partial<HelperConfiguration> {
 
 const defaultConfiguration: Configuration = {
   domElementClassNames: {
-    formElementIsComposit: 't3-form-element-composit',
-    formElementIsTopLevel: 't3-form-element-toplevel',
-    noNesting: 'mjs-nestedSortable-no-nesting',
+    formElementIsComposit: 'formeditor-element-composit',
+    formElementIsTopLevel: 'formeditor-element-toplevel',
+    noNesting: 'no-nesting',
     selected: 'selected',
     sortable: 'sortable',
-    previewViewPreviewElement: 't3-form-element-preview'
+    previewViewPreviewElement: 'formeditor-element-preview'
   },
   domElementDataAttributeNames: {
     abstractType: 'data-element-abstract-type',
@@ -72,6 +72,7 @@ const defaultConfiguration: Configuration = {
     'FormElement-CountrySelect': 'FormElement-CountrySelect',
     'FormElement-DatePicker': 'FormElement-DatePicker',
     'FormElement-Fieldset': 'FormElement-Fieldset',
+    'FormElement-GridColumn': 'FormElement-GridColumn',
     'FormElement-GridRow': 'FormElement-GridRow',
     'FormElement-FileUpload': 'FormElement-FileUpload',
     'FormElement-Hidden': 'FormElement-Hidden',
@@ -189,6 +190,7 @@ function renderTemplateDispatcher(formElement: FormElement, template: JQuery): v
       renderSimpleTemplateWithValidators(formElement, template);
       break;
     case 'Fieldset':
+    case 'GridColumn':
     case 'GridRow':
     case 'SummaryPage':
     case 'Page':
@@ -236,29 +238,33 @@ function renderNestedSortableListItem(formElement: FormElement): JQuery {
     .attr(getHelper().getDomElementDataAttribute('elementIdentifier'), formElement.get('__identifierPath'))
     .append($(template.html()));
 
-  if (getFormElementDefinition(formElement, '_isCompositeFormElement')) {
+  const isCompositeFormElement = getFormElementDefinition(formElement, '_isCompositeFormElement');
+  if (isCompositeFormElement) {
     template.attr(getHelper().getDomElementDataAttribute('abstractType'), 'isCompositeFormElement');
   }
-  if (getFormElementDefinition(formElement, '_isTopLevelFormElement')) {
+  const isTopLevelFormElement = getFormElementDefinition(formElement, '_isTopLevelFormElement');
+  if (isTopLevelFormElement) {
     template.attr(getHelper().getDomElementDataAttribute('abstractType'), 'isTopLevelFormElement');
+  } else {
+    template.addClass('formeditor-element');
   }
   listItem.append(template);
 
   renderTemplateDispatcher(formElement, template);
 
-  const childFormElements = formElement.get('renderables');
-  childList = null;
-  if ('array' === $.type(childFormElements)) {
+  if (isTopLevelFormElement || isCompositeFormElement) {
     childList = $('<ol></ol>');
     childList.addClass(getHelper().getDomElementClassName('sortable'));
-    for (let i = 0, len = childFormElements.length; i < len; ++i) {
-      childList.append(renderNestedSortableListItem(childFormElements[i]));
+    childList.addClass('formeditor-list');
+    const childFormElements = formElement.get('renderables');
+    if ('array' === $.type(childFormElements)) {
+      for (let i = 0, len = childFormElements.length; i < len; ++i) {
+        childList.append(renderNestedSortableListItem(childFormElements[i]));
+      }
     }
-  }
-
-  if (childList) {
     listItem.append(childList);
   }
+
   return listItem;
 }
 
@@ -275,7 +281,7 @@ function addSortableEvents(): void {
 
   sortableLists.forEach(function (sortableList: HTMLElement) {
     sortableList.querySelectorAll(handleSelector).forEach(function (draggable) {
-      draggable.classList.add('form-sortable-handle');
+      draggable.classList.add('formeditor-sortable-handle');
     });
 
     new Sortable(sortableList, {
@@ -284,8 +290,8 @@ function addSortableEvents(): void {
       draggable: draggableSelector,
       animation: 200,
       swapThreshold: 0.6,
-      dragClass: 'form-sortable-drag',
-      ghostClass: 'form-sortable-ghost',
+      dragClass: 'formeditor-sortable-drag',
+      ghostClass: 'formeditor-sortable-ghost',
       onStart: function (e) {
         getPublisherSubscriber().publish('view/stage/abstract/dnd/start', [$(e.item), $(e.item)]);
       },
@@ -406,6 +412,7 @@ export function renderFormDefinitionPageAsSortableList(pageIndex: number): JQuer
   );
 
   return $('<ol></ol>')
+    .addClass('formeditor-list')
     .append(renderNestedSortableListItem(getRootFormElement().get('renderables')[pageIndex]));
 }
 

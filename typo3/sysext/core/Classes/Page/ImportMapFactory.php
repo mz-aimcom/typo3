@@ -23,19 +23,21 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry;
 use TYPO3\CMS\Core\SingletonInterface;
 
 #[Autoconfigure(public: true)]
-class ImportMapFactory implements SingletonInterface
+readonly class ImportMapFactory implements SingletonInterface
 {
     public function __construct(
-        private readonly HashService $hashService,
-        private readonly PackageManager $packageManager,
+        private HashService $hashService,
+        private PackageManager $packageManager,
+        private PolicyRegistry $policyRegistry,
         #[Autowire(service: 'cache.assets')]
-        private readonly FrontendInterface $assetsCache,
-        private readonly EventDispatcherInterface $eventDispatcher,
+        private FrontendInterface $assetsCache,
+        private EventDispatcherInterface $eventDispatcher,
         #[Autowire(expression: 'service("package-dependent-cache-identifier").withPrefix("ImportMap").toString()')]
-        private readonly string $cacheIdentifier,
+        private string $cacheIdentifier,
     ) {}
 
     public function create(bool $bustSuffix = true): ImportMap
@@ -46,6 +48,7 @@ class ImportMapFactory implements SingletonInterface
         return new ImportMap(
             $this->hashService,
             $activePackages,
+            $this->policyRegistry,
             $this->assetsCache,
             $this->cacheIdentifier,
             $this->eventDispatcher,

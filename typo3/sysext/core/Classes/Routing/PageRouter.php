@@ -36,6 +36,8 @@ use TYPO3\CMS\Core\Routing\Enhancer\EnhancerInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\InflatableEnhancerInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\ResultingInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\RoutingEnhancerInterface;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -106,18 +108,16 @@ class PageRouter implements RouterInterface
 
         // Legacy URIs (?id=12345) takes precedence, no matter if a route is given
         $requestId = ($request->getQueryParams()['id'] ?? null);
+        $type = '0';
+        if (isset($request->getQueryParams()['type']) && is_scalar($request->getQueryParams()['type'])) {
+            $type = (string)$request->getQueryParams()['type'];
+        }
         if ($requestId !== null) {
             if (MathUtility::canBeInterpretedAsInteger($requestId)
                 && (int)$requestId > 0
                 && !empty($pageId = $candidateProvider->getRealPageIdForPageIdAsPossibleCandidate((int)$requestId))
             ) {
-                return new PageArguments(
-                    (int)$pageId,
-                    (string)($request->getQueryParams()['type'] ?? '0'),
-                    [],
-                    [],
-                    $request->getQueryParams()
-                );
+                return new PageArguments((int)$pageId, $type, [], [], $request->getQueryParams());
             }
             throw new RouteNotFoundException('The requested page does not exist.', 1557839801);
         }
@@ -232,6 +232,9 @@ class PageRouter implements RouterInterface
      */
     public function generateUri($route, array $parameters = [], string $fragment = '', string $type = ''): UriInterface
     {
+        // sanitize superfluous page-id from additional parameters
+        // (even if `$parameters['id']` is different to `$pageId`, it will be removed)
+        unset($parameters['id']);
         // Resolve language
         $language = null;
         $languageOption = $parameters['_language'] ?? null;
@@ -559,7 +562,10 @@ class PageRouter implements RouterInterface
                 $decoratedParameters
             );
         }
-        return (string)$type;
+        if (is_scalar($type)) {
+            return (string)$type;
+        }
+        return '0';
     }
 
     /**
@@ -628,10 +634,11 @@ class PageRouter implements RouterInterface
     protected function isRouteReallyValidForLanguage(Route $route, SiteLanguage $siteLanguage): bool
     {
         $page = $route->getOption('_page');
-        $languageIdField = $GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? '';
-        if ($languageIdField === '') {
+        $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages');
+        if (!$schema->isLanguageAware()) {
             return true;
         }
+        $languageIdField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
         $languageId = (int)($page[$languageIdField] ?? 0);
         if ($siteLanguage->getLanguageId() === 0 || $siteLanguage->getLanguageId() === $languageId) {
             // default language site request or if page record is same language then siteLanguage, page record

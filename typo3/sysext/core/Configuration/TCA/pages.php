@@ -58,11 +58,6 @@ return [
             'page-contentFromPid-hideinmenu' => 'apps-pagetree-page-content-from-page-hideinmenu',
             'default' => 'apps-pagetree-page-default',
         ],
-        'searchFields' => 'title,nav_title,subtitle,url,slug,keywords,description,abstract,author,author_email',
-    ],
-    'interface' => [
-        'maxDBListItems' => 30,
-        'maxSingleDBListItems' => 50,
     ],
     'columns' => [
         'doktype' => [
@@ -260,7 +255,7 @@ return [
                 'max' => 80,
                 'valuePicker' => [
                     'items' => [
-                        [ 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:target.I.1', '_blank' ],
+                        [ 'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:target.I.1', 'value' => '_blank' ],
                     ],
                 ],
                 'eval' => 'trim',
@@ -527,41 +522,6 @@ return [
                 'type' => 'file',
                 'behaviour' => [
                     'allowLanguageSynchronization' => true,
-                ],
-                // Use the imageoverlayPalette instead of the basicoverlayPalette
-                'overrideChildTca' => [
-                    'types' => [
-                        '0' => [
-                            'showitem' => '
-                                    --palette--;;imageoverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                        \TYPO3\CMS\Core\Resource\FileType::TEXT->value => [
-                            'showitem' => '
-                                    --palette--;;imageoverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                        \TYPO3\CMS\Core\Resource\FileType::IMAGE->value => [
-                            'showitem' => '
-                                    --palette--;;imageoverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                        \TYPO3\CMS\Core\Resource\FileType::AUDIO->value => [
-                            'showitem' => '
-                                    --palette--;;audioOverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                        \TYPO3\CMS\Core\Resource\FileType::VIDEO->value => [
-                            'showitem' => '
-                                    --palette--;;videoOverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                        \TYPO3\CMS\Core\Resource\FileType::APPLICATION->value => [
-                            'showitem' => '
-                                    --palette--;;imageoverlayPalette,
-                                    --palette--;;filePalette',
-                        ],
-                    ],
                 ],
             ],
         ],

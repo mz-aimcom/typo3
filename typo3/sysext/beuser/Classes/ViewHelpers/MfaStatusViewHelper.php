@@ -24,7 +24,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 
 /**
- * Render MFA status information
+ * ViewHelper to render MFA status information.
+ *
+ * ```
+ *   <beuser:mfaStatus userUid="{backendUser.uid}" />
+ * ```
  *
  * @internal
  */
@@ -69,7 +73,7 @@ final class MfaStatusViewHelper extends AbstractTagBasedViewHelper
         return $this->tag->render();
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

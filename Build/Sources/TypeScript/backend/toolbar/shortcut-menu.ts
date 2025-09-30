@@ -11,17 +11,16 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Icons from '../icons';
 import Modal from '../modal';
 import Notification from '../notification';
 import Viewport from '../viewport';
 import SecurityUtility from '@typo3/core/security-utility';
-import { ModuleStateStorage } from '@typo3/backend/storage/module-state-storage';
 import '@typo3/backend/element/spinner-element';
 import { Sizes } from '../enum/icon-types';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 enum Identifiers {
   containerSelector = '#typo3-cms-backend-backend-toolbaritems-shortcuttoolbaritem',
@@ -145,10 +144,6 @@ class ShortcutMenu {
     new RegularEvent('click', (evt: Event, target: HTMLAnchorElement): void => {
       evt.preventDefault();
 
-      const pageId = target.dataset.pageId;
-      if (pageId) {
-        ModuleStateStorage.updateWithCurrentMount('web', pageId, true);
-      }
       const router = document.querySelector('typo3-backend-module-router');
       router.setAttribute('endpoint', target.href);
       router.setAttribute('module', target.dataset.module);

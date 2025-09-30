@@ -15,34 +15,39 @@
 
 namespace TYPO3\CMS\Core\Localization;
 
-use TYPO3\CMS\Core\Cache\CacheManager;
+use Symfony\Component\Translation\MessageCatalogueInterface;
+use Symfony\Component\Translation\Translator;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Localization\Exception\FileNotFoundException;
-use TYPO3\CMS\Core\Package\Exception\UnknownPackagePathException;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
 
 /**
- * Provides a language parser factory.
+ * This class acts currently as facade around SymfonyTranslator.
+ * User-land code should use LanguageService for the time being, and this class should not be exposed directly.
+ *
+ * Ideally, consider using a runtime cache if needed, if not using LanguageService.
+ *
+ * Hand in the locale to load, or english ("default").
+ *
+ * What it does:
+ * - Caches on a system-level cache
+ * - Handles loading default (= english) before translated files
+ * - Handles file name juggling of translated files.
+ * - Handles localization overrides via $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']
  */
-class LocalizationFactory implements SingletonInterface
+readonly class LocalizationFactory
 {
-    /**
-     * @var FrontendInterface
-     */
-    protected $cacheInstance;
-
-    /**
-     * @var \TYPO3\CMS\Core\Localization\LanguageStore
-     */
-    public $store;
-
-    public function __construct(LanguageStore $languageStore, CacheManager $cacheManager)
-    {
-        $this->store = $languageStore;
-        $this->cacheInstance = $cacheManager->getCache('l10n');
+    public function __construct(
+        protected Translator $translator,
+        protected FrontendInterface $systemCache,
+        protected LabelFileResolver $labelFileResolver,
+    ) {
+        foreach ($GLOBALS['TYPO3_CONF_VARS']['LANG']['loader'] ?? [] as $key => $loader) {
+            if (class_exists($loader)) {
+                $this->translator->addLoader($key, new $loader());
+            }
+        }
+        $this->translator->setFallbackLocales(['en']);
     }
 
     /**
@@ -50,93 +55,135 @@ class LocalizationFactory implements SingletonInterface
      *
      * @param string $fileReference Input is a file-reference (see \TYPO3\CMS\Core\Utility\GeneralUtility::getFileAbsFileName). That file is expected to be a supported locallang file format
      * @param string $languageKey Language key
-     * @param null $_ unused
-     * @param null $__ unused
-     * @param bool $isLocalizationOverride TRUE if $fileReference is a localization override
      *
-     * @return array<string, array<string, array<int, array<string, string>>>>
+     * @return array<string, array<int, array<string, string>>>
      */
-    public function getParsedData($fileReference, $languageKey, $_ = null, $__ = null, $isLocalizationOverride = false)
+    public function getParsedData(string $fileReference, string $languageKey): array
     {
-        $hash = md5($fileReference . $languageKey);
+        $languageKey = $languageKey === 'default' ? 'en' : $languageKey;
+        $systemCacheIdentifier = md5($fileReference . $languageKey);
 
-        // Check if the default language is processed before processing other language
-        if (!$this->store->hasData($fileReference, 'default') && $languageKey !== 'default') {
-            $this->getParsedData($fileReference, 'default');
-        }
-        // If the content is parsed (local cache), use it
-        if ($this->store->hasData($fileReference, $languageKey)) {
-            return $this->store->getData($fileReference);
-        }
-
-        // If the content is in cache (system cache), use it
-        $data = $this->cacheInstance->get($hash);
-        if ($data !== false) {
-            $this->store->setData($fileReference, $languageKey, $data);
-            return $this->store->getData($fileReference);
+        // If the content is in system cache, put it in runtime cache and use it
+        $labels = $this->systemCache->get($systemCacheIdentifier);
+        if (is_array($labels)) {
+            return $labels;
         }
 
         try {
-            $this->store->setConfiguration($fileReference, $languageKey);
-            $parser = $this->store->getParserInstance($fileReference);
-            if (is_callable([$parser, 'parseExtensionResource']) && PathUtility::isExtensionPath($fileReference)) {
-                $LOCAL_LANG = $parser->parseExtensionResource($this->store->getAbsoluteFileReference($fileReference), $languageKey, $this->store->getLocalizedLabelsPathPattern($fileReference));
-            } else {
-                // @todo: this (providing an absolute file system path) likely does not work properly anyway in all cases and should rather be deprecated
-                $LOCAL_LANG = $parser->getParsedData($this->store->getAbsoluteFileReference($fileReference), $languageKey);
-            }
-        } catch (FileNotFoundException | UnknownPackagePathException $exception) {
-            // Source localization file not found, set empty data as there could be an override
-            $this->store->setData($fileReference, $languageKey, []);
-            $LOCAL_LANG = $this->store->getData($fileReference);
+            $labels = $this->loadWithSymfonyTranslator($fileReference, $languageKey);
+        } catch (FileNotFoundException) {
+            $labels = [];
         }
-
-        // Override localization
-        if (!$isLocalizationOverride && isset($GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride'])) {
-            $this->localizationOverride($fileReference, $languageKey, $LOCAL_LANG);
-        }
-
-        // Save parsed data in cache
-        $this->store->setData($fileReference, $languageKey, $LOCAL_LANG[$languageKey]);
 
         // Cache processed data
-        $this->cacheInstance->set($hash, $this->store->getDataByLanguage($fileReference, $languageKey));
+        $this->systemCache->set($systemCacheIdentifier, $labels);
 
-        return $this->store->getData($fileReference);
+        return $labels;
     }
 
     /**
-     * Override localization file
-     *
-     * This method merges the content of the override file with the default file
-     *
-     * @param string $fileReference
-     * @param string $languageKey
-     * @param array $LOCAL_LANG
+     * Apply localization overrides by merging override file contents
      */
-    protected function localizationOverride($fileReference, $languageKey, array &$LOCAL_LANG)
+    protected function applyLocalizationOverrides(string $fileReference, string $languageKey, array $labels): array
     {
-        $overrides = [];
-        $fileReferenceWithoutExtension = $this->store->getFileReferenceWithoutExtension($fileReference);
-        $locallangXMLOverride = $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride'];
-        foreach ($this->store->getSupportedExtensions() as $extension) {
-            if (isset($locallangXMLOverride[$languageKey][$fileReferenceWithoutExtension . '.' . $extension]) && is_array($locallangXMLOverride[$languageKey][$fileReferenceWithoutExtension . '.' . $extension])) {
-                $overrides = array_merge($overrides, $locallangXMLOverride[$languageKey][$fileReferenceWithoutExtension . '.' . $extension]);
-            } elseif (isset($locallangXMLOverride[$fileReferenceWithoutExtension . '.' . $extension]) && is_array($locallangXMLOverride[$fileReferenceWithoutExtension . '.' . $extension])) {
-                $overrides = array_merge($overrides, $locallangXMLOverride[$fileReferenceWithoutExtension . '.' . $extension]);
+        $overrideFiles = $this->labelFileResolver->getOverrideFilePaths($fileReference, $languageKey);
+
+        foreach ($overrideFiles as $overrideFile) {
+            $catalogue = $this->getMessageCatalogue($overrideFile, $languageKey);
+            $fallbackCatalogue = $this->getMessageCatalogue($overrideFile, $languageKey, false);
+            $overrideLabels = $this->convertCatalogueToLegacyFormat($catalogue, $fallbackCatalogue);
+            ArrayUtility::mergeRecursiveWithOverrule($labels, $overrideLabels, true, false);
+        }
+
+        return $labels;
+    }
+
+    /**
+     * Get the catalogue and convert to TYPO3 format
+     */
+    protected function loadWithSymfonyTranslator(string $fileReference, string $languageKey): array
+    {
+        $catalogue = $this->getMessageCatalogue($fileReference, $languageKey);
+        $fallbackCatalogue = $this->getMessageCatalogue($fileReference, $languageKey, false);
+
+        $labels = $this->convertCatalogueToLegacyFormat($catalogue, $fallbackCatalogue);
+        return $this->applyLocalizationOverrides($fileReference, $languageKey, $labels);
+    }
+
+    /**
+     * Load translations of one resource using Symfony Translator
+     */
+    protected function getMessageCatalogue(string $fileReference, string $locale, bool $useDefault = true): MessageCatalogueInterface
+    {
+        $actualSourcePath = $this->labelFileResolver->resolveFileReference($fileReference, $locale, $useDefault);
+        // @todo: we need to be more flexible with the file ending here.
+        $fileExtension = (string)pathinfo($actualSourcePath, PATHINFO_EXTENSION);
+        // Add the resource to Symfony Translator
+        $this->translator->addResource($fileExtension ?: 'xlf', $actualSourcePath, $locale, 'messages');
+        return $this->translator->getCatalogue($locale);
+    }
+
+    /**
+     * Convert Symfony MessageCatalogue to TYPO3's legacy format
+     */
+    protected function convertCatalogueToLegacyFormat(MessageCatalogueInterface $catalogue, MessageCatalogueInterface $fallbackCatalogue): array
+    {
+        $result = [];
+        foreach ($fallbackCatalogue->all() as $translations) {
+            foreach ($translations as $key => $value) {
+                // Check if this is a plural form (contains ICU format)
+                if (str_contains($value, '{0, plural,')) {
+                    $result[$key] = $this->parseIcuPlural($value);
+                } else {
+                    // Regular translation
+                    $result[$key] = $value;
+                }
             }
         }
-        if (!empty($overrides)) {
-            foreach ($overrides as $overrideFile) {
-                $languageOverrideFileName = $overrideFile;
-                if (!PathUtility::isExtensionPath($overrideFile)) {
-                    $languageOverrideFileName = GeneralUtility::getFileAbsFileName($overrideFile);
-                }
-                $parsedData = $this->getParsedData($languageOverrideFileName, $languageKey, null, null, true);
-                if (is_array($parsedData)) {
-                    ArrayUtility::mergeRecursiveWithOverrule($LOCAL_LANG, $parsedData);
+        foreach ($catalogue->all() as $translations) {
+            foreach ($translations as $key => $value) {
+                // Check if this is a plural form (contains ICU format)
+                if (str_contains($value, '{0, plural,')) {
+                    $result[$key] = $this->parseIcuPlural($value);
+                } else {
+                    // Regular translation
+                    $result[$key] = $value ?: $fallbackCatalogue->get($key);
                 }
             }
         }
+
+        return $result;
+    }
+
+    /**
+     * Simple parser for ICU plural format - extracts plural values
+     */
+    protected function parseIcuPlural(string $icuString): array
+    {
+        $plurals = [];
+
+        // Extract content within plural braces
+        if (preg_match('/\{0, plural,(.+)\}$/', $icuString, $matches)) {
+            $content = trim($matches[1]);
+
+            // Parse forms like "one {text1} other {text2}"
+            if (preg_match_all('/(\w+)\s*\{([^}]+)\}/', $content, $formMatches, PREG_SET_ORDER)) {
+                foreach ($formMatches as $match) {
+                    $form = $match[1];
+                    $text = $match[2];
+
+                    // Map ICU forms to indices (simplified mapping)
+                    $index = match ($form) {
+                        'one' => 0,
+                        'other' => 1,
+                        default => count($plurals)
+                    };
+
+                    $plurals[$index] = $text;
+                }
+            }
+        }
+
+        return $plurals;
     }
 }

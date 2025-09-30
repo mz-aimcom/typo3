@@ -26,6 +26,7 @@ use Symfony\Component\PropertyInfo\Extractor\ReflectionExtractor;
 use Symfony\Component\PropertyInfo\PropertyInfoExtractor;
 use Symfony\Component\PropertyInfo\Type;
 use TYPO3\CMS\Core\Type\BitSet;
+use TYPO3\CMS\Extbase\Annotation\FileUpload;
 use TYPO3\CMS\Extbase\Annotation\IgnoreValidation;
 use TYPO3\CMS\Extbase\Annotation\ORM\Cascade;
 use TYPO3\CMS\Extbase\Annotation\ORM\Lazy;
@@ -49,56 +50,24 @@ use TYPO3\CMS\Extbase\Validation\ValidatorClassNameResolver;
 class ClassSchema
 {
     private const BIT_CLASS_IS_CONTROLLER = 1 << 3;
-
-    /**
-     * @var BitSet
-     */
-    private $bitSet;
-
-    /**
-     * @var array
-     */
-    private static $propertyObjects = [];
-
-    /**
-     * @var array
-     */
-    private static $methodObjects = [];
-
-    /**
-     * Name of the class this schema is referring to
-     *
-     * @var string
-     */
-    protected $className;
-
-    /**
-     * Properties of the class which need to be persisted
-     *
-     * @var array
-     */
-    protected $properties = [];
-
-    /**
-     * @var array
-     */
-    private $methods = [];
-
+    private BitSet $bitSet;
+    private static array $propertyObjects = [];
+    private static array $methodObjects = [];
+    private array $properties = [];
+    private array $methods = [];
     private static ?PropertyInfoExtractor $propertyInfoExtractor = null;
     private static ?DocBlockFactoryInterface $docBlockFactory = null;
 
     /**
      * Constructs this class schema
      *
-     * @param string $className Name of the class this schema is referring to
+     * @param class-string $className Name of the class this schema is referring to
      * @throws InvalidTypeHintException
      * @throws InvalidValidationConfigurationException
      * @throws \ReflectionException
      */
-    public function __construct(string $className)
+    public function __construct(private readonly string $className)
     {
-        /** @var class-string $className */
-        $this->className = $className;
         $this->bitSet = new BitSet();
 
         $reflectionClass = new \ReflectionClass($className);
@@ -167,14 +136,17 @@ class ClassSchema
 
             $this->properties[$propertyName] = [
                 'c' => null, // cascade
+                'f' => null, // file upload
                 't' => null, // type
                 'v' => [], // validators
             ];
 
             $validateAttributes = [];
+            $fileUploadAttributes = [];
             foreach ($reflectionProperty->getAttributes() as $attribute) {
                 match ($attribute->getName()) {
                     Validate::class => $validateAttributes[] = $attribute,
+                    FileUpload::class => $fileUploadAttributes[] = $attribute,
                     Lazy::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_LAZY,
                     Transient::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_TRANSIENT,
                     Cascade::class => $this->properties[$propertyName]['c'] = ($attribute->newInstance())->value,
@@ -189,6 +161,18 @@ class ClassSchema
                     'name' => $validator->validator,
                     'options' => $validator->options,
                     'className' => $validatorObjectName,
+                ];
+            }
+
+            foreach ($fileUploadAttributes as $attribute) {
+                $fileUpload = $attribute->newInstance();
+
+                $this->properties[$propertyName]['f'] = [
+                    'validation' => $fileUpload->validation,
+                    'uploadFolder' => $fileUpload->uploadFolder,
+                    'addRandomSuffix' => $fileUpload->addRandomSuffix,
+                    'duplicationBehavior' => $fileUpload->duplicationBehavior,
+                    'createUploadFolderIfNotExist' => $fileUpload->createUploadFolderIfNotExist,
                 ];
             }
 
@@ -208,6 +192,24 @@ class ClassSchema
                         'name' => $validateAnnotation->validator,
                         'options' => $validateAnnotation->options,
                         'className' => $validatorObjectName,
+                    ];
+                }
+            }
+
+            /** @var array<int, FileUpload> $fileUploadAnnotations */
+            $fileUploadAnnotations = array_filter(
+                $annotations,
+                static fn(object $annotation): bool => $annotation instanceof FileUpload
+            );
+
+            if (count($fileUploadAnnotations) > 0) {
+                foreach ($fileUploadAnnotations as $fileUploadAnnotation) {
+                    $this->properties[$propertyName]['f'] = [
+                        'validation' => $fileUploadAnnotation->validation,
+                        'uploadFolder' => $fileUploadAnnotation->uploadFolder,
+                        'addRandomSuffix' => $fileUploadAnnotation->addRandomSuffix,
+                        'duplicationBehavior' => $fileUploadAnnotation->duplicationBehavior,
+                        'createUploadFolderIfNotExist' => $fileUploadAnnotation->createUploadFolderIfNotExist,
                     ];
                 }
             }
@@ -308,17 +310,21 @@ class ClassSchema
 
             foreach ($reflectionMethod->getParameters() as $parameterPosition => $reflectionParameter) {
                 $parameterName = $reflectionParameter->getName();
+                $ignoreValidationParameters = [];
+                $ignoreValidationParametersFromAttribute = [];
 
-                $ignoreValidationParameters = array_filter(
-                    $annotations,
-                    static fn(object $annotation): bool => $annotation instanceof IgnoreValidation && $annotation->argumentName === $parameterName
-                );
+                if ($isAction) {
+                    $ignoreValidationParameters = array_filter(
+                        $annotations,
+                        static fn(object $annotation): bool => $annotation instanceof IgnoreValidation && $annotation->argumentName === $parameterName
+                    );
 
-                $ignoreValidationParametersFromAttribute = array_filter(
-                    $reflectionAttributes,
-                    static fn(\ReflectionAttribute $attribute): bool
-                        => $attribute->getName() === IgnoreValidation::class && $attribute->newInstance()->argumentName === $parameterName
-                );
+                    $ignoreValidationParametersFromAttribute = array_filter(
+                        $reflectionAttributes,
+                        static fn(\ReflectionAttribute $attribute): bool
+                            => $attribute->getName() === IgnoreValidation::class && $attribute->newInstance()->argumentName === $parameterName
+                    );
+                }
 
                 $reflectionType = $reflectionParameter->getType();
 

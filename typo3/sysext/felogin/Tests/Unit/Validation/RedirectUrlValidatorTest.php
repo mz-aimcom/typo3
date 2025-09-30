@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\FrontendLogin\Tests\Unit\Validation;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -121,7 +122,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         );
 
         $event = new ModifyRedirectUrlValidationResultEvent($url, false, $this->extbaseRequest);
-        $this->eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $this->eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
 
         self::assertFalse($this->accessibleFixture->isValid($this->extbaseRequest, $url));
     }
@@ -146,6 +147,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
 
     #[DataProvider('validateRedirectUrlKeepsCleanUrlDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function validateRedirectUrlKeepsCleanUrl(string $url): void
     {
         Environment::initialize(
@@ -161,7 +163,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         );
 
         $event = new ModifyRedirectUrlValidationResultEvent($url, true, $this->extbaseRequest);
-        $this->eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $this->eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
 
         self::assertTrue($this->accessibleFixture->isValid($this->extbaseRequest, $url));
     }
@@ -183,6 +185,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
 
     #[DataProvider('validateRedirectUrlClearsInvalidUrlInSubdirectoryDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function validateRedirectUrlClearsInvalidUrlInSubdirectory(string $url): void
     {
         GeneralUtility::flushInternalRuntimeCaches();
@@ -190,7 +193,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         $this->setUpFakeSitePathAndHost();
 
         $event = new ModifyRedirectUrlValidationResultEvent($url, false, $this->extbaseRequest);
-        $this->eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $this->eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
 
         self::assertFalse($this->accessibleFixture->isValid($this->extbaseRequest, $url));
     }
@@ -213,6 +216,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
 
     #[DataProvider('validateRedirectUrlKeepsCleanUrlInSubdirectoryDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function validateRedirectUrlKeepsCleanUrlInSubdirectory(string $url): void
     {
         Environment::initialize(
@@ -228,7 +232,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         );
 
         $event = new ModifyRedirectUrlValidationResultEvent($url, true, $this->extbaseRequest);
-        $this->eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $this->eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
 
         $this->testSitePath = '/subdir/';
         $this->setUpFakeSitePathAndHost();
@@ -253,7 +257,7 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         $url = 'https://external-redirect.url';
         $event = new ModifyRedirectUrlValidationResultEvent($url, false, $this->extbaseRequest);
         $event->setValidationResult(true);
-        $this->eventDispatcher->expects(self::once())->method('dispatch')->willReturn($event);
+        $this->eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
 
         $this->setUpFakeSitePathAndHost();
         self::assertTrue($this->accessibleFixture->isValid($this->extbaseRequest, $url));

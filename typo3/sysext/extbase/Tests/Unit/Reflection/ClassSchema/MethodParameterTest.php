@@ -17,16 +17,15 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Reflection\ClassSchema;
 
-use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Exception\NoSuchMethodParameterException;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithAllTypesOfMethods;
+use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithIgnoreValidationAttribute;
+use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithIgnoreValidationDoctrineAnnotation;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyController;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerDeprecated;
+use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithIgnoreValidationAttribute;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithIgnoreValidationDoctrineAnnotation;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithIgnoreValidationDoctrineAttribute;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\Validation\Validator\DummyValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\StringLengthValidator;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -81,13 +80,38 @@ final class MethodParameterTest extends UnitTestCase
         $this->expectException(NoSuchMethodParameterException::class);
         $classSchemaMethod->getParameter('baz')->ignoreValidation();
     }
+
     #[Test]
     public function classSchemaDetectsIgnoreValidationAttribute(): void
     {
-        $classSchemaMethod = (new ClassSchema(DummyControllerWithIgnoreValidationDoctrineAttribute::class))
+        $classSchemaMethod = (new ClassSchema(DummyControllerWithIgnoreValidationAttribute::class))
             ->getMethod('someAction');
         self::assertTrue($classSchemaMethod->getParameter('foo')->ignoreValidation());
         self::assertTrue($classSchemaMethod->getParameter('bar')->ignoreValidation());
+
+        $this->expectException(NoSuchMethodParameterException::class);
+        $classSchemaMethod->getParameter('baz')->ignoreValidation();
+    }
+
+    #[Test]
+    public function classSchemaIgnoresIgnoreValidationAnnotationOnNonControllerClasses(): void
+    {
+        $classSchemaMethod = (new ClassSchema(DummyClassWithIgnoreValidationDoctrineAnnotation::class))
+            ->getMethod('someAction');
+        self::assertFalse($classSchemaMethod->getParameter('foo')->ignoreValidation());
+        self::assertFalse($classSchemaMethod->getParameter('bar')->ignoreValidation());
+
+        $this->expectException(NoSuchMethodParameterException::class);
+        $classSchemaMethod->getParameter('baz')->ignoreValidation();
+    }
+
+    #[Test]
+    public function classSchemaIgnoresIgnoreValidationAttributeOnNonControllerClasses(): void
+    {
+        $classSchemaMethod = (new ClassSchema(DummyClassWithIgnoreValidationAttribute::class))
+            ->getMethod('someAction');
+        self::assertFalse($classSchemaMethod->getParameter('foo')->ignoreValidation());
+        self::assertFalse($classSchemaMethod->getParameter('bar')->ignoreValidation());
 
         $this->expectException(NoSuchMethodParameterException::class);
         $classSchemaMethod->getParameter('baz')->ignoreValidation();
@@ -155,50 +179,6 @@ final class MethodParameterTest extends UnitTestCase
                     'name' => NotEmptyValidator::class,
                     'options' => [],
                     'className' => NotEmptyValidator::class,
-                ],
-            ],
-            $classSchema->getMethod('methodWithValidateAttributesAction')->getParameter('fooParam')->getValidators()
-        );
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function classSchemaDetectsValidateAnnotationsOfControllerActionsDeprecated(): void
-    {
-        $classSchema = new ClassSchema(DummyControllerDeprecated::class);
-        self::assertSame(
-            [
-                [
-                    'name' => 'TYPO3.CMS.Extbase:NotEmpty',
-                    'options' => [],
-                    'className' => NotEmptyValidator::class,
-                ],
-                [
-                    'name' => 'TYPO3.CMS.Extbase.Tests.Unit.Reflection.Fixture:DummyValidator',
-                    'options' => [],
-                    'className' => DummyValidator::class,
-                ],
-            ],
-            $classSchema->getMethod('methodWithValidateAnnotationsAction')->getParameter('fooParam')->getValidators()
-        );
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function classSchemaDetectsValidateAttributesOfControllerActionsDeprecated(): void
-    {
-        $classSchema = new ClassSchema(DummyControllerDeprecated::class);
-        self::assertSame(
-            [
-                [
-                    'name' => 'TYPO3.CMS.Extbase:NotEmpty',
-                    'options' => [],
-                    'className' => NotEmptyValidator::class,
-                ],
-                [
-                    'name' => 'TYPO3.CMS.Extbase.Tests.Unit.Reflection.Fixture:DummyValidator',
-                    'options' => [],
-                    'className' => DummyValidator::class,
                 ],
             ],
             $classSchema->getMethod('methodWithValidateAttributesAction')->getParameter('fooParam')->getValidators()

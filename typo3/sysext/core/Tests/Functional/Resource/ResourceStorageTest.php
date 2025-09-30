@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Core\Tests\Functional\Resource;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
+use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
 use TYPO3\CMS\Core\Resource\Driver\LocalDriver;
 use TYPO3\CMS\Core\Resource\File;
@@ -228,7 +229,7 @@ final class ResourceStorageTest extends FunctionalTestCase
         $this->expectExceptionCode(1325952534);
         $folderMock = $this->createMock(Folder::class);
         $mockedDriver = $this->createMock(DriverInterface::class);
-        $mockedDriver->expects(self::once())->method('isFolderEmpty')->willReturn(false);
+        $mockedDriver->expects($this->once())->method('isFolderEmpty')->willReturn(false);
         $subject = $this->getAccessibleMock(ResourceStorage::class, ['checkFolderActionPermission'], [], '', false);
         $subject->method('checkFolderActionPermission')->willReturn(true);
         $subject->_set('driver', $mockedDriver);
@@ -243,7 +244,7 @@ final class ResourceStorageTest extends FunctionalTestCase
             ->getMock();
         $driverMock->method('sanitizeFileName')
             ->willReturn('a_b.jpg');
-        $driverMock->expects(self::once())
+        $driverMock->expects($this->once())
             ->method('renameFile')
             ->with('/a b.jpg', 'a_b.jpg');
         $indexerMock = $this->getMockBuilder(Indexer::class)
@@ -261,10 +262,32 @@ final class ResourceStorageTest extends FunctionalTestCase
             [
                 'identifier' => '/a b.jpg',
                 'name' => 'a b.jpg',
+                'size' => 1024,
+                'mime_type' => 'image/jpeg',
             ],
             $subject,
         );
         $subject->renameFile($file, 'a b.jpg');
     }
 
+    #[Test]
+    public function pathAndNameOfUploadedFileIsResolved(): void
+    {
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']);
+        $subject = new ResourceStorage($localDriver, ['uid' => 1, 'name' => 'testing'], new NoopEventDispatcher());
+
+        // the file is not written to the test file-system
+        $uploadedFilePath = $this->instancePath . '/resource-storage-test/source.txt';
+
+        $uploadedFile = new UploadedFile(
+            $uploadedFilePath,
+            0,
+            UPLOAD_ERR_OK,
+            "directory//up\x00loaded.txt",
+            'text/plain'
+        );
+
+        self::assertSame($uploadedFilePath, $subject->getUploadedLocalFilePath($uploadedFile));
+        self::assertSame('directory__up_loaded.txt', $subject->getUploadedTargetFileName($uploadedFile));
+    }
 }

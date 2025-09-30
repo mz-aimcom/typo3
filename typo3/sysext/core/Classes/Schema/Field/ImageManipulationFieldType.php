@@ -17,18 +17,29 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class ImageManipulationFieldType extends AbstractFieldType implements FieldTypeInterface
+final readonly class ImageManipulationFieldType extends AbstractFieldType
 {
     public function getType(): string
     {
         return 'imageManipulation';
     }
 
-    public static function __set_state(array $state): self
+    public function isSearchable(): false
     {
-        return new self(...$state);
+        return false;
+    }
+
+    public function isNullable(): false
+    {
+        return false;
+    }
+    public function hasDefaultValue(): false
+    {
+        return false;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

@@ -44,7 +44,7 @@ class DeferredBackendImageProcessor implements ProcessorInterface
             && $task->getSourceFile()->getProperty('width') > 0
             && $task->getSourceFile()->getProperty('height') > 0
             // Let the local image processor update the properties in case the target file exists already
-            && !$task->getSourceFile()->getStorage()->getProcessingFolder()->hasFile($task->getTargetFileName());
+            && !$task->getSourceFile()->getStorage()->getProcessingFolder($task->getSourceFile())->hasFile($task->getTargetFileName());
     }
 
     public function processTask(TaskInterface $task): void
@@ -60,7 +60,7 @@ class DeferredBackendImageProcessor implements ProcessorInterface
             // For now, we need to persist the processed file in the repository to be able to reference its uid
             // We could instead introduce a processing queue and persist the information there
             $processedFileRepository = GeneralUtility::makeInstance(ProcessedFileRepository::class);
-            $processedFileRepository->add($processedFile);
+            $processedFileRepository->add($processedFile, $task);
         }
         $processedFile->setName($task->getTargetFileName());
         $processingUrl = (string)GeneralUtility::makeInstance(UriBuilder::class)

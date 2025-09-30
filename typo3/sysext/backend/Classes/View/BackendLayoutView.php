@@ -69,29 +69,24 @@ class BackendLayoutView implements SingletonInterface
         $pageId = $this->determinePageId($parameters['table'], $parameters['row']) ?: 0;
         $pageTsConfig = BackendUtility::getPagesTSconfig($pageId);
         $identifiersToBeExcluded = $this->getIdentifiersToBeExcluded($pageTsConfig);
-
-        $dataProviderContext = GeneralUtility::makeInstance(DataProviderContext::class);
-        $dataProviderContext
-            ->setPageId($pageId)
-            ->setData($parameters['row'])
-            ->setTableName($parameters['table'])
-            ->setFieldName($parameters['field'])
-            ->setPageTsConfig($pageTsConfig);
-
+        $dataProviderContext = new DataProviderContext(
+            pageId: $pageId,
+            tableName: $parameters['table'],
+            fieldName: $parameters['field'],
+            data: $parameters['row'],
+            pageTsConfig: $pageTsConfig,
+        );
         $backendLayoutCollections = $this->dataProviderCollection->getBackendLayoutCollections($dataProviderContext);
         foreach ($backendLayoutCollections as $backendLayoutCollection) {
             $combinedIdentifierPrefix = '';
             if ($backendLayoutCollection->getIdentifier() !== 'default') {
                 $combinedIdentifierPrefix = $backendLayoutCollection->getIdentifier() . '__';
             }
-
             foreach ($backendLayoutCollection->getAll() as $backendLayout) {
                 $combinedIdentifier = $combinedIdentifierPrefix . $backendLayout->getIdentifier();
-
                 if (in_array($combinedIdentifier, $identifiersToBeExcluded, true)) {
                     continue;
                 }
-
                 $parameters['items'][] = [
                     'label' => $backendLayout->getTitle(),
                     'value' => $combinedIdentifier,
@@ -285,29 +280,5 @@ class BackendLayoutView implements SingletonInterface
             }
         }
         return $backendLayoutData;
-    }
-
-    /**
-     * Get default columns layout (main column)
-     */
-    public static function getDefaultColumnLayout(): string
-    {
-        return '
-		backend_layout {
-			colCount = 1
-			rowCount = 1
-			rows {
-				1 {
-					columns {
-						1 {
-							name = LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:colPos.I.1
-							colPos = 0
-							identifier = main
-						}
-					}
-				}
-			}
-		}
-		';
     }
 }

@@ -24,7 +24,6 @@ use TYPO3\CMS\Backend\Form\Behavior\UpdateValueOnFieldChange;
 use TYPO3\CMS\Backend\Form\FormDataCompiler;
 use TYPO3\CMS\Backend\Form\FormDataGroup\TcaDatabaseRecord;
 use TYPO3\CMS\Backend\Form\NodeFactory;
-use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Page\JavaScriptItems;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
@@ -35,11 +34,11 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  * Handle FormEngine flex field ajax calls
  */
 #[AsController]
-class FormFlexAjaxController extends AbstractFormEngineAjaxController
+readonly class FormFlexAjaxController extends AbstractFormEngineAjaxController
 {
     public function __construct(
-        private readonly FormDataCompiler $formDataCompiler,
-        private readonly FlexFormTools $flexFormTools,
+        private FormDataCompiler $formDataCompiler,
+        private NodeFactory $nodeFactory,
     ) {}
 
     /**
@@ -55,16 +54,13 @@ class FormFlexAjaxController extends AbstractFormEngineAjaxController
         $tableName = $queryParameters['tableName'];
         $fieldName = $queryParameters['fieldName'];
         $recordTypeValue = $queryParameters['recordTypeValue'];
-        $dataStructureIdentifier = json_encode($queryParameters['dataStructureIdentifier']);
         $flexFormSheetName = $queryParameters['flexFormSheetName'];
         $flexFormFieldName = $queryParameters['flexFormFieldName'];
         $flexFormContainerName = $queryParameters['flexFormContainerName'];
 
         // Prepare TCA and data values for a new section container using data providers
+        // @todo Replace with a mutable schema
         $processedTca = $GLOBALS['TCA'][$tableName];
-        $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier);
-        $processedTca['columns'][$fieldName]['config']['ds'] = $dataStructure;
-        $processedTca['columns'][$fieldName]['config']['dataStructureIdentifier'] = $dataStructureIdentifier;
         // Get a new unique id for this container.
         $flexFormContainerIdentifier = StringUtility::getUniqueId();
         $flexSectionContainerPreparation = [
@@ -89,28 +85,11 @@ class FormFlexAjaxController extends AbstractFormEngineAjaxController
         // @see issue #80100 for a series of changes in this area
         if ($command === 'new') {
             $formDataCompilerInput['databaseRow']['uid'] = $databaseRowUid;
-            // This is a hack to handle creation of flex form section containers on new / not-yet-persisted
-            // records that use "sub types" - for example tt_content ctype plugin with plugin list_type (eg. news_pi1):
-            // The container needs to know the list_type to create the proper flex form section container.
-            // We *can* fetch the given sub type from the dataStructureIdentifier when it's type is 'tca'.
-            // This is hacky since we're using 'internal' knowledge of the dataStructureIdentifier here, which
-            // *should* be avoided. But sub types should vanish from TCA at some point anyway (this usage shows
-            // the complexity they introduce quite well), so we live with the solution for now instead of handing
-            // the selected sub type through the system differently.
-            $subtypeValueField = $processedTca['types'][$recordTypeValue]['subtype_value_field'] ?? null;
-            $subtypeValue = explode(',', $queryParameters['dataStructureIdentifier']['dataStructureKey'] ?? '')[0];
-            if ($subtypeValueField
-                && $subtypeValue
-                && ($queryParameters['dataStructureIdentifier']['type'] ?? '') === 'tca'
-                && !in_array($subtypeValue, ['*', 'list', 'default'], true)
-            ) {
-                // Set selected sub type to init flex form container creation for this type & sub type combination
-                $formDataCompilerInput['databaseRow'][$subtypeValueField] = $subtypeValue;
-            }
         }
         $formData = $this->formDataCompiler->compile($formDataCompilerInput, GeneralUtility::makeInstance(TcaDatabaseRecord::class));
 
         $dataStructure = $formData['processedTca']['columns'][$fieldName]['config']['ds'];
+        $dataStructureIdentifier = $formData['processedTca']['columns'][$fieldName]['config']['dataStructureIdentifier'];
         $formData['fieldName'] = $fieldName;
         $formData['flexFormDataStructureArray'] = $dataStructure['sheets'][$flexFormSheetName]['ROOT']['el'][$flexFormFieldName]['children'][$flexFormContainerIdentifier];
         $formData['flexFormDataStructureIdentifier'] = $dataStructureIdentifier;
@@ -156,10 +135,9 @@ class FormFlexAjaxController extends AbstractFormEngineAjaxController
         // @todo: check GroupElement for usage of elementBaseName ... maybe kick that thing?
 
         // Feed resulting form data to container structure to render HTML and other result data
-        $nodeFactory = GeneralUtility::makeInstance(NodeFactory::class);
         $formData['renderType'] = 'flexFormContainerContainer';
-        $newContainerResult = $nodeFactory->create($formData)->render();
-        $scriptItems = GeneralUtility::makeInstance(JavaScriptItems::class);
+        $newContainerResult = $this->nodeFactory->create($formData)->render();
+        $scriptItems = new JavaScriptItems();
 
         $jsonResult = [
             'html' => $newContainerResult['html'],

@@ -20,21 +20,16 @@ namespace TYPO3\CMS\Backend\ViewHelpers\Uri;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Use this ViewHelper to provide 'create new record' links.
+ * ViewHelper to provide 'create new record' links.
  * The ViewHelper will pass the command to FormEngine.
  *
- * The table argument is mandatory, it decides what record is to be created.
- *
- * The pid argument will put the new record on this page, if ``0`` given it will
+ * The `pid` argument will put the new record on this page, if ``0`` given it will
  * be placed to the root page.
  *
- * The uid argument accepts only negative values. If this is given, the new
+ * The `uid` argument accepts only negative values. If this is given, the new
  * record will be placed (by sorting field) behind the record with the uid.
  * It will end up on the same pid as this given record, so the pid must not
  * be given explicitly by pid argument.
@@ -42,38 +37,21 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
  * An exception will be thrown, if both uid and pid are given.
  * An exception will be thrown, if the uid argument is not a negative integer.
  *
- * To edit records, use the :ref:`<be:uri.editRecord> <typo3-backend-uri-editrecord>`.
- *
- * Examples
- * ========
- *
- * Uri to create a new record of a_table after record 17 on the same pid::
- *
+ * ```
  *    <be:uri.newRecord table="a_table" returnUrl="foo/bar" uid="-17"/>
- *
- * ``/typo3/record/edit?edit[a_table][-17]=new&returnUrl=foo/bar``
- *
- * Uri to create a new record of a_table on root page::
- *
- *    <be:uri.newRecord table="a_table" returnUrl="foo/bar""/>
- *
- * ``/typo3/record/edit?edit[a_table][]=new&returnUrl=foo/bar``
- *
- * Uri to create a new record of a_table on page 17::
- *
  *    <be:uri.newRecord table="a_table" returnUrl="foo/bar" pid="17"/>
+ * ```
  *
- * ``/typo3/record/edit?edit[a_table][17]=new&returnUrl=foo/bar``
- *
- * Uri to create a new record of a_table on page 17 with a default value::
- *
- *    <be:uri.newRecord table="a_table" returnUrl="foo/bar" pid="17" defaultValues="{a_table: {a_field: 'value'}}"/>
- *
- * ``/typo3/record/edit?edit[a_table][17]=new&returnUrl=foo/bar&defVals[a_table][a_field]=value``
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-uri-newrecord
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-uri-editrecord
  */
 final class NewRecordViewHelper extends AbstractTagBasedViewHelper
 {
-    use CompileWithRenderStatic;
+    public function __construct(
+        private readonly UriBuilder $uriBuilder
+    ) {
+        parent::__construct();
+    }
 
     public function initializeArguments(): void
     {
@@ -85,35 +63,28 @@ final class NewRecordViewHelper extends AbstractTagBasedViewHelper
     }
 
     /**
-     * @param array<string, mixed> $arguments
-     *
      * @throws \InvalidArgumentException
      * @throws RouteNotFoundException
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        if ($arguments['uid'] && $arguments['pid']) {
+        if ($this->arguments['uid'] && $this->arguments['pid']) {
             throw new \InvalidArgumentException('Can\'t handle both uid and pid for new records', 1526136338);
         }
-        if (isset($arguments['uid']) && $arguments['uid'] >= 0) {
-            throw new \InvalidArgumentException('Uid must be negative integer, ' . $arguments['uid'] . ' given', 1526136362);
+        if (isset($this->arguments['uid']) && $this->arguments['uid'] >= 0) {
+            throw new \InvalidArgumentException('Uid must be negative integer, ' . $this->arguments['uid'] . ' given', 1526136362);
         }
-
-        if (empty($arguments['returnUrl'])) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
-            $arguments['returnUrl'] = $request->getAttribute('normalizedParams')->getRequestUri();
+        if (empty($this->arguments['returnUrl'])) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
+            $this->arguments['returnUrl'] = $request->getAttribute('normalizedParams')->getRequestUri();
         }
-
         $params = [
-            'edit' => [$arguments['table'] => [$arguments['uid'] ?? $arguments['pid'] ?? 0 => 'new']],
-            'returnUrl' => $arguments['returnUrl'],
+            'edit' => [$this->arguments['table'] => [$this->arguments['uid'] ?? $this->arguments['pid'] ?? 0 => 'new']],
+            'returnUrl' => $this->arguments['returnUrl'],
         ];
-
-        if ($arguments['defaultValues']) {
-            $params['defVals'] = $arguments['defaultValues'];
+        if ($this->arguments['defaultValues']) {
+            $params['defVals'] = $this->arguments['defaultValues'];
         }
-
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-        return (string)$uriBuilder->buildUriFromRoute('record_edit', $params);
+        return (string)$this->uriBuilder->buildUriFromRoute('record_edit', $params);
     }
 }

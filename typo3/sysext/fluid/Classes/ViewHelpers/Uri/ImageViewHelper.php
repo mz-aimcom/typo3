@@ -27,10 +27,10 @@ use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Resizes a given image (if required) and returns its relative path.
+ * ViewHelper to resize, crop or convert a given image (if required) and return
+ * the URL to this processed file.
  *
  * This ViewHelper should only be used for images within FAL storages,
  * or where graphical operations shall be performed.
@@ -45,87 +45,20 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
  * are coupled with FAL metadata. Each non-FAL image operation creates a
  * "fake" FAL record, which may lead to problems.
  *
- * For extension resource files, use :ref:`<f:uri.resource> <typo3-fluid-uri-resource>`
- * instead.
+ * For extension resource files, use `<f:uri.resource>` instead.
  *
  * External URLs are not processed and just returned as is.
  *
- * Examples
- * ========
+ * ```
+ *   <f:uri.image src="{variableWithFileadminLocation}" width="100c" />
+ *   <f:uri.image image="{imageObject}" maxWidth="400" maxHeight="400" fileExtension="webp" />
+ * ```
  *
- * Default
- * -------
- *
- * ::
- *
- *    <f:uri.image src="EXT:myext/Resources/Public/typo3_logo.png" />
- *
- * Results in the following output within TYPO3 frontend:
- *
- * ``typo3conf/ext/myext/Resources/Public/typo3_logo.png``
- *
- * and the following output inside TYPO3 backend:
- *
- * ``../typo3conf/ext/myext/Resources/Public/typo3_logo.png``
- *
- * Image Object
- * ------------
- *
- * ::
- *
- *    <f:uri.image image="{imageObject}" />
- *
- * Results in the following output within TYPO3 frontend:
- *
- * ``fileadmin/images/image.png``
- *
- * and the following output inside TYPO3 backend:
- *
- * ``fileadmin/images/image.png``
- *
- * Inline notation
- * ---------------
- *
- * ::
- *
- *    {f:uri.image(src: 'EXT:myext/Resources/Public/typo3_logo.png', minWidth: 30, maxWidth: 40)}
- *
- * ``typo3temp/assets/images/[b4c0e7ed5c].png``
- *
- * Depending on your TYPO3s encryption key.
- *
- * Non existing image
- * ------------------
- *
- * ::
- *
- *    <f:uri.image src="NonExistingImage.png" />
- *
- * ``Could not get image resource for "NonExistingImage.png".``
- *
- * Base 64
- * =======
- *
- * When the :typo3:viewhelper-argument:`base64 <t3viewhelper:typo3-cms-fluid-viewhelpers-uri-imageviewhelper-base64>`
- * argument is set to true, this ViewHelper returns a base 64 encoded version of the ressource.
- *
- * ..  code-block:: html
- *
- *     <img src="{f:uri.image(base64: 'true',
- *                            src:'EXT:backend/Resources/Public/Images/typo3_logo_orange.svg')}">
- *
- * Will return the image encoded in base64:
- *
- * ..  code-block:: html
- *
- *     <img src="data:image/svg+xml;base64,PHN2...cuODQ4LTYuNzU3Ii8+Cjwvc3ZnPgo=">
- *
- * This can be particularly useful inside `FluidEmail` or to prevent unneeded HTTP calls.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-image
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-resource
  */
 final class ImageViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('src', 'string', 'src', false, '');
@@ -150,29 +83,26 @@ final class ImageViewHelper extends AbstractViewHelper
      *
      * @throws Exception
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $src = (string)$arguments['src'];
-        $image = $arguments['image'];
-        $treatIdAsReference = (bool)$arguments['treatIdAsReference'];
-        $cropString = $arguments['crop'];
-        $absolute = $arguments['absolute'];
-
+        $src = (string)$this->arguments['src'];
+        $image = $this->arguments['image'];
+        $treatIdAsReference = (bool)$this->arguments['treatIdAsReference'];
+        $cropString = $this->arguments['crop'];
+        $absolute = $this->arguments['absolute'];
         if (($src === '' && $image === null) || ($src !== '' && $image !== null)) {
-            throw new Exception(self::getExceptionMessage('You must either specify a string src or a File object.', $renderingContext), 1460976233);
+            throw new Exception(self::getExceptionMessage('You must either specify a string src or a File object.', $this->renderingContext), 1460976233);
         }
-
-        if ((string)$arguments['fileExtension'] && !GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], (string)$arguments['fileExtension'])) {
+        if ((string)$this->arguments['fileExtension'] && !GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], (string)$this->arguments['fileExtension'])) {
             throw new Exception(
                 self::getExceptionMessage(
-                    'The extension ' . $arguments['fileExtension'] . ' is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\']'
+                    'The extension ' . $this->arguments['fileExtension'] . ' is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\']'
                     . ' as a valid image file extension and can not be processed.',
-                    $renderingContext
+                    $this->renderingContext
                 ),
                 1618992262
             );
         }
-
         try {
             $imageService = self::getImageService();
             $image = $imageService->getImage($src, $image, $treatIdAsReference);
@@ -187,40 +117,40 @@ final class ImageViewHelper extends AbstractViewHelper
             }
 
             $cropVariantCollection = CropVariantCollection::create((string)$cropString);
-            $cropVariant = $arguments['cropVariant'] ?: 'default';
+            $cropVariant = $this->arguments['cropVariant'] ?: 'default';
             $cropArea = $cropVariantCollection->getCropArea($cropVariant);
             $processingInstructions = [
-                'width' => $arguments['width'],
-                'height' => $arguments['height'],
-                'minWidth' => $arguments['minWidth'],
-                'minHeight' => $arguments['minHeight'],
-                'maxWidth' => $arguments['maxWidth'],
-                'maxHeight' => $arguments['maxHeight'],
+                'width' => $this->arguments['width'],
+                'height' => $this->arguments['height'],
+                'minWidth' => $this->arguments['minWidth'],
+                'minHeight' => $this->arguments['minHeight'],
+                'maxWidth' => $this->arguments['maxWidth'],
+                'maxHeight' => $this->arguments['maxHeight'],
                 'crop' => $cropArea->isEmpty() ? null : $cropArea->makeAbsoluteBasedOnFile($image),
             ];
-            if (!empty($arguments['fileExtension'])) {
-                $processingInstructions['fileExtension'] = $arguments['fileExtension'];
+            if (!empty($this->arguments['fileExtension'])) {
+                $processingInstructions['fileExtension'] = $this->arguments['fileExtension'];
             }
 
             $processedImage = $imageService->applyProcessingInstructions($image, $processingInstructions);
 
-            if ($arguments['base64']) {
+            if ($this->arguments['base64']) {
                 return 'data:' . $processedImage->getMimeType() . ';base64,' . base64_encode($processedImage->getContents());
             }
             return $imageService->getImageUri($processedImage, $absolute);
         } catch (ResourceDoesNotExistException $e) {
             // thrown if file does not exist
-            throw new Exception(self::getExceptionMessage($e->getMessage(), $renderingContext), 1509741907, $e);
+            throw new Exception(self::getExceptionMessage($e->getMessage(), $this->renderingContext), 1509741907, $e);
         } catch (\UnexpectedValueException $e) {
             // thrown if a file has been replaced with a folder
-            throw new Exception(self::getExceptionMessage($e->getMessage(), $renderingContext), 1509741908, $e);
+            throw new Exception(self::getExceptionMessage($e->getMessage(), $this->renderingContext), 1509741908, $e);
         } catch (\InvalidArgumentException $e) {
             // thrown if file storage does not exist
-            throw new Exception(self::getExceptionMessage($e->getMessage(), $renderingContext), 1509741910, $e);
+            throw new Exception(self::getExceptionMessage($e->getMessage(), $this->renderingContext), 1509741910, $e);
         }
     }
 
-    protected static function getExceptionMessage(string $detailedMessage, RenderingContextInterface $renderingContext): string
+    private static function getExceptionMessage(string $detailedMessage, RenderingContextInterface $renderingContext): string
     {
         $request = null;
         if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
@@ -235,7 +165,7 @@ final class ImageViewHelper extends AbstractViewHelper
         return sprintf('Unable to render image uri: %s', $detailedMessage);
     }
 
-    protected static function getImageService(): ImageService
+    private static function getImageService(): ImageService
     {
         return GeneralUtility::makeInstance(ImageService::class);
     }

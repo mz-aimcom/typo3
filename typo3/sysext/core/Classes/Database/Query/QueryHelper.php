@@ -43,6 +43,9 @@ class QueryHelper
      */
     public static function parseOrderBy(string $input): array
     {
+        if ($input === '') {
+            return [];
+        }
         $input = preg_replace('/^(?:ORDER[[:space:]]*BY[[:space:]]*)+/i', '', trim($input)) ?: '';
         $orderExpressions = GeneralUtility::trimExplode(',', $input, true);
 
@@ -71,6 +74,9 @@ class QueryHelper
      */
     public static function parseTableList(string $input): array
     {
+        if ($input === '') {
+            return [];
+        }
         $input = preg_replace('/^(?:FROM[[:space:]]+)+/i', '', trim($input)) ?: '';
         $tableExpressions = GeneralUtility::trimExplode(',', $input, true);
 
@@ -101,6 +107,9 @@ class QueryHelper
      */
     public static function parseGroupBy(string $input): array
     {
+        if ($input === '') {
+            return [];
+        }
         $input = preg_replace('/^(?:GROUP[[:space:]]*BY[[:space:]]*)+/i', '', trim($input)) ?: '';
 
         return GeneralUtility::trimExplode(',', $input, true);
@@ -175,46 +184,88 @@ class QueryHelper
 
     /**
      * Returns the date and time formats compatible with the given database.
-     *
      * This simple method should probably be deprecated and removed later.
-     *
-     * @return array
      */
-    public static function getDateTimeFormats()
+    public static function getDateTimeFormats(): array
     {
         return [
             'date' => [
                 'empty' => '0000-00-00',
                 'format' => 'Y-m-d',
-                'reset' => null,
             ],
             'datetime' => [
                 'empty' => '0000-00-00 00:00:00',
                 'format' => 'Y-m-d H:i:s',
-                'reset' => null,
             ],
             'time' => [
                 'empty' => '00:00:00',
                 'format' => 'H:i:s',
-                'reset' => '00:00:00',
             ],
         ];
     }
 
     /**
      * Returns the date and time types compatible with the given database.
-     *
      * This simple method should probably be deprecated and removed later.
-     *
-     * @return array
      */
-    public static function getDateTimeTypes()
+    public static function getDateTimeTypes(): array
     {
         return [
             'date',
             'datetime',
             'time',
         ];
+    }
+
+    public static function transformDateTimeToDatabaseValue(
+        ?\DateTimeInterface $datetime,
+        bool $isNullable,
+        string $format,
+        ?string $persistenceType,
+    ): int|string|null {
+        if ($datetime === null) {
+            if ($isNullable) {
+                return null;
+            }
+            if ($persistenceType === null) {
+                return 0;
+            }
+            return self::getDateTimeFormats()[$persistenceType]['empty'] ?? null;
+        }
+
+        if (!$datetime instanceof \DateTimeImmutable) {
+            $datetime = \DateTimeImmutable::createFromInterface($datetime);
+        }
+
+        // Apply format-specific normalizations
+        if ($format === 'time') {
+            // time(sec) is stored as elapsed seconds in DB, hence we base the time on 1970-01-01
+            $datetime = $datetime->setDate(1970, 01, 01)->setTime((int)$datetime->format('H'), (int)$datetime->format('i'), 0);
+        } elseif ($format === 'timesec' || $persistenceType === 'time') {
+            $datetime = $datetime->setDate(1970, 01, 01);
+        } elseif ($format === 'date' || $persistenceType === 'date') {
+            $datetime = $datetime->setTime(0, 0, 0);
+        }
+
+        // Native DATETIME, DATE or TIME field
+        if (in_array($persistenceType, self::getDateTimeTypes(), true)) {
+            $dateTimeFormats = self::getDateTimeFormats();
+            $persistenceFormat = $dateTimeFormats[$persistenceType]['format'];
+            if ($persistenceType === 'datetime') {
+                // native DATETIME values are stored in server LOCALTIME. Force conversion to the servers current timezone.
+                $datetime = $datetime->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+            }
+
+            return $datetime->format($persistenceFormat);
+        }
+
+        // Time is stored in seconds for integer fields
+        if ($format === 'timesec' || $format === 'time') {
+            return (int)$datetime->format('H') * 3600 + (int)$datetime->format('i') * 60 + (int)$datetime->format('s');
+        }
+
+        // Encode as unix timestamp (int) if no native field is used
+        return $datetime->getTimestamp();
     }
 
     /**
@@ -232,7 +283,6 @@ class QueryHelper
                 $sql
             );
         }
-
         return $sql;
     }
 }

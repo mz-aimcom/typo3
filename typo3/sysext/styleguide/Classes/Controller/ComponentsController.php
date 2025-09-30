@@ -29,6 +29,7 @@ use TYPO3\CMS\Core\Pagination\ArrayPaginator;
 use TYPO3\CMS\Core\Pagination\SimplePagination;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Styleguide\DummyDumpContentProvider;
 use TYPO3\CMS\Styleguide\Service\KauderwelschService;
 
 /**
@@ -44,19 +45,22 @@ final class ComponentsController
      */
     private array $allowedActions = [
         'componentsOverview',
-        'accordion',
         'avatar',
         'badges',
         'buttons',
         'cards',
         'checkboxes',
+        'developerTools',
+        'dropdown',
         'flashMessages',
         'form',
         'infobox',
         'input',
         'modal',
+        'navs',
         'notifications',
         'pagination',
+        'panels',
         'progressIndicators',
         'progressTrackers',
         'select',
@@ -81,19 +85,22 @@ final class ComponentsController
 
         // Actions from components navigation
         return match ($queryAction) {
-            'accordion' => $this->renderAccordionView($request),
             'avatar' => $this->renderAvatarView($request),
             'badges' => $this->renderBadgesView($request),
             'buttons' => $this->renderButtonsView($request),
             'cards' => $this->renderCardsView($request),
             'checkboxes' => $this->renderCheckboxesView($request),
+            'developerTools' => $this->renderDeveloperToolsView($request),
+            'dropdown' => $this->renderDropdownView($request),
             'flashMessages' => $this->renderFlashMessagesView($request),
             'form' => $this->renderFormView($request),
             'infobox' => $this->renderInfoboxView($request),
             'input' => $this->renderInputView($request),
             'modal' => $this->renderModalView($request),
+            'navs' => $this->renderNavsView($request),
             'notifications' => $this->renderNotificationsView($request),
             'pagination' => $this->renderPaginationView($request),
+            'panels' => $this->renderPanelsView($request),
             'progressIndicators' => $this->renderProgressIndicatorsView($request),
             'progressTrackers' => $this->renderProgressTrackersView($request),
             'select' => $this->renderSelectView($request),
@@ -115,17 +122,6 @@ final class ComponentsController
             'routeIdentifier' => 'styleguide_components',
         ]);
         return $view->renderResponse('Backend/ComponentsOverview');
-    }
-
-    private function renderAccordionView(ServerRequestInterface $request): ResponseInterface
-    {
-        $view = $this->createModuleTemplate($request, 'accordion');
-        $view->assignMultiple([
-            'actions' => $this->allowedActions,
-            'currentAction' => 'accordion',
-            'routeIdentifier' => 'styleguide_components',
-        ]);
-        return $view->renderResponse('Backend/Components/Accordion');
     }
 
     private function renderAvatarView(ServerRequestInterface $request): ResponseInterface
@@ -185,6 +181,29 @@ final class ComponentsController
             'routeIdentifier' => 'styleguide_components',
         ]);
         return $view->renderResponse('Backend/Components/Checkboxes');
+    }
+
+    private function renderDeveloperToolsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'developerTools');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'developerTools',
+            'routeIdentifier' => 'styleguide_components',
+            'exampleData' => DummyDumpContentProvider::getTestData(),
+        ]);
+        return $view->renderResponse('Backend/Components/DeveloperTools');
+    }
+
+    private function renderDropdownView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'dropdown');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'dropdown',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/Dropdown');
     }
 
     private function renderFlashMessagesView(ServerRequestInterface $request): ResponseInterface
@@ -261,8 +280,20 @@ final class ComponentsController
             'currentAction' => 'modal',
             'routeIdentifier' => 'styleguide_components',
             'variants' => ['notice', 'info', 'ok', 'warning', 'error'],
+            'sizes' => ['small', 'default', 'medium', 'large', 'full'],
         ]);
         return $view->renderResponse('Backend/Components/Modal');
+    }
+
+    private function renderNavsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'navs');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'navs',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/Navs');
     }
 
     private function renderNotificationsView(ServerRequestInterface $request): ResponseInterface
@@ -329,6 +360,18 @@ final class ComponentsController
         return $view->renderResponse('Backend/Components/Pagination');
     }
 
+    private function renderPanelsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'panels');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'panels',
+            'routeIdentifier' => 'styleguide_components',
+            'variants' => ['primary', 'secondary', 'info', 'success', 'warning', 'danger', 'notice', 'default'],
+        ]);
+        return $view->renderResponse('Backend/Components/Panels');
+    }
+
     private function renderProgressIndicatorsView(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->createModuleTemplate($request, 'progressIndicators');
@@ -345,7 +388,7 @@ final class ComponentsController
         $view = $this->createModuleTemplate($request, 'progressTrackers');
         $view->assignMultiple([
             'actions' => $this->allowedActions,
-            'currentAction' => 'renderProgressTrackersView',
+            'currentAction' => 'progressTrackers',
             'routeIdentifier' => 'styleguide_components',
         ]);
         return $view->renderResponse('Backend/Components/ProgressTrackers');

@@ -1,6 +1,6 @@
 .. include:: /Includes.rst.txt
 
-.. _cta-button-widget:
+..  _cta-button-widget:
 
 =================
 CTA Button Widget
@@ -15,6 +15,8 @@ defining a button provider.
 
 You can use this kind of widget to link to for example a manual or to an important
 website that is used a lot by the users.
+
+..  _cta-button-widget-example:
 
 Example
 -------
@@ -38,24 +40,33 @@ Example
            iconIdentifier: 'content-widget-text'
            height: 'small'
 
+..  _cta-button-widget-options:
+
 Options
 -------
 
-.. include:: Options/RefreshAvailable.rst.txt
+..  include:: Options/RefreshAvailable.rst.txt
 
-.. option:: text
+..  confval:: text
+    :name: cta-button-text
+    :type: string
+    :Example: `LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.documentation.gettingStarted.text`
 
-   Adds an optional text to the widget to give some more background information
-   about what a user can expect when clicking the button.
-   You can either enter a normal string or a translation string
-   e.g. ``LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.documentation.gettingStarted.text``.
+    Adds an optional text to the widget to give some more background information
+    about what a user can expect when clicking the button.
+    You can either enter a normal string or a translation string.
+
+..  _cta-button-widget-dependencies:
 
 Dependencies
 ------------
 
-.. option:: $buttonProvider
+..  confval:: $buttonProvider
+    :type: :php:`\TYPO3\CMS\Dashboard\Widgets\ButtonProviderInterface`
+    :name: cta-button-buttonProvider
 
-   Provides the actual button to show within the widget.
-   This button should be provided by a ButtonProvider that implements the interface :php:`ButtonProviderInterface`.
+    Provides the actual button to show within the widget.
+    This button should be provided by a ButtonProvider that implements the interface
+    :php-short:`\TYPO3\CMS\Dashboard\Widgets\ButtonProviderInterface`.
 
-   See :ref:`adding-buttons` for further info and configuration options.
+    See :ref:`adding-buttons` for further info and configuration options.

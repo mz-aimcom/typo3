@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { css, html, LitElement, nothing, TemplateResult } from 'lit';
+import { css, html, LitElement, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators';
 
 /**
@@ -22,7 +22,7 @@ import { customElement, property } from 'lit/decorators';
  */
 @customElement('typo3-extensionmanager-distribution-image')
 export class DistributionImage extends LitElement {
-  static styles = css`
+  static override styles = css`
     img {
       display: block;
       width: 100%;
@@ -35,7 +35,7 @@ export class DistributionImage extends LitElement {
   @property({ type: String }) welcomeImage: string;
   @property({ type: String }) fallback: string;
 
-  protected render(): TemplateResult|symbol {
+  protected override render(): TemplateResult|symbol {
     if (!this.image && !this.fallback) {
       return nothing;
     }

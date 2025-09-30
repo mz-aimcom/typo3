@@ -46,6 +46,7 @@ class ConsumeMessagesCommand extends Command
         private readonly MessageBusInterface $messageBus,
         private readonly ServiceLocator $receiverLocator,
         private readonly StopWorkerOnTimeLimitListener $stopWorkerOnTimeLimitListener,
+        private readonly ServiceLocator $rateLimiterLocator,
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly array $receiverNames = [],
         private readonly array $busIds = [],
@@ -68,7 +69,7 @@ class ConsumeMessagesCommand extends Command
                     ),
                     new InputOption('sleep', null, InputOption::VALUE_REQUIRED, 'Seconds to sleep before asking for new messages after no messages were found', 1),
                     new InputOption('queues', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Limit receivers to only consume from the specified queues'),
-                    new InputOption('exit-code-on-limit', null, InputOption::VALUE_REQUIRED, 'Exit code when limits are reached', 0),
+                    new InputOption('exit-code-on-limit', null, InputOption::VALUE_REQUIRED, 'Exit code when limits are reached', Command::SUCCESS),
                 ]
             )
             ->setHelp(
@@ -130,6 +131,9 @@ EOF
             }
 
             $receivers[$receiverName] = $this->receiverLocator->get($receiverName);
+            if ($this->rateLimiterLocator->has($receiverName)) {
+                $rateLimiters[$receiverName] = $this->rateLimiterLocator->get($receiverName);
+            }
         }
 
         $io = new SymfonyStyle($input, $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output);
@@ -150,7 +154,7 @@ EOF
         }
         $worker->run($options);
 
-        return $this->stopWorkerOnTimeLimitListener->hasStopped() ? $exitCodeOnLimit : 0;
+        return $this->stopWorkerOnTimeLimitListener->hasStopped() ? $exitCodeOnLimit : Command::SUCCESS;
     }
 
     public function complete(CompletionInput $input, CompletionSuggestions $suggestions): void

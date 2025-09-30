@@ -146,6 +146,18 @@ return [
             ],
         ],
 
+        'group_db_13' => [
+            // @todo: This scenario is not covered by functional DataScenarios/ tests,
+            //        we should add coverage that use MM and are not based on type=category
+            //        to gain more coverage in this area.
+            'label' => 'group_db_13 allowed=be_users,be_groups MM simple',
+            'config' => [
+                'type' => 'group',
+                'allowed' => 'be_users,be_groups',
+                'MM' => 'tx_styleguide_element_group_group_13_mm',
+            ],
+        ],
+
         'group_requestUpdate_1' => [
             'label' => 'group_requestUpdate_1',
             'onChange' => 'reload',
@@ -159,61 +171,59 @@ return [
             'label' => 'flex_1',
             'config' => [
                 'type' => 'flex',
-                'ds' => [
-                    'default' => '
-                        <T3DataStructure>
-                            <sheets>
+                'ds' => '
+<T3DataStructure>
+    <sheets>
 
-                                <sDb>
-                                    <ROOT>
-                                        <type>array</type>
-                                        <sheetTitle>group</sheetTitle>
-                                        <el>
-                                            <group_db_1>
-                                                <label>group_db_1 description</label>
-                                                <description>field description</description>
-                                                <config>
-                                                    <type>group</type>
-                                                    <allowed>tx_styleguide_staticdata</allowed>
-                                                </config>
-                                            </group_db_1>
-                                            <group_db_2>
-                                                <label>group_db_2 suggest, order by uid DESC</label>
-                                                <config>
-                                                    <type>group</type>
-                                                    <allowed>tx_styleguide_staticdata</allowed>
-                                                    <suggestOptions>
-                                                        <default>
-                                                            <orderBy>uid DESC</orderBy>
-                                                        </default>
-                                                    </suggestOptions>
-                                                    <fieldControl>
-                                                        <editPopup>
-                                                            <renderType>editPopup</renderType>
-                                                            <disabled>0</disabled>
-                                                        </editPopup>
-                                                        <addRecord>
-                                                            <renderType>addRecord</renderType>
-                                                            <disabled>0</disabled>
-                                                            <options>
-                                                                <setValue>prepend</setValue>
-                                                            </options>
-                                                        </addRecord>
-                                                        <listModule>
-                                                            <renderType>listModule</renderType>
-                                                            <disabled>0</disabled>
-                                                        </listModule>
-                                                    </fieldControl>
-                                                </config>
-                                            </group_db_2>
-                                        </el>
-                                    </ROOT>
-                                </sDb>
+        <sDb>
+            <ROOT>
+                <type>array</type>
+                <sheetTitle>group</sheetTitle>
+                <el>
+                    <group_db_1>
+                        <label>group_db_1 description</label>
+                        <description>field description</description>
+                        <config>
+                            <type>group</type>
+                            <allowed>tx_styleguide_staticdata</allowed>
+                        </config>
+                    </group_db_1>
+                    <group_db_2>
+                        <label>group_db_2 suggest, order by uid DESC</label>
+                        <config>
+                            <type>group</type>
+                            <allowed>tx_styleguide_staticdata</allowed>
+                            <suggestOptions>
+                                <default>
+                                    <orderBy>uid DESC</orderBy>
+                                </default>
+                            </suggestOptions>
+                            <fieldControl>
+                                <editPopup>
+                                    <renderType>editPopup</renderType>
+                                    <disabled>0</disabled>
+                                </editPopup>
+                                <addRecord>
+                                    <renderType>addRecord</renderType>
+                                    <disabled>0</disabled>
+                                    <options>
+                                        <setValue>prepend</setValue>
+                                    </options>
+                                </addRecord>
+                                <listModule>
+                                    <renderType>listModule</renderType>
+                                    <disabled>0</disabled>
+                                </listModule>
+                            </fieldControl>
+                        </config>
+                    </group_db_2>
+                </el>
+            </ROOT>
+        </sDb>
 
-                            </sheets>
-                        </T3DataStructure>
-                    ',
-                ],
+    </sheets>
+</T3DataStructure>
+                ',
             ],
         ],
 
@@ -223,7 +233,7 @@ return [
         '0' => [
             'showitem' => '
                 --div--;type=group,
-                    group_db_1, group_db_2, group_db_9, group_db_3, group_db_8, group_db_11, group_db_4, group_db_5, group_db_7, group_db_10, group_db_12,
+                    group_db_1, group_db_2, group_db_9, group_db_3, group_db_8, group_db_11, group_db_4, group_db_5, group_db_7, group_db_10, group_db_12, group_db_13,
                 --div--;in flex,
                     flex_1,
                 --div--;requestUpdate,

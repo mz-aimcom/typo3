@@ -136,8 +136,6 @@ final class TablePermissionElement extends AbstractFormElement
             $html[] = '<input type="hidden" name="' . $selectStateFieldName . '" value="' . implode(',', $currentValue['select']) . '">';
         }
 
-        $html[] = '<div id="' . $elementId . '" class="panel panel-default">';
-
         $tableRows = [];
         foreach ($tablesConfiguration as $tableConfiguration) {
             $tableRows[] = '<tr role="radiogroup" aria-labelledby="' . $tableConfiguration['label']['id'] . '">';
@@ -158,8 +156,9 @@ final class TablePermissionElement extends AbstractFormElement
             $tableRows[] = '</tr>';
         }
 
+        $html[] = '<div id="' . $elementId . '">';
         $html[] = '<div class="table-fit">';
-        $html[] =       '<table class="table table-transparent table-hover">';
+        $html[] =       '<table class="table table-hover">';
         $html[] =           '<thead>';
         $html[] =               '<tr>';
         foreach (self::Permissions as $permission) {
@@ -175,12 +174,13 @@ final class TablePermissionElement extends AbstractFormElement
         $html[] =        '</table>';
         $html[] =    '</div>';
         $html[] = '</div>';
+        $html[] = '</div>';
 
         if (!$readOnly) {
             $resultArray['javaScriptModules'][] = JavaScriptModuleInstruction::create('@typo3/backend/form-engine/element/table-permission-element.js');
             $resultArray['javaScriptModules'][] = JavaScriptModuleInstruction::create('@typo3/backend/multi-record-selection.js');
         }
-        $html[] = '</div>';
+
         $html[] = '</typo3-formengine-element-tablepermission>';
 
         $resultArray['html'] = $this->wrapWithFieldsetAndLegend(implode(LF, $html));
@@ -195,7 +195,7 @@ final class TablePermissionElement extends AbstractFormElement
         }
         $html = [];
         $html[] = '<fieldset>';
-        $html[] =     '<legend class="form-legend t3js-formengine-legend">' . $legend . '</legend>';
+        $html[] =     '<legend class="form-label t3js-formengine-label">' . $legend . '</legend>';
         $html[] =     $innerHTML;
         $html[] = '</fieldset>';
         return implode(LF, $html);
@@ -212,7 +212,7 @@ final class TablePermissionElement extends AbstractFormElement
         $checkboxOptions = [
             'all' => '
                 <li>
-                    <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-all" title="' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll') . '">
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title="' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll') . '">
                         <span class="dropdown-item-columns">
                             <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                                 ' . $this->iconFactory->getIcon('actions-selection-elements-all', IconSize::SMALL)->render() . '
@@ -225,7 +225,7 @@ final class TablePermissionElement extends AbstractFormElement
                 </li>',
             'none' => '
                 <li>
-                    <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-none" title="' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll') . '">
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title="' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll') . '">
                         <span class="dropdown-item-columns">
                             <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                                 ' . $this->iconFactory->getIcon('actions-selection-elements-none', IconSize::SMALL)->render() . '

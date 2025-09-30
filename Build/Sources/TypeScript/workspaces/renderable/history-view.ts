@@ -12,7 +12,7 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { repeat } from 'lit/directives/repeat';
 import { unsafeHTML } from 'lit/directives/unsafe-html';
 import type { Diff } from './diff-view';
@@ -22,19 +22,19 @@ type History = {
   datetime: string;
   user: string;
   user_avatar: string;
-}
+};
 
 @customElement('typo3-workspaces-history-view')
 export class HistoryViewElement extends LitElement {
   @property({ type: Array })
   public historyItems: History[] = [];
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div>
         ${repeat(this.historyItems, (historyItem) => historyItem.datetime, (historyItem) => this.renderHistoryItem(historyItem))}

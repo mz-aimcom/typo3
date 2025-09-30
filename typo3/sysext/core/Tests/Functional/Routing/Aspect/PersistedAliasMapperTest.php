@@ -28,6 +28,7 @@ use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Routing\Aspect\PersistedAliasMapper;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\Scenario\DataHandlerFactory;
@@ -88,6 +89,7 @@ final class PersistedAliasMapperTest extends FunctionalTestCase
         $tableName = self::ASPECT_CONFIGURATION['tableName'];
         $fieldName = self::ASPECT_CONFIGURATION['routeFieldName'];
         $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'] = self::SLUG_CONFIGURATION;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $languages = [
             [
@@ -116,8 +118,8 @@ final class PersistedAliasMapperTest extends FunctionalTestCase
             ],
             [
                 'languageId' => 0,
-                'base' => 'en_US.UTF-8',
-                'locale' => '/en-us/',
+                'base' => '/en-us/',
+                'locale' => 'en_US.UTF-8',
             ],
         ];
         $this->sites = [
@@ -142,10 +144,9 @@ final class PersistedAliasMapperTest extends FunctionalTestCase
     {
         // ensure no previous site configuration influences the test
         $path = $this->instancePath . '/typo3conf/sites';
-        $cache = $this->get('cache.core');
         $eventDispatcher = $this->get(EventDispatcherInterface::class);
         GeneralUtility::rmdir($path . '/' . $site->getIdentifier(), true);
-        (new SiteWriter($path, $eventDispatcher, $cache, $this->get(YamlFileLoader::class)))
+        (new SiteWriter($path, $eventDispatcher, $this->get(YamlFileLoader::class)))
             ->write($site->getIdentifier(), $site->getConfiguration());
     }
 
@@ -228,10 +229,7 @@ final class PersistedAliasMapperTest extends FunctionalTestCase
             new UserAspect(null, [13])
         );
         $scheduledContext = new Context();
-        $scheduledContext->setAspect(
-            'date',
-            new DateTimeAspect(new \DateTimeImmutable('@20000'))
-        );
+        $scheduledContext->setAspect('date', new DateTimeAspect(new \DateTimeImmutable('@20000')));
 
         return [
             'hidden-visibility-slug, raw context' => [

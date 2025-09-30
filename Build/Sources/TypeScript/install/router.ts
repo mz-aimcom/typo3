@@ -13,14 +13,14 @@
 
 import { html } from 'lit';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInteractableModule } from './module/abstract-interactable-module';
-import { AbstractInlineModule } from './module/abstract-inline-module';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AbstractInteractableModule } from './module/abstract-interactable-module';
+import type { AbstractInlineModule } from './module/abstract-inline-module';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import { InfoBox } from './renderable/info-box';
 import Severity from './renderable/severity';
 import '@typo3/backend/element/spinner-element';
-import MessageInterface from '@typo3/install/message-interface';
+import type MessageInterface from '@typo3/install/message-interface';
 import RegularEvent from '@typo3/core/event/regular-event';
 import '@typo3/backend/element/progress-bar-element';
 
@@ -108,8 +108,7 @@ class Router {
     if (typeof TYPO3.settings === 'undefined') {
       TYPO3.settings = {
         ajaxUrls: {
-          icons: window.location.origin + window.location.pathname + '?install[controller]=icon&install[action]=getIcon',
-          icons_cache: window.location.origin + window.location.pathname + '?install[controller]=icon&install[action]=getCacheIdentifier',
+          icons: window.location.origin + window.location.pathname + '?__typo3_install&install[controller]=icon&install[action]=getIcon',
         },
       } as unknown as typeof TYPO3.settings;
     }
@@ -117,6 +116,7 @@ class Router {
 
   public getUrl(action?: string, controller?: string, additionalQueryParams?: Record<string, string>): string {
     const url = new URL(location.href, window.origin);
+    url.searchParams.set('__typo3_install', '');
     url.searchParams.set('install[controller]', controller ?? this.controller);
     url.searchParams.set('install[context]', this.context);
     if (action !== undefined) {
@@ -217,7 +217,7 @@ class Router {
   }
 
   public async handleAjaxError(error: AjaxResponse, outputContainer?: HTMLElement): Promise<void> {
-    if (error.response.status === 403) {
+    if (error.response?.status === 403) {
       // Install Tool session expired - depending on context render error message or login
       if (this.context === 'backend') {
         this.rootContainer.replaceChildren(
@@ -248,19 +248,18 @@ class Router {
         + '</div>'
         + '</div>'
         + '<div class="panel-group" role="tablist" aria-multiselectable="true">'
-        + '<div class="panel panel-default searchhit">'
-        + '<div class="panel-heading" role="tab" id="heading-error">'
-        + '<h3 class="panel-title">'
-        + '<a role="button" data-bs-toggle="collapse" data-bs-parent="#accordion" href="#collapse-error" aria-expanded="true" '
-        + 'aria-controls="collapse-error" class="collapsed">'
+        + '<div class="panel panel-default">'
+        + '<h3 class="panel-heading" role="tab" id="heading-error">'
+        + '<div class="panel-heading-row">'
+        + '<button type="button" data-bs-toggle="collapse" data-bs-parent="#accordion" data-bs-target="#collapse-error" aria-expanded="true" aria-controls="collapse-error" class="panel-button collapsed">'
+        + '<div class="panel-title"><strong>Ajax error</strong></div>'
         + '<span class="caret"></span>'
-        + '<strong>Ajax error</strong>'
-        + '</a>'
-        + '</h3>'
+        + '</button>'
         + '</div>'
+        + '</h3>'
         + '<div id="collapse-error" class="panel-collapse collapse" role="tabpanel" aria-labelledby="heading-error">'
         + '<div class="panel-body">'
-        + (await error.response.text())
+        + (error.response ? await error.response.text() : (error as unknown as Error).message)
         + '</div>'
         + '</div>'
         + '</div>'
@@ -346,9 +345,7 @@ class Router {
 
   public login(): void {
     const outputContainer: HTMLElement = document.querySelector('.t3js-login-output');
-    const progressBar = document.createElement('typo3-backend-progress-bar');
-
-    outputContainer.replaceChildren(progressBar);
+    outputContainer.innerHTML = '';
     (new AjaxRequest(this.getUrl()))
       .post({
         install: {

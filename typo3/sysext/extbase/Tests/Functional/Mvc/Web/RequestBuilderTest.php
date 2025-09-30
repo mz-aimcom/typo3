@@ -34,7 +34,6 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
 use TYPO3\CMS\Extbase\Mvc\Exception;
 use TYPO3\CMS\Extbase\Mvc\Exception\InvalidActionNameException;
 use TYPO3\CMS\Extbase\Mvc\Exception\InvalidControllerNameException;
-use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\RequestBuilder;
 use TYPO3\TestingFramework\Core\Functional\Framework\FrameworkState;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -96,7 +95,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withAttribute('module', $module);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('html', $request->getFormat());
     }
 
@@ -127,7 +125,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withAttribute('module', $module);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('json', $request->getFormat());
     }
 
@@ -158,7 +155,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withAttribute('module', $module);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('json', $request->getFormat());
     }
 
@@ -234,7 +230,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withAttribute('normalizedParams', $normalizedParams)->withAttribute('module', $module);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         $uploadedFiles = $request->getUploadedFiles();
         $uploadedFile = $uploadedFiles['dummy'];
         self::assertInstanceOf(UploadedFile::class, $uploadedFile);
@@ -304,7 +299,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withAttribute('normalizedParams', $normalizedParams)->withAttribute('module', $module);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         $uploadedFiles = $request->getUploadedFiles();
         $uploadedFile1 = $uploadedFiles['dummy']['pdf'];
         self::assertInstanceOf(UploadedFile::class, $uploadedFile1);
@@ -441,7 +435,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withQueryParams(['controller' => 'NonExistentController']);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('Blog', $request->getControllerName());
     }
 
@@ -473,7 +466,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withQueryParams(['controller' => 'User']);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('User', $request->getControllerName());
     }
 
@@ -482,7 +474,7 @@ final class RequestBuilderTest extends FunctionalTestCase
     {
         $this->expectException(InvalidActionNameException::class);
         $this->expectExceptionCode(1313855175);
-        $this->expectExceptionMessage('The action "NonExistentAction" (controller "TYPO3Tests\BlogExample\Controller\BlogController") is not allowed by this plugin / module. Please check TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin() in your ext_localconf.php / TYPO3\CMS\Extbase\Utility\ExtensionUtility::configureModule() in your ext_tables.php.');
+        $this->expectExceptionMessage('The action "NonExistentAction" (controller "TYPO3Tests\BlogExample\Controller\BlogController") is not allowed by this plugin / module. Please check TYPO3\CMS\Extbase\Utility\ExtensionUtility::configurePlugin() in your ext_localconf.php / array key "controllerActions" defined in your Configuration/Backend/Modules.php.');
 
         $extensionName = 'blog_example';
         $pluginName = 'blog';
@@ -572,7 +564,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withQueryParams(['tx_blog_example_blog' => ['action' => 'NonExistentAction']]);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('list', $request->getControllerActionName());
     }
 
@@ -603,7 +594,6 @@ final class RequestBuilderTest extends FunctionalTestCase
         $mainRequest = $mainRequest->withQueryParams(['action' => 'show']);
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('show', $request->getControllerActionName());
     }
 
@@ -669,7 +659,6 @@ final class RequestBuilderTest extends FunctionalTestCase
 
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('show', $request->getControllerActionName());
     }
 
@@ -707,7 +696,6 @@ final class RequestBuilderTest extends FunctionalTestCase
 
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('show', $request->getControllerActionName());
     }
 
@@ -741,7 +729,6 @@ final class RequestBuilderTest extends FunctionalTestCase
 
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('show', $request->getControllerActionName());
     }
 
@@ -777,7 +764,6 @@ final class RequestBuilderTest extends FunctionalTestCase
 
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('list', $request->getControllerActionName());
     }
 
@@ -818,7 +804,6 @@ final class RequestBuilderTest extends FunctionalTestCase
 
         $request = $this->get(RequestBuilder::class)->build($mainRequest);
 
-        self::assertInstanceOf(RequestInterface::class, $request);
         self::assertSame('show', $request->getControllerActionName());
         self::assertSame('Blog', $request->getArgument('controller'));
         self::assertSame('show', $request->getArgument('action'));

@@ -1,5 +1,6 @@
 :template: changelogOverview.html
 .. include:: /Includes.rst.txt
+..  _changelog-13-2:
 
 ============
 13.2 Changes
@@ -17,7 +18,7 @@ None since TYPO3 v13.0 release.
 ..  attention::
 
     After TYPO3 v13.0, only new functionality with a solid migration path
-    can be added on top, with aiming for as little as possible breaking changes
+    can be added on top, aiming for as few as possible breaking changes
     after the initial v13.0 release on the way to LTS.
 
 Features

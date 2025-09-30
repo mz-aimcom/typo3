@@ -18,13 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Workspaces\Tests\Functional\Service;
 
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Workspaces\Service\WorkspaceService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
-/**
- * Workspace service test
- */
 final class WorkspaceServiceTest extends FunctionalTestCase
 {
     protected array $coreExtensionsToLoad = ['workspaces'];
@@ -34,26 +30,20 @@ final class WorkspaceServiceTest extends FunctionalTestCase
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_workspace.csv');
-        $backendUser = $this->setUpBackendUser(1);
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($backendUser);
+        $this->setUpBackendUser(1);
     }
 
     #[Test]
     public function emptyWorkspaceReturnsEmptyArray(): void
     {
-        $service = new WorkspaceService();
-        $result = $service->selectVersionsInWorkspace(90);
-        self::assertEmpty($result, 'The workspace 90 contains no changes and the result was supposed to be empty');
-        self::assertIsArray($result, 'Even the empty result from workspace 90 is supposed to be an array');
+        self::assertEmpty($this->get(WorkspaceService::class)->selectVersionsInWorkspace(90));
     }
 
     #[Test]
     public function versionsFromSpecificWorkspaceCanBeFound(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/pages.csv');
-        $service = new WorkspaceService();
-        $result = $service->selectVersionsInWorkspace(91, -99, 2);
-        self::assertIsArray($result, 'The result from workspace 91 is supposed to be an array');
+        $result = $this->get(WorkspaceService::class)->selectVersionsInWorkspace(91, -99, 2);
         self::assertCount(
             1,
             $result['pages'],
@@ -67,9 +57,7 @@ final class WorkspaceServiceTest extends FunctionalTestCase
     public function versionsCanBeFoundRecursive(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/pages.csv');
-        $service = new WorkspaceService();
-        $result = $service->selectVersionsInWorkspace(91, -99, 1, 99);
-        self::assertIsArray($result, 'The result from workspace 91 is supposed to be an array');
+        $result = $this->get(WorkspaceService::class)->selectVersionsInWorkspace(91, -99, 1, 99);
         self::assertCount(
             4,
             $result['pages'],
@@ -81,10 +69,9 @@ final class WorkspaceServiceTest extends FunctionalTestCase
     public function versionsCanBeFilteredToSpecificStage(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/pages.csv');
-        $service = new WorkspaceService();
+        $subject = $this->get(WorkspaceService::class);
         // testing stage 1
-        $result = $service->selectVersionsInWorkspace(91, 1, 1, 99);
-        self::assertIsArray($result, 'The result from workspace 91 is supposed to be an array');
+        $result = $subject->selectVersionsInWorkspace(91, 1, 1, 99);
         self::assertCount(
             2,
             $result['pages'],
@@ -93,8 +80,7 @@ final class WorkspaceServiceTest extends FunctionalTestCase
         self::assertEquals(102, $result['pages'][0]['uid'], 'First records is supposed to have the uid 102');
         self::assertEquals(105, $result['pages'][1]['uid'], 'First records is supposed to have the uid 105');
         // testing stage 2
-        $result = $service->selectVersionsInWorkspace(91, 2, 1, 99);
-        self::assertIsArray($result, 'The result from workspace 91 is supposed to be an array');
+        $result = $subject->selectVersionsInWorkspace(91, 2, 1, 99);
         self::assertCount(
             2,
             $result['pages'],
@@ -109,8 +95,7 @@ final class WorkspaceServiceTest extends FunctionalTestCase
     {
         $this->importCSVDataSet(__DIR__ . '/Fixtures/WorkspaceServiceTestMovedContent.csv');
         // Test if the placeholder can be found when we ask using recursion (same result)
-        $service = new WorkspaceService();
-        $result = $service->selectVersionsInWorkspace(91, -99, 5, 99);
+        $result = $this->get(WorkspaceService::class)->selectVersionsInWorkspace(91, -99, 5, 99);
         self::assertCount(1, $result['pages'], 'Wrong amount of page versions found within workspace 91');
         self::assertEquals(103, $result['pages'][0]['uid'], 'Wrong move-to pointer found for page 3 in workspace 91');
         self::assertEquals(5, $result['pages'][0]['wspid'], 'Wrong workspace-pointer found for page 3 in workspace 91');
@@ -126,48 +111,9 @@ final class WorkspaceServiceTest extends FunctionalTestCase
     {
         $this->importCSVDataSet(__DIR__ . '/Fixtures/WorkspaceServiceTestMovedContent.csv');
         // Test if the placeholder can be found when we ask using recursion (same result)
-        $service = new WorkspaceService();
-        $result = $service->selectVersionsInWorkspace(91, -99, 3, 99);
+        $result = $this->get(WorkspaceService::class)->selectVersionsInWorkspace(91, -99, 3, 99);
         self::assertCount(1, $result, 'Wrong amount of versions found within workspace 91');
         self::assertCount(1, $result['pages'], 'Wrong amount of page versions found within workspace 91');
         self::assertEquals(103, $result['pages'][0]['uid'], 'Wrong move-to pointer found for page 3 in workspace 91');
-    }
-
-    #[Test]
-    public function getPagesWithVersionsInTableReturnsPagesWithVersionsInTable(): void
-    {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/WorkspaceServiceTestMovedContent.csv');
-        $workspaceService = new WorkspaceService();
-        $result = $workspaceService->getPagesWithVersionsInTable(91);
-        $expected = [
-            'sys_category' => [],
-            'sys_file_collection' => [],
-            'sys_file_metadata' => [],
-            'sys_file_reference' => [],
-            'backend_layout' => [],
-            'tt_content' => [
-                1 => true,
-                7 => true,
-            ],
-        ];
-        self::assertSame($expected, $result);
-    }
-
-    #[Test]
-    public function hasPageRecordVersionsReturnsTrueForPageWithVersions(): void
-    {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/WorkspaceServiceTestMovedContent.csv');
-        $workspaceService = new WorkspaceService();
-        $result = $workspaceService->hasPageRecordVersions(91, 7);
-        self::assertTrue($result);
-    }
-
-    #[Test]
-    public function hasPageRecordVersionsReturnsFalseForPageWithoutVersions(): void
-    {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/WorkspaceServiceTestMovedContent.csv');
-        $workspaceService = new WorkspaceService();
-        $result = $workspaceService->hasPageRecordVersions(91, 3);
-        self::assertFalse($result);
     }
 }

@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import { SeverityEnum } from './enum/severity';
 import AjaxDataHandler from './ajax-data-handler';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
@@ -20,8 +20,8 @@ import Modal from './modal';
 import ModuleMenu from './module-menu';
 import Notification from '@typo3/backend/notification';
 import Viewport from './viewport';
-import { ModuleStateStorage } from './storage/module-state-storage';
 import '@typo3/backend/new-record-wizard';
+import Utility from '@typo3/backend/utility';
 
 /**
  * @exports @typo3/backend/context-menu-actions
@@ -56,6 +56,10 @@ class ContextMenuActions {
     if (viewUrl) {
       const previewWin = window.open(viewUrl, 'newTYPO3frontendWindow');
       previewWin.focus();
+
+      if (Utility.urlsPointToSameServerSideResource(previewWin.location.href, viewUrl)) {
+        previewWin.location.reload();
+      }
     }
   }
 
@@ -187,14 +191,9 @@ class ContextMenuActions {
         const eventData = { component: 'contextmenu', action: 'delete', table, uid };
         AjaxDataHandler.process('cmd[' + table + '][' + uid + '][delete]=1', eventData).then((): void => {
           if (table === 'pages') {
-            // base on the assumption that the last selected node, is the one that got deleted
-            if (ModuleStateStorage.current('web').identifier === uid.toString()) {
-              top.document.dispatchEvent(new CustomEvent('typo3:pagetree:selectFirstNode'));
-            }
             ContextMenuActions.refreshPageTree();
-          } else if (table === 'tt_content') {
-            Viewport.ContentContainer.refresh();
           }
+          ContextMenuActions.triggerRefresh(Viewport.ContentContainer.get().location.href);
         });
       }
       modal.hideModal();

@@ -17,21 +17,22 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Utility\ExtensionManagementUtility;
 
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class ExtensionManagementUtilityTcaRequireTest extends FunctionalTestCase
 {
     protected array $testExtensionsToLoad = [
-        'typo3/sysext/core/Tests/Functional/Utility/ExtensionManagementUtility/Fixtures/Extensions/test_tca_a',
-        'typo3/sysext/core/Tests/Functional/Utility/ExtensionManagementUtility/Fixtures/Extensions/test_tca_b',
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_tca_a',
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_tca_b',
     ];
 
     #[Test]
+    #[DoesNotPerformAssertions]
     public function extensionManagementUtilityBuildBaseTcaFromSingleFiles(): void
     {
-        // This is a dummy assertion to test a general behaviour. If this test fails, this means that
-        // variable get leaked again, which should be avoided.
-        self::assertTrue(true);
+        // This is a dummy test of a general behaviour. If this test fails, this means that
+        // variable leaked again, which should be avoided.
     }
 }

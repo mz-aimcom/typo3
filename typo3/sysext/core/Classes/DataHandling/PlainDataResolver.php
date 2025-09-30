@@ -15,10 +15,11 @@
 
 namespace TYPO3\CMS\Core\DataHandling;
 
-use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
@@ -187,11 +188,11 @@ class PlainDataResolver
             ->executeQuery();
 
         while ($version = $result->fetchAssociative()) {
-            $liveReferenceId = $version['t3ver_oid'];
-            $versionId = $version['uid'];
+            $liveReferenceId = (int)$version['t3ver_oid'];
+            $versionId = (int)$version['uid'];
             if (isset($ids[$liveReferenceId])) {
                 if (!$this->keepDeletePlaceholder
-                    && VersionState::tryFrom($version['t3ver_state'] ?? 0) === VersionState::DELETE_PLACEHOLDER
+                    && VersionState::tryFrom((int)($version['t3ver_state'] ?? 0)) === VersionState::DELETE_PLACEHOLDER
                 ) {
                     unset($ids[$liveReferenceId]);
                 } else {
@@ -276,7 +277,8 @@ class PlainDataResolver
         }
 
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($this->tableName);
-        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        // Never apply additional restrictions like 'deleted' to the incoming id list
+        $queryBuilder->getRestrictions()->removeAll();
         $queryBuilder
             ->select('uid')
             ->from($this->tableName)
@@ -288,10 +290,8 @@ class PlainDataResolver
                 )
             );
 
-        if (!empty($this->sortingStatement)) {
-            foreach ($this->sortingStatement as $sortingStatement) {
-                $queryBuilder->getConcreteQueryBuilder()->addOrderBy($sortingStatement);
-            }
+        foreach ($this->sortingStatement as $sortingStatement) {
+            $queryBuilder->getConcreteQueryBuilder()->addOrderBy($sortingStatement);
         }
         // Always add explicit order by uid to have deterministic rows from dbms like postgres.
         // Scenario (see workspace FAL/Modify/ActionTest modifyContentAndDeleteFileReference):
@@ -350,8 +350,8 @@ class PlainDataResolver
 
         $versionIds = [];
         while ($record = $result->fetchAssociative()) {
-            $liveId = $record['uid'];
-            $versionIds[$liveId] = $record['t3ver_oid'];
+            $liveId = (int)$record['uid'];
+            $versionIds[$liveId] = (int)$record['t3ver_oid'];
         }
 
         foreach ($ids as $id) {
@@ -395,7 +395,8 @@ class PlainDataResolver
     protected function isWorkspaceEnabled()
     {
         if (ExtensionManagementUtility::isLoaded('workspaces')) {
-            return BackendUtility::isTableWorkspaceEnabled($this->tableName);
+            $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+            return $schemaFactory->has($this->tableName) && $schemaFactory->get($this->tableName)->hasCapability(TcaSchemaCapability::Workspace);
         }
         return false;
     }

@@ -12,7 +12,7 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, css, LitElement, TemplateResult } from 'lit';
+import { html, css, LitElement, type TemplateResult } from 'lit';
 import Modal from '@typo3/backend/modal';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import '@typo3/backend/new-record-wizard';
@@ -25,7 +25,7 @@ import '@typo3/backend/new-record-wizard';
  */
 @customElement('typo3-backend-new-content-element-wizard-button')
 export class NewContentElementWizardButton extends LitElement {
-  static styles = [css`:host { cursor: pointer; appearance: button; }`];
+  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
   @property({ type: String }) url: string;
   @property({ type: String }) subject: string;
 
@@ -43,7 +43,7 @@ export class NewContentElementWizardButton extends LitElement {
     });
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     if (!this.hasAttribute('role')) {
       this.setAttribute('role', 'button');
     }
@@ -52,7 +52,7 @@ export class NewContentElementWizardButton extends LitElement {
     }
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<slot></slot>`;
   }
 

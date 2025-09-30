@@ -11,11 +11,12 @@
  * The TYPO3 project - inspiring people to share!
  */
 
+import DocumentService from '@typo3/core/document-service';
 import { customElement, property } from 'lit/decorators';
-import { css, html, LitElement, TemplateResult } from 'lit';
-import './action';
-import { ResultItemActionInterface, ResultItemInterface } from '../item';
-import { Action } from './action';
+import { css, html, LitElement, type TemplateResult } from 'lit';
+import { type Action } from './action';
+import type { ResultItemActionInterface, ResultItemInterface } from '../item';
+import type { InvokeActionEventData } from '@typo3/backend/live-search/element/result/result-container';
 
 export const componentName = 'typo3-backend-live-search-result-item-action-container';
 
@@ -23,12 +24,12 @@ export const componentName = 'typo3-backend-live-search-result-item-action-conta
 export class ActionContainer extends LitElement {
   @property({ type: Object, attribute: false }) resultItem: ResultItemInterface|null = null;
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<typo3-backend-live-search-result-action-list>
       ${this.resultItem.actions.map((action: ResultItemActionInterface) => this.renderActionItem(this.resultItem, action))}
     </typo3-backend-live-search-result-action-list>`;
@@ -43,7 +44,7 @@ export class ActionContainer extends LitElement {
   }
 
   private invokeAction(resultItem: ResultItemInterface, action: ResultItemActionInterface): void {
-    this.closest('typo3-backend-live-search-result-container').dispatchEvent(new CustomEvent('livesearch:invoke-action', {
+    this.closest('typo3-backend-live-search-result-container').dispatchEvent(new CustomEvent<InvokeActionEventData>('livesearch:invoke-action', {
       detail: {
         resultItem: resultItem,
         action: action
@@ -54,7 +55,7 @@ export class ActionContainer extends LitElement {
 
 @customElement('typo3-backend-live-search-result-action-list')
 export class ActionList extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
     }
@@ -63,7 +64,8 @@ export class ActionList extends LitElement {
   private parentContainer: HTMLElement;
   private resultItemContainer: HTMLElement;
 
-  public connectedCallback(): void {
+  public override async connectedCallback(): Promise<void> {
+    await DocumentService.ready();
     this.parentContainer = this.closest('typo3-backend-live-search-result-container');
     this.resultItemContainer = this.parentContainer.querySelector('typo3-backend-live-search-result-item-container');
 
@@ -72,14 +74,14 @@ export class ActionList extends LitElement {
     this.addEventListener('keyup', this.handleKeyUp);
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     this.removeEventListener('keydown', this.handleKeyDown);
     this.removeEventListener('keyup', this.handleKeyUp);
 
     super.disconnectedCallback();
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`<slot></slot>`;
   }
 
@@ -115,7 +117,7 @@ export class ActionList extends LitElement {
     e.preventDefault();
 
     const actionElement = e.target as Action;
-    this.parentContainer.dispatchEvent(new CustomEvent('livesearch:invoke-action', {
+    this.parentContainer.dispatchEvent(new CustomEvent<InvokeActionEventData>('livesearch:invoke-action', {
       detail: {
         resultItem: actionElement.resultItem,
         action: actionElement.resultItemAction

@@ -17,11 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Adminpanel\ViewHelpers;
 
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
- * Checks whether the given value is an array
+ * ViewHelper to checks whether the given value is an array.
+ *
+ * ```
+ *   <adm:isArray value="{someVar}" />
+ * ```
  *
  * @internal
  */
@@ -32,11 +35,8 @@ final class IsArrayViewHelper extends AbstractViewHelper
         $this->registerArgument('value', 'mixed', 'The variable being checked', true);
     }
 
-    /**
-     * @param array{value: mixed} $arguments
-     */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): bool
+    public function render(): bool
     {
-        return is_array($arguments['value']);
+        return is_array($this->arguments['value']);
     }
 }

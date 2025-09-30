@@ -55,6 +55,18 @@ services:
       $link: 'https://docs.typo3.org/m/typo3/reference-tsconfig/main/en-us/Index.html'
       $target: '_blank'
 
+  dashboard.widget.rss:
+    class: 'TYPO3\CMS\Dashboard\Widgets\RssWidget'
+    tags:
+      - name: dashboard.widget
+        identifier: 'rss'
+        groupNames: 'news'
+        title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.title'
+        description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.description'
+        iconIdentifier: 'content-widget-rss'
+        height: 'large'
+        width: 'medium'
+
   dashboard.widget.t3news:
     class: 'TYPO3\CMS\Dashboard\Widgets\RssWidget'
     arguments:
@@ -189,3 +201,18 @@ services:
         title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.failedLogins.title'
         description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.failedLogins.description'
         iconIdentifier: 'content-widget-number'
+
+  dashboard.widget.latestChangedPages:
+    class: 'TYPO3\CMS\Dashboard\Widgets\LatestChangedPagesWidget'
+    arguments:
+      $options:
+          refreshAvailable: true
+    tags:
+      - name: dashboard.widget
+        identifier: 'latestChangedPages'
+        groupNames: 'content'
+        title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.latestChangedPages.title'
+        description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.latestChangedPages.description'
+        iconIdentifier: 'content-widget-list'
+        height: 'medium'
+        width: 'medium'

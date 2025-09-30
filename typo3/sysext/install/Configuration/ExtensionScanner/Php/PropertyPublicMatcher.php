@@ -1019,11 +1019,13 @@ return [
     'TYPO3\CMS\Core\DataHandling\DataHandler->checkStoredRecords' => [
         'restFiles' => [
             'Deprecation-101793-DataHandlerCheckStoredRecordsProperties.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\DataHandling\DataHandler->checkStoredRecords_loose' => [
         'restFiles' => [
             'Deprecation-101793-DataHandlerCheckStoredRecordsProperties.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\GraphicalFunctions->dontCompress' => [
@@ -1159,6 +1161,12 @@ return [
     'TYPO3\CMS\Core\Utility\DiffUtility->stripTags' => [
         'restFiles' => [
             'Deprecation-104325-DiffUtility-makeDiffDisplay.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->storeLogMessages' => [
+        'restFiles' => [
+            'Breaking-106118-PropertyDataHandler-storeLogMessagesRemoved.rst',
         ],
     ],
 ];

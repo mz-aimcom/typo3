@@ -24,6 +24,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Http\AbstractApplication;
 
 /**
@@ -41,11 +42,6 @@ class Application extends AbstractApplication
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
-
-        if (isset($_SERVER['TYPO3_DEPRECATED_ENTRYPOINT'])) {
-            trigger_error('/typo3/index.php entrypoint is deprecated and will be removed in TYPO3 v14. Adapt your webserver config to route all requests via /index.php', E_USER_DEPRECATED);
-        }
-
         // Set up the initial context
         $this->initializeContext();
         return parent::handle($request);
@@ -56,12 +52,7 @@ class Application extends AbstractApplication
      */
     protected function initializeContext(): void
     {
-        $this->context->setAspect(
-            'date',
-            new DateTimeAspect(
-                (new \DateTimeImmutable())->setTimestamp($GLOBALS['EXEC_TIME'])
-            )
-        );
+        $this->context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME'])));
         $this->context->setAspect('visibility', new VisibilityAspect(true, true, false, true));
     }
 }

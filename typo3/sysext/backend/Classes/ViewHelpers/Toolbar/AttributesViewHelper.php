@@ -19,39 +19,35 @@ namespace TYPO3\CMS\Backend\ViewHelpers\Toolbar;
 
 use TYPO3\CMS\Backend\Toolbar\ToolbarItemInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Builds an attribute string for use in rendered toolbar items
+ * ViewHelper to build a "class" attribute string for use in rendered toolbar items.
  *
+ * ```
+ *  <be:toolbar.attributes class="{someToolbarItemInterfaceInstance}" />
+ * ```
+ *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-toolbar-attributes
  * @internal
  */
 final class AttributesViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('class', ToolbarItemInterface::class, 'Class being converted to a string for usage as id attribute', true);
     }
 
-    /**
-     * @param array{class?: ToolbarItemInterface} $arguments
-     */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
         $additionalAttributes = [
             'class' => 'toolbar-item',
         ];
-
-        $toolbarItem = $arguments['class'] ?? null;
+        $toolbarItem = $this->arguments['class'] ?? null;
         if ($toolbarItem instanceof ToolbarItemInterface) {
             $additionalAttributes['class'] .= ' ' . ($toolbarItem->getAdditionalAttributes()['class'] ?? '');
             $additionalAttributes['id'] = self::convertClassNameToIdAttribute(\get_class($toolbarItem));
         }
-
         return GeneralUtility::implodeAttributes($additionalAttributes);
     }
 

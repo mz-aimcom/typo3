@@ -16,12 +16,13 @@
 namespace TYPO3\CMS\Backend\Form\Container;
 
 use TYPO3\CMS\Backend\Form\InlineStackProcessor;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
@@ -74,6 +75,7 @@ class InlineControlContainer extends AbstractContainer
         private readonly IconFactory $iconFactory,
         private readonly InlineStackProcessor $inlineStackProcessor,
         private readonly HashService $hashService,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -87,7 +89,7 @@ class InlineControlContainer extends AbstractContainer
 
         $this->inlineData = $this->data['inlineData'];
 
-        $this->inlineStackProcessor->initializeByGivenStructure($this->data['inlineStructure']);
+        $inlineStructure = $this->data['inlineStructure'];
 
         $table = $this->data['tableName'];
         $row = $this->data['databaseRow'];
@@ -100,8 +102,8 @@ class InlineControlContainer extends AbstractContainer
         $foreign_table = $config['foreign_table'];
         $isReadOnly = isset($config['readOnly']) && $config['readOnly'];
         $language = 0;
-        if (BackendUtility::isTableLocalizable($table)) {
-            $languageFieldName = $GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? '';
+        if ($this->tcaSchemaFactory->has($table) && $this->tcaSchemaFactory->get($table)->hasCapability(TcaSchemaCapability::Language)) {
+            $languageFieldName = $this->tcaSchemaFactory->get($table)->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
             $language = isset($row[$languageFieldName][0]) ? (int)$row[$languageFieldName][0] : (int)($row[$languageFieldName] ?? 0);
         }
 
@@ -119,7 +121,7 @@ class InlineControlContainer extends AbstractContainer
                 $newStructureItem['flexform'] = $flexFormParts;
             }
         }
-        $this->inlineStackProcessor->pushStableStructureItem($newStructureItem);
+        $inlineStructure['stable'][] = $newStructureItem;
 
         // Transport the flexform DS identifier fields to the FormInlineAjaxController
         if (!empty($newStructureItem['flexform'])
@@ -134,9 +136,9 @@ class InlineControlContainer extends AbstractContainer
         $config['originalReturnUrl'] = $this->data['returnUrl'];
 
         // e.g. data[<table>][<uid>][<field>]
-        $nameForm = $this->inlineStackProcessor->getCurrentStructureFormPrefix();
+        $nameForm = $this->inlineStackProcessor->getFormPrefixFromStructure($inlineStructure);
         // e.g. data-<pid>-<table1>-<uid1>-<field1>-<table2>-<uid2>-<field2>
-        $nameObject = $this->inlineStackProcessor->getCurrentStructureDomObjectIdPrefix($this->data['inlineFirstPid']);
+        $nameObject = $this->inlineStackProcessor->getDomObjectIdPrefixFromStructure($inlineStructure, $this->data['inlineFirstPid']);
 
         $inlineChildren = $parameterArray['fieldConf']['children'] ?? [];
 
@@ -152,7 +154,7 @@ class InlineControlContainer extends AbstractContainer
             }
         }
 
-        $top = $this->inlineStackProcessor->getStructureLevel(0);
+        $top = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
 
         $this->inlineData['config'][$nameObject] = [
             'table' => $foreign_table,
@@ -290,15 +292,15 @@ class InlineControlContainer extends AbstractContainer
 
         // Add the level buttons before all child records:
         if (in_array($config['appearance']['levelLinksPosition'] ?? null, ['both', 'top'], true)) {
-            $html .= '<div class="form-group t3js-formengine-validation-marker t3js-inline-controls-top-outer-container">' . $newRecordButton . $localizationButtons . '</div>';
+            $html .= '<div class="form-group t3js-formengine-validation-marker t3js-inline-controls">' . $newRecordButton . $localizationButtons . '</div>';
         }
 
         // If it's required to select from possible child records (reusable children), add a selector box
         if (!$isReadOnly && ($config['foreign_selector'] ?? false) && ($config['appearance']['showPossibleRecordsSelector'] ?? true) !== false) {
             if (($config['selectorOrUniqueConfiguration']['config']['type'] ?? false) === 'select') {
-                $selectorBox = $this->renderPossibleRecordsSelectorTypeSelect($config, $uniqueIds);
+                $selectorBox = $this->renderPossibleRecordsSelectorTypeSelect($inlineStructure, $config, $uniqueIds);
             } else {
-                $selectorBox = $this->renderPossibleRecordsSelectorTypeGroupDB($config);
+                $selectorBox = $this->renderPossibleRecordsSelectorTypeGroupDB($inlineStructure, $config);
             }
             $html .= $selectorBox . $localizationButtons;
         }
@@ -313,7 +315,7 @@ class InlineControlContainer extends AbstractContainer
             // @todo: this can be removed if this container no longer sets additional info to $config
             $options['inlineParentConfig'] = $config;
             $options['inlineData'] = $this->inlineData;
-            $options['inlineStructure'] = $this->inlineStackProcessor->getStructure();
+            $options['inlineStructure'] = $inlineStructure;
             $options['inlineExpandCollapseStateArray'] = $this->data['inlineExpandCollapseStateArray'];
             $options['renderType'] = 'inlineRecordContainer';
             $childResult = $this->nodeFactory->create($options)->render();
@@ -335,7 +337,7 @@ class InlineControlContainer extends AbstractContainer
 
         // Add the level buttons after all child records:
         if (!$isReadOnly && in_array($config['appearance']['levelLinksPosition'] ?? false, ['both', 'bottom'], true)) {
-            $html .= $newRecordButton . $localizationButtons;
+            $html .= '<div class="form-group t3js-formengine-validation-marker t3js-inline-controls">' . $newRecordButton . $localizationButtons . '</div>';
         }
         if (is_array($config['customControls'] ?? false)) {
             $html .= '<div id="' . $nameObject . '_customControls">';
@@ -396,8 +398,8 @@ class InlineControlContainer extends AbstractContainer
             case 'newRecord':
                 $title = htmlspecialchars($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.createnew'));
                 $icon = 'actions-plus';
-                $className = 'typo3-newRecordLink t3js-inline-controls';
                 $attributes['class'] = 'btn btn-default t3js-create-new-button';
+                $attributes['data-type'] = 'newRecord';
                 if (!empty($conf['inline']['inlineNewButtonStyle'])) {
                     $attributes['style'] = $conf['inline']['inlineNewButtonStyle'];
                 }
@@ -413,38 +415,27 @@ class InlineControlContainer extends AbstractContainer
             case 'localize':
                 $title = htmlspecialchars($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_misc.xlf:localizeAllRecords'));
                 $icon = 'actions-document-localize';
-                $className = 'typo3-localizationLink';
                 $attributes['class'] = 'btn btn-default t3js-synchronizelocalize-button';
                 $attributes['data-type'] = 'localize';
                 break;
             case 'synchronize':
                 $title = htmlspecialchars($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_misc.xlf:synchronizeWithOriginalLanguage'));
                 $icon = 'actions-document-synchronize';
-                $className = 'typo3-synchronizationLink';
                 $attributes['class'] = 'btn btn-default inlineNewButton t3js-synchronizelocalize-button';
                 $attributes['data-type'] = 'synchronize';
                 break;
             default:
                 $title = '';
                 $icon = '';
-                $className = '';
         }
         // Create the button:
         $icon = $icon ? $this->iconFactory->getIcon($icon, IconSize::SMALL)->render() : '';
-        $button = $this->wrapWithButton($icon . ' ' . $title, $attributes);
-        return '<div' . ($className ? ' class="' . $className . '"' : '') . 'title="' . $title . '">' . $button . '</div>';
-    }
-
-    /**
-     * Wraps a text with a button and returns the HTML representation.
-     *
-     * @param string $text The text to be wrapped by a button
-     * @param array<string, string> $attributes Array of attributes to be used in the anchor
-     * @return string The wrapped text as HTML representation
-     */
-    protected function wrapWithButton(string $text, array $attributes = []): string
-    {
-        return '<button type="button" ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>' . $text . '</button>';
+        $attributes['title'] = $title;
+        return '
+            <button type="button" ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>
+                ' . $icon . ' ' . $title . '
+            </button>
+        ';
     }
 
     /**
@@ -454,11 +445,11 @@ class InlineControlContainer extends AbstractContainer
      * @param array $inlineConfiguration TCA inline configuration of the parent(!) field
      * @return string A HTML button that opens an element browser in a new window
      */
-    protected function renderPossibleRecordsSelectorTypeGroupDB(array $inlineConfiguration): string
+    protected function renderPossibleRecordsSelectorTypeGroupDB(array $inlineStructure, array $inlineConfiguration): string
     {
         $languageService = $this->getLanguageService();
         $groupFieldConfiguration = $inlineConfiguration['selectorOrUniqueConfiguration']['config'];
-        $objectPrefix = $this->inlineStackProcessor->getCurrentStructureDomObjectIdPrefix($this->data['inlineFirstPid']) . '-' . $inlineConfiguration['foreign_table'];
+        $objectPrefix = $this->inlineStackProcessor->getDomObjectIdPrefixFromStructure($inlineStructure, $this->data['inlineFirstPid']) . '-' . $inlineConfiguration['foreign_table'];
         $elementBrowserEnabled = true;
         if (is_array($groupFieldConfiguration['appearance'] ?? null)
             && isset($inlineConfiguration['appearance']['elementBrowserEnabled'])
@@ -496,7 +487,7 @@ class InlineControlContainer extends AbstractContainer
                     </ul>
                 </div>';
         }
-        return '<div class="form-group t3js-formengine-validation-marker t3js-inline-controls-top-outer-container">' . $item . '</div>';
+        return '<div class="form-group t3js-formengine-validation-marker">' . $item . '</div>';
     }
 
     /**
@@ -507,14 +498,14 @@ class InlineControlContainer extends AbstractContainer
      * @param array $uniqueIds The uids that have already been used and should be unique
      * @return string A HTML <select> box with all possible records
      */
-    protected function renderPossibleRecordsSelectorTypeSelect(array $config, array $uniqueIds)
+    protected function renderPossibleRecordsSelectorTypeSelect(array $inlineStructure, array $config, array $uniqueIds)
     {
         $config += [
             'autoSizeMax' => 0,
             'foreign_table' => '',
         ];
         $possibleRecords = $config['selectorOrUniquePossibleRecords'];
-        $nameObject = $this->inlineStackProcessor->getCurrentStructureDomObjectIdPrefix($this->data['inlineFirstPid']);
+        $nameObject = $this->inlineStackProcessor->getDomObjectIdPrefixFromStructure($inlineStructure, $this->data['inlineFirstPid']);
         // Create option tags:
         $opt = [];
         foreach ($possibleRecords as $possibleRecord) {
@@ -552,7 +543,7 @@ class InlineControlContainer extends AbstractContainer
         }
 
         // Wrap the selector and add a spacer to the bottom
-        $item = '<div class="input-group form-group t3js-formengine-validation-marker t3js-inline-controls-top-outer-container">' . $item . '</div>';
+        $item = '<div class="input-group form-group t3js-formengine-validation-marker t3js-inline-controls">' . $item . '</div>';
         return $item;
     }
 

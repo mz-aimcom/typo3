@@ -68,6 +68,63 @@ class Execution
      */
     protected $isNewSingleExecution = false;
 
+    public static function createFromDetails(array $details): self
+    {
+        $obj = new self();
+        $obj->setStart((int)($details['start'] ?? 0));
+        $obj->setEnd((int)($details['end'] ?? 0));
+        $obj->setInterval((int)($details['interval'] ?? 0));
+        $obj->setMultiple((bool)($details['multiple'] ?? false));
+        $obj->setCronCmd((string)($details['cronCmd'] ?? ''));
+        $obj->setIsNewSingleExecution((bool)($details['isNewSingleExecution'] ?? false));
+        return $obj;
+    }
+
+    /**
+     * Registers a single execution of the task
+     *
+     * @param int $timestamp Timestamp of the next execution
+     */
+    public static function createSingleExecution(int $timestamp): self
+    {
+        $obj = new self();
+        $obj->setStart($timestamp);
+        $obj->setInterval(0);
+        $obj->setEnd(0);
+        $obj->setCronCmd('');
+        $obj->setMultiple(false);
+        $obj->setIsNewSingleExecution(true);
+        return $obj;
+    }
+
+    /**
+     * Registers a recurring execution of the task
+     *
+     * @param int $start The first date/time when this execution should occur (timestamp)
+     * @param int $interval Execution interval in seconds
+     * @param int $end The last date/time when this execution should occur (timestamp)
+     * @param bool $multiple Set to FALSE if multiple executions of this task are not permitted in parallel
+     * @param string $cronCmd Used like in crontab (minute hour day month weekday)
+     */
+    public static function createRecurringExecution(int $start, int $interval, int $end = 0, bool $multiple = false, string $cronCmd = ''): self
+    {
+        $obj = new self();
+        // Set general values
+        $obj->setStart($start);
+        $obj->setEnd($end);
+        $obj->setMultiple($multiple);
+        if (empty($cronCmd)) {
+            // Use interval
+            $obj->setInterval($interval);
+            $obj->setCronCmd('');
+        } else {
+            // Use cron syntax
+            $obj->setInterval(0);
+            $obj->setCronCmd($cronCmd);
+        }
+        return $obj;
+    }
+
     /**********************************
      * Setters and getters
      **********************************/
@@ -78,7 +135,7 @@ class Execution
      */
     public function setStart($start)
     {
-        $this->start = $start;
+        $this->start = (int)$start;
     }
 
     /**
@@ -88,7 +145,7 @@ class Execution
      */
     public function getStart()
     {
-        return $this->start;
+        return (int)$this->start;
     }
 
     /**
@@ -98,7 +155,7 @@ class Execution
      */
     public function setEnd($end)
     {
-        $this->end = $end;
+        $this->end = (int)$end;
     }
 
     /**
@@ -108,7 +165,7 @@ class Execution
      */
     public function getEnd()
     {
-        return $this->end;
+        return (int)$this->end;
     }
 
     /**
@@ -118,7 +175,7 @@ class Execution
      */
     public function setInterval($interval)
     {
-        $this->interval = $interval;
+        $this->interval = (int)$interval;
     }
 
     /**
@@ -128,7 +185,7 @@ class Execution
      */
     public function getInterval()
     {
-        return $this->interval;
+        return (int)$this->interval;
     }
 
     /**
@@ -138,7 +195,7 @@ class Execution
      */
     public function setMultiple($multiple)
     {
-        $this->multiple = $multiple;
+        $this->multiple = (bool)$multiple;
     }
 
     /**
@@ -146,9 +203,9 @@ class Execution
      *
      * @return bool TRUE if concurrent executions are allowed, FALSE otherwise
      */
-    public function getMultiple()
+    public function isParallelExecutionAllowed(): bool
     {
-        return $this->multiple;
+        return (bool)$this->multiple;
     }
 
     /**
@@ -185,7 +242,7 @@ class Execution
      */
     public function setIsNewSingleExecution($isNewSingleExecution)
     {
-        $this->isNewSingleExecution = $isNewSingleExecution;
+        $this->isNewSingleExecution = (bool)$isNewSingleExecution;
     }
 
     /**
@@ -195,7 +252,7 @@ class Execution
      */
     public function getIsNewSingleExecution()
     {
-        return $this->isNewSingleExecution;
+        return (bool)$this->isNewSingleExecution;
     }
 
     /**********************************
@@ -211,28 +268,28 @@ class Execution
     {
         if ($this->getIsNewSingleExecution()) {
             $this->setIsNewSingleExecution(false);
-            return $this->start;
+            return $this->getStart();
         }
         if (!$this->isEnded()) {
             // If the schedule has not yet run out, find out the next date
             if (!$this->isStarted()) {
                 // If the schedule hasn't started yet, next date is start date
-                $date = $this->start;
+                $date = $this->getStart();
             } else {
                 // If the schedule has already started, calculate next date
                 if ($this->cronCmd) {
                     // If it uses cron-like syntax, calculate next date
                     $date = $this->getNextCronExecution();
-                } elseif ($this->interval == 0) {
+                } elseif ($this->getInterval() == 0) {
                     // If not and there's no interval either, it's a singe execution: use start date
-                    $date = $this->start;
+                    $date = $this->getStart();
                 } else {
                     // Otherwise calculate date based on interval
                     $now = time();
-                    $date = $now + $this->interval - ($now - $this->start) % $this->interval;
+                    $date = $now + $this->getInterval() - ($now - $this->getStart()) % $this->getInterval();
                 }
                 // If date is in the future, throw an exception
-                if (!empty($this->end) && $date > $this->end) {
+                if (!empty($this->getEnd()) && $date > $this->getEnd()) {
                     throw new \OutOfBoundsException('Next execution date is past end date.', 1250715528);
                 }
             }
@@ -252,7 +309,7 @@ class Execution
     {
         $cronCmd = GeneralUtility::makeInstance(CronCommand::class, $this->getCronCmd());
         $cronCmd->calculateNextValue();
-        return $cronCmd->getTimestamp();
+        return (int)$cronCmd->getTimestamp();
     }
 
     /**
@@ -262,7 +319,7 @@ class Execution
      */
     public function isStarted()
     {
-        return $this->start < time();
+        return $this->getStart() < time();
     }
 
     /**
@@ -272,13 +329,43 @@ class Execution
      */
     public function isEnded()
     {
-        if (empty($this->end)) {
+        if ($this->getEnd() === 0) {
             // If no end is defined, the schedule never ends
             $result = false;
         } else {
             // Otherwise check if end is in the past
-            $result = $this->end < time();
+            $result = $this->getEnd() < time();
         }
         return $result;
+    }
+
+    /**
+     * Guess recurring type from the existing information
+     * If an interval or a cron command is defined, it's a recurring task
+     */
+    public function isRecurring(): bool
+    {
+        return !empty($this->getInterval()) || !empty($this->getCronCmd());
+    }
+
+    public function isSingleRun(): bool
+    {
+        return !$this->isRecurring();
+    }
+
+    public function toArray(): array
+    {
+        // The type cast is necessary as long as the DB migration (upgrade wizard) exists,
+        // Because this way, the serialization (from unserialize()) kicks in
+        // and cleans the values right away.
+        // @todo We can then strong-type-hint in TYPO3 v16.0.
+        return [
+            'start' => (int)$this->start,
+            'end' => (int)$this->end,
+            'interval' => (int)$this->interval,
+            'multiple' => (bool)$this->multiple,
+            'cronCmd' => (string)$this->cronCmd,
+            'isNewSingleExecution' => (bool)$this->isNewSingleExecution,
+        ];
     }
 }

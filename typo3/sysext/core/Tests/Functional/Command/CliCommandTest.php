@@ -85,6 +85,13 @@ final class CliCommandTest extends AbstractCommandTestCase
             ['command' => 'site:show show-me', 'args' => [], 'expectedExitCode' => 0],
             ['command' => 'syslog:list', 'args' => [], 'expectedExitCode' => 0],
             ['command' => 'upgrade:list', 'args' => [], 'expectedExitCode' => 0],
+            // supported shells
+            ['command' => 'completion bash', 'args' => [], 'expectedExitCode' => 0],
+            ['command' => 'completion fish', 'args' => [], 'expectedExitCode' => 0],
+            ['command' => 'completion zsh', 'args' => [], 'expectedExitCode' => 0],
+            // unsupported shell (not detected)
+            ['command' => 'completion', 'args' => [], 'expectedExitCode' => 2],
+            ['command' => 'install:password:set', 'args' => [], 'expectedExitCode' => 1],
         ];
     }
 
@@ -94,6 +101,6 @@ final class CliCommandTest extends AbstractCommandTestCase
     {
         $result = $this->executeConsoleCommand($command, ...$args);
 
-        self::assertEquals($expectedExitCode, $result['status']);
+        self::assertEquals($expectedExitCode, $result['status'], \json_encode($result, JSON_PRETTY_PRINT));
     }
 }

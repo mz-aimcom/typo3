@@ -22,11 +22,11 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\LinkHandling\TypolinkParameter;
 use TYPO3\CMS\Core\Routing\PageArguments;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
-use TYPO3\CMS\Frontend\Typolink\TypolinkParameter;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\View\TemplateView;
@@ -61,6 +61,10 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
                 '<f:link.typolink parameter="1">This is a testlink</f:link.typolink>',
                 '<a href="/en/">This is a testlink</a>',
             ],
+            'link: default with additional parameters' => [
+                '<f:link.typolink parameter="1" additionalParams="&foo=bar">This is a testlink</f:link.typolink>',
+                '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+            ],
             'link: with add query string' => [
                 '<f:link.typolink parameter="1" addQueryString="untrusted">This is a testlink</f:link.typolink>',
                 '<a href="/en/?foo=bar&amp;temp=test&amp;cHash=286759dfcd3f566fa21091a0d77e9831">This is a testlink</a>',
@@ -68,6 +72,19 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
             'link: with add query string and exclude' => [
                 '<f:link.typolink parameter="1" addQueryString="untrusted" addQueryStringExclude="temp">This is a testlink</f:link.typolink>',
                 '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+            ],
+            't3://page link: default' => [
+                '<f:link.typolink parameter="t3://page?uid=1&foo=bar">This is a testlink</f:link.typolink>',
+                '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+            ],
+            't3://page link: default with additional parameters' => [
+                '<f:link.typolink parameter="t3://page?uid=1&foo=bar" additionalParams="&bar=foo">This is a testlink</f:link.typolink>',
+                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=ff6d36ab0e75db69a8e6bf5271602dcb">This is a testlink</a>',
+            ],
+            // parameter `foo=bar` defined via t3-urn takes precedence over `foo=additional` in `additionalParams`
+            't3://page link: default with additional parameters - t3-urn parameters take precedence' => [
+                '<f:link.typolink parameter="t3://page?uid=1&foo=bar" additionalParams="&bar=foo&foo=additional">This is a testlink</f:link.typolink>',
+                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=ff6d36ab0e75db69a8e6bf5271602dcb">This is a testlink</a>',
             ],
             't3://url link: default' => [
                 '<f:link.typolink parameter="t3://url?url=https://example.org?param=1&other=dude">This is a testlink</f:link.typolink>',
@@ -85,6 +102,11 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
                 '<f:link.typolink parameter="mailto:foo@typo3.org">This is a testlink</f:link.typolink>',
                 '<a href="mailto:foo@typo3.org">This is a testlink</a>',
             ],
+            // `additionalParams` are ignored for email links
+            'mailto: link: default with additional parameters' => [
+                '<f:link.typolink parameter="mailto:foo@typo3.org" additionalParams="&foo=bar">This is a testlink</f:link.typolink>',
+                '<a href="mailto:foo@typo3.org">This is a testlink</a>',
+            ],
             'mailto: link: with add query string' => [
                 '<f:link.typolink parameter="mailto:foo@typo3.org" addQueryString="untrusted">This is a testlink</f:link.typolink>',
                 '<a href="mailto:foo@typo3.org">This is a testlink</a>',
@@ -96,6 +118,11 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
             'http://: link: default' => [
                 '<f:link.typolink parameter="http://typo3.org/foo/?foo=bar">This is a testlink</f:link.typolink>',
                 '<a href="http://typo3.org/foo/?foo=bar">This is a testlink</a>',
+            ],
+            // `additionalParams` are ignored for external URL links
+            'http://: link: default with additional parameters' => [
+                '<f:link.typolink parameter="http://typo3.org/" additionalParams="&foo=bar">This is a testlink</f:link.typolink>',
+                '<a href="http://typo3.org/">This is a testlink</a>',
             ],
             'http://: link: with add query string' => [
                 '<f:link.typolink parameter="http://typo3.org/foo/?foo=bar" addQueryString="untrusted">This is a testlink</f:link.typolink>',
@@ -124,6 +151,10 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
             't3:// with complex title and extended parameters & correctly encoded other parameter' => [
                 '<f:link.typolink parameter="t3://url?url=https://example.org?param=1%26other=dude - - \"a \\\"link\\\" title with \\\\\ \" &x=y">This is a testlink</f:link.typolink>',
                 '<a href="https://example.org?param=1&amp;other=dude" title="a &quot;link&quot; title with \">This is a testlink</a>',
+            ],
+            'integer based tag content' => [
+                '<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:link.typolink parameter="">{k}</f:link.typolink></f:for>',
+                '4711',
             ],
         ];
     }

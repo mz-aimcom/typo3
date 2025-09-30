@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Backend\Configuration\SiteTcaConfiguration;
 use TYPO3\CMS\Backend\Form\FormDataProvider\SiteDatabaseEditRow;
 use TYPO3\CMS\Core\Configuration\SiteConfiguration;
 use TYPO3\CMS\Core\Core\ApplicationContext;
@@ -53,8 +54,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'command' => 'new',
             'foo' => 'bar',
         ];
-        $siteConfigurationMock = $this->createMock(SiteConfiguration::class);
-        self::assertSame($input, (new SiteDatabaseEditRow($siteConfigurationMock))->addData($input));
+        self::assertSame($input, (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input));
     }
 
     #[Test]
@@ -66,8 +66,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
                 'foo' => 'bar',
             ],
         ];
-        $siteConfigurationMock = $this->createMock(SiteConfiguration::class);
-        self::assertSame($input, (new SiteDatabaseEditRow($siteConfigurationMock))->addData($input));
+        self::assertSame($input, (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input));
     }
 
     #[Test]
@@ -79,10 +78,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886234);
-        $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteConfigurationMock = $this->createMock(SiteConfiguration::class);
-        GeneralUtility::addInstance(SiteFinder::class, $siteFinderMock);
-        (new SiteDatabaseEditRow($siteConfigurationMock))->addData($input);
+        (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input);
     }
 
     #[Test]
@@ -102,18 +98,33 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'someArray' => [
                 'foo' => 'bar',
             ],
-            'dependencies' => [
+            'selectMultipleSideBySide' => [
                 'foo/bar',
                 'baz',
             ],
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        GeneralUtility::addInstance(SiteFinder::class, $siteFinderMock);
         $siteMock = $this->createMock(Site::class);
         $siteFinderMock->method('getSiteByRootPageId')->with(23)->willReturn($siteMock);
         $siteMock->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
         $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
+
+        $siteTca = [
+            'site' => [
+                'columns' => [
+                    'selectMultipleSideBySide' => [
+                        'config' => [
+                            'type' => 'select',
+                            'renderType' => 'selectMultipleSideBySide',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $siteTcaConfigurationMock = $this->createMock(SiteTcaConfiguration::class);
+        $siteTcaConfigurationMock->method('getTca')->willReturn($siteTca);
 
         $expected = $input;
         $expected['databaseRow'] = [
@@ -122,10 +133,10 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'rootPageId' => 42,
             'pid' => 0,
             'foo' => 'bar',
-            'dependencies' => 'foo/bar,baz',
+            'selectMultipleSideBySide' => 'foo/bar,baz',
         ];
 
-        self::assertEquals($expected, (new SiteDatabaseEditRow($siteConfiguration))->addData($input));
+        self::assertEquals($expected, (new SiteDatabaseEditRow($siteFinderMock, $siteTcaConfigurationMock))->addData($input));
     }
 
     #[Test]
@@ -142,16 +153,16 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'foo' => 'bar',
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        GeneralUtility::addInstance(SiteFinder::class, $siteFinderMock);
         $siteMock = $this->createMock(Site::class);
         $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
         $siteMock->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
         $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886092);
-        (new SiteDatabaseEditRow($siteConfiguration))->addData($input);
+        (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input);
     }
 
     #[Test]
@@ -168,16 +179,16 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'foo' => 'bar',
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        GeneralUtility::addInstance(SiteFinder::class, $siteFinderMock);
         $siteMock = $this->createMock(Site::class);
         $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
         $siteMock->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
         $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886092);
-        (new SiteDatabaseEditRow($siteConfiguration))->addData($input);
+        (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input);
     }
 
     #[Test]
@@ -198,12 +209,12 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             ],
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        GeneralUtility::addInstance(SiteFinder::class, $siteFinderMock);
         $siteMock = $this->createMock(Site::class);
         $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
         $siteMock->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
         $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $expected = $input;
         $expected['databaseRow'] = [
@@ -212,6 +223,6 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'pid' => 0,
         ];
 
-        self::assertEquals($expected, (new SiteDatabaseEditRow($siteConfiguration))->addData($input));
+        self::assertEquals($expected, (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input));
     }
 }

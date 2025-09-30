@@ -11,6 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
+import DocumentService from '@typo3/core/document-service';
 import { AbstractSortableSelectItems } from '@typo3/backend/form-engine/element/abstract-sortable-select-items';
 import { selector } from '@typo3/core/literals';
 
@@ -36,12 +37,18 @@ class FolderSortableSelectItems extends AbstractSortableSelectItems {
 class FolderElement extends HTMLElement {
   private recordField: HTMLSelectElement = null;
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
+    if (this.recordField !== null) {
+      // Element is already initialized, which means the component has been rendered before. Nothing to do here.
+      return;
+    }
+
     const recordFieldId = this.getAttribute('recordFieldId');
     if (recordFieldId === null) {
       return;
     }
 
+    await DocumentService.ready();
     this.recordField = this.querySelector<HTMLSelectElement>(selector`#${recordFieldId}`);
     if (!this.recordField) {
       return;

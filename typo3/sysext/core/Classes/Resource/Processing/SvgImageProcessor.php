@@ -107,7 +107,7 @@ class SvgImageProcessor implements ProcessorInterface
         );
         // Save the output as a new processed file.
         $temporaryFilename = $this->getFilenameForSvgCropScaleMask($task);
-        GeneralUtility::writeFile($temporaryFilename, $processedSvg->saveXML());
+        GeneralUtility::writeFile($temporaryFilename, $processedSvg->saveXML(), true);
 
         $task->setExecuted(true);
         $imageInformation = GeneralUtility::makeInstance(ImageInfo::class, $temporaryFilename);
@@ -170,7 +170,18 @@ class SvgImageProcessor implements ProcessorInterface
     protected function getFilenameForSvgCropScaleMask(TaskInterface $task): string
     {
         $targetFileExtension = $task->getTargetFileExtension();
-        return GeneralUtility::tempnam($task->getTargetFile()->generateProcessedFileNameWithoutExtension(), '.' . ltrim(trim($targetFileExtension)));
+        return GeneralUtility::tempnam($this->generateProcessedFileNameWithoutExtension($task), '.' . ltrim(trim($targetFileExtension)));
     }
 
+    /**
+     * Generate the name of the new File. Should be placed somwhere else?
+     */
+    protected function generateProcessedFileNameWithoutExtension(TaskInterface $task): string
+    {
+        return implode('_', [
+            $task->getSourceFile()->getNameWithoutExtension(),
+            $task->getSourceFile()->getUid(),
+            $task->getConfigurationChecksum(),
+        ]);
+    }
 }

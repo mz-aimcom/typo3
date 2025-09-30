@@ -26,6 +26,7 @@ use TYPO3\CMS\Core\Attribute\AsEventListener;
 use TYPO3\CMS\Core\Authentication\AbstractUserAuthentication;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\Event\AfterUserLoggedInEvent;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequestFactory;
 use TYPO3\CMS\Core\Mail\FluidEmail;
 use TYPO3\CMS\Core\Mail\MailerInterface;
@@ -76,7 +77,7 @@ final class EmailLoginNotification implements LoggerAwareInterface
         if (!$genericLoginWarning && !$userLoginNotification) {
             return;
         }
-        $this->request = $event->getRequest() ?? $GLOBALS['TYPO3_REQUEST'] ?? ServerRequestFactory::fromGlobals();
+        $this->request = $event->getRequest() ?? $GLOBALS['TYPO3_REQUEST'] ?? ServerRequestFactory::fromGlobals()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
 
         if ($genericLoginWarning) {
             $prefix = $currentUser->isAdmin() ? '[AdminLoginWarning]' : '[LoginWarning]';
@@ -122,6 +123,15 @@ final class EmailLoginNotification implements LoggerAwareInterface
             ]);
         } catch (RfcComplianceException $e) {
             $this->logger->warning('Could not send notification email to "{recipient}" due to invalid email address', [
+                'recipient' => $recipient,
+                'userId' => $user->user['uid'] ?? 0,
+                'recipientList' => $recipients,
+                'exception' => $e,
+            ]);
+        } catch (\Exception $e) {
+            // Catch all other exceptions, otherwise a failed email login notification will keep
+            // a user from logging in. See https://forge.typo3.org/issues/103546
+            $this->logger->error('Could not send notification email to "{recipient}" due to a PHP exception', [
                 'recipient' => $recipient,
                 'userId' => $user->user['uid'] ?? 0,
                 'recipientList' => $recipients,

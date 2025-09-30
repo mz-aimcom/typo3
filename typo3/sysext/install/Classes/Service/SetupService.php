@@ -19,8 +19,10 @@ namespace TYPO3\CMS\Install\Service;
 
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
 use TYPO3\CMS\Core\Configuration\Exception\SiteConfigurationWriteException;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
 use TYPO3\CMS\Core\Configuration\SiteWriter;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\Argon2idPasswordHash;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\Argon2iPasswordHash;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\BcryptPasswordHash;
@@ -28,10 +30,16 @@ use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashInterface;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Resource\Exception\ExistingTargetFileNameException;
+use TYPO3\CMS\Core\Messaging\FlashMessage;
+use TYPO3\CMS\Core\Package\FailsafePackageManager;
+use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Command\BackendUserGroupType;
 use TYPO3\CMS\Install\Configuration\FeatureManager;
+use TYPO3\CMS\Install\FolderStructure\DefaultFactory;
+use TYPO3\CMS\Install\Service\Exception\ConfigurationDirectoryDoesNotExistException;
+use TYPO3\CMS\Install\Service\Exception\ConfigurationFileAlreadyExistsException;
+use TYPO3\CMS\Install\WebserverType;
 
 /**
  * Service class helping to manage parts of the setup process (set configuration,
@@ -44,7 +52,19 @@ readonly class SetupService
         private ConfigurationManager $configurationManager,
         private SiteWriter $siteWriter,
         private YamlFileLoader $yamlFileLoader,
+        private FailsafePackageManager $packageManager,
     ) {}
+
+    /**
+     * @param WebserverType $webserverType
+     * @return FlashMessage[]
+     */
+    public function createDirectoryStructure(WebserverType $webserverType): array
+    {
+        $folderStructureFactory = GeneralUtility::makeInstance(DefaultFactory::class);
+        $structureFixMessageQueue = $folderStructureFactory->getStructure($webserverType)->fix();
+        return $structureFixMessageQueue->getAllMessages(ContextualFeedbackSeverity::ERROR);
+    }
 
     public function setSiteName(string $name): bool
     {
@@ -126,34 +146,41 @@ readonly class SetupService
     }
 
     /**
-     * @throws ExistingTargetFileNameException
+     * @throws ConfigurationFileAlreadyExistsException
+     * @throws ConfigurationDirectoryDoesNotExistException
      */
     public function prepareSystemSettings(bool $forceOverwrite = false): void
     {
         $configurationFileLocation = $this->configurationManager->getSystemConfigurationFileLocation();
-        if (!$forceOverwrite && @is_file($configurationFileLocation)) {
-            throw new ExistingTargetFileNameException(
-                'Configuration file ' . $configurationFileLocation . ' already exists!',
-                1669747685,
+        $configDir = dirname($configurationFileLocation);
+        if (!is_dir($configDir)) {
+            throw new ConfigurationDirectoryDoesNotExistException(
+                'Configuration directory ' . $this->makePathRelativeToProjectDirectory($configDir) . ' does not exist!',
+                1700401774,
             );
         }
-
-        // @todo Remove once LocalConfiguration.php support was dropped.
-        // @todo Web installer creates default configuration based on default factory configuration. Recheck if we
-        //       should use this here too instead of an empty array.
-        // Ugly hack to write system/settings.php, to avoid fallback to
-        // LocalConfiguration.php causing issues because it does not exist!
-        @unlink($configurationFileLocation);
-        $this->configurationManager->writeLocalConfiguration([]);
+        if (@is_file($configurationFileLocation)) {
+            if (!$forceOverwrite) {
+                throw new ConfigurationFileAlreadyExistsException(
+                    'Configuration file ' . $this->makePathRelativeToProjectDirectory($configurationFileLocation) . ' already exists!',
+                    1669747685,
+                );
+            }
+            unlink($configurationFileLocation);
+        }
+        $this->configurationManager->createLocalConfigurationFromFactoryConfiguration();
+        $randomKey = GeneralUtility::makeInstance(Random::class)->generateRandomHexString(96);
+        $this->configurationManager->setLocalConfigurationValueByPath('SYS/encryptionKey', $randomKey);
+        $extensionConfiguration = new ExtensionConfiguration();
+        $extensionConfiguration->synchronizeExtConfTemplateWithLocalConfigurationOfAllExtensions();
 
         // Get best matching configuration presets
         $featureManager = new FeatureManager();
         $configurationValues = $featureManager->getBestMatchingConfigurationForAllFeatures();
         $this->configurationManager->setLocalConfigurationValuesByPathValuePairs($configurationValues);
 
-        $randomKey = GeneralUtility::makeInstance(Random::class)->generateRandomHexString(96);
-        $this->configurationManager->setLocalConfigurationValueByPath('SYS/encryptionKey', $randomKey);
-        $this->configurationManager->setLocalConfigurationValueByPath('SYS/trustedHostsPattern', '.*.*');
+        // In non Composer mode, create a PackageStates.php with all packages activated marked as "part of factory default"
+        $this->packageManager->recreatePackageStatesFileIfMissing(true);
     }
 
     public function createSite(): string
@@ -222,38 +249,51 @@ For each website you need a TypoScript record on the main page of your website (
     /**
      * Initializes backend user group presets. Currently hard-coded to editor and advanced editor.
      * When more backend user group presets are added, please refactor (maybe DTO).
+     *
+     * @return string[]
      */
-    public function createBackendUserGroups(bool $createEditor = true, bool $createAdvancedEditor = true): void
+    public function createBackendUserGroups(bool $createEditor = true, bool $createAdvancedEditor = true, bool $force = false): array
     {
+        $messages = [];
         $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
+        $this->createFileMount('1:/user_upload/', 'User Upload');
         if ($createEditor) {
-            $connectionPool->getConnectionForTable('be_groups')->insert(
-                'be_groups',
-                [
-                    'title' => BackendUserGroupType::EDITOR->value,
-                    'description' => 'Editors have access to basic content element and modules in the backend.',
-                    'tstamp' => time(),
-                    'crdate' => time(),
-                ]
-            );
-            $editorGroupUid = (int)$connectionPool->getConnectionForTable('be_groups')->lastInsertId();
-            $editorPermissionPreset = $this->yamlFileLoader->load('EXT:install/Configuration/PermissionPreset/be_groups_editor.yaml');
-            $this->applyPermissionPreset($editorPermissionPreset, 'be_groups', $editorGroupUid);
+            if (!$force && $this->countBackendGroupsByTitle($connectionPool, BackendUserGroupType::EDITOR->value) > 0) {
+                $messages[] = sprintf('Group "%s" could not be created. A backend user group of that name already exists and option --force was not set. ', BackendUserGroupType::EDITOR->value);
+            } else {
+                $connectionPool->getConnectionForTable('be_groups')->insert(
+                    'be_groups',
+                    [
+                        'title' => BackendUserGroupType::EDITOR->value,
+                        'description' => 'Editors have access to basic content element and modules in the backend.',
+                        'tstamp' => time(),
+                        'crdate' => time(),
+                    ]
+                );
+                $editorGroupUid = (int)$connectionPool->getConnectionForTable('be_groups')->lastInsertId();
+                $editorPermissionPreset = $this->yamlFileLoader->load('EXT:install/Configuration/PermissionPreset/be_groups_editor.yaml');
+                $this->applyPermissionPreset($editorPermissionPreset, 'be_groups', $editorGroupUid);
+            }
         }
         if ($createAdvancedEditor) {
-            $connectionPool->getConnectionForTable('be_groups')->insert(
-                'be_groups',
-                [
-                    'title' => BackendUserGroupType::ADVANCED_EDITOR->value,
-                    'description' => 'Advanced Editors have access to all content elements and non administrative modules in the backend.',
-                    'tstamp' => time(),
-                    'crdate' => time(),
-                ]
-            );
-            $advancedEditorGroupUid = (int)$connectionPool->getConnectionForTable('be_groups')->lastInsertId();
-            $advancedEditorPermissionPreset = $this->yamlFileLoader->load('EXT:install/Configuration/PermissionPreset/be_groups_advanced_editor.yaml');
-            $this->applyPermissionPreset($advancedEditorPermissionPreset, 'be_groups', $advancedEditorGroupUid);
+            if (!$force && $this->countBackendGroupsByTitle($connectionPool, BackendUserGroupType::ADVANCED_EDITOR->value) > 0) {
+                $messages[] = sprintf('Group "%s" could not be created. A backend user group of that name already exists and option --force was not set. ', BackendUserGroupType::ADVANCED_EDITOR->value);
+            } else {
+                $connectionPool->getConnectionForTable('be_groups')->insert(
+                    'be_groups',
+                    [
+                        'title' => BackendUserGroupType::ADVANCED_EDITOR->value,
+                        'description' => 'Advanced Editors have access to all content elements and non administrative modules in the backend.',
+                        'tstamp' => time(),
+                        'crdate' => time(),
+                    ]
+                );
+                $advancedEditorGroupUid = (int)$connectionPool->getConnectionForTable('be_groups')->lastInsertId();
+                $advancedEditorPermissionPreset = $this->yamlFileLoader->load('EXT:install/Configuration/PermissionPreset/be_groups_advanced_editor.yaml');
+                $this->applyPermissionPreset($advancedEditorPermissionPreset, 'be_groups', $advancedEditorGroupUid);
+            }
         }
+        return $messages;
     }
 
     private function applyPermissionPreset(array $permissionPreset, string $table, int $recordId): void
@@ -261,6 +301,16 @@ For each website you need a TypoScript record on the main page of your website (
         $mappedPermissions = [];
         if (isset($permissionPreset['dbMountpoints']) && is_array($permissionPreset['dbMountpoints'])) {
             $mappedPermissions['db_mountpoints'] = implode(',', $permissionPreset['dbMountpoints']);
+        }
+        if (isset($permissionPreset['fileMountpoints']) && is_array($permissionPreset['fileMountpoints'])) {
+            $fileMountIds = [];
+            foreach ($permissionPreset['fileMountpoints'] as $fileMountpoint) {
+                $fileMountpointId = $this->getFileMount($fileMountpoint);
+                if ($fileMountpointId > 0) {
+                    $fileMountIds[] = $fileMountpointId;
+                }
+            }
+            $mappedPermissions['file_mountpoints'] = implode(',', $fileMountIds);
         }
         if (isset($permissionPreset['groupMods']) && is_array($permissionPreset['groupMods'])) {
             $mappedPermissions['groupMods'] = implode(',', $permissionPreset['groupMods']);
@@ -315,5 +365,56 @@ For each website you need a TypoScript record on the main page of your website (
                 ['uid' => $recordId]
             );
         }
+    }
+
+    private function makePathRelativeToProjectDirectory(string $absolutePath): string
+    {
+        return str_replace(Environment::getProjectPath(), '', $absolutePath);
+    }
+
+    private function countBackendGroupsByTitle(ConnectionPool $connectionPool, string $title): int
+    {
+        $queryBuilder = $connectionPool->getQueryBuilderForTable('be_groups');
+        return (int)$queryBuilder->count('*')
+            ->from('be_groups')
+            ->where(
+                $queryBuilder->expr()->eq('title', $queryBuilder->createNamedParameter($title))
+            )->executeQuery()->fetchOne();
+    }
+
+    private function createFileMount(string $identifier, string $title): int
+    {
+        $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
+        $queryBuilder = $connectionPool->getQueryBuilderForTable('sys_filemounts');
+        $row = $queryBuilder->select('uid')
+            ->from('sys_filemounts')
+            ->where($queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)))
+            ->executeQuery()
+            ->fetchAssociative();
+        if (is_array($row)) {
+            return (int)$row['uid'];
+        }
+        $queryBuilder = $connectionPool->getQueryBuilderForTable('sys_filemounts');
+        $queryBuilder->insert('sys_filemounts')->values(
+            [
+                'pid' => 0,
+                'tstamp' => time(),
+                'title' => $title,
+                'identifier' => $identifier,
+            ]
+        )->executeStatement();
+        return (int)$connectionPool->getConnectionForTable('sys_filemounts')->lastInsertId();
+    }
+
+    private function getFileMount(string $identifier): int
+    {
+        $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
+        $queryBuilder = $connectionPool->getQueryBuilderForTable('sys_filemounts');
+        $row = $queryBuilder->select('uid')
+            ->from('sys_filemounts')
+            ->where($queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)))
+            ->executeQuery()
+            ->fetchAssociative();
+        return (int)($row['uid'] ?? 0);
     }
 }

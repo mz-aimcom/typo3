@@ -19,83 +19,24 @@ namespace TYPO3\CMS\Fluid\ViewHelpers\Link;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
+use TYPO3\CMS\Core\LinkHandling\TypolinkParameter;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Typolink\TypolinkParameter;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\Variables\ScopedVariableProvider;
 use TYPO3Fluid\Fluid\Core\Variables\StandardVariableProvider;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * A ViewHelper to create links from fields supported by the link wizard
+ * ViewHelper to create links from fields supported by the link wizard
  *
- * Example
- * =======
+ * ```
+ *   <f:link.typolink parameter="123" additionalParams="&u=b" language="2" />
+ * ```
  *
- * ``{link}`` contains: ``t3://page?uid=2&arg1=val1#9 _blank some-css-class "Title containing Whitespace"``.
- *
- * Or a legacy version from older TYPO3 versions:
- * ``{link}`` contains: ``9 _blank - "testtitle with whitespace" &X=y``.
- *
- * Minimal usage
- * -------------
- *
- * ::
- *
- *    <f:link.typolink parameter="{link}">
- *       Linktext
- *    </f:link.typolink>
- *
- * Output::
- *
- *    <a href="/page/path/name.html?X=y" title="testtitle with whitespace" target="_blank">
- *       Linktext
- *    </a>
- *
- * Depending on current page, routing and page path configuration.
- *
- * TextWrap usage
- * --------------
- *
- * ::
- *
- *    <f:link.typolink parameter="123" textWrap="<span>|</span>"/>
- *
- * Output::
- *
- *    <a href="/some/page">
- *       <span>Page title of some page wrapped in span</span>
- *    </a>
- *
- * Depending on current page, routing and page path configuration.
- *
- * Full parameter usage
- * --------------------
- *
- * ::
- *
- *    <f:link.typolink parameter="{link}" additionalParams="&u=b"
- *        target="_blank"
- *        class="ico-class" title="some title"
- *        additionalAttributes="{type:'button'}"
- *    >
- *       Linktext
- *    </f:link.typolink>
- *
- * Output::
- *
- *    <a href="/page/path/name.html?X=y&u=b" title="some title" target="_blank" class="ico-class" type="button">
- *        Linktext
- *    </a>
- *
- * Depending on routing and page path configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-link-typolink
  */
 final class TypolinkViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * @var bool
      */
@@ -121,41 +62,37 @@ final class TypolinkViewHelper extends AbstractViewHelper
      * @throws \InvalidArgumentException
      * @throws \UnexpectedValueException
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $parameter = $arguments['parameter'] ?? '';
-        $partsAs = $arguments['parts-as'] ?? 'typoLinkParts';
+        $parameter = $this->arguments['parameter'] ?? '';
+        $partsAs = $this->arguments['parts-as'] ?? 'typoLinkParts';
         $typoLinkCodecService = GeneralUtility::makeInstance(TypoLinkCodecService::class);
-
         if (!$parameter instanceof TypolinkParameter) {
             $parameter = TypolinkParameter::createFromTypolinkParts(
                 is_scalar($parameter) ? $typoLinkCodecService->decode((string)$parameter) : []
             );
         }
-
         // Merge the $parameter with other arguments
-        $typolinkParameter = TypolinkParameter::createFromTypolinkParts(self::mergeTypoLinkConfiguration($parameter->toArray(), $arguments))->toArray();
-
+        $typolinkParameter = TypolinkParameter::createFromTypolinkParts(self::mergeTypoLinkConfiguration($parameter->toArray(), $this->arguments))->toArray();
         // expose internal typoLink configuration to Fluid child context
-        $variableProvider = new ScopedVariableProvider($renderingContext->getVariableProvider(), new StandardVariableProvider([$partsAs => $typolinkParameter]));
-        $renderingContext->setVariableProvider($variableProvider);
+        $variableProvider = new ScopedVariableProvider($this->renderingContext->getVariableProvider(), new StandardVariableProvider([$partsAs => $typolinkParameter]));
+        $this->renderingContext->setVariableProvider($variableProvider);
         // If no link has to be rendered, the inner content will be returned as such
-        $content = (string)$renderChildrenClosure();
+        $content = (string)$this->renderChildren();
         // clean up exposed variables
-        $renderingContext->setVariableProvider($variableProvider->getGlobalVariableProvider());
-
+        $this->renderingContext->setVariableProvider($variableProvider->getGlobalVariableProvider());
         $typolink = $typoLinkCodecService->encode($typolinkParameter);
         if ($typolink !== '') {
             $request = null;
-            if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-                $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+            if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+                $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
             }
-            $content = self::invokeContentObjectRenderer($arguments, $typolink, $content, $request);
+            $content = self::invokeContentObjectRenderer($this->arguments, $typolink, $content, $request);
         }
         return $content;
     }
 
-    protected static function invokeContentObjectRenderer(array $arguments, string $typoLinkParameter, string $content, ?ServerRequestInterface $request): string
+    private static function invokeContentObjectRenderer(array $arguments, string $typoLinkParameter, string $content, ?ServerRequestInterface $request): string
     {
         $addQueryString = $arguments['addQueryString'] ?? false;
         $addQueryStringExclude = $arguments['addQueryStringExclude'] ?? '';
@@ -188,7 +125,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
         return $contentObject->typoLink($content, $instructions);
     }
 
-    protected static function serializeTagParameters(array $arguments): string
+    private static function serializeTagParameters(array $arguments): string
     {
         // array(param1 -> value1, param2 -> value2) --> param1="value1" param2="value2" for typolink.ATagParams
         $extraAttributes = [];
@@ -202,7 +139,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
     /**
      * Merges view helper arguments with typolink parts.
      */
-    protected static function mergeTypoLinkConfiguration(array $typoLinkConfiguration, array $arguments): array
+    private static function mergeTypoLinkConfiguration(array $typoLinkConfiguration, array $arguments): array
     {
         if ($typoLinkConfiguration === []) {
             return $typoLinkConfiguration;

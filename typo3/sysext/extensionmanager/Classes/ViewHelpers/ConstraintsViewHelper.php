@@ -20,11 +20,16 @@ namespace TYPO3\CMS\Extensionmanager\ViewHelpers;
 use TYPO3\CMS\Core\Utility\VersionNumberUtility;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Dependency;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
- * Returns the grouped constraints of an extension
+ * ViewHelper to return the grouped constraints of an extension.
+ *
+ * ```
+ *   <f:for each="{em:constraints(extension: currentVersion)}" key="type" as="constraintGroup">
+ *       ...
+ *   </f:for>
+ * ```
  *
  * @internal
  */
@@ -35,10 +40,10 @@ final class ConstraintsViewHelper extends AbstractViewHelper
         $this->registerArgument('extension', Extension::class, 'extension to process', true);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): array
+    public function render(): array
     {
         $groupedConstraints = [];
-        foreach ($arguments['extension']->getDependencies() as $dependency) {
+        foreach ($this->arguments['extension']->getDependencies() as $dependency) {
             $groupedConstraints[$dependency->getType()][self::getTransformedIdentifier($dependency->getIdentifier())] = [
                 'version' => self::getVersionString($dependency->getLowestVersion(), $dependency->getHighestVersion()),
                 'versionCompatible' => self::isVersionCompatible($dependency),
@@ -47,14 +52,14 @@ final class ConstraintsViewHelper extends AbstractViewHelper
         return $groupedConstraints;
     }
 
-    protected static function getTransformedIdentifier(string $identifier): string
+    private static function getTransformedIdentifier(string $identifier): string
     {
         return in_array($identifier, Dependency::$specialDependencies, true)
             ? strtoupper($identifier)
             : strtolower($identifier);
     }
 
-    protected static function getVersionString(string $lowestVersion, string $highestVersion): string
+    private static function getVersionString(string $lowestVersion, string $highestVersion): string
     {
         $version = '';
         if ($lowestVersion !== '') {
@@ -67,7 +72,7 @@ final class ConstraintsViewHelper extends AbstractViewHelper
         return $version;
     }
 
-    protected static function isVersionCompatible(Dependency $dependency): bool
+    private static function isVersionCompatible(Dependency $dependency): bool
     {
         if ($dependency->getIdentifier() === 'typo3') {
             return $dependency->isVersionCompatible(VersionNumberUtility::getNumericTypo3Version());

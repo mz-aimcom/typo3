@@ -20,19 +20,19 @@ namespace TYPO3\CMS\Adminpanel\ViewHelpers;
 use TYPO3\CMS\Adminpanel\ModuleApi\ContentProviderInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\ModuleData;
 use TYPO3\CMS\Adminpanel\ModuleApi\ModuleDataStorageCollection;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Render submodule content
+ * ViewHelper to render submodule content.
+ *
+ * ```
+ *   <adm:subModuleRender data="{someData}" module="{someModule}" />
+ * ```
  *
  * @internal
  */
 final class SubModuleRenderViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('module', ContentProviderInterface::class, 'SubModule instance to be rendered', true);
@@ -41,14 +41,12 @@ final class SubModuleRenderViewHelper extends AbstractViewHelper
 
     /**
      * Resolve user name from backend user id.
-     *
-     * @param array{module: ContentProviderInterface, data: ModuleDataStorageCollection} $arguments
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $module = $arguments['module'];
-        $data = $arguments['data'];
-        $moduleData = $data->contains($module) ? $data->offsetGet($module) : new ModuleData();
+        $module = $this->arguments['module'];
+        $data = $this->arguments['data'];
+        $moduleData = $data->offsetExists($module) ? $data->offsetGet($module) : new ModuleData();
         return $module->getContent($moduleData);
     }
 }

@@ -22,6 +22,7 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\QueryRestrictionInterface;
 use TYPO3\CMS\Core\Resource\Search\FileSearchDemand;
+use TYPO3\CMS\Core\Schema\SearchableSchemaFieldsCollector;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -29,21 +30,10 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 class SearchTermRestriction implements QueryRestrictionInterface
 {
-    /**
-     * @var FileSearchDemand
-     */
-    private $searchDemand;
-
-    /**
-     * @var QueryBuilder
-     */
-    private $queryBuilder;
-
-    public function __construct(FileSearchDemand $searchDemand, QueryBuilder $queryBuilder)
-    {
-        $this->searchDemand = $searchDemand;
-        $this->queryBuilder = $queryBuilder;
-    }
+    public function __construct(
+        private readonly FileSearchDemand $searchDemand,
+        private readonly QueryBuilder $queryBuilder,
+    ) {}
 
     public function buildExpression(array $queriedTables, ExpressionBuilder $expressionBuilder): CompositeExpression
     {
@@ -65,37 +55,23 @@ class SearchTermRestriction implements QueryRestrictionInterface
      */
     private function makeQuerySearchByTable(string $tableName, string $tableAlias): CompositeExpression
     {
-        $fieldsToSearchWithin = $this->extractSearchableFieldsFromTable($tableName);
-        $searchTerm = (string)$this->searchDemand->getSearchTerm();
         $constraints = [];
-
-        $searchTermParts = str_getcsv($searchTerm, ' ');
-        foreach ($searchTermParts as $searchTermPart) {
-            $searchTermPart = trim($searchTermPart);
-            if ($searchTermPart === '') {
-                continue;
-            }
-            $constraintsForParts = [];
-            $like = '%' . $this->queryBuilder->escapeLikeWildcards($searchTermPart) . '%';
-            foreach ($fieldsToSearchWithin as $fieldName) {
-                if (!isset($GLOBALS['TCA'][$tableName]['columns'][$fieldName])) {
+        $fieldsToSearchWithin = GeneralUtility::makeInstance(SearchableSchemaFieldsCollector::class)->getFields(
+            $tableName,
+            $this->searchDemand->getSearchFields()[$tableName] ?? []
+        );
+        if ($fieldsToSearchWithin->count() > 0) {
+            $searchTerm = (string)$this->searchDemand->getSearchTerm();
+            $searchTermParts = str_getcsv($searchTerm, ' ', '"', '\\');
+            foreach ($searchTermParts as $searchTermPart) {
+                $searchTermPart = trim($searchTermPart);
+                if ($searchTermPart === '') {
                     continue;
                 }
-                $fieldConfig = $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'];
-                $fieldType = $fieldConfig['type'];
-
-                // Check whether search should be case-sensitive or not
-                if (in_array('case', (array)($fieldConfig['search'] ?? []), true)) {
-                    // case sensitive
-                    $searchConstraint = $this->queryBuilder->expr()->and(
-                        $this->queryBuilder->expr()->like(
-                            $tableAlias . '.' . $fieldName,
-                            $this->queryBuilder->createNamedParameter($like)
-                        )
-                    );
-                } else {
-                    $searchConstraint = $this->queryBuilder->expr()->and(
-                        // case insensitive
+                $constraintsForParts = [];
+                $like = '%' . $this->queryBuilder->escapeLikeWildcards($searchTermPart) . '%';
+                foreach ($fieldsToSearchWithin as $fieldName => $field) {
+                    $constraintsForParts[] = $this->queryBuilder->expr()->and(
                         $this->queryBuilder->expr()->comparison(
                             'LOWER(' . $this->queryBuilder->quoteIdentifier($tableAlias . '.' . $fieldName) . ')',
                             'LIKE',
@@ -103,51 +79,10 @@ class SearchTermRestriction implements QueryRestrictionInterface
                         )
                     );
                 }
-
-                // Assemble the search condition only if the field makes sense to be searched
-                if ($fieldType === 'text'
-                    || $fieldType === 'flex'
-                    || $fieldType === 'json'
-                    || $fieldType === 'email'
-                    || $fieldType === 'link'
-                    || $fieldType === 'color'
-                    || $fieldType === 'input'
-                    || $fieldType === 'uuid'
-                ) {
-                    $constraintsForParts[] = $searchConstraint;
-                }
+                $constraints[] = $this->queryBuilder->expr()->or(...$constraintsForParts);
             }
-            $constraints[] = $this->queryBuilder->expr()->or(...$constraintsForParts);
         }
 
         return $this->queryBuilder->expr()->and(...$constraints);
-    }
-
-    /**
-     * Get all fields from given table where we can search for.
-     *
-     * @param string $tableName Name of the table for which to get the searchable fields
-     */
-    private function extractSearchableFieldsFromTable(string $tableName): array
-    {
-        if ($searchFields = $this->searchDemand->getSearchFields()) {
-            if (empty($searchFields[$tableName])) {
-                return [];
-            }
-            foreach ($searchFields[$tableName] as $searchField) {
-                if (!isset($GLOBALS['TCA'][$tableName]['columns'][$searchField])) {
-                    throw new \RuntimeException(sprintf('Cannot use search field "%s" because it is not defined in TCA.', $searchField), 1556367071);
-                }
-            }
-
-            return $searchFields;
-        }
-        $fieldListArray = [];
-        // Get the list of fields to search in from the TCA, if any
-        if (isset($GLOBALS['TCA'][$tableName]['ctrl']['searchFields'])) {
-            $fieldListArray = GeneralUtility::trimExplode(',', $GLOBALS['TCA'][$tableName]['ctrl']['searchFields'], true);
-        }
-
-        return $fieldListArray;
     }
 }

@@ -21,6 +21,8 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Site\Entity\NullSite;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteSettings;
+use TYPO3\CMS\Core\Site\SiteFinder;
+use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\TypoScript\PageTsConfigFactory;
 use TYPO3\CMS\Core\TypoScript\UserTsConfigFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -30,6 +32,15 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  */
 final class PageTsConfigFactoryTest extends FunctionalTestCase
 {
+    use SiteBasedTestTrait;
+
+    /**
+     * @var array Used by buildDefaultLanguageConfiguration() of SiteBasedTestTrait
+     */
+    protected const LANGUAGE_PRESETS = [
+        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
+    ];
+
     protected array $testExtensionsToLoad = [
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_typoscript_pagetsconfigfactory',
     ];
@@ -47,6 +58,38 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
         self::assertSame('loadedFromRelativeIncludeTarget23', $pageTsConfig->getPageTsConfigArray()['loadedFromRelativeIncludeTarget23']);
         // 24 is a relative include with path traversal and not allowed to be loaded.
         self::assertArrayNotHasKey('loadedFromRelativeIncludeTarget24', $pageTsConfig->getPageTsConfigArray());
+    }
+
+    #[Test]
+    public function pageTsConfigLoadsFromSiteSetPagesTsconfig(): void
+    {
+        $rootLine = [
+            [
+                'uid' => 1,
+            ],
+        ];
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+            ],
+            [],
+            [
+                'typo3tests/set-with-pagets-config',
+            ],
+        );
+        $site = $this->get(SiteFinder::class)->getSiteByRootPageId(1);
+        $subject = $this->get(PageTsConfigFactory::class);
+        $pageTsConfig = $subject->create($rootLine, $site);
+        self::assertSame('loadedFromSiteSetPageTsConfig', $pageTsConfig->getPageTsConfigArray()['loadedFromSiteSetPageTsConfig'] ?? '');
+        // Verify relative includes are resolved as well.
+        self::assertSame('loadedFromSiteSetRelativeIncludeTarget20', $pageTsConfig->getPageTsConfigArray()['loadedFromSiteSetRelativeIncludeTarget20'] ?? '');
+        self::assertSame('loadedFromSiteSetRelativeIncludeTarget20Sub', $pageTsConfig->getPageTsConfigArray()['loadedFromSiteSetRelativeIncludeTarget20Sub'] ?? '');
+        self::assertSame('loadedFromSiteSetRelativeIncludeTarget22', $pageTsConfig->getPageTsConfigArray()['loadedFromSiteSetRelativeIncludeTarget22'] ?? '');
+        self::assertSame('loadedFromSiteSetRelativeIncludeTarget23', $pageTsConfig->getPageTsConfigArray()['loadedFromSiteSetRelativeIncludeTarget23'] ?? '');
+        // 24 is a relative include with path traversal and not allowed to be loaded.
+        self::assertArrayNotHasKey('loadedFromSiteSetRelativeIncludeTarget24', $pageTsConfig->getPageTsConfigArray());
     }
 
     #[Test]
@@ -112,21 +155,6 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function pageTsConfigLoadsSingleFileWithOldImportSyntax(): void
-    {
-        $rootLine = [
-            [
-                'uid' => 1,
-                'TSconfig' => '<INCLUDE_TYPOSCRIPT: source="FILE:EXT:test_typoscript_pagetsconfigfactory/Configuration/TsConfig/tsconfig-includes.tsconfig">',
-            ],
-        ];
-        /** @var PageTsConfigFactory $subject */
-        $subject = $this->get(PageTsConfigFactory::class);
-        $pageTsConfig = $subject->create($rootLine, new NullSite());
-        self::assertSame('loadedFromTsconfigIncludesWithTsconfigSuffix', $pageTsConfig->getPageTsConfigArray()['loadedFromTsconfigIncludesWithTsconfigSuffix']);
-    }
-
-    #[Test]
     public function pageTsConfigLoadsFromPageRecordTsconfigFieldOverridesByLowerLevel(): void
     {
         $rootLine = [
@@ -157,7 +185,9 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
             ],
         ];
         $subject = $this->get(PageTsConfigFactory::class);
-        $siteSettings = new SiteSettings(['aSiteSetting' => 'aSiteSettingValue']);
+        $siteSettings = SiteSettings::createFromSettingsTree(
+            ['aSiteSetting' => 'aSiteSettingValue'],
+        );
         $site = new Site('siteIdentifier', 1, [], $siteSettings);
         $pageTsConfig = $subject->create($rootLine, $site);
         self::assertSame('aSiteSettingValue', $pageTsConfig->getPageTsConfigArray()['siteSetting']);
@@ -187,30 +217,5 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
         $subject = $this->get(PageTsConfigFactory::class);
         $pageTsConfig = $subject->create($rootLine, new NullSite(), $userTsConfig);
         self::assertSame('overridden', $pageTsConfig->getPageTsConfigArray()['valueOverriddenByUserTsConfig']);
-    }
-
-    /**
-     * @deprecated Remove together with $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'].
-     */
-    #[Test]
-    public function pageTsConfigLoadsDefaultsFromGlobals(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'] = 'loadedFromGlobals = loadedFromGlobals';
-        $subject = $this->get(PageTsConfigFactory::class);
-        $pageTsConfig = $subject->create([], new NullSite());
-        self::assertSame('loadedFromGlobals', $pageTsConfig->getPageTsConfigArray()['loadedFromGlobals']);
-    }
-
-    /**
-     * @deprecated Remove together with $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'].
-     */
-    #[Test]
-    public function pageTsConfigLoadsSingleFileWithOldImportSyntaxFromGlobals(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'] = '<INCLUDE_TYPOSCRIPT: source="FILE:EXT:test_typoscript_pagetsconfigfactory/Configuration/TsConfig/tsconfig-includes.tsconfig">';
-        /** @var PageTsConfigFactory $subject */
-        $subject = $this->get(PageTsConfigFactory::class);
-        $pageTsConfig = $subject->create([], new NullSite());
-        self::assertSame('loadedFromTsconfigIncludesWithTsconfigSuffix', $pageTsConfig->getPageTsConfigArray()['loadedFromTsconfigIncludesWithTsconfigSuffix']);
     }
 }

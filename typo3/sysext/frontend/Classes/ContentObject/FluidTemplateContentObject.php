@@ -18,11 +18,11 @@ namespace TYPO3\CMS\Frontend\ContentObject;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\View\FluidViewAdapter;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
 use TYPO3\CMS\Extbase\Mvc\Web\RequestBuilder;
+use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\CMS\Frontend\ContentObject\Exception\ContentRenderingException;
 
 /**
@@ -135,9 +135,11 @@ class FluidTemplateContentObject extends AbstractContentObject
         $variables = $this->contentDataProcessor->process($this->cObj, $conf, $variables);
         $view->assignMultiple($variables);
 
+        // Rendering the view internally set's the template (paths). This is required for following asset rendering
+        $content = $view->render($templateFilename);
+
         $this->renderFluidTemplateAssetsIntoPageRenderer($view, $variables);
 
-        $content = $view->render($templateFilename);
         if (isset($conf['stdWrap.'])) {
             return $this->cObj->stdWrap($content, $conf['stdWrap.']);
         }

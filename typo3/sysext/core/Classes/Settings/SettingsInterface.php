@@ -17,15 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Settings;
 
+use Psr\Container\ContainerInterface;
+
 /**
  * @internal
  */
-interface SettingsInterface
+interface SettingsInterface extends ContainerInterface
 {
-    public function has(string $identifier): bool;
-
-    public function get(string $identifier): mixed;
-
     public function getIdentifiers(): array;
 
     public static function __set_state(array $state): SettingsInterface;

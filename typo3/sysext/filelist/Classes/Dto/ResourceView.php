@@ -22,7 +22,6 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\InaccessibleFolder;
-use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ResourceInterface;
 use TYPO3\CMS\Core\Resource\Utility\ListUtility;
 
@@ -124,18 +123,6 @@ class ResourceView
         return null;
     }
 
-    public function getThumbnailUri(): ?string
-    {
-        $preview = $this->getPreview();
-        if (!$preview) {
-            return null;
-        }
-
-        return $preview
-            ->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, ['width' => '32c', 'height' => '32c'])
-            ->getPublicUrl() ?? null;
-    }
-
     public function getIconIdentifier(): string
     {
         return $this->icon->getIdentifier();
@@ -184,6 +171,15 @@ class ResourceView
         }
         if ($this->resource instanceof Folder) {
             return $this->resource->getModificationTime();
+        }
+
+        return null;
+    }
+
+    public function getSize(): ?int
+    {
+        if ($this->resource instanceof File) {
+            return $this->resource->getSize();
         }
 
         return null;
@@ -270,6 +266,15 @@ class ResourceView
     {
         if ($this->resource instanceof File || $this->resource instanceof Folder) {
             return $this->resource->checkActionPermission('rename');
+        }
+
+        return null;
+    }
+
+    public function canReplace(): ?bool
+    {
+        if ($this->resource instanceof File) {
+            return $this->resource->checkActionPermission('replace');
         }
 
         return null;

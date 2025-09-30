@@ -25,11 +25,14 @@ use TYPO3\CMS\Belog\Domain\Model\LogEntry;
 use TYPO3\CMS\Belog\Domain\Repository\LogEntryRepository;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Domain\DateTimeFormat;
+use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
+use TYPO3\CMS\Extbase\Property\TypeConverter\DateTimeConverter;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
 
 /**
@@ -39,6 +42,8 @@ use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
  */
 class BackendLogController extends ActionController
 {
+    use AllowedMethodsTrait;
+
     public function __construct(
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly LogEntryRepository $logEntryRepository,
@@ -60,6 +65,8 @@ class BackendLogController extends ActionController
         $this->settings['dateTimeFormat'] = 'H:i d-m-Y';
         $constraintConfiguration = $this->arguments->getArgument('constraint')->getPropertyMappingConfiguration();
         $constraintConfiguration->allowAllProperties();
+        $constraintConfiguration->forProperty('manualDateStart')->setTypeConverterOption(DateTimeConverter::class, DateTimeConverter::CONFIGURATION_DATE_FORMAT, DateTimeFormat::ISO8601_LOCALTIME);
+        $constraintConfiguration->forProperty('manualDateStop')->setTypeConverterOption(DateTimeConverter::class, DateTimeConverter::CONFIGURATION_DATE_FORMAT, DateTimeFormat::ISO8601_LOCALTIME);
     }
 
     /**
@@ -124,6 +131,11 @@ class BackendLogController extends ActionController
             ->renderResponse('BackendLog/List');
     }
 
+    public function initializeDeleteMessageAction(): void
+    {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
+    }
+
     /**
      * Delete all log entries that share the same message with the log entry given
      * in $errorUid
@@ -137,6 +149,7 @@ class BackendLogController extends ActionController
         }
         $numberOfDeletedRows = $this->logEntryRepository->deleteByMessageDetails($logEntry);
         $this->addFlashMessage(sprintf(LocalizationUtility::translate('actions.delete.message', 'belog') ?? '', $numberOfDeletedRows));
+        BackendUtility::setUpdateSignal('updateSystemInformationMenu');
         return $this->redirect('list');
     }
 
@@ -201,8 +214,7 @@ class BackendLogController extends ActionController
                 $targetStructure[-1] = [];
             }
             // Get day timestamp of log entry and create sub array if needed
-            $entryTimestamp = \DateTimeImmutable::createFromFormat('U', (string)$entry->getTstamp());
-            $timestampDay = strtotime($entryTimestamp->format('d.m.Y'));
+            $timestampDay = strtotime($entry->getTstamp()->format('Y-m-d'));
             if (!is_array($targetStructure[$pid][$timestampDay] ?? false)) {
                 $targetStructure[$pid][$timestampDay] = [];
             }

@@ -47,6 +47,7 @@ use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Site\Entity\Site;
+use TYPO3\CMS\Core\Site\Set\SetRegistry;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\SysLog\Action\Site as SiteAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
@@ -74,6 +75,8 @@ class SiteConfigurationController
         private readonly PageRenderer $pageRenderer,
         private readonly SiteConfiguration $siteConfiguration,
         private readonly SiteWriter $siteWriter,
+        private readonly NodeFactory $nodeFactory,
+        private readonly SetRegistry $setRegistry,
     ) {}
 
     /**
@@ -114,6 +117,7 @@ class SiteConfigurationController
             'unassignedSites' => $unassignedSites,
             'duplicatedRootPages' => $duplicatedRootPages,
             'duplicatedEntryPoints' => $this->getDuplicatedEntryPoints($allSites, $pages),
+            'invalidSets' => $this->setRegistry->getInvalidSets(),
         ]);
         return $view->renderResponse('SiteConfiguration/Overview');
     }
@@ -150,7 +154,9 @@ class SiteConfigurationController
             throw new \RuntimeException('Existing config for site ' . $siteIdentifier . ' not found', 1521561226);
         }
 
-        $returnUrl = $this->uriBuilder->buildUriFromRoute('site_configuration');
+        $returnUrl = GeneralUtility::sanitizeLocalUrl(
+            (string)($request->getQueryParams()['returnUrl'] ?? '')
+        ) ?: $this->uriBuilder->buildUriFromRoute('site_configuration');
 
         $formDataCompilerInput = [
             'request' => $request,
@@ -164,9 +170,8 @@ class SiteConfigurationController
             'defaultValues' => $defaultValues,
         ];
         $formData = $this->formDataCompiler->compile($formDataCompilerInput, GeneralUtility::makeInstance(SiteConfigurationDataGroup::class));
-        $nodeFactory = GeneralUtility::makeInstance(NodeFactory::class);
         $formData['renderType'] = 'outerWrapContainer';
-        $formResult = $nodeFactory->create($formData)->render();
+        $formResult = $this->nodeFactory->create($formData)->render();
         // Needed to be set for 'onChange="reload"' and reload on type change to work
         $formResult['doSaveFieldName'] = 'doSave';
         $formResultCompiler = GeneralUtility::makeInstance(FormResultCompiler::class);
@@ -183,7 +188,7 @@ class SiteConfigurationController
         ]);
 
         $this->pageRenderer->getJavaScriptRenderer()->includeTaggedImports('backend.form');
-        $this->configureEditViewDocHeader($view);
+        $this->configureEditViewDocHeader($view, $siteIdentifier);
         $view->setTitle(
             $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_module.xlf:mlang_tabs_tab'),
             $siteIdentifier ?? ''
@@ -212,11 +217,16 @@ class SiteConfigurationController
 
         $siteTca = GeneralUtility::makeInstance(SiteTcaConfiguration::class)->getTca();
 
-        $overviewRoute = $this->uriBuilder->buildUriFromRoute('site_configuration');
+        $queryParams = $request->getQueryParams();
         $parsedBody = $request->getParsedBody();
+
+        $returnUrl = GeneralUtility::sanitizeLocalUrl(
+            (string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '')
+        ) ?: $this->uriBuilder->buildUriFromRoute('site_configuration');
+
         if (isset($parsedBody['closeDoc']) && (int)$parsedBody['closeDoc'] === 1) {
             // Closing means no save, just redirect to overview
-            return new RedirectResponse($overviewRoute);
+            return new RedirectResponse($returnUrl);
         }
         $isSave = $parsedBody['_savedok'] ?? $parsedBody['doSave'] ?? false;
         $isSaveClose = $parsedBody['_saveandclosedok'] ?? false;
@@ -413,13 +423,13 @@ class SiteConfigurationController
             try {
                 if (!$isNewConfiguration && $currentIdentifier !== $siteIdentifier) {
                     $this->siteWriter->rename($currentIdentifier, $siteIdentifier);
-                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::RENAME, SystemLogErrorClassification::MESSAGE, 0, 'Site configuration \'%s\' was renamed to \'%s\'.', [$currentIdentifier, $siteIdentifier], 'site');
+                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::RENAME, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was renamed to \'%s\'.', [$currentIdentifier, $siteIdentifier], 'site');
                 }
                 $this->siteWriter->write($siteIdentifier, $newSiteConfiguration, true);
                 if ($isNewConfiguration) {
-                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::CREATE, SystemLogErrorClassification::MESSAGE, 0, 'Site configuration \'%s\' was created.', [$siteIdentifier], 'site');
+                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::CREATE, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was created.', [$siteIdentifier], 'site');
                 } else {
-                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::UPDATE, SystemLogErrorClassification::MESSAGE, 0, 'Site configuration \'%s\' was updated.', [$siteIdentifier], 'site');
+                    $this->getBackendUser()->writelog(Type::SITE, SiteAction::UPDATE, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was updated.', [$siteIdentifier], 'site');
                 }
             } catch (SiteConfigurationWriteException $e) {
                 $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
@@ -433,7 +443,7 @@ class SiteConfigurationController
 
         $saveRoute = $this->uriBuilder->buildUriFromRoute('site_configuration.edit', ['site' => $siteIdentifier]);
         if ($isSaveClose) {
-            return new RedirectResponse($overviewRoute);
+            return new RedirectResponse($returnUrl);
         }
         return new RedirectResponse($saveRoute);
     }
@@ -664,7 +674,7 @@ class SiteConfigurationController
         try {
             // Verify site does exist, method throws if not
             $this->siteWriter->delete($siteIdentifier);
-            $this->getBackendUser()->writelog(Type::SITE, SiteAction::DELETE, SystemLogErrorClassification::MESSAGE, 0, 'Site configuration \'%s\' was deleted.', [$siteIdentifier], 'site');
+            $this->getBackendUser()->writelog(Type::SITE, SiteAction::DELETE, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was deleted.', [$siteIdentifier], 'site');
         } catch (SiteConfigurationWriteException $e) {
             $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
             $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
@@ -678,7 +688,7 @@ class SiteConfigurationController
     /**
      * Create document header buttons of "edit" action
      */
-    protected function configureEditViewDocHeader(ModuleTemplate $view): void
+    protected function configureEditViewDocHeader(ModuleTemplate $view, ?string $siteIdentifier): void
     {
         $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
         $lang = $this->getLanguageService();
@@ -697,6 +707,19 @@ class SiteConfigurationController
             ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL));
         $buttonBar->addButton($closeButton);
         $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+        if ($siteIdentifier) {
+            $exportButton = $buttonBar->makeLinkButton()
+                ->setTitle($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:edit.editSiteSettings'))
+                ->setIcon($this->iconFactory->getIcon('actions-cog', IconSize::SMALL))
+                ->setShowLabelText(true)
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_settings.edit', [
+                    'site' => $siteIdentifier,
+                    'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_configuration.edit', [
+                        'site' => $siteIdentifier,
+                    ]),
+                ]));
+            $buttonBar->addButton($exportButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+        }
     }
 
     /**

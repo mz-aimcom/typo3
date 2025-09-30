@@ -6,12 +6,8 @@
 <f:layout name="Module"/>
 
 <f:section name="Before">
-    <f:be.pageRenderer
-        includeJavaScriptModules="{
-            0: '@typo3/backend/context-menu.js',
-            1: '@typo3/backend/element/immediate-action-element.js'
-        }"
-    />
+    <f:asset.module identifier="@typo3/backend/context-menu.js"/>
+    <f:asset.module identifier="@typo3/backend/element/immediate-action-element.js"/>
     <f:if condition="{accessContent}">
         <f:variable name="args" value="{0: 'web', 1: id}"/>
         <typo3-immediate-action
@@ -32,6 +28,14 @@
                         <f:then>
                             <form action="{f:be.uri(route: 'web_info_overview', parameters: '{id: pageUid}')}" method="post">
                                 <div class="form-row">
+                                    <f:if condition="{displayLangDropdown} && {langDropdownOptions}">
+                                        <div class="form-group">
+                                            <label class="form-label" for="lang">
+                                                <f:translate key="LLL:EXT:info/Resources/Private/Language/locallang_webinfo.xlf:moduleFunctions.lang" />
+                                            </label>
+                                            <f:render partial="DropdownMenu" arguments="{name: 'lang', id: 'lang', options: langDropdownOptions, currentValue: langDropdownCurrentValue}"/>
+                                        </div>
+                                    </f:if>
                                     <div class="form-group">
                                         <label class="form-label" for="depth">
                                             <f:translate key="LLL:EXT:info/Resources/Private/Language/locallang_webinfo.xlf:moduleFunctions.depth"/>

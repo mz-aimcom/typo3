@@ -19,7 +19,6 @@ namespace TYPO3\CMS\Frontend\Page;
 
 /**
  * Contains a list of all reasons that TYPO3 internally uses when a page cannot be found/rendered etc.
- * See TypoScriptFrontendController for more details and the usage.
  */
 final class PageAccessFailureReasons
 {
@@ -28,6 +27,9 @@ final class PageAccessFailureReasons
     public const PAGE_NOT_FOUND = 'page';
     public const ROOTLINE_BROKEN = 'page.rootline';
     public const INVALID_EXTERNAL_URL = 'page.invalid_external_url';
+
+    // Site configuration issues
+    public const INVALID_SITE_SETS = 'site.sets.invalid';
 
     // Page configuration issues
     public const RENDERING_INSTRUCTIONS_NOT_FOUND = 'rendering_instructions';

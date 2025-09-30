@@ -25,25 +25,6 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class LanguageServiceTest extends FunctionalTestCase
 {
-    protected array $testExtensionsToLoad = [
-        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_localization',
-    ];
-
-    protected bool $initializeDatabase = false;
-
-    protected array $configurationToUseInTestInstance = [
-        'SYS' => [
-            'caching' => [
-                'cacheConfigurations' => [
-                    'l10n' => [
-                        'backend' => NullBackend::class,
-                    ],
-                ],
-            ],
-            'locallangXMLOverride' => [],
-        ],
-    ];
-
     // Constants to access the various language files
     private const LANGUAGE_FILE = 'EXT:test_localization/Resources/Private/Language/locallang.xlf';
     private const LANGUAGE_FILE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_override.xlf';
@@ -52,6 +33,26 @@ final class LanguageServiceTest extends FunctionalTestCase
     private const LANGUAGE_FILE_CORE = 'EXT:core/Resources/Private/Language/locallang_common.xlf';
     private const LANGUAGE_FILE_CORE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_common_override.xlf';
     private const LANGUAGE_FILE_CORE_OVERRIDE_FR = 'EXT:test_localization/Resources/Private/Language/fr.locallang_common_override.xlf';
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_localization',
+    ];
+
+    protected bool $initializeDatabase = false;
+
+    protected array $configurationToUseInTestInstance = [
+        'LANG' => [
+            'resourceOverrides' => [],
+        ],
+        'SYS' => [
+            'caching' => [
+                'cacheConfigurations' => [
+                    'l10n' => [
+                        'backend' => NullBackend::class,
+                    ],
+                ],
+            ],
+        ],
+    ];
 
     #[DataProvider('splitLabelTestDataProvider')]
     #[Test]
@@ -169,9 +170,9 @@ final class LanguageServiceTest extends FunctionalTestCase
     #[Test]
     public function ensureVariousLocalizationOverrideScenariosWork(string $locale, array $expectedLabels): void
     {
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE;
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride']['de'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_DE;
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride']['fr'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_FR;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['de'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_DE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_FR;
 
         $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE, $expectedLabels);
     }
@@ -208,8 +209,8 @@ final class LanguageServiceTest extends FunctionalTestCase
     #[Test]
     public function ensureVariousLocalizationOverrideScenariosForCoreExtensionWork(string $locale, array $expectedLabels): void
     {
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE;
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['locallangXMLOverride']['fr'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE_FR;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE_FR;
 
         $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE_CORE, $expectedLabels);
     }

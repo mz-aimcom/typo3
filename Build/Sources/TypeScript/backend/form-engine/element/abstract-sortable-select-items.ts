@@ -138,11 +138,10 @@ export abstract class AbstractSortableSelectItems {
       }
 
       FormEngine.updateHiddenFieldValueFromSelect(fieldElement, relatedField);
-      FormEngine.legacyFieldChangedCb();
-      FormEngineValidation.markFieldAsChanged(relatedAvailableValuesField);
+      FormEngine.markFieldAsChanged(relatedAvailableValuesField);
       FormEngineValidation.validateField(relatedAvailableValuesField);
     });
-  }
+  };
 
   /**
    * @param {HTMLSelectElement} fieldElement
@@ -178,11 +177,10 @@ export abstract class AbstractSortableSelectItems {
       }
       if (e.defaultPrevented) {
         FormEngine.updateHiddenFieldValueFromSelect(fieldElement, relatedField);
-        FormEngine.legacyFieldChangedCb();
-        FormEngineValidation.markFieldAsChanged(relatedAvailableValuesField);
+        FormEngine.markFieldAsChanged(relatedAvailableValuesField);
         FormEngineValidation.validateField(relatedAvailableValuesField);
       }
     }).bindTo(fieldElement);
-  }
+  };
 
 }

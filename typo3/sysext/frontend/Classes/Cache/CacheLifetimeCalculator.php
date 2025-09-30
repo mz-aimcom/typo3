@@ -26,8 +26,11 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\EndTimeRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\StartTimeRestriction;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Event\ModifyCacheLifetimeForPageEvent;
+use TYPO3\CMS\Frontend\Event\ModifyCacheLifetimeForRowEvent;
 
 /**
  * Calculates the max lifetime the given page should be stored in TYPO3's page cache.
@@ -40,14 +43,59 @@ use TYPO3\CMS\Frontend\Event\ModifyCacheLifetimeForPageEvent;
 #[Autoconfigure(public: true)]
 class CacheLifetimeCalculator
 {
-    protected int $defaultCacheTimeout = 86400;
+    protected const defaultCacheTimeout = 86400;
 
     public function __construct(
         #[Autowire(service: 'cache.runtime')]
         protected readonly FrontendInterface $runtimeCache,
         protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly ConnectionPool $connectionPool
+        protected readonly ConnectionPool $connectionPool,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
+
+    /**
+     * Get the cache lifetime in seconds for the given record.
+     */
+    public function calculateLifetimeForRow(string $tableName, array $record, int $defaultCacheTimoutInSeconds = 0): int
+    {
+        $cachedCacheLifetimeIdentifier = sprintf('calculateLifetimeForRow_%s_%d', $tableName, ($record['uid'] ?? 0));
+        $cachedCacheLifetime = $this->runtimeCache->get($cachedCacheLifetimeIdentifier);
+        if ($cachedCacheLifetime !== false) {
+            return (int)$cachedCacheLifetime;
+        }
+
+        $cacheTimeout = $defaultCacheTimoutInSeconds ?: self::defaultCacheTimeout;
+
+        if ($this->tcaSchemaFactory->has($tableName)) {
+            $schema = $this->tcaSchemaFactory->get($tableName);
+            // If the record has a starttime or endtime, we have to adjust the cache timeout
+            foreach ([TcaSchemaCapability::RestrictionStartTime, TcaSchemaCapability::RestrictionEndTime] as $capability) {
+                if (!$schema->hasCapability($capability)) {
+                    continue;
+                }
+                $timeField = $schema->getCapability($capability)->getFieldName();
+                if (array_key_exists($timeField, $record) && $record[$timeField] > 0 && ((int)$record[$timeField] - $GLOBALS['ACCESS_TIME']) > 0) {
+                    $cacheTimeout = min($cacheTimeout, (int)$record[$timeField] - $GLOBALS['ACCESS_TIME']);
+                }
+            }
+        }
+
+        // Get the time, rounded to the minute (do not pollute MySQL cache!)
+        // It is ok that we do not take seconds into account here because this
+        // value will be subtracted later. So we never get the time "before"
+        // the cache change.
+        $currentTimestamp = (int)$GLOBALS['ACCESS_TIME'];
+        $cacheTimeout = min($currentTimestamp, $cacheTimeout);
+
+        $event = new ModifyCacheLifetimeForRowEvent(
+            $cacheTimeout,
+            $tableName,
+            $record
+        );
+        $event = $this->eventDispatcher->dispatch($event);
+        $this->runtimeCache->set($cachedCacheLifetimeIdentifier, (string)$event->cacheLifetime);
+        return $cacheTimeout;
+    }
 
     /**
      * Get the cache lifetime in seconds for the given page.
@@ -57,7 +105,7 @@ class CacheLifetimeCalculator
         $cachedCacheLifetimeIdentifier = 'cacheLifeTimeForPage_' . $pageId;
         $cachedCacheLifetime = $this->runtimeCache->get($cachedCacheLifetimeIdentifier);
         if ($cachedCacheLifetime !== false) {
-            return $cachedCacheLifetime;
+            return (int)$cachedCacheLifetime;
         }
         if ($pageRecord['cache_timeout'] ?? false) {
             // Cache period was set for the page:
@@ -65,22 +113,10 @@ class CacheLifetimeCalculator
         } else {
             // Cache period was set via TypoScript "config.cache_period",
             // otherwise it's the default of 24 hours
-            $cacheTimeout = $defaultCacheTimoutInSeconds ?: (int)($renderingInstructions['cache_period'] ?? $this->defaultCacheTimeout);
+            $cacheTimeout = $defaultCacheTimoutInSeconds ?: (int)($renderingInstructions['cache_period'] ?? self::defaultCacheTimeout);
         }
-        // A pages endtime limits the upper bound of the maxmium cache lifetime
-        $pageEndtime = (int)($pageRecord['endtime'] ?? 0);
-        if ($pageEndtime > 0) {
-            $cacheTimeout = min($cacheTimeout, $pageEndtime - $GLOBALS['EXEC_TIME']);
-        }
-        if (!empty($renderingInstructions['cache_clearAtMidnight'])) {
-            $timeOutTime = $GLOBALS['EXEC_TIME'] + $cacheTimeout;
-            $midnightTime = mktime(0, 0, 0, (int)date('m', $timeOutTime), (int)date('d', $timeOutTime), (int)date('Y', $timeOutTime));
-            // If the midnight time of the expire-day is greater than the current time,
-            // we may set the timeOutTime to the new midnighttime.
-            if ($midnightTime > $GLOBALS['EXEC_TIME']) {
-                $cacheTimeout = $midnightTime - $GLOBALS['EXEC_TIME'];
-            }
-        }
+
+        $cacheTimeout = $this->calculateLifetimeForRow('pages', $pageRecord, $cacheTimeout);
 
         // Calculate the timeout time for records on the page and adjust cache timeout if necessary
         // Get the configuration
@@ -102,7 +138,7 @@ class CacheLifetimeCalculator
         );
         $event = $this->eventDispatcher->dispatch($event);
         $cacheTimeout = $event->getCacheLifetime();
-        $this->runtimeCache->set($cachedCacheLifetimeIdentifier, $cacheTimeout);
+        $this->runtimeCache->set($cachedCacheLifetimeIdentifier, (string)$cacheTimeout);
         return $cacheTimeout;
     }
 
@@ -174,30 +210,36 @@ class CacheLifetimeCalculator
             ->removeByType(EndTimeRestriction::class);
         $timeFields = [];
         $timeConditions = $queryBuilder->expr()->or();
-        foreach (['starttime', 'endtime'] as $field) {
-            if (isset($GLOBALS['TCA'][$tableName]['ctrl']['enablecolumns'][$field])) {
-                $timeFields[$field] = $GLOBALS['TCA'][$tableName]['ctrl']['enablecolumns'][$field];
+        if ($this->tcaSchemaFactory->has($tableName)) {
+            $schema = $this->tcaSchemaFactory->get($tableName);
+            // If the record has a starttime or endtime, we have to adjust the cache timeout
+            foreach ([TcaSchemaCapability::RestrictionStartTime, TcaSchemaCapability::RestrictionEndTime] as $capability) {
+                if (!$schema->hasCapability($capability)) {
+                    continue;
+                }
+                $timeField = $schema->getCapability($capability)->getFieldName();
                 $queryBuilder->addSelectLiteral(
                     'MIN('
                     . 'CASE WHEN '
                     . $queryBuilder->expr()->lte(
-                        $timeFields[$field],
+                        $timeField,
                         $queryBuilder->createNamedParameter($currentTimestamp, Connection::PARAM_INT)
                     )
-                    . ' THEN NULL ELSE ' . $queryBuilder->quoteIdentifier($timeFields[$field]) . ' END'
-                    . ') AS ' . $queryBuilder->quoteIdentifier($timeFields[$field])
+                    . ' THEN NULL ELSE ' . $queryBuilder->quoteIdentifier($timeField) . ' END'
+                    . ') AS ' . $queryBuilder->quoteIdentifier($timeField)
                 );
                 $timeConditions = $timeConditions->with(
                     $queryBuilder->expr()->gt(
-                        $timeFields[$field],
+                        $timeField,
                         $queryBuilder->createNamedParameter($currentTimestamp, Connection::PARAM_INT)
                     )
                 );
+                $timeFields[] = $timeField;
             }
         }
 
         // if starttime or endtime are defined, evaluate them
-        if (!empty($timeFields)) {
+        if ($timeFields !== []) {
             // find the timestamp, when the current page's content changes the next time
             $row = $queryBuilder
                 ->from($tableName)
@@ -212,7 +254,7 @@ class CacheLifetimeCalculator
                 ->fetchAssociative();
 
             if ($row) {
-                foreach ($timeFields as $timeField => $_) {
+                foreach ($timeFields as $timeField) {
                     // if a MIN value is found, take it into account for the
                     // cache lifetime we have to filter out start/endtimes < $currentTimestamp,
                     // as the SQL query also returns rows with starttime < $currentTimestamp

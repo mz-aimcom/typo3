@@ -17,46 +17,44 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Belog\ViewHelpers;
 
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Get username from backend user id
+ * ViewHelper to get a username from a backend user id.
+ *
+ * ```
+ *   <belog:username uid="{logItem.backendUserUid}" />
+ * ```
  *
  * @internal
  */
 final class UsernameViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
+    public function __construct(
+        #[Autowire(service: 'cache.runtime')]
+        private readonly FrontendInterface $usernameRuntimeCache
+    ) {}
 
-    /**
-     * First level cache of user names
-     */
-    protected static array $usernameRuntimeCache = [];
-
-    /**
-     * Initializes the arguments
-     */
     public function initializeArguments(): void
     {
         $this->registerArgument('uid', 'int', 'Uid of the user', true);
     }
 
     /**
-     * Resolve user name from backend user id. Can return empty string if there is no user with that UID.
-     *
-     * @param array{uid: int} $arguments
+     * Resolve username from backend user id. Can return empty string if there is no user with that UID.
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $uid = $arguments['uid'];
-        if (isset(self::$usernameRuntimeCache[$uid])) {
-            return self::$usernameRuntimeCache[$uid];
+        $uid = $this->arguments['uid'];
+        $cacheIdentifier = 'belog-viewhelper-username_' . $uid;
+        if ($this->usernameRuntimeCache->has($cacheIdentifier)) {
+            return $this->usernameRuntimeCache->get($cacheIdentifier);
         }
-        $user = BackendUtility::getRecord('be_users', $uid);
-        self::$usernameRuntimeCache[$uid] = $user['username'] ?? '';
-        return self::$usernameRuntimeCache[$uid];
+        $username = BackendUtility::getRecord('be_users', $uid)['username'] ?? '';
+        $this->usernameRuntimeCache->set($cacheIdentifier, $username);
+        return $username;
     }
 }

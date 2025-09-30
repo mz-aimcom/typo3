@@ -37,20 +37,20 @@ final class CompareUserCest
     {
         // put two users into compare list
         $I->see('Backend users');
-        $I->click('#typo3-backend-user-list > tbody > tr:nth-child(1) > td.col-control > div:nth-child(3) > a');
+        $I->click('#typo3-backend-user-list > tbody > tr:nth-child(1) > td.col-control > div:nth-child(3) > button');
         $I->waitForElementVisible('table#typo3-backend-user-list');
-        $I->click('#typo3-backend-user-list > tbody > tr:nth-child(2) > td.col-control > div:nth-child(3) > a');
+        $I->click('#typo3-backend-user-list > tbody > tr:nth-child(2) > td.col-control > div:nth-child(3) > button');
         $I->waitForElementVisible('table#typo3-backend-user-list-compare', 20);
         $I->canSeeNumberOfElements('#typo3-backend-user-list-compare tbody tr', 2);
         $I->click('body > div > div.module-body.t3js-module-body .t3js-acceptance-compare');
         $I->waitForElementVisible('table.table-striped-columns');
 
         // first user can be edited
-        $usernameFirstCompare = $I->grabTextFrom('table.beuser-comparison__table > thead > tr > th:nth-child(2) .beuser-comparison-element__title > span:nth-child(2)');
-        $I->click('table.beuser-comparison__table > thead > tr > th:nth-child(2) a[title="Edit"]');
+        $usernameFirstCompare = $I->grabTextFrom('table.beuser-comparison-table > thead > tr > th:nth-child(2) .beuser-comparison-element__title > span:nth-child(2)');
+        $I->click('table.beuser-comparison-table > thead > tr > th:nth-child(2) a[title="Edit"]');
         $I->waitForElementNotVisible('#t3js-ui-block');
         $I->waitForElementVisible('#EditDocumentController');
-        $I->canSee('Edit Backend user "' . $usernameFirstCompare . '" on root level');
+        $I->canSee('Edit Backend user "' . trim(explode('[', $usernameFirstCompare)[0]) . '" on root level');
 
         // back to compare view
         $I->click('.module-docheader a[title="Close"]');
@@ -58,34 +58,51 @@ final class CompareUserCest
         $I->canSee('Compare backend users', 'h1');
 
         // second user can be edited
-        $usernameFirstCompare = $I->grabTextFrom('table.beuser-comparison__table > thead > tr > th:nth-child(3) .beuser-comparison-element__title > span:nth-child(2)');
-        $I->click('table.beuser-comparison__table > thead > tr > th:nth-child(3) a[title="Edit"]');
+        $usernameFirstCompare = $I->grabTextFrom('table.beuser-comparison-table > thead > tr > th:nth-child(3) .beuser-comparison-element__title > span:nth-child(2)');
+        $I->click('table.beuser-comparison-table > thead > tr > th:nth-child(3) a[title="Edit"]');
         $I->waitForElementNotVisible('#t3js-ui-block');
         $I->waitForElementVisible('#EditDocumentController');
-        $I->canSee('Edit Backend user "' . $usernameFirstCompare . '" on root level');
+        $I->canSee('Edit Backend user "' . trim(explode('[', $usernameFirstCompare)[0]) . '" on root level');
+
+        // back to compare view
+        $I->click('.module-docheader a[title="Close"]');
+        $I->waitForElementVisible('table.table-striped-columns');
+        $I->canSee('Compare backend users', 'h1');
+
+        // Remove selected users for comparison
+        $I->amGoingTo('Switch to user group listing');
+        $I->selectOption('.t3-js-jumpMenuBox', 'Backend users');
+        $I->see('Backend users', 'h1');
+        $I->click('Clear compare list');
     }
 
-    public function accessingBackendUserCompareViewWorks(ApplicationTester $I): void
+    public function accessingBackendUserGroupCompareViewWorks(ApplicationTester $I): void
     {
         $I->amGoingTo('Switch to user group listing');
         $I->see('Backend users', 'h1');
         $I->selectOption('.t3-js-jumpMenuBox', 'Backend user groups');
         $I->see('Backend user groups', 'h1');
 
+        // put three into compare list
         $I->amGoingTo('Add three groups to compare');
-        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(1) > td.col-control > div:nth-child(3) > a');
+        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(1) > td.col-control > div:nth-child(3) > button');
         $I->waitForElementVisible('table#typo3-backend-user-group-list');
-        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(2) > td.col-control > div:nth-child(3) > a');
+        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(2) > td.col-control > div:nth-child(3) > button');
         $I->waitForElementVisible('table#typo3-backend-user-group-list');
-        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(3) > td.col-control > div:nth-child(3) > a');
+        $I->click('#typo3-backend-user-group-list > tbody > tr:nth-child(3) > td.col-control > div:nth-child(3) > button');
 
         $I->amGoingTo('Access the user group compare view');
         $I->waitForElementVisible('table#typo3-backend-user-list-compare', 20);
         $I->canSeeNumberOfElements('#typo3-backend-user-list-compare tbody tr', 3);
-        $I->click('Compare backend user groups');
+        $I->click('Compare selected backend user groups');
 
         $I->amGoingTo('Check compare view is loaded with the correct number of groups');
         $I->see('Compare backend user groups', 'h1');
-        $I->canSeeNumberOfElements('table.beuser-comparison__table > thead > tr > th', 3);
+        $I->canSeeNumberOfElements('table.beuser-comparison-table > thead > tr > th', 3);
+
+        // Remove selected user groups for comparison
+        $I->selectOption('.t3-js-jumpMenuBox', 'Backend user groups');
+        $I->see('Backend user groups', 'h1');
+        $I->click('Clear compare list');
     }
 }

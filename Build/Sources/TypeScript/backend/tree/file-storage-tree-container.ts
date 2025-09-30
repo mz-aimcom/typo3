@@ -11,21 +11,23 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, TemplateResult } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { customElement, query } from 'lit/decorators';
 import '@typo3/backend/element/icon-element';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import '@typo3/backend/tree/tree-toolbar';
-import type { TreeToolbar } from '@typo3/backend/tree/tree-toolbar';
-import { TreeNodeInterface, TreeNodePositionEnum } from '@typo3/backend/tree/tree-node';
+import { TreeNodePositionEnum, type TreeNodeInterface } from '@typo3/backend/tree/tree-node';
 import { FileStorageTree } from '@typo3/backend/tree/file-storage-tree';
+import { TreeModuleState } from '@typo3/backend/tree/tree-module-state';
 import ContextMenu from '@typo3/backend/context-menu';
 import Notification from '@typo3/backend/notification';
 import { ModuleStateStorage } from '@typo3/backend/storage/module-state-storage';
 import { ModuleUtility } from '@typo3/backend/module';
-import { FileListDragDropDetail, FileListDragDropEvent } from '@typo3/filelist/file-list-dragdrop';
-import { Resource, ResourceInterface } from '@typo3/backend/resource/resource';
+import { FileListDragDropEvent, type FileListDragDropDetail } from '@typo3/filelist/file-list-dragdrop';
+import { Resource, type ResourceInterface } from '@typo3/backend/resource/resource';
 import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
+import type { TreeToolbar } from '@typo3/backend/tree/tree-toolbar';
+import type { DataTransferStringItem } from '@typo3/backend/tree/tree';
 
 export const navigationComponentName: string = 'typo3-backend-navigation-component-filestoragetree';
 
@@ -40,9 +42,13 @@ interface DragDropTargetPosition {
  */
 @customElement('typo3-backend-navigation-component-filestorage-tree')
 export class EditableFileStorageTree extends FileStorageTree {
-  protected allowNodeDrag: boolean = true;
+  protected override allowNodeDrag: boolean = true;
 
-  protected handleNodeMove(node: TreeNodeInterface, target: TreeNodeInterface, position: TreeNodePositionEnum) {
+  protected override handleNodeMove(
+    node: TreeNodeInterface,
+    target: TreeNodeInterface,
+    position: TreeNodePositionEnum
+  ): void {
     if (!this.isDropAllowed(target, node)) {
       return;
     }
@@ -67,7 +73,7 @@ export class EditableFileStorageTree extends FileStorageTree {
     this.initiateDropAction(fileOperationCollection);
   }
 
-  protected createDataTransferItemsFromNode(node: TreeNodeInterface) {
+  protected override createDataTransferItemsFromNode(node: TreeNodeInterface): DataTransferStringItem[] {
     return [
       {
         type: DataTransferTypes.treenode,
@@ -82,7 +88,7 @@ export class EditableFileStorageTree extends FileStorageTree {
     ];
   }
 
-  protected handleNodeDragOver(event: DragEvent): boolean {
+  protected override handleNodeDragOver(event: DragEvent): boolean {
     // @todo incorporate isDropAllowed
     if (super.handleNodeDragOver(event)) {
       return true;
@@ -108,7 +114,7 @@ export class EditableFileStorageTree extends FileStorageTree {
 
       // Open node with children while holding the
       // node/element over this node for 1 second
-      if (targetNode.hasChildren && !targetNode.expanded) {
+      if (targetNode.hasChildren && !targetNode.__expanded) {
         if (this.openNodeTimeout.targetNode != targetNode) {
           this.openNodeTimeout.targetNode = targetNode;
           clearTimeout(this.openNodeTimeout.timeout);
@@ -132,11 +138,11 @@ export class EditableFileStorageTree extends FileStorageTree {
     return false;
   }
 
-  protected getTooltipDescription(node: TreeNodeInterface): string {
+  protected override getTooltipDescription(node: TreeNodeInterface): string {
     return decodeURIComponent(node.identifier);
   }
 
-  protected handleNodeDrop(event: DragEvent): boolean {
+  protected override handleNodeDrop(event: DragEvent): boolean {
     if (super.handleNodeDrop(event)) {
       return true;
     }
@@ -257,33 +263,33 @@ export class EditableFileStorageTree extends FileStorageTree {
  * Responsible for setting up the viewport for the Navigation Component for the File Tree
  */
 @customElement('typo3-backend-navigation-component-filestoragetree')
-export class FileStorageTreeNavigationComponent extends LitElement {
+export class FileStorageTreeNavigationComponent extends TreeModuleState(LitElement) {
   @query('.tree-wrapper') tree: EditableFileStorageTree;
   @query('typo3-backend-tree-toolbar') toolbar: TreeToolbar;
 
-  public connectedCallback(): void {
+  protected override moduleStateType: string = 'media';
+
+  public override connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener('typo3:filestoragetree:refresh', this.refresh);
     document.addEventListener('typo3:filestoragetree:selectFirstNode', this.selectFirstNode);
-    // event listener updating current tree state, this can be removed in TYPO3 v12
-    document.addEventListener('typo3:filelist:treeUpdateRequested', this.treeUpdateRequested);
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     document.removeEventListener('typo3:filestoragetree:refresh', this.refresh);
     document.removeEventListener('typo3:filestoragetree:selectFirstNode', this.selectFirstNode);
-    document.removeEventListener('typo3:filelist:treeUpdateRequested', this.treeUpdateRequested);
     super.disconnectedCallback();
   }
 
   // disable shadow dom for now
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     const treeSetup = {
       dataUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_data,
+      rootlineUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_rootline,
       filterUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_filter,
       showIcons: true
     };
@@ -292,17 +298,30 @@ export class FileStorageTreeNavigationComponent extends LitElement {
       <div id="typo3-filestoragetree" class="tree">
         <typo3-backend-tree-toolbar .tree="${this.tree}" id="filestoragetree-toolbar"></typo3-backend-tree-toolbar>
         <div class="navigation-tree-container">
-          <typo3-backend-navigation-component-filestorage-tree id="typo3-filestoragetree-tree" class="tree-wrapper" .setup=${treeSetup}></typo3-backend-navigation-component-filestorage-tree>
+          <typo3-backend-navigation-component-filestorage-tree
+              id="typo3-filestoragetree-tree"
+              class="tree-wrapper"
+              .setup=${treeSetup}
+              @typo3:tree:node-selected=${this.loadContent}
+              @typo3:tree:node-context=${this.showContextMenu}
+              @typo3:tree:nodes-prepared=${this.selectActiveNodeInLoadedNodes}
+              @tree:initialized=${this.fetchActiveNodeIfMissing}
+          ></typo3-backend-navigation-component-filestorage-tree>
         </div>
       </div>
     `;
   }
 
-  protected firstUpdated() {
+  protected override firstUpdated(): void {
     this.toolbar.tree = this.tree;
-    this.tree.addEventListener('typo3:tree:node-selected', this.loadContent);
-    this.tree.addEventListener('typo3:tree:node-context', this.showContextMenu);
-    this.tree.addEventListener('typo3:tree:nodes-prepared', this.selectActiveNode);
+  }
+
+  protected override transformModuleStateIdentifierToNodeIdentifier(moduleStateIdentifier: string): string {
+    return encodeURIComponent(moduleStateIdentifier);
+  }
+
+  protected override transformNodeIdentifierToModuleStateIdentifier(nodeIdentifier: string): string {
+    return decodeURIComponent(nodeIdentifier);
   }
 
   private readonly refresh = (): void => {
@@ -316,15 +335,6 @@ export class FileStorageTreeNavigationComponent extends LitElement {
     }
   };
 
-  // event listener updating current tree state, this can be removed in TYPO3 v12
-  private readonly treeUpdateRequested = (evt: CustomEvent): void => {
-    const identifier = encodeURIComponent(evt.detail.payload.identifier);
-    const nodeToSelect = this.tree.nodes.filter((node: TreeNodeInterface) => { return node.identifier === identifier; })[0];
-    if (nodeToSelect && this.tree.getSelectedNodes().filter((selectedNode: TreeNodeInterface) => { return selectedNode.identifier === nodeToSelect.identifier; }).length === 0) {
-      this.tree.selectNode(nodeToSelect, false);
-    }
-  };
-
   private readonly loadContent = (evt: CustomEvent): void => {
     const node = evt.detail.node as TreeNodeInterface;
     if (!node?.checked) {
@@ -332,7 +342,7 @@ export class FileStorageTreeNavigationComponent extends LitElement {
     }
 
     // remember the selected folder in the global state
-    ModuleStateStorage.update('media', node.identifier, true);
+    ModuleStateStorage.updateWithTreeIdentifier('media', decodeURIComponent(node.identifier), decodeURIComponent(node.__treeIdentifier));
 
     if (evt.detail.propagate === false) {
       return;
@@ -359,21 +369,6 @@ export class FileStorageTreeNavigationComponent extends LitElement {
       this.tree.getElementFromNode(node),
       evt.detail.originalEvent as PointerEvent
     );
-  };
-
-  /**
-   * Event listener called for each loaded node,
-   * here used to mark node remembered in ModuleStateStorage as selected
-   */
-  private readonly selectActiveNode = (evt: CustomEvent): void => {
-    const selectedNodeIdentifier = ModuleStateStorage.current('file').selection;
-    const nodes = evt.detail.nodes as Array<TreeNodeInterface>;
-    evt.detail.nodes = nodes.map((node: TreeNodeInterface) => {
-      if (node.identifier === selectedNodeIdentifier) {
-        node.checked = true;
-      }
-      return node;
-    });
   };
 }
 

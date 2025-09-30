@@ -24,7 +24,6 @@ use Egulias\EmailValidator\Validation\RFCValidation;
 use Egulias\EmailValidator\Warning\CFWSNearAt;
 use GuzzleHttp\Exception\TransferException;
 use Psr\Container\ContainerInterface;
-use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Authentication\AbstractAuthenticationService;
@@ -33,9 +32,11 @@ use TYPO3\CMS\Core\Core\ClassLoadingInformation;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Http\RequestFactory;
+use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Package\Exception as PackageException;
 use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\SystemResource\Http\CacheBustingUri;
 
 /**
  * The legendary "t3lib_div" class - Miscellaneous functions for general purpose.
@@ -465,31 +466,12 @@ class GeneralUtility
     }
 
     /**
-     * Returns a proper HMAC on a given input string and secret TYPO3 encryption key.
-     *
-     * @param string $input Input string to create HMAC from
-     * @param string $additionalSecret additionalSecret to prevent hmac being used in a different context
-     * @return string resulting (hexadecimal) HMAC currently with a length of 40 (HMAC-SHA-1)
-     * @deprecated since TYPO3 13.1, will be removed in TYPO3 V14
-     */
-    public static function hmac($input, $additionalSecret = '')
-    {
-        trigger_error(
-            'GeneralUtility::hmac() is deprecated and will be removed in TYPO3 v14. Use TYPO3\CMS\Core\Crypto\HashService instead.',
-            E_USER_DEPRECATED
-        );
-        $hashAlgorithm = 'sha1';
-        $secret = $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] . $additionalSecret;
-        return hash_hmac($hashAlgorithm, $input, $secret);
-    }
-
-    /**
      * Splits a reference to a file in 5 parts
      *
      * @param string $fileNameWithPath File name with path to be analyzed (must exist if open_basedir is set)
      * @return array<string, string> Contains keys [path], [file], [filebody], [fileext], [realFileext]
      */
-    public static function split_fileref($fileNameWithPath)
+    public static function split_fileref(string $fileNameWithPath): array
     {
         $info = [];
         $reg = [];
@@ -510,7 +492,6 @@ class GeneralUtility
             $info['filebody'] = $info['file'];
             $info['fileext'] = '';
         }
-        reset($info);
         return $info;
     }
 
@@ -1032,6 +1013,35 @@ class GeneralUtility
     }
 
     /**
+     * Render a textarea, taking into account whether a leading linefeed needs to be added
+     *
+     * The HTML `<textarea>` element has very specific rules for leading
+     * linefeed (0x0a) characters: if the first char of the content is a
+     * linefeed, it is to be ignored by parsers:
+     * https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-inbody:~:text=A%20start%20tag%20whose%20tag%20name%20is%20%22textarea%22
+     *
+     * To represent the exact number of leading line breaks, a supplementary
+     * linefeed character needs to be prepended to the textarea value, which
+     * will always be ignored, but ensures that subsequent linefeeds are
+     * respected.
+     *
+     * @param string $value textarea content
+     * @param array<string, string|int> $attributes Array with attribute key/value pairs, eg. "class" => "my-textarea"
+     * @return string Generated HTML tag, e.g. <textarea class="my-textarea">\nmyvalue</textarea>
+     * @internal
+     */
+    public static function renderTextarea(string $value, array $attributes = []): string
+    {
+        return sprintf(
+            '<textarea%s%s>%s%s</textarea>',
+            $attributes === [] ? '' : ' ',
+            GeneralUtility::implodeAttributes($attributes, true),
+            $value !== '' ? LF : '',
+            htmlspecialchars($value),
+        );
+    }
+
+    /**
      * Wraps JavaScript code XHTML ready with <script>-tags
      * Automatic re-indenting of the JS code is done by using the first line as indent reference.
      * This is nice for indenting JS code with PHP code on the same level.
@@ -1080,7 +1090,6 @@ class GeneralUtility
         if (xml_get_error_code($parser)) {
             return 'Line ' . xml_get_current_line_number($parser) . ': ' . xml_error_string(xml_get_error_code($parser));
         }
-        xml_parser_free($parser);
         $stack = [[]];
         $stacktop = 0;
         $startPoint = 0;
@@ -1304,7 +1313,6 @@ class GeneralUtility
         if (xml_get_error_code($parser)) {
             return 'Line ' . xml_get_current_line_number($parser) . ': ' . xml_error_string(xml_get_error_code($parser));
         }
-        xml_parser_free($parser);
         // Init vars:
         $stack = [[]];
         $stacktop = 0;
@@ -1610,7 +1618,7 @@ class GeneralUtility
             // Checking dir-name again (sub-dir might have been created)
             if (@is_dir($dirName)) {
                 if ($filepath === $dirName . $fI['basename']) {
-                    static::writeFile($filepath, $content);
+                    static::writeFile($filepath, $content, true);
                     if (!@is_file($filepath)) {
                         $errorMessage = 'The file was not written to the disk. Please, check that you have write permissions to the ' . $prefixLabel . ' directory.';
                     }
@@ -1901,9 +1909,11 @@ class GeneralUtility
      * For example "fileadmin/directory/../other_directory/" will be resolved to "fileadmin/other_directory/"
      *
      * @param string $pathStr File path in which "/../" is resolved
+     * @deprecated will be made protected in TYPO3 v15.0, as it is only used internally then.
      */
     public static function resolveBackPath(string $pathStr): string
     {
+        trigger_error('GeneralUtility::resolveBackPath() will be removed in TYPO3 v15.0. Avoid working with relative paths as TYPO3 will not canonicalize them anymore.', E_USER_DEPRECATED);
         if (!str_contains($pathStr, '..')) {
             return $pathStr;
         }
@@ -2008,60 +2018,44 @@ class GeneralUtility
      * = TRUE : modify filename
      * = FALSE : add timestamp as query parameter
      *
+     * Benni Note:
+     *
+     * Always call it like this:
+     * 1. make a file reference (EXT...) completely absolute
+     * $file = GeneralUtility::getFileAbsFileName($file);
+     *
+     * 2. attach ?timestamp to filename or re-write
+     * $file = GeneralUtility::createVersionNumberedFilename($file);
+     *
+     * 3. make it ready for attaching in your HTML/JSON etc. by making it an "absolute" URI path
+     * $file = PathUtility::getAbsoluteWebPath($file);
+     *
      * @param string $file Relative path to file including all potential query parameters (not htmlspecialchared yet)
      * @return string Relative path with version filename including the timestamp
      */
     public static function createVersionNumberedFilename(string $file): string
     {
-        $isFrontend = ($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
-            && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isFrontend();
         $lookupFile = explode('?', $file);
-        $path = $lookupFile[0];
-
-        // @todo: in v13 this should be resolved by using Environment::getPublicPath() only
-        if ($isFrontend) {
+        $path = $absoluteFilePath = $lookupFile[0];
+        if (!PathUtility::isAbsolutePath($path)) {
+            $absoluteFilePath = Environment::getPublicPath() . '/' . $path;
+        } elseif (is_file(Environment::getPublicPath() . '/' . ltrim($path, '/'))) {
             // Frontend should still allow /static/myfile.css - see #98106
             // This should happen regardless of the incoming path is absolute or not
-            $path = self::resolveBackPath(self::dirname(Environment::getCurrentScript()) . '/' . $path);
-        } elseif (!PathUtility::isAbsolutePath($path)) {
-            // Backend and non-absolute path
-            $path = self::resolveBackPath(self::dirname(Environment::getCurrentScript()) . '/' . $path);
+            // Use-case: $path = /typo3/sysext/backend/Resources/Public/file.css when the order was not built properly
+            $absoluteFilePath = Environment::getPublicPath() . '/' . ltrim($path, '/');
         }
-
-        if ($isFrontend) {
-            $configValue = (bool)($GLOBALS['TYPO3_CONF_VARS']['FE']['versionNumberInFilename'] ?? false);
-        } else {
-            $configValue = (bool)($GLOBALS['TYPO3_CONF_VARS']['BE']['versionNumberInFilename'] ?? false);
+        $request = $GLOBALS['TYPO3_REQUEST'] ?? null;
+        $applicationType = $request ? ApplicationType::fromRequest($request) : null;
+        $uri = CacheBustingUri::fromFileSystemPath($absoluteFilePath, new Uri($file), $applicationType);
+        if (!str_starts_with($uri->getPath(), '/')) {
+            // For legacy reasons, we allow to return relative URLs here,
+            // when the given path was relative as well.
+            // This method will be deprecated and replaced entirely later on,
+            // with the new API, that only deals with URI objects
+            return ltrim((string)$uri, '/');
         }
-        try {
-            $fileExists = file_exists($path);
-        } catch (\Throwable $e) {
-            $fileExists = false;
-        }
-        if (!$fileExists) {
-            // File not found, return filename unaltered
-            $fullName = $file;
-        } else {
-            if (!$configValue) {
-                // If .htaccess rule is not configured,
-                // use the default query-string method
-                if (!empty($lookupFile[1])) {
-                    $separator = '&';
-                } else {
-                    $separator = '?';
-                }
-                $fullName = $file . $separator . filemtime($path);
-            } else {
-                // Change the filename
-                $name = explode('.', $lookupFile[0]);
-                $extension = array_pop($name);
-                array_push($name, filemtime($path), $extension);
-                $fullName = implode('.', $name);
-                // Append potential query string
-                $fullName .= !empty($lookupFile[1]) ? '?' . $lookupFile[1] : '';
-            }
-        }
-        return $fullName;
+        return (string)$uri;
     }
 
     /**
@@ -2338,12 +2332,23 @@ class GeneralUtility
                 $retVal = substr(self::getIndpEnv('TYPO3_REQUEST_URL'), strlen(self::getIndpEnv('TYPO3_SITE_URL')));
                 break;
             case 'TYPO3_SSL':
-                $proxySSL = trim($GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxySSL'] ?? '');
-                if ($proxySSL === '*') {
-                    $proxySSL = $GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxyIP'];
+                // How does TYPO3 determine if the connection was established via TLS/SSL/https?
+                // 1. If reverseProxySSL matches, then we now that Client -> Proxy is SSL,
+                //    and Proxy -> App Server is non-SSL. SSL Termination happens at Proxy at ALL times.
+                // 2. If reverseProxyIP matches, and HTTP_X_FORWARDED_PROTO is set, it is evaluated
+                // 3. If no other matches, see webserverUsesHttps()
+                // Note: HTTP_X_FORWARDED_PROTO is ONLY evaluated at the point, where we know
+                //       that the incoming REMOTE_ADDR is a trusted proxy!
+                $configuredProxySSL = trim($GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxySSL'] ?? '');
+                $configuredProxyRegular = trim($GLOBALS['TYPO3_CONF_VARS']['SYS']['reverseProxyIP'] ?? '');
+                if ($configuredProxySSL === '*') {
+                    $configuredProxySSL = $configuredProxyRegular;
                 }
-                if (self::cmpIP($_SERVER['REMOTE_ADDR'] ?? '', $proxySSL)) {
+                if (self::cmpIP($_SERVER['REMOTE_ADDR'] ?? '', $configuredProxySSL)) {
+                    // If the reverseProxySSL matches, we know that the connection from client to proxy is secure.
                     $retVal = true;
+                } elseif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && self::cmpIP($_SERVER['REMOTE_ADDR'] ?? '', $configuredProxyRegular)) {
+                    $retVal = strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https';
                 } else {
                     $retVal = self::webserverUsesHttps();
                 }
@@ -2443,8 +2448,7 @@ class GeneralUtility
 
         // Absolute path, but set to blank if not inside allowed directories.
         if (PathUtility::isAbsolutePath($fileName)) {
-            if (str_starts_with($fileName, Environment::getProjectPath()) ||
-                str_starts_with($fileName, Environment::getPublicPath())) {
+            if (static::isAllowedAbsPath($fileName)) {
                 return $checkForBackPath($fileName);
             }
             return '';
@@ -2479,9 +2483,6 @@ class GeneralUtility
      */
     public static function isAllowedAbsPath(string $path): bool
     {
-        if (substr($path, 0, 6) === 'vfs://') {
-            return true;
-        }
         return PathUtility::isAbsolutePath($path) && static::validPathStr($path)
             && (
                 str_starts_with($path, Environment::getProjectPath())
@@ -2524,7 +2525,7 @@ class GeneralUtility
 
     /**
      * Checks if a given string is a valid frame URL to be loaded in the
-     * backend.
+     * backend or used in redirect headers.
      *
      * If the given url is empty or considered to be harmless, it is returned
      * as is, else the event is logged and an empty string is returned.
@@ -2536,10 +2537,18 @@ class GeneralUtility
     {
         $sanitizedUrl = '';
         if (!empty($url)) {
+            if (strpbrk($url, "\n\r\x00") !== false) {
+                static::getLogger()->notice('URL "{url}" contains unexpected whitespace and was denied as local url.', ['url' => $url]);
+                return '';
+            }
+
             $decodedUrl = rawurldecode($url);
+            if ($decodedUrl !== ltrim($decodedUrl, " \t\v")) {
+                static::getLogger()->notice('URL "{url}" contains unexpected whitespace and was denied as local url.', ['url' => $url]);
+                return '';
+            }
+
             $parsedUrl = parse_url($decodedUrl);
-            $testAbsoluteUrl = self::resolveBackPath($decodedUrl);
-            $testRelativeUrl = self::resolveBackPath(self::dirname(self::getIndpEnv('SCRIPT_NAME')) . '/' . $decodedUrl);
             // Pass if URL is on the current host:
             if (self::isValidUrl($decodedUrl)) {
                 if (self::isOnCurrentHost($decodedUrl) && str_starts_with($decodedUrl, self::getIndpEnv('TYPO3_SITE_URL'))) {
@@ -2547,13 +2556,9 @@ class GeneralUtility
                 }
             } elseif (PathUtility::isAbsolutePath($decodedUrl) && self::isAllowedAbsPath($decodedUrl)) {
                 $sanitizedUrl = $url;
-            } elseif (str_starts_with($testAbsoluteUrl, self::getIndpEnv('TYPO3_SITE_PATH')) && $decodedUrl[0] === '/' &&
-                substr($decodedUrl, 0, 2) !== '//'
-            ) {
+            } elseif ($decodedUrl[0] === '/' && !str_starts_with($decodedUrl, '//') && str_starts_with(self::resolveBackPath($decodedUrl), self::getIndpEnv('TYPO3_SITE_PATH'))) {
                 $sanitizedUrl = $url;
-            } elseif (empty($parsedUrl['scheme']) && str_starts_with($testRelativeUrl, self::getIndpEnv('TYPO3_SITE_PATH'))
-                && $decodedUrl[0] !== '/' && strpbrk($decodedUrl, '*:|"<>') === false && !str_contains($decodedUrl, '\\\\')
-            ) {
+            } elseif (empty($parsedUrl['scheme']) && $decodedUrl[0] !== '/' && strpbrk($decodedUrl, '*:|"<>') === false && !str_contains($decodedUrl, '\\\\') && str_starts_with(self::resolveBackPath(self::dirname(self::getIndpEnv('SCRIPT_NAME')) . '/' . $decodedUrl), self::getIndpEnv('TYPO3_SITE_PATH'))) {
                 $sanitizedUrl = $url;
             }
         }
@@ -2699,7 +2704,7 @@ class GeneralUtility
     public static function callUserFunction(string|\Closure $funcName, mixed &$params, ?object $ref = null): mixed
     {
         // Check if we're using a closure and invoke it directly.
-        if (is_object($funcName) && is_a($funcName, \Closure::class)) {
+        if (is_a($funcName, \Closure::class)) {
             return call_user_func_array($funcName, [&$params, &$ref]);
         }
         $funcName = trim($funcName);

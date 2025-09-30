@@ -17,11 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Dashboard\Widgets;
 
-use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
+use TYPO3\CMS\Core\Settings\SettingDefinition;
+use TYPO3\CMS\Core\Settings\SettingsInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Dashboard\Exception\InvalidRssFeedException;
 
 /**
  * Concrete RSS widget implementation
@@ -37,63 +39,129 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @see ButtonProviderInterface
  */
-class RssWidget implements WidgetInterface, RequestAwareWidgetInterface
+class RssWidget implements WidgetRendererInterface
 {
-    /**
-     * @var array{limit: int, lifeTime: int, feedUrl?: string}
-     */
-    private readonly array $options;
-    private ServerRequestInterface $request;
-
     public function __construct(
         private readonly WidgetConfigurationInterface $configuration,
         #[Autowire(service: 'cache.dashboard.rss')]
         private readonly FrontendInterface $cache,
         private readonly BackendViewFactory $backendViewFactory,
         private readonly ?ButtonProviderInterface $buttonProvider = null,
-        array $options = [],
-    ) {
-        $this->options = array_merge(
-            [
-                'limit' => 5,
-                'lifeTime' => 43200,
-            ],
-            $options
-        );
+        /** @var array{limit?: int, lifeTime?: int, feedUrl?: string} */
+        private readonly array $options = [],
+    ) {}
+
+    /**
+     * @return SettingDefinition[]
+     */
+    public function getSettingsDefinitions(): array
+    {
+        return [
+            new SettingDefinition(
+                key: 'label',
+                type: 'string',
+                default: '',
+                label: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.label.label',
+                description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.label.description',
+                readonly: array_key_exists('feedUrl', $this->options),
+            ),
+            new SettingDefinition(
+                key: 'feedUrl',
+                type: 'url',
+                default: (string)($this->options['feedUrl'] ?? ''),
+                label: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.fieldUrl.label',
+                description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.fieldUrl.description',
+                readonly: array_key_exists('feedUrl', $this->options),
+                options: [
+                    'pattern' => 'https?://.+',
+                ],
+            ),
+            new SettingDefinition(
+                key: 'limit',
+                type: 'int',
+                default: (int)($this->options['limit'] ?? 5),
+                label: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.limit.label',
+                description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.limit.description',
+                readonly: array_key_exists('limit', $this->options),
+            ),
+            new SettingDefinition(
+                key: 'lifeTime',
+                type: 'int',
+                default: (int)($this->options['lifeTime'] ?? 43200),
+                label: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.lifeTime.label',
+                description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_rss.xlf:widget.rss.setting.lifeTime.description',
+                readonly: true,
+            ),
+        ];
     }
 
-    public function setRequest(ServerRequestInterface $request): void
+    public function renderWidget(WidgetContext $context): WidgetResult
     {
-        $this->request = $request;
-    }
-
-    public function renderWidgetContent(): string
-    {
-        $view = $this->backendViewFactory->create($this->request);
+        $view = $this->backendViewFactory->create($context->request);
+        $feedUrl = $context->settings->get('feedUrl');
+        $items = [];
+        if ($feedUrl) {
+            try {
+                $items = $this->getFeedItems($context->settings);
+            } catch (InvalidRssFeedException) {
+                $view->assign('invalidFeed', true);
+            }
+        }
         $view->assignMultiple([
-            'items' => $this->getRssItems(),
+            'feedUrl' => $feedUrl,
+            'items' => $items,
+            'settings' => $context->settings,
             'options' => $this->options,
             'button' => $this->buttonProvider,
             'configuration' => $this->configuration,
         ]);
-        return $view->render('Widget/RssWidget');
+        return new WidgetResult(
+            label: $context->settings->get('label') !== '' ? $context->settings->get('label') : null,
+            content: $view->render('Widget/RssWidget'),
+            refreshable: true,
+        );
     }
 
-    protected function getRssItems(): array
+    protected function getFeedItems(SettingsInterface $settings): array
     {
-        if (empty($this->options['feedUrl'])) {
-            return [];
-        }
-        $cacheHash = md5($this->options['feedUrl']);
+        $cacheHash = md5($settings->get('feedUrl') . '-' . $settings->get('limit'));
         if ($items = $this->cache->get($cacheHash)) {
             return $items;
         }
 
-        $rssContent = GeneralUtility::getUrl($this->options['feedUrl']);
-        if ($rssContent === false) {
-            throw new \RuntimeException('RSS URL could not be fetched', 1573385431);
+        $feedContent = GeneralUtility::getUrl($settings->get('feedUrl'));
+        if ($feedContent === false) {
+            throw new InvalidRssFeedException('RSS URL could not be fetched', 1573385431);
         }
-        $rssFeed = simplexml_load_string($rssContent);
+        try {
+            $feedXml = simplexml_load_string($feedContent);
+        } catch (\Exception $e) {
+            throw new InvalidRssFeedException('Received RSS feed could not be parsed.', 1573385432, $e);
+        }
+
+        $items = match ($this->determineFeedType($feedXml)) {
+            'atom' => $this->parseAtomFeed($feedXml),
+            'rss' => $this->parseRssFeed($feedXml),
+            default => []
+        };
+
+        usort($items, static function ($item1, $item2) {
+            return new \DateTime($item2['pubDate']) <=> new \DateTime($item1['pubDate']);
+        });
+        $items = array_slice($items, 0, (int)$settings->get('limit'));
+
+        $this->cache->set($cacheHash, $items, ['dashboard_rss'], (int)$settings->get('lifeTime'));
+
+        return $items;
+    }
+
+    protected function determineFeedType(\SimpleXMLElement $feedXml): string
+    {
+        return $feedXml->getName() === 'feed' ? 'atom' : 'rss';
+    }
+
+    protected function parseRssFeed(\SimpleXMLElement $rssFeed): array
+    {
         $items = [];
         foreach ($rssFeed->channel->item as $item) {
             $items[] = [
@@ -103,18 +171,25 @@ class RssWidget implements WidgetInterface, RequestAwareWidgetInterface
                 'description' => trim(strip_tags((string)$item->description)),
             ];
         }
-        usort($items, static function ($item1, $item2) {
-            return new \DateTime($item2['pubDate']) <=> new \DateTime($item1['pubDate']);
-        });
-        $items = array_slice($items, 0, $this->options['limit']);
-
-        $this->cache->set($cacheHash, $items, ['dashboard_rss'], $this->options['lifeTime']);
-
         return $items;
     }
 
-    public function getOptions(): array
+    protected function parseAtomFeed(\SimpleXMLElement $atomFeed): array
     {
-        return $this->options;
+        $items = [];
+        foreach ($atomFeed->entry as $entry) {
+            $items[] = [
+                'title' => trim((string)$entry->title),
+                'link' => trim((string)($entry->link['href'] ?? '')),
+                'pubDate' => trim((string)($entry->published ?? $entry->updated ?? '')),
+                'description' => trim(strip_tags((string)($entry->summary ?? $entry->content ?? ''))),
+                'author' => [
+                    'name' => trim((string)($entry->author->name ?? '')),
+                    'email' => trim((string)($entry->author->email ?? '')),
+                    'url' => trim((string)($entry->author->url ?? '')),
+                ],
+            ];
+        }
+        return $items;
     }
 }

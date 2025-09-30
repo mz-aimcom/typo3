@@ -33,7 +33,7 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
  *
  *    <dashboard:widget.button button="{button}" class="widget-cta">
  *        {f:translate(id: button.title, default: button.title)}
- *    </dashboard:widget.button button="{button}" class="widget-cta">
+ *    </dashboard:widget.button>
  */
 final class ButtonViewHelper extends AbstractTagBasedViewHelper
 {
@@ -66,7 +66,7 @@ final class ButtonViewHelper extends AbstractTagBasedViewHelper
             $this->tag->addAttributes($button->getElementAttributes());
         }
 
-        $this->tag->setContent($this->renderChildren());
+        $this->tag->setContent((string)$this->renderChildren());
         $this->tag->forceClosingTag(true);
 
         return $this->tag->render();

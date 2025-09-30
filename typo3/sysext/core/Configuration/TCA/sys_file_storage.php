@@ -15,7 +15,7 @@ return [
         'typeicon_classes' => [
             'default' => 'mimetypes-x-sys_file_storage',
         ],
-        'searchFields' => 'name,description',
+        'type' => 'driver',
     ],
     'columns' => [
         'name' => [
@@ -89,36 +89,38 @@ return [
         ],
         'driver' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:sys_file_storage.driver',
-            'onChange' => 'reload',
             'config' => [
                 'type' => 'select',
                 'renderType' => 'selectSingle',
                 'items' => [],
                 'default' => 'Local',
-                'onChange' => 'reload',
             ],
         ],
         'configuration' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:sys_file_storage.configuration',
             'config' => [
                 'type' => 'flex',
-                'ds_pointerField' => 'driver',
-                'ds' => [],
+                'ds' => '',
             ],
         ],
     ],
     'types' => [
-        '0' => ['showitem' => '
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
-                    name, driver, configuration, is_default, auto_extract_metadata, processingfolder,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:accesscapabilities,
-                    --palette--;Capabilities;capabilities,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
-                    is_online,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
-                description,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
-        '],
+        '0' => [
+            'showitem' => '
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                        name, driver, configuration, is_default, auto_extract_metadata, processingfolder,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:accesscapabilities,
+                        --palette--;Capabilities;capabilities,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                        is_online,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                    description,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+            ',
+            'creationOptions' => [
+                'enableDirectRecordTypeCreation' => false,
+            ],
+        ],
     ],
     'palettes' => [
         'capabilities' => [

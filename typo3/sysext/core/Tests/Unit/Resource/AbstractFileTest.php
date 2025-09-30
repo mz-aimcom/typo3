@@ -19,7 +19,7 @@ namespace TYPO3\CMS\Core\Tests\Unit\Resource;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Resource\File;
-use TYPO3\CMS\Core\Resource\FolderInterface;
+use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Tests\Unit\Resource\Fixtures\TestingFile;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -37,15 +37,15 @@ final class AbstractFileTest extends UnitTestCase
 
         $mockedStorageForParent = $this->createMock(ResourceStorage::class);
 
-        $parentFolderFixture = $this->createMock(FolderInterface::class);
+        $parentFolderFixture = $this->createMock(Folder::class);
         $parentFolderFixture->method('getStorage')->willReturn($mockedStorageForParent);
 
         $mockedStorage = $this->getMockBuilder(ResourceStorage::class)
             ->onlyMethods(['getFolderIdentifierFromFileIdentifier', 'getFolder'])
             ->disableOriginalConstructor()
             ->getMock();
-        $mockedStorage->expects(self::once())->method('getFolderIdentifierFromFileIdentifier')->with($currentIdentifier)->willReturn($parentIdentifier);
-        $mockedStorage->expects(self::once())->method('getFolder')->with($parentIdentifier)->willReturn($parentFolderFixture);
+        $mockedStorage->expects($this->once())->method('getFolderIdentifierFromFileIdentifier')->with($currentIdentifier)->willReturn($parentIdentifier);
+        $mockedStorage->expects($this->once())->method('getFolder')->with($parentIdentifier)->willReturn($parentFolderFixture);
 
         $currentFolderFixture = new TestingFile();
         $currentFolderFixture->setIdentifier($currentIdentifier)->setStorage($mockedStorage);
@@ -63,7 +63,7 @@ final class AbstractFileTest extends UnitTestCase
     public function storageIsNotAskedForMimeTypeForPersistedRecord(): void
     {
         $mockedStorage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
-        $mockedStorage->expects(self::never())->method('getFileInfoByIdentifier')->with('/foo', 'mimetype');
+        $mockedStorage->expects($this->never())->method('getFileInfoByIdentifier')->with('/foo', 'mimetype');
         $subject = new File(['identifier' => '/foo', 'mime_type' => 'my/mime-type'], $mockedStorage);
 
         self::assertEquals('my/mime-type', $subject->getMimeType());

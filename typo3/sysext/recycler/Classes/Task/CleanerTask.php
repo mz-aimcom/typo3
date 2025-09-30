@@ -18,11 +18,14 @@ namespace TYPO3\CMS\Recycler\Task;
 use Doctrine\DBAL\Exception as DBALException;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
 
 /**
- * A task that should be run regularly that deletes deleted
+ * A task that should be run regularly that permanently removes soft-deleted
  * datasets from the DB.
  * @internal This class is a specific scheduler task implementation and is not part of the Public TYPO3 API.
  */
@@ -31,12 +34,12 @@ class CleanerTask extends AbstractTask
     /**
      * @var int The time period, after which the rows are deleted
      */
-    protected $period = 0;
+    protected int $period = 0;
 
     /**
      * @var array The tables to clean
      */
-    protected $tcaTables = [];
+    protected array $tcaTables = [];
 
     /**
      * The main method of the task. Iterates through
@@ -47,9 +50,18 @@ class CleanerTask extends AbstractTask
     public function execute()
     {
         $success = true;
-        $tables = $this->getTcaTables();
+        $tables = $this->tcaTables;
+        $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
         foreach ($tables as $table) {
-            if (!$this->cleanTable($table)) {
+            if (!$schemaFactory->has($table)) {
+                $success = false;
+                continue;
+            }
+            $schema = $schemaFactory->get($table);
+            if (!$schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+                continue;
+            }
+            if (!$this->cleanTable($schema)) {
                 $success = false;
             }
         }
@@ -59,38 +71,34 @@ class CleanerTask extends AbstractTask
 
     /**
      * Executes the delete-query for the given table
-     *
-     * @param string $tableName
-     * @return bool
      */
-    protected function cleanTable($tableName)
+    protected function cleanTable(TcaSchema $schema): bool
     {
-        if (isset($GLOBALS['TCA'][$tableName]['ctrl']['delete'])) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($tableName);
-            $queryBuilder->getRestrictions()->removeAll();
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($schema->getName());
+        $queryBuilder->getRestrictions()->removeAll();
+        $deleteField = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
 
-            $constraints = [
-                $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA'][$tableName]['ctrl']['delete'],
-                    $queryBuilder->createNamedParameter(1, Connection::PARAM_INT)
-                )
-                ,
-            ];
+        $constraints = [
+            $queryBuilder->expr()->eq(
+                $deleteField,
+                $queryBuilder->createNamedParameter(1, Connection::PARAM_INT)
+            ),
+        ];
 
-            if ($GLOBALS['TCA'][$tableName]['ctrl']['tstamp'] ?? null) {
-                $dateBefore = $this->getPeriodAsTimestamp();
-                $constraints[] = $queryBuilder->expr()->lt(
-                    $GLOBALS['TCA'][$tableName]['ctrl']['tstamp'],
-                    $queryBuilder->createNamedParameter($dateBefore, Connection::PARAM_INT)
-                );
-            }
-            try {
-                $queryBuilder->delete($tableName)
-                    ->where(...$constraints)
-                    ->executeStatement();
-            } catch (DBALException $e) {
-                return false;
-            }
+        if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
+            $dateBefore = $this->getPeriodAsTimestamp();
+            $constraints[] = $queryBuilder->expr()->lt(
+                $schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName(),
+                $queryBuilder->createNamedParameter($dateBefore, Connection::PARAM_INT)
+            );
+        }
+        try {
+            $queryBuilder
+                ->delete($schema->getName())
+                ->where(...$constraints)
+                ->executeStatement();
+        } catch (DBALException) {
+            return false;
         }
         return true;
     }
@@ -102,72 +110,65 @@ class CleanerTask extends AbstractTask
      */
     public function getAdditionalInformation()
     {
-        $message = '';
-
-        $message .= sprintf(
+        $message = sprintf(
             $this->getLanguageService()->sL('LLL:EXT:recycler/Resources/Private/Language/locallang_tasks.xlf:cleanerTaskDescriptionTables'),
-            implode(', ', $this->getTcaTables())
+            implode(', ', $this->tcaTables)
         );
 
         $message .= '; ';
 
         $message .= sprintf(
             $this->getLanguageService()->sL('LLL:EXT:recycler/Resources/Private/Language/locallang_tasks.xlf:cleanerTaskDescriptionDays'),
-            $this->getPeriod()
+            $this->period
         );
 
         return $message;
     }
 
-    /**
-     * Sets the period after which a row is deleted
-     *
-     * @param int $period
-     */
-    public function setPeriod($period)
+    public function getPeriodAsTimestamp(): int
     {
-        $this->period = (int)$period;
-    }
-
-    /**
-     * Returns the period after which a row is deleted
-     *
-     * @return int
-     */
-    public function getPeriod()
-    {
-        return $this->period;
-    }
-
-    /**
-     * @return int
-     */
-    public function getPeriodAsTimestamp()
-    {
-        $timeStamp = strtotime('-' . $this->getPeriod() . ' days');
+        $timeStamp = strtotime('-' . $this->period . ' days');
         if ($timeStamp === false) {
             throw new \InvalidArgumentException('Period must be an integer.', 1623097600);
         }
         return $timeStamp;
     }
 
-    /**
-     * Sets the TCA-tables which are cleaned
-     *
-     * @param array $tcaTables
-     */
-    public function setTcaTables($tcaTables = [])
+    public function getTaskParameters(): array
     {
+        return [
+            'selected_tables' => implode(',', $this->tcaTables),
+            'number_of_days' => $this->period,
+        ];
+    }
+
+    public function setTaskParameters(array $parameters): void
+    {
+        $tcaTables = $parameters['RecyclerCleanerTCA'] ?? $parameters['selected_tables'] ?? [];
+        if (is_string($tcaTables)) {
+            $tcaTables = GeneralUtility::trimExplode(',', $tcaTables, true);
+        }
         $this->tcaTables = $tcaTables;
+        $this->period = (int)($parameters['RecyclerCleanerPeriod'] ?? $parameters['number_of_days'] ?? 180);
     }
 
     /**
-     * Returns the TCA-tables which are cleaned
-     *
-     * @return array
+     * TCA Item Provider
      */
-    public function getTcaTables()
+    public function getAllTcaTables(array &$config): void
     {
-        return $this->tcaTables;
+        $options = [];
+        $tcaSchemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+        foreach ($tcaSchemaFactory->all() as $table => $schema) {
+            if (!$schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+                continue;
+            }
+            $tableTitle = $schema->getTitle($this->getLanguageService()->sL(...));
+            $config['items'][] = [
+                'label' => $tableTitle . ' (' . $table . ')',
+                'value' => $table,
+            ];
+        }
+        ksort($options);
     }
 }

@@ -23,97 +23,25 @@ use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface as ExtbaseRequestInterface;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Translate a key from locallang. The files are loaded from the folder
- * :file:`Resources/Private/Language/`.
+ * ViewHelper to provide a translation for language keys ("locallang"/"LLL").
+ * By default, the files are loaded from the folder `Resources/Private/Language/`.
+ * Placeholder substitution (like PHP's `sprintf()`) can be evaluated when provided as
+ * `arguments` attribute.
  *
- * Examples
- * ========
+ * ```
+ *   <f:translate key="LLL:EXT:myext/Resources/Private/Language/locallang.xlf:key1" />
+ *   <f:translate key="someKey" arguments="{0: 'dog', 'fox'}" />
+ * ```
  *
- * Translate key
- * -------------
- *
- * ::
- *
- *    <f:translate key="key1" />
- *
- * Value of key ``key1`` in the current website language. Alternatively id can
- * be used instead of key::
- *
- *    <f:translate id="key1" />
- *
- * This will output the same as above. If both id and key are set, id will take precedence.
- *
- * Keep HTML tags
- * --------------
- *
- * ::
- *
- *    <f:format.raw><f:translate key="htmlKey" /></f:format.raw>
- *
- * Value of key ``htmlKey`` in the current website language, no :php:`htmlspecialchars()` applied.
- *
- * Translate key from custom locallang file
- * ----------------------------------------
- *
- * ::
- *
- *    <f:translate key="key1" extensionName="MyExt"/>
- *
- * or
- *
- * ::
- *
- *    <f:translate key="LLL:EXT:myext/Resources/Private/Language/locallang.xlf:key1" />
- *
- * Value of key ``key1`` in the current website language.
- *
- * Inline notation with arguments and default value
- * ------------------------------------------------
- *
- * ::
- *
- *    {f:translate(key: 'someKey', arguments: {0: 'dog', 1: 'fox'}, default: 'default value')}
- *
- * Value of key ``someKey`` in the current website language
- * with the given arguments (``dog`` and ``fox``) assigned for the specified
- * ``%s`` conversions, using `PHP sprintf() notation <https://www.php.net/sprintf>`__ in the
- * language file::
- *
- *    <trans-unit id="someKey" resname="someKey">
- *        <source>Some text about a %s and a %s.</source>
- *    </trans-unit>
- *
- * The output will be :html:`Some text about a dog and a fox`.
- *
- * If the key ``someKey`` is not found in the language file, the output is :html:`default value`.
- *
- * As in PHP's :php:`sprintf()` you can order placeholders (:php:`Second %2$s, first %1$s`)
- * or use specific types like :php:`A padded number: %'.09d`, returning ``000000123`` for a number
- * passed as ``123``.
- * See the `sprintf`_ PHP Documentation for more information on possible formatting.
- *
- * Inline notation with extension name
- * -----------------------------------
- *
- * ::
- *
- *    {f:translate(key: 'someKey', extensionName: 'SomeExtensionName')}
- *
- * Value of key ``someKey`` in the current website language.
- * The locallang file of extension "some_extension_name" will be used.
- *
- * .. _sprintf: https://www.php.net/sprintf
+ * @see https://php.net/sprintf
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-translate
  */
 final class TranslateViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * Output is escaped already. We must not escape children, to avoid double encoding.
      *
@@ -137,29 +65,25 @@ final class TranslateViewHelper extends AbstractViewHelper
      * @throws Exception
      * @throws \RuntimeException
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $key = $arguments['key'];
-        $id = $arguments['id'];
-        $default = (string)($arguments['default'] ?? $renderChildrenClosure() ?? '');
-        $extensionName = $arguments['extensionName'];
-        $translateArguments = $arguments['arguments'];
-
+        $key = $this->arguments['key'];
+        $id = $this->arguments['id'];
+        $default = (string)($this->arguments['default'] ?? $this->renderChildren() ?? '');
+        $extensionName = $this->arguments['extensionName'];
+        $translateArguments = $this->arguments['arguments'];
         // Use key if id is empty.
         if ($id === null) {
             $id = $key;
         }
-
         $id = (string)$id;
         if ($id === '') {
             throw new Exception('An argument "key" or "id" has to be provided', 1351584844);
         }
-
         $request = null;
-        if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
         }
-
         if (empty($extensionName)) {
             if ($request instanceof ExtbaseRequestInterface) {
                 $extensionName = $request->getControllerExtensionName();
@@ -181,8 +105,8 @@ final class TranslateViewHelper extends AbstractViewHelper
             }
         }
         try {
-            $locale = self::getUsedLocale($arguments['languageKey'], $request);
-            $value = LocalizationUtility::translate($id, $extensionName, $translateArguments, $locale);
+            $locale = self::getUsedLocale($this->arguments['languageKey'], $request);
+            $value = LocalizationUtility::translate($id, $extensionName, $translateArguments, $locale, $request);
         } catch (\InvalidArgumentException) {
             // @todo: Switch to more specific Exceptions here - for instance those thrown when a package was not found, see #95957
             $value = null;
@@ -196,7 +120,7 @@ final class TranslateViewHelper extends AbstractViewHelper
     /**
      * Ensure that a string is returned, if the underlying logic returns null, or cannot handle a translation
      */
-    protected static function handleDefaultValue(string $default, ?array $translateArguments): string
+    private static function handleDefaultValue(string $default, ?array $translateArguments): string
     {
         if (!empty($translateArguments)) {
             return vsprintf($default, $translateArguments);
@@ -204,7 +128,7 @@ final class TranslateViewHelper extends AbstractViewHelper
         return $default;
     }
 
-    protected static function getUsedLocale(Locale|string|null $languageKey, ?ServerRequestInterface $request): Locale|string|null
+    private static function getUsedLocale(Locale|string|null $languageKey, ?ServerRequestInterface $request): Locale|string|null
     {
         if ($languageKey !== null && $languageKey !== '') {
             return $languageKey;

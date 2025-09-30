@@ -18,28 +18,22 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers\Be;
 
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * A ViewHelper for creating URIs to modules.
+ * ViewHelper for creating URIs to backend modules.
  *
- * Examples
- * ========
+ * ```
+ *   <f:be.uri route="web_ts" parameters="{id: 92}" />
+ * ```
  *
- * URI to the web_ts module on page 92::
- *
- *    <f:be.uri route="web_ts" parameters="{id: 92}"/>
- *
- * ``/typo3/module/web/ts?token=b6e9c9f&id=92``
- *
- * Inline notation::
- *
- *    {f:be.uri(route: 'web_ts', parameters: '{id: 92}')}
- *
- * ``/typo3/module/web/ts?token=b6e9c9f&id=92``
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-be-uri
  */
 final class UriViewHelper extends AbstractBackendViewHelper
 {
+    public function __construct(
+        private readonly UriBuilder $uriBuilder
+    ) {}
+
     public function initializeArguments(): void
     {
         parent::initializeArguments();
@@ -56,11 +50,10 @@ final class UriViewHelper extends AbstractBackendViewHelper
 
     public function render(): string
     {
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
         $route = $this->arguments['route'];
         $parameters = $this->arguments['parameters'];
         $referenceType = $this->arguments['referenceType'];
-        $uri = $uriBuilder->buildUriFromRoute($route, $parameters, $referenceType);
+        $uri = $this->uriBuilder->buildUriFromRoute($route, $parameters, $referenceType);
         return (string)$uri;
     }
 }

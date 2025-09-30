@@ -24,6 +24,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Domain\Access\RecordAccessVoter;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class RecordAccessVoterTest extends FunctionalTestCase
@@ -35,7 +36,8 @@ final class RecordAccessVoterTest extends FunctionalTestCase
         parent::setUp();
 
         $this->subject = new RecordAccessVoter(
-            $this->get(EventDispatcherInterface::class)
+            $this->get(EventDispatcherInterface::class),
+            $this->get(TcaSchemaFactory::class),
         );
     }
 
@@ -129,6 +131,52 @@ final class RecordAccessVoterTest extends FunctionalTestCase
         self::assertTrue($this->subject->accessGranted(
             'tt_content',
             ['uid' => 1, 'hidden' => 1],
+            $context
+        ));
+    }
+
+    #[Test]
+    public function accessGrantedRespectsIncludeScheduledRecordsForStarttime(): void
+    {
+        $GLOBALS['SIM_ACCESS_TIME'] = 42;
+
+        // Record with starttime in the future should be denied by default
+        $context = new Context();
+        self::assertFalse($this->subject->accessGranted(
+            'pages',
+            ['uid' => 1, 'starttime' => 50],
+            $context
+        ));
+
+        // Record with starttime in the future should be allowed when includeScheduledRecords is true
+        $context = new Context();
+        $context->setAspect('visibility', new VisibilityAspect(includeScheduledRecords: true));
+        self::assertTrue($this->subject->accessGranted(
+            'pages',
+            ['uid' => 1, 'starttime' => 50],
+            $context
+        ));
+    }
+
+    #[Test]
+    public function accessGrantedRespectsIncludeScheduledRecordsForEndtime(): void
+    {
+        $GLOBALS['SIM_ACCESS_TIME'] = 42;
+
+        // Record with endtime in the past should be denied by default
+        $context = new Context();
+        self::assertFalse($this->subject->accessGranted(
+            'pages',
+            ['uid' => 1, 'endtime' => 30],
+            $context
+        ));
+
+        // Record with endtime in the past should be allowed when includeScheduledRecords is true
+        $context = new Context();
+        $context->setAspect('visibility', new VisibilityAspect(includeScheduledRecords: true));
+        self::assertTrue($this->subject->accessGranted(
+            'pages',
+            ['uid' => 1, 'endtime' => 30],
             $context
         ));
     }

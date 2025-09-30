@@ -12,8 +12,13 @@
  */
 
 import { Tree } from '@typo3/backend/tree/tree';
-import { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
-import { TemplateResult, html } from 'lit';
+import { html, type TemplateResult } from 'lit';
+import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
+import Modal from '@typo3/backend/modal';
+import { SeverityEnum } from '@typo3/backend/enum/severity';
+import type { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
+import type { ContentElementDragDropData } from '@typo3/backend/layout-module/drag-drop';
+import DragDropUtility from '@typo3/backend/utility/drag-drop-utility';
 
 /**
  * A Tree based on for pages, which has a AJAX-based loading of the tree
@@ -38,15 +43,15 @@ export class PageTree extends Tree
     };
   }
 
-  public getDataUrl(parentNode: TreeNodeInterface|null = null): string {
+  public override getDataUrl(parentNode: TreeNodeInterface|null = null): string {
     if (parentNode === null) {
       return this.settings.dataUrl;
     }
 
-    return this.settings.dataUrl + '&parent=' + parentNode.identifier + '&mount=' + parentNode.mountPoint + '&depth=' + parentNode.depth
+    return this.settings.dataUrl + '&parent=' + parentNode.identifier + '&mount=' + parentNode.mountPoint + '&depth=' + parentNode.depth;
   }
 
-  protected createNodeToggle(node: TreeNodeInterface): TemplateResult {
+  protected override createNodeToggle(node: TreeNodeInterface): TemplateResult {
     const nodeStopIconIdentifier = this.isRTL() ? 'actions-caret-left' : 'actions-caret-right';
     return html`${node.stopPageTree && node.depth !== 0
       ? html`
@@ -56,5 +61,93 @@ export class PageTree extends Tree
         `
       : super.createNodeToggle(node)
     }`;
+  }
+
+  protected override handleNodeDragOver(event: DragEvent): boolean {
+    // @todo incorporate isDropAllowed
+    if (super.handleNodeDragOver(event)) {
+      return true;
+    }
+
+    // @TODO Unity with parent
+    if (event.dataTransfer.types.includes(DataTransferTypes.content)) {
+      // Find the current hovered node
+      // Exit when no node was hovered
+      const targetNode = this.getNodeFromDragEvent(event);
+      if (targetNode === null) {
+        return false;
+      }
+
+      this.cleanDrag();
+
+      // Add hover styling to the current hovered node
+      // element, during the drag the default mouse over
+      // is disabled by the browser
+      const hoverElement = this.getElementFromNode(targetNode);
+      hoverElement.classList.add('node-hover');
+
+      // Open node with children while holding the
+      // node/element over this node for 1 second
+      if (targetNode.hasChildren && !targetNode.__expanded) {
+        if (this.openNodeTimeout.targetNode != targetNode) {
+          this.openNodeTimeout.targetNode = targetNode;
+          clearTimeout(this.openNodeTimeout.timeout);
+          this.openNodeTimeout.timeout = setTimeout(() => {
+            this.showChildren(this.openNodeTimeout.targetNode);
+            this.openNodeTimeout.targetNode = null;
+            this.openNodeTimeout.timeout = null;
+          }, 1000);
+        }
+      } else {
+        clearTimeout(this.openNodeTimeout.timeout);
+        this.openNodeTimeout.targetNode = null;
+        this.openNodeTimeout.timeout = null;
+      }
+
+      // Allow drop
+      event.preventDefault();
+
+      // Adjust allowed drop effect
+      DragDropUtility.updateEventAndTooltipToReflectCopyMoveIntention(event);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  protected override handleNodeDrop(event: DragEvent): boolean {
+    if (super.handleNodeDrop(event)) {
+      return true;
+    }
+    if (event.dataTransfer.types.includes(DataTransferTypes.content)) {
+      const node = this.getNodeFromDragEvent(event);
+      if (node === null) {
+        return false;
+      }
+
+      const newNodeData = event.dataTransfer.getData(DataTransferTypes.content);
+      const parsedData = JSON.parse(newNodeData) as ContentElementDragDropData;
+
+      // allow drop
+      event.preventDefault();
+
+      const moveElementUrl = new URL(parsedData.moveElementUrl, window.origin);
+      moveElementUrl.searchParams.set('expandPage', node.identifier);
+      moveElementUrl.searchParams.set('originalPid', node.identifier);
+      if (DragDropUtility.isCopyModifierFromEvent(event)) {
+        moveElementUrl.searchParams.set('makeCopy', '1');
+      }
+
+      Modal.advanced({
+        content: moveElementUrl.toString(),
+        severity: SeverityEnum.notice,
+        size: Modal.sizes.large,
+        type: Modal.types.iframe,
+      });
+
+      return true;
+    }
+    return false;
   }
 }

@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Resource;
 
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
@@ -70,7 +71,7 @@ final class FolderTest extends UnitTestCase
     public function getFilesReturnsArrayWithFilenamesAsKeys(): void
     {
         $mockedStorage = $this->createMock(ResourceStorage::class);
-        $mockedStorage->expects(self::once())->method('getFilesInFolder')->willReturn(
+        $mockedStorage->expects($this->once())->method('getFilesInFolder')->willReturn(
             [
                 'somefile.png' => [
                     'name' => 'somefile.png',
@@ -92,7 +93,7 @@ final class FolderTest extends UnitTestCase
     {
         $mockedStorage = $this->createMock(ResourceStorage::class);
         $mockedStorage
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('getFilesInFolder')
             ->with(self::anything(), self::anything(), self::anything(), self::anything(), false)
             ->willReturn([]);
@@ -106,7 +107,7 @@ final class FolderTest extends UnitTestCase
     {
         $mockedStorage = $this->createMock(ResourceStorage::class);
         $mockedStorage
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('getFilesInFolder')
             ->with(self::anything(), self::anything(), self::anything(), self::anything(), true)
             ->willReturn([]);
@@ -119,7 +120,7 @@ final class FolderTest extends UnitTestCase
     public function getSubfolderCallsFactoryWithCorrectArguments(): void
     {
         $mockedStorage = $this->createMock(ResourceStorage::class);
-        $mockedStorage->expects(self::once())->method('hasFolderInFolder')->with(self::equalTo('someSubfolder'))->willReturn(true);
+        $mockedStorage->expects($this->once())->method('hasFolderInFolder')->with(self::equalTo('someSubfolder'))->willReturn(true);
 
         $mockedFactory = $this->createMock(ResourceFactory::class);
         $folderFixture = $this->createFolderFixture(
@@ -132,12 +133,23 @@ final class FolderTest extends UnitTestCase
             'someSubfolder',
             $mockedStorage
         );
-        $mockedStorage->expects(self::once())->method('getFolderInFolder')->willReturn($subfolderFixture);
+        $mockedStorage->expects($this->once())->method('getFolderInFolder')->willReturn($subfolderFixture);
         GeneralUtility::setSingletonInstance(
             ResourceFactory::class,
             $mockedFactory
         );
         self::assertEquals($subfolderFixture, $folderFixture->getSubfolder('someSubfolder'));
+    }
+
+    #[Test]
+    public function getSubfolderThrowsExceptionIfItDoesNotExist(): void
+    {
+        $this->expectException(FolderDoesNotExistException::class);
+        $this->expectExceptionCode(1329836110);
+        $mockedStorage = $this->createMock(ResourceStorage::class);
+        $mockedStorage->expects($this->once())->method('hasFolderInFolder')->willReturn(false);
+        $subject = new Folder($mockedStorage, '/somePath/someFolder/', 'someFolder');
+        $subject->getSubfolder('someSubfolder');
     }
 
     #[Test]
@@ -151,8 +163,8 @@ final class FolderTest extends UnitTestCase
             ->onlyMethods(['getFolderIdentifierFromFileIdentifier', 'getFolder'])
             ->disableOriginalConstructor()
             ->getMock();
-        $mockedStorage->expects(self::once())->method('getFolderIdentifierFromFileIdentifier')->with($currentIdentifier)->willReturn($parentIdentifier);
-        $mockedStorage->expects(self::once())->method('getFolder')->with($parentIdentifier)->willReturn($parentFolderFixture);
+        $mockedStorage->expects($this->once())->method('getFolderIdentifierFromFileIdentifier')->with($currentIdentifier)->willReturn($parentIdentifier);
+        $mockedStorage->expects($this->once())->method('getFolder')->with($parentIdentifier)->willReturn($parentFolderFixture);
 
         $currentFolderFixture = $this->createFolderFixture($currentIdentifier, 'current', $mockedStorage);
 

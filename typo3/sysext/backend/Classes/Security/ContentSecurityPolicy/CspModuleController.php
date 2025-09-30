@@ -20,12 +20,19 @@ namespace TYPO3\CMS\Backend\Security\ContentSecurityPolicy;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\Features;
+use TYPO3\CMS\Core\Imaging\IconFactory;
+use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ScopeRepository;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 
 /**
  * Content-Security-Policy backend module view, loading the CSP lit-element and providing the current context.
@@ -40,6 +47,7 @@ class CspModuleController
         protected readonly PageRenderer $pageRenderer,
         protected readonly ScopeRepository $scopeRepository,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
+        protected readonly IconFactory $iconFactory,
     ) {}
 
     public function mainAction(ServerRequestInterface $request): ResponseInterface
@@ -50,12 +58,30 @@ class CspModuleController
             'module.'
         );
         $view = $this->moduleTemplateFactory->create($request);
+        $this->registerDocHeaderButtons($view, $request->getAttribute('module'));
         $view->assignMultiple([
             'configurationStatus' => $this->getConfigurationStatus(),
             'scopes' => array_map(strval(...), $this->scopeRepository->findAll()),
             'controlUri' => $this->uriBuilder->buildUriFromRoutePath('/ajax/security/csp/control'),
+            'extLowlevelAvailable' => ExtensionManagementUtility::isLoaded('lowlevel'),
         ]);
         return $view->renderResponse('Security/CspModule');
+    }
+
+    protected function registerDocHeaderButtons(ModuleTemplate $view, ModuleInterface $currentModule): void
+    {
+        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
+        $shortcutButton = $buttonBar->makeShortcutButton()
+            ->setRouteIdentifier($currentModule->getIdentifier())
+            ->setDisplayName($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:mlang_tabs_tab'));
+        $buttonBar->addButton($shortcutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+
+        $reloadButton = $buttonBar->makeLinkButton()
+            ->setDataAttributes(['csp-reports-handler' => 'refresh'])
+            ->setHref((string)$this->uriBuilder->buildUriFromRoute($currentModule->getIdentifier()))
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
+            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
+        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
     }
 
     protected function getConfigurationStatus(): array
@@ -78,5 +104,10 @@ class CspModuleController
     protected function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
+    }
+
+    protected function getLanguageService(): LanguageService
+    {
+        return $GLOBALS['LANG'];
     }
 }

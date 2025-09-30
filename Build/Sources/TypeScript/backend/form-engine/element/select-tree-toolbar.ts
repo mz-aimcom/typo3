@@ -11,11 +11,11 @@
 * The TYPO3 project - inspiring people to share!
 */
 
-import type { SelectTree } from './select-tree';
-import { html, LitElement, TemplateResult } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { customElement } from 'lit/decorators';
 import { lll } from '@typo3/core/lit-helper';
-import { TreeNodeInterface } from '../../tree/tree-node';
+import type { SelectTree } from './select-tree';
+import type { TreeNodeInterface } from '../../tree/tree-node';
 
 @customElement('typo3-backend-form-selecttree-toolbar')
 export class SelectTreeToolbar extends LitElement {
@@ -35,18 +35,18 @@ export class SelectTreeToolbar extends LitElement {
   private hideUncheckedState: boolean = false;
 
   // disable shadow dom for now
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div class="tree-toolbar btn-toolbar">
         <div class="input-group">
           <span class="input-group-text input-group-icon filter">
             <typo3-backend-icon identifier="actions-filter" size="small"></typo3-backend-icon>
           </span>
-          <input type="text" class="form-control ${this.settings.searchInput}" placeholder="${lll('tcatree.findItem')}" @input="${(evt: InputEvent) => this.filter(evt)}">
+          <input type="search" class="form-control ${this.settings.searchInput}" placeholder="${lll('tcatree.findItem')}" @input="${(evt: InputEvent) => this.filter(evt)}">
         </div>
         <div class="btn-group">
           <button type="button" class="btn btn-default ${this.settings.expandAllBtn}" title="${lll('tcatree.expandAll')}" @click="${() => this.expandAll()}">

@@ -50,7 +50,82 @@ final class TcaMigrationTest extends UnitTestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1482394401);
         $subject = new TcaMigration();
-        $subject->migrate($input);
+        $tcaProcessingResult = $subject->migrate($input);
+    }
+
+    #[Test]
+    public function usageOfSubTypeAddsMessage(): void
+    {
+        $input = [
+            'aTable' => [
+                'types' => [
+                    'aType' => [
+                        'subtype_value_field' => 'subtype_value_field',
+                    ],
+                ],
+            ],
+            'bTable' => [
+                'types' => [
+                    'bType' => [
+                        'subtypes_addlist' => 'subtype_add_field',
+                    ],
+                ],
+            ],
+            'cTable' => [
+                'types' => [
+                    'cType' => [
+                        'subtypes_excludelist' => 'subtype_exclude_field',
+                    ],
+                ],
+            ],
+            'dTable' => [
+                'types' => [
+                    'aType' => [
+                        'defaultValues' => ['foo'],
+                    ],
+                ],
+            ],
+        ];
+        $subject = new TcaMigration();
+        $tcaProcessingResult = $subject->migrate($input);
+        self::assertCount(3, $tcaProcessingResult->getMessages());
+        self::assertStringContainsString('The TCA record type \'aType\' of table \'aTable\' makes use of the removed "sub types" functionality. The options \'subtype_value_field\', \'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your TCA accordingly by migrating those sub types to dedicated record types.', $tcaProcessingResult->getMessages()[0]);
+        self::assertStringContainsString('The TCA record type \'bType\' of table \'bTable\' makes use of the removed "sub types" functionality. The options \'subtype_value_field\', \'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your TCA accordingly by migrating those sub types to dedicated record types.', $tcaProcessingResult->getMessages()[1]);
+        self::assertStringContainsString('The TCA record type \'cType\' of table \'cTable\' makes use of the removed "sub types" functionality. The options \'subtype_value_field\', \'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your TCA accordingly by migrating those sub types to dedicated record types.', $tcaProcessingResult->getMessages()[2]);
+    }
+
+    #[Test]
+    public function messagesAreResetOnEachMigrateExecution(): void
+    {
+        $input1 = [
+            'aTable' => [
+                'types' => [
+                    'aType' => [
+                        'subtype_value_field' => 'subtype_value_field',
+                    ],
+                ],
+            ],
+        ];
+        $input2 = [
+            'bTable' => [
+                'types' => [
+                    'bType' => [
+                        'subtype_value_field' => 'subtype_value_field',
+                    ],
+                ],
+            ],
+        ];
+
+        $subject = new TcaMigration();
+        $tcaProcessingResult = $subject->migrate($input1);
+        // First run: Only $input1 output message contained.
+        self::assertCount(1, $tcaProcessingResult->getMessages());
+        self::assertStringContainsString('The TCA record type \'aType\' of table \'aTable\' makes use of the removed "sub types" functionality. The options \'subtype_value_field\', \'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your TCA accordingly by migrating those sub types to dedicated record types.', $tcaProcessingResult->getMessages()[0]);
+
+        // Second run: Messages from $input1 should be reset.
+        $tcaProcessingResult = $subject->migrate($input2);
+        self::assertCount(1, $tcaProcessingResult->getMessages());
+        self::assertStringContainsString('The TCA record type \'bType\' of table \'bTable\' makes use of the removed "sub types" functionality. The options \'subtype_value_field\', \'subtypes_addlist\' and \'subtypes_excludelist\' are not evaluated anymore. Please adjust your TCA accordingly by migrating those sub types to dedicated record types.', $tcaProcessingResult->getMessages()[0]);
     }
 
     #[Test]
@@ -78,7 +153,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -131,7 +206,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -167,7 +242,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -203,7 +278,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -254,7 +329,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -334,7 +409,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -358,14 +433,35 @@ final class TcaMigrationTest extends UnitTestCase
             'aTable' => [
             ],
             'bTable' => [
+            ],
+        ];
+        $subject = new TcaMigration();
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function removeMaxDBListItemsIsRemoved(): void
+    {
+        $input = [
+            'aTable' => [
+                'interface' => [
+                ],
+            ],
+            'bTable' => [
                 'interface' => [
                     'maxDBListItems' => 30,
                     'maxSingleDBListItems' => 50,
                 ],
             ],
         ];
+        $expected = [
+            'aTable' => [
+            ],
+            'bTable' => [
+            ],
+        ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -398,7 +494,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -432,7 +528,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -591,7 +687,7 @@ final class TcaMigrationTest extends UnitTestCase
         ];
 
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -672,7 +768,7 @@ final class TcaMigrationTest extends UnitTestCase
         ];
 
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -821,7 +917,7 @@ final class TcaMigrationTest extends UnitTestCase
         ];
 
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -932,7 +1028,7 @@ final class TcaMigrationTest extends UnitTestCase
         ];
 
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -1040,7 +1136,7 @@ final class TcaMigrationTest extends UnitTestCase
         ];
 
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($input));
+        self::assertEquals($expected, $subject->migrate($input)->getTca());
     }
 
     public static function internalTypeFolderMigratedToTypeDataProvider(): iterable
@@ -1092,7 +1188,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function internalTypeFolderMigratedToType(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function requiredFlagIsMigratedDataProvider(): iterable
@@ -1210,7 +1306,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function requiredFlagIsMigrated(array $tca, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($tca));
+        self::assertEquals($expected, $subject->migrate($tca)->getTca());
     }
 
     public static function evalNullMigratedToNullableOptionDataProvider(): iterable
@@ -1332,7 +1428,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function evalNullMigratedToNullableOption(array $tca, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($tca));
+        self::assertSame($expected, $subject->migrate($tca)->getTca());
     }
 
     public static function evalEmailMigratedToTypeDataProvider(): iterable
@@ -1433,7 +1529,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function evalEmailMigratedToType(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function typeNoneColsMigratedToSizeDataProvider(): iterable
@@ -1501,7 +1597,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function typeNoneColsMigratedToSize(array $tca, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($tca));
+        self::assertSame($expected, $subject->migrate($tca)->getTca());
     }
 
     public static function renderTypeInputLinkMigratedToTypeLinkDataProvider(): iterable
@@ -1739,7 +1835,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function renderTypeInputLinkMigratedToTypeLink(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function evalPasswordSaltedPasswordMigratedToTypePasswordDataProvider(): iterable
@@ -1858,7 +1954,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function evalPasswordSaltedPasswordMigratedToTypePassword(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function renderTypeInputDateTimeMigratedToTypeDatetimeDataProvider(): iterable
@@ -2142,7 +2238,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function renderTypeInputDateTimeMigratedToTypeDatetime(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -2191,7 +2287,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -2269,7 +2365,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     public static function selectIndividualAllowDenyMigratedToNewPositionDataProvider(): iterable
@@ -2546,7 +2642,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function selectIndividualAllowDenyMigratedToNewPosition(array $tca, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertEquals($expected, $subject->migrate($tca));
+        self::assertEquals($expected, $subject->migrate($tca)->getTca());
     }
 
     public static function renderTypeColorpickerToTypeColorDataProvider(): iterable
@@ -2566,7 +2662,7 @@ final class TcaMigrationTest extends UnitTestCase
                                 'eval' => 'trim',
                                 'valuePicker' => [
                                     'items' => [
-                                        [ 'typo3 orange', '#FF8700'],
+                                        [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
                                     ],
                                 ],
                             ],
@@ -2585,7 +2681,7 @@ final class TcaMigrationTest extends UnitTestCase
                                 'size' => 20,
                                 'valuePicker' => [
                                     'items' => [
-                                        ['typo3 orange', '#FF8700'],
+                                        ['label' => 'typo3 orange', 'value' => '#FF8700'],
                                     ],
                                 ],
                             ],
@@ -2627,7 +2723,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function renderTypeColorpickerToTypeColor(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function typeTextWithEvalIntOrDouble2MigratedToTypeNumberDataProvider(): iterable
@@ -2799,7 +2895,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function typeTextWithEvalIntOrDouble2MigratedToTypeNumber(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function propertyAlwaysDescriptionIsRemovedDataProvider(): iterable
@@ -2850,7 +2946,7 @@ final class TcaMigrationTest extends UnitTestCase
     public function propertyAlwaysDescriptionIsRemoved(array $input, array $expected): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -2870,7 +2966,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     public static function falHandlingInTypeInlineIsMigratedToTypeFileDataProvider(): iterable
@@ -2956,6 +3052,9 @@ final class TcaMigrationTest extends UnitTestCase
                                 'type' => 'file',
                                 'minitems' => 1,
                                 'maxitems' => 2,
+                                'foreign_match_fields' => [
+                                    'fieldname' => 'aColumn',
+                                ],
                                 'appearance' => [
                                     'createNewRelationLinkTitle' => 'Add file',
                                     'enabledControls' => [
@@ -3135,10 +3234,11 @@ final class TcaMigrationTest extends UnitTestCase
     public function falHandlingInTypeInlineIsMigratedToTypeFile(array $input, array $expected, $expectedMessagePart = ''): void
     {
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        $tcaProcessingResult = $subject->migrate($input);
+        self::assertSame($expected, $tcaProcessingResult->getTca());
         if ($expectedMessagePart !== '') {
             $messageFound = false;
-            foreach ($subject->getMessages() as $message) {
+            foreach ($tcaProcessingResult->getMessages() as $message) {
                 if (str_contains($message, $expectedMessagePart)) {
                     $messageFound = true;
                     break;
@@ -3178,7 +3278,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3214,7 +3314,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
         $subject = new TcaMigration();
-        self::assertSame($expected, $subject->migrate($input));
+        self::assertSame($expected, $subject->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3255,7 +3355,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3312,6 +3412,13 @@ final class TcaMigrationTest extends UnitTestCase
                             ],
                         ],
                     ],
+                    'eColumn' => [
+                        'config' => [
+                            'type' => 'select',
+                            'itemsProcFunc' => 'Vendor\\Package\\Class->method',
+                            'items' => '   ',
+                        ],
+                    ],
                 ],
             ],
         ];
@@ -3366,11 +3473,71 @@ final class TcaMigrationTest extends UnitTestCase
                             ],
                         ],
                     ],
+                    'eColumn' => [
+                        'config' => [
+                            'type' => 'select',
+                            'itemsProcFunc' => 'Vendor\\Package\\Class->method',
+                            'items' => '   ',
+                        ],
+                    ],
                 ],
             ],
         ];
 
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function valuePickerItemsAreMigratedToAssociatedArray(): void
+    {
+        $input = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'select',
+                            'valuePicker' => [
+                                'items' => [
+                                    [
+                                        'foo',
+                                        'bar',
+                                    ],
+                                    [
+                                        'lorem',
+                                        'ipsum',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'select',
+                            'valuePicker' => [
+                                'items' => [
+                                    [
+                                        'label' => 'foo',
+                                        'value' => 'bar',
+                                    ],
+                                    [
+                                        'label' => 'lorem',
+                                        'value' => 'ipsum',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3401,7 +3568,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3430,7 +3597,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3459,7 +3626,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3521,6 +3688,567 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input));
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function removeAllowLanguageSynchronizationFromColumnsOverrides(): void
+    {
+        $input = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                            'config' => [
+                                'behaviour' => [
+                                    'allowLanguageSynchronization' => true,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'bColumn',
+                        'columnsOverrides' => [
+                            'bColumn' => [
+                                'config' => [
+                                    'behaviour' => [
+                                        'allowLanguageSynchronization' => true,
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                            'config' => [
+                                'behaviour' => [
+                                    'allowLanguageSynchronization' => true,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'bColumn',
+                        'columnsOverrides' => [
+                            'bColumn' => [
+                                'config' => [
+                                    'behaviour' => [
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function inlineChildrenAreMadeWorkspaceAware(): void
+    {
+        $input = [
+            'parent1WorkspaceAware' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'inline',
+                            'foreign_table' => 'child1NotWorkspaceAware',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+            'child1NotWorkspaceAware' => [
+                // This table is made workspace aware since the parent is.
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+
+            'parent2WorkspaceAware' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'inline',
+                            'foreign_table' => 'child2WorkspaceAware',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+            'child2WorkspaceAware' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+
+            'parent3NotWorkspaceAware' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'inline',
+                            'foreign_table' => 'child3NotWorkspaceAware',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+            'child3NotWorkspaceAware' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+
+            'parent4NotWorkspaceAware' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'inline',
+                            'foreign_table' => 'child4WorkspaceAware',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+            'child4WorkspaceAware' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'aType' => [
+                        'showitem' => 'aColumn',
+                    ],
+                ],
+            ],
+        ];
+
+        $expected = $input;
+        $expected['child1NotWorkspaceAware']['ctrl']['versioningWS'] = true;
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[DataProvider('requiredYearFlagIsRemovedDataProvider')]
+    #[Test]
+    public function requiredYearFlagIsRemoved(array $tca, array $expected): void
+    {
+        $subject = new TcaMigration();
+        self::assertEquals($expected, $subject->migrate($tca)->getTca());
+    }
+
+    public static function requiredYearFlagIsRemovedDataProvider(): iterable
+    {
+        yield 'field contains eval=year' => [
+            'tca' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                                'eval' => 'year',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        yield 'field contains eval=fo,year' => [
+            'tca' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                                'eval' => 'fo,year',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                                'eval' => 'fo',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    #[Test]
+    public function removeIsStaticControlOption(): void
+    {
+        $input = [
+            'aTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                    'is_static' => true,
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                ],
+            ],
+        ];
+
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function removeFieldSearchConfigOptions(): void
+    {
+        $input = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                            'search' => ['case' => true],
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function removeSearchFieldsControlOption(): void
+    {
+        $input = [
+            'aTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                    'searchFields' => 'title,description',
+                ],
+                'columns' => [
+                    'title' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'notes' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'brand' => [
+                        'config' => ['type' => 'color'],
+                    ],
+                    'file' => [
+                        'config' => ['type' => 'file'],
+                    ],
+                    'date' => [
+                        'config' => ['type' => 'datetime', 'dbType' => 'date'],
+                    ],
+                    'date2' => [
+                        'config' => ['type' => 'datetime'],
+                    ],
+                    'date3' => [
+                        'config' => ['type' => 'datetime', 'searchable' => false],
+                    ],
+                    'date4' => [
+                        'config' => ['type' => 'datetime', 'searchable' => true],
+                    ],
+                ],
+            ],
+            'bTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                ],
+                'columns' => [
+                    'title' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'notes' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'brand' => [
+                        'config' => ['type' => 'color'],
+                    ],
+                    'file' => [
+                        'config' => ['type' => 'file'],
+                    ],
+                    'date' => [
+                        'config' => ['type' => 'datetime', 'dbType' => 'date'],
+                    ],
+                    'date2' => [
+                        'config' => ['type' => 'datetime'],
+                    ],
+                    'date3' => [
+                        'config' => ['type' => 'datetime', 'searchable' => false],
+                    ],
+                    'date4' => [
+                        'config' => ['type' => 'datetime', 'searchable' => true],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                ],
+                'columns' => [
+                    'title' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'notes' => [
+                        'config' => ['type' => 'text', 'searchable' => false],
+                    ],
+                    'brand' => [
+                        'config' => ['type' => 'color', 'searchable' => false],
+                    ],
+                    'file' => [
+                        'config' => ['type' => 'file'],
+                    ],
+                    'date' => [
+                        'config' => ['type' => 'datetime', 'dbType' => 'date'],
+                    ],
+                    'date2' => [
+                        'config' => ['type' => 'datetime', 'searchable' => false],
+                    ],
+                    'date3' => [
+                        'config' => ['type' => 'datetime', 'searchable' => false],
+                    ],
+                    'date4' => [
+                        'config' => ['type' => 'datetime', 'searchable' => true],
+                    ],
+                ],
+            ],
+            'bTable' => [
+                'ctrl' => [
+                    'title' => 'foobar',
+                ],
+                'columns' => [
+                    'title' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'notes' => [
+                        'config' => ['type' => 'text'],
+                    ],
+                    'brand' => [
+                        'config' => ['type' => 'color'],
+                    ],
+                    'file' => [
+                        'config' => ['type' => 'file'],
+                    ],
+                    'date' => [
+                        'config' => ['type' => 'datetime', 'dbType' => 'date'],
+                    ],
+                    'date2' => [
+                        'config' => ['type' => 'datetime'],
+                    ],
+                    'date3' => [
+                        'config' => ['type' => 'datetime', 'searchable' => false],
+                    ],
+                    'date4' => [
+                        'config' => ['type' => 'datetime', 'searchable' => true],
+                    ],
+                ],
+            ],
+        ];
+
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function migrateSingleDataStructureConfiguration(): void
+    {
+        $input = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                        ],
+                    ],
+                    'cColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => '<some>flex</some>',
+                        ],
+                    ],
+                    'dColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => [
+                                'default' => '<some>flex</some>',
+                            ],
+                        ],
+                    ],
+                    'eColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => [
+                                '1,2' => '<some>flex</some>',
+                                '2,1' => '<some>flex</some>',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'text',
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                        ],
+                    ],
+                    'cColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => '<some>flex</some>',
+                        ],
+                    ],
+                    'dColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => '<some>flex</some>',
+                        ],
+                    ],
+                    'eColumn' => [
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => [
+                                '1,2' => '<some>flex</some>',
+                                '2,1' => '<some>flex</some>',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
     }
 }

@@ -23,7 +23,6 @@ use Psr\Http\Message\UriInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Symfony\Component\HttpFoundation\Cookie;
-use TYPO3\CMS\Backend\FrontendBackendUserAuthentication;
 use TYPO3\CMS\Core\Attribute\AsEventListener;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
@@ -39,6 +38,7 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Routing\RouteResultInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Frontend\Authentication\FrontendBackendUserAuthentication;
 use TYPO3\CMS\Frontend\Cache\CacheInstruction;
 use TYPO3\CMS\Frontend\Event\AfterTypoScriptDeterminedEvent;
 use TYPO3\CMS\Workspaces\Authentication\PreviewUserAuthentication;
@@ -385,9 +385,9 @@ final class WorkspacePreview implements MiddlewareInterface
     /**
      * Register or override the backend user as aspect, as well as the workspace information the user object is holding
      */
-    private function setBackendUserAspect(?BackendUserAuthentication $user = null)
+    private function setBackendUserAspect(?BackendUserAuthentication $user = null): void
     {
-        $this->context->setAspect('backend.user', GeneralUtility::makeInstance(UserAspect::class, $user));
-        $this->context->setAspect('workspace', GeneralUtility::makeInstance(WorkspaceAspect::class, $user ? $user->workspace : 0));
+        $this->context->setAspect('backend.user', new UserAspect($user));
+        $this->context->setAspect('workspace', new WorkspaceAspect($user ? $user->workspace : 0));
     }
 }

@@ -41,7 +41,7 @@ final class CreateRecordReactionTest extends FunctionalTestCase
         parent::setUp();
 
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
-        $this->importCSVDataSet(__DIR__ . '/../../../../core/Tests/Functional/Fixtures/be_users.csv');
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/ReactionsRepositoryTest_pages.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/ReactionsRepositoryTest_reactions.csv');
     }
@@ -50,7 +50,7 @@ final class CreateRecordReactionTest extends FunctionalTestCase
     public function reactWorksForAValidRequest(): void
     {
         $reactionRecord = (new ReactionRepository())->getReactionRecordByIdentifier('visual-reaction-uuid');
-        $reaction = GeneralUtility::makeInstance(CreateRecordReaction::class);
+        $reaction = $this->get(CreateRecordReaction::class);
         $request = new ServerRequest('http://localhost/', 'POST');
         $payload = [
             'foo' => 'bar',

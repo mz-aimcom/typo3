@@ -78,7 +78,7 @@ final class FolderLinkHandlerTest extends UnitTestCase
 
         // fake methods to return proper objects
         $folderObject = new Folder($storage, $expected['folder'], $expected['folder']);
-        $factory->expects(self::once())->method('getFolderObjectFromCombinedIdentifier')->with($expected['folder'])
+        $factory->expects($this->once())->method('getFolderObjectFromCombinedIdentifier')->with($expected['folder'])
             ->willReturn($folderObject);
         $expected['folder'] = $folderObject;
         GeneralUtility::setSingletonInstance(ResourceFactory::class, $factory);
@@ -105,7 +105,7 @@ final class FolderLinkHandlerTest extends UnitTestCase
         $storage = $this->getMockBuilder(ResourceStorage::class)
             ->disableOriginalConstructor()
             ->getMock();
-        $storage->method('getUid')->willReturn($folderData[0]);
+        $storage->method('getUid')->willReturn((int)$folderData[0]);
         $folderObject->method('getStorage')->willReturn($storage);
         $folderObject->method('getIdentifier')->willReturn($folderData[1]);
         $parameters['folder'] = $folderObject;

@@ -1,6 +1,6 @@
-:orphan:
-
 .. include:: /Includes.rst.txt
+
+..  _changelog-v7:
 
 ============
 ChangeLog v7
@@ -19,3 +19,13 @@ Every change to the TYPO3 Core which might affect your site is documented here.
    Changelog/7.2/Index
    Changelog/7.1/Index
    Changelog/7.0/Index
+
+
+Also available
+--------------
+
+..  toctree::
+    :maxdepth: 1
+    :titlesonly:
+
+    Changelog-7-combined

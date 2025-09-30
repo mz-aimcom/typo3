@@ -18,52 +18,20 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers\Format;
 
 use TYPO3\CMS\Core\Utility\StringUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic;
 
 /**
- * Formats a string using PHPs :php:`str_pad` function.
- * See https://www.php.net/manual/en/function.str-pad.
+ * ViewHelper to format a string to specific lengths, by using PHPs `str_pad` function.
  *
- * Examples
- * ========
+ * ```
+ *   <f:format.padding padLength="10" padString="!" padType="right">TYPO3</f:format.padding>
+ * ```
  *
- * Defaults
- * --------
- *
- * ::
- *
- *    <f:format.padding padLength="10">TYPO3</f:format.padding>
- *
- * Output::
- *
- *     TYPO3␠␠␠␠␠
- *
- * ``TYPO3␠␠␠␠␠``
- *
- * Specify padding string
- * ----------------------
- *
- * ::
- *
- *    <f:format.padding padLength="10" padString="-=">TYPO3</f:format.padding>
- *
- * ``TYPO3-=-=-``
- *
- * Specify padding type
- * --------------------
- *
- * ::
- *
- *    <f:format.padding padLength="10" padString="-" padType="both">TYPO3</f:format.padding>
- *
- * ``--TYPO3---``
+ * @see https://www.php.net/manual/en/function.str-pad
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-format-padding
  */
 final class PaddingViewHelper extends AbstractViewHelper
 {
-    use CompileWithContentArgumentAndRenderStatic;
-
     /**
      * Output is escaped already. We must not escape children, to avoid double encoding.
      *
@@ -82,26 +50,25 @@ final class PaddingViewHelper extends AbstractViewHelper
     /**
      * Pad a string to a certain length with another string.
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $value = $renderChildrenClosure();
+        $value = $this->renderChildren();
         $padTypes = [
             'left' => STR_PAD_LEFT,
             'right' => STR_PAD_RIGHT,
             'both' => STR_PAD_BOTH,
         ];
-        $padType = $arguments['padType'];
+        $padType = $this->arguments['padType'];
         if (!isset($padTypes[$padType])) {
             $padType = 'right';
         }
-
-        return StringUtility::multibyteStringPad((string)$value, (int)$arguments['padLength'], (string)$arguments['padString'], $padTypes[$padType]);
+        return StringUtility::multibyteStringPad((string)$value, (int)$this->arguments['padLength'], (string)$this->arguments['padString'], $padTypes[$padType]);
     }
 
     /**
      * Explicitly set argument name to be used as content.
      */
-    public function resolveContentArgumentName(): string
+    public function getContentArgumentName(): string
     {
         return 'value';
     }

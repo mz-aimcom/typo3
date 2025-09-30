@@ -28,6 +28,10 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
+    protected const LANGUAGE_PRESETS = [
+        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
+    ];
+
     protected array $configurationToUseInTestInstance = [
         'FE' => [
             'cacheHash' => [
@@ -67,14 +71,10 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = ['rte_ckeditor'];
 
-    protected const LANGUAGE_PRESETS = [
-        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
-        $this->importCsvDataSet(__DIR__ . '/../../../../core/Tests/Functional/Fixtures/pages.csv');
+        $this->importCsvDataSet(__DIR__ . '/../Fixtures/pages_frontend.csv');
         $this->writeSiteConfiguration(
             'test',
             $this->buildSiteConfiguration(1, 'http://localhost/'),

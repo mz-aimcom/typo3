@@ -171,34 +171,67 @@ final class HtmlParserTest extends UnitTestCase
     public static function spanTagCorrectlyRemovedWhenRmTagIfNoAttribIsConfiguredDataProvider(): array
     {
         return [
-            'Span tag with no attrib' => [
+            'Span tag with no attrib (allowedAttribs-list)' => [
                 '<span>text</span>',
                 'text',
             ],
-            'Span tag with allowed id attrib' => [
-                '<span id="id">text</span>',
-                '<span id="id">text</span>',
+            'Span tag with allowed id attrib (allowedAttribs-list)' => [
+                '<span id="id" data-something="allowed" class="something-unallowed">text</span>',
+                '<span id="id" data-something="allowed">text</span>',
             ],
-            'Span tag with disallowed style attrib' => [
+            'Span tag with disallowed style attrib (allowedAttribs-list)' => [
                 '<span style="line-height: 12px;">text</span>',
                 'text',
+            ],
+            'Span tag with no attrib (allowedAttribs-array)' => [
+                '<span>text</span>',
+                'text',
+                false,
+            ],
+            'Span tag with allowed id attrib (allowedAttribs-array)' => [
+                '<span id="id" data-something="allowed" class="something-unallowed">text</span>',
+                '<span id="id" data-something="allowed">text</span>',
+                false,
+            ],
+            'Span tag with disallowed style attrib (allowedAttribs-array)' => [
+                '<span style="line-height: 12px;">text</span>',
+                'text',
+                false,
             ],
         ];
     }
 
     #[DataProvider('spanTagCorrectlyRemovedWhenRmTagIfNoAttribIsConfiguredDataProvider')]
     #[Test]
-    public function tagCorrectlyRemovedWhenRmTagIfNoAttribIsConfigured(string $content, string $expectedResult): void
+    public function tagCorrectlyRemovedWhenRmTagIfNoAttribIsConfiguredAndAllowedAttribsArePassed(string $content, string $expectedResult, bool $useListDirective = true): void
     {
         $tsConfig = [
             'allowTags' => 'span',
             'tags.' => [
                 'span.' => [
-                    'allowedAttribs' => 'id',
+                    ($useListDirective ? 'allowedAttribs' : 'allowedAttribs.')
+                        => $useListDirective ? 'id,data-something' : ['id', 'data-something'],
                     'rmTagIfNoAttrib' => 1,
                 ],
             ],
         ];
+        self::assertEquals($expectedResult, $this->parseConfigAndCleanHtml($tsConfig, $content));
+    }
+
+    #[DataProvider('spanTagCorrectlyRemovedWhenRmTagIfNoAttribIsConfiguredDataProvider')]
+    #[Test]
+    public function allowedAttribsSetToArrayOrStringWithZeroValueReturnsTagWithoutAllAttributes(string $content, string $dataProviderexpectedResult, bool $useListDirective = true): void
+    {
+        $tsConfig = [
+            'allowTags' => 'span',
+            'tags.' => [
+                'span.' => [
+                    ($useListDirective ? 'allowedAttribs' : 'allowedAttribs.')
+                                      => $useListDirective ? '0' : [0],
+                ],
+            ],
+        ];
+        $expectedResult = '<span>' . strip_tags($content) . '</span>';
         self::assertEquals($expectedResult, $this->parseConfigAndCleanHtml($tsConfig, $content));
     }
 
@@ -212,6 +245,398 @@ final class HtmlParserTest extends UnitTestCase
         ];
         $content = '<span></span><span id="test"><div></span></div>';
         $expectedResult = '<span id="test"></span>';
+        self::assertEquals($expectedResult, $this->parseConfigAndCleanHtml($tsConfig, $content));
+    }
+
+    /**
+     * Data provider for fixAttribCanUseArrayAndStringNotations
+     */
+    public static function fixAttribCanUseArrayAndStringNotationsDataProvider(): array
+    {
+        return [
+            'denyTags' => [
+                'content' => '<img class="allowed-button" src="/something.jpg" /><span>allowed</span><font class="no-button">forbidden</font>',
+                'expectedResult' => '<img class="allowed-button" src="/something.jpg" /><span>allowed</span><font class="button">forbidden</font>',
+                'tsConfig' => [
+                    'allowTags' => 'span,img,font',
+                    'tags.' => [
+                        'font.' => [
+                            'fixAttrib.' => [
+                                'class.' => [
+                                    'default' => 'btn',
+                                    'list' => 'button,btn',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+
+            'class may contain "btn" or "button"' => [
+                'content' => '<span class=" btn ">text</span><span class=" button ">text</span><span class="somethingElse">text</span><span>text</span>',
+                'expectedResult' => '<span class="btn">text</span><span class="button">text</span><span class="button">text</span><span class="btn">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'class.' => [
+                                    'always' => '1',
+                                    'trim' => '1',
+                                    'default' => 'btn',
+                                    'list' => 'button,btn', // Note: If a class is given but does not match "btn" or "button", not the 'default' value is used, but the first index of "list".
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom, case insensitive' => [
+                'content' => '<span data-custom=" bTn ">text</span>',
+                'expectedResult' => '<span data-custom="bTn">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'default' => 'btn',
+                                    'casesensitiveComp' => 0,
+                                    'list' => 'button,btn',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom, case insensitive in list' => [
+                'content' => '<span data-custom2=" bTn ">text</span>',
+                'expectedResult' => '<span data-custom2="bTn">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom2.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'default' => 'btn',
+                                    'casesensitiveComp' => 0,
+                                    'list' => 'buTTon,bTn',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom3, case sensitive' => [
+                'content' => '<span data-custom3=" bTn ">text</span>',
+                'expectedResult' => '<span data-custom3="button">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom3.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'default' => 'btn',
+                                    'casesensitiveComp' => 1,
+                                    'list' => 'button,btn',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom4, case sensitive in list' => [
+                'content' => '<span data-custom4=" btn ">text</span>',
+                'expectedResult' => '<span data-custom4="buTTon">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom4.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'default' => 'bTn',
+                                    'casesensitiveComp' => 1,
+                                    'list' => 'buTTon,bTn',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom5, in range' => [
+                'content' => '<span data-custom5=" 0 ">text</span><span data-custom5=" abc ">text</span><span data-custom5="2">text</span><span data-custom5=" 4 ">text</span><span data-custom5=" 3castmetoint ">text</span>',
+                'expectedResult' => '<span data-custom5="0">text</span><span data-custom5="0">text</span><span data-custom5="2">text</span><span data-custom5="3">text</span><span data-custom5="3">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom5.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'casesensitiveComp' => 1,
+                                    'range' => '0,3',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom6, in single range' => [
+                'content' => '<span data-custom6=" 0 ">text</span><span data-custom6=" abc ">text</span><span data-custom6=" 2 ">text</span><span data-custom6=" 2castmetoint">text</span>',
+                'expectedResult' => '<span data-custom6="2">text</span><span data-custom6="2">text</span><span data-custom6="2">text</span><span data-custom6="2">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom6.' => [
+                                    'always' => '0',
+                                    'trim' => '1',
+                                    'default' => 'bTn',
+                                    'casesensitiveComp' => 1,
+                                    'range' => '2',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom7, set' => [
+                'content' => '<span data-custom7=" abc ">text</span>',
+                'expectedResult' => '<span data-custom7="setval">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom7.' => [
+                                    'always' => '0',
+                                    'set' => 'setval',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom8, unset' => [
+                'content' => '<span data-custom8="unsetval">text</span>',
+                'expectedResult' => '<span>text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom8.' => [
+                                    'always' => '0',
+                                    'unset' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom9, unset + remove due to empty attrib' => [
+                'content' => '<span data-custom9="unsetval">text</span>',
+                'expectedResult' => 'text',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'rmTagIfNoAttrib' => 1,
+                            'fixAttrib.' => [
+                                'data-custom9.' => [
+                                    'always' => '0',
+                                    'unset' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom10, unset + no remove due to one more attrib' => [
+                'content' => '<span data-custom10="unsetval" class="something">text</span>',
+                'expectedResult' => '<span class="something">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'rmTagIfNoAttrib' => 1,
+                            'fixAttrib.' => [
+                                'data-custom10.' => [
+                                    'always' => '0',
+                                    'unset' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom11, intval' => [
+                'content' => '<span data-custom11="5even">text</span>',
+                'expectedResult' => '<span data-custom11="5">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom11.' => [
+                                    'intval' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom12, lower' => [
+                'content' => '<span data-custom12="LOWER">text</span>',
+                'expectedResult' => '<span data-custom12="lower">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom12.' => [
+                                    'lower' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom13, upper' => [
+                'content' => '<span data-custom13="upper">text</span>',
+                'expectedResult' => '<span data-custom13="UPPER">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom13.' => [
+                                    'upper' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom14, removal if false' => [
+                'content' => '<span data-custom14="">text</span><span data-custom14="0">text</span><span data-custom14="false">text</span><span data-custom14="true">text</span><span data-custom14="blank">text</span>',
+                'expectedResult' => '<span>text</span><span>text</span><span data-custom14="false">text</span><span data-custom14="true">text</span><span data-custom14="blank">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom14.' => [
+                                    'removeIfFalse' => '1',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom15, removal if equals, case sensitive' => [
+                'content' => '<span data-custom15="Blank">text</span><span data-custom15="_blank">text</span>',
+                'expectedResult' => '<span>text</span><span data-custom15="_blank">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom15.' => [
+                                    'removeIfEquals' => 'Blank',
+                                    'casesensitiveComp' => 1,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom16, removal if equals, case insensitive' => [
+                'content' => '<span data-custom16="BlAnK">text</span><span data-custom16="_blank">text</span>',
+                'expectedResult' => '<span>text</span><span data-custom16="_blank">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom16.' => [
+                                    'removeIfEquals' => 'bLaNk',
+                                    'casesensitiveComp' => 0,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom17, prefixRelPathWith' => [
+                'content' => '<span data-custom17="anything/linked/to/something/">text</span>',
+                'expectedResult' => '<span data-custom17="ftps://anything/linked/to/something/">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom17.' => [
+                                    'prefixRelPathWith' => 'ftps://',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom18, userfunc' => [
+                'content' => '<span data-custom18="anything/linked/to/something/">text</span>',
+                'expectedResult' => '<span data-custom18="Called|anything/linked/to/something/">text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom18.' => [
+                                    'userFunc' => 'TYPO3\CMS\Core\Tests\Unit\Html\Fixture\HtmlParserUserFuncFixture->userfuncFixAttrib',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'data-custom19, userfunc with custom parm' => [
+                'content' => '<span data-custom19=\'anything/linked/to/something/\'>text</span>',
+                'expectedResult' => '<span data-custom19=\'ParamCalled|{"anythingParm":"anythingValue","0":"moreParm","attributeValue":"anything\/linked\/to\/something\/"}\'>text</span>',
+                'tsConfig' => [
+                    'allowTags' => 'span',
+                    'tags.' => [
+                        'span.' => [
+                            'fixAttrib.' => [
+                                'data-custom19.' => [
+                                    'userFunc' => 'TYPO3\CMS\Core\Tests\Unit\Html\Fixture\HtmlParserUserFuncFixture->userfuncFixAttribWithParam',
+                                    'userFunc.' => [
+                                        'anythingParm' => 'anythingValue',
+                                        'moreParm',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('fixAttribCanUseArrayAndStringNotationsDataProvider')]
+    #[Test]
+    public function fixAttribCanUseArrayAndStringNotations(string $content, string $expectedResult, array $tsConfig): void
+    {
         self::assertEquals($expectedResult, $this->parseConfigAndCleanHtml($tsConfig, $content));
     }
 

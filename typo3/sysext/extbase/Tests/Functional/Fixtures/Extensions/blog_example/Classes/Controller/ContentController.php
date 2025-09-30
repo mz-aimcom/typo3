@@ -92,15 +92,14 @@ class ContentController extends ActionController
 
         foreach ($iterator as $entity) {
             $dataMap = $this->dataMapFactory->buildDataMap(get_class($entity));
-            $tableName = $dataMap->getTableName();
-            $identifier = $tableName . ':' . $entity->getUid();
+            $identifier = $dataMap->tableName . ':' . $entity->getUid();
             $properties = ObjectAccess::getGettableProperties($entity);
 
             $structureItem = [];
             foreach ($properties as $propertyName => $propertyValue) {
                 $columnMap = $dataMap->getColumnMap($propertyName);
                 if ($columnMap !== null) {
-                    $propertyName = $columnMap->getColumnName();
+                    $propertyName = $columnMap->columnName;
                 }
                 if ($propertyValue instanceof \Iterator) {
                     $structureItem[$propertyName] = $this->getStructure($propertyValue);

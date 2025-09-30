@@ -23,14 +23,17 @@ use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locale;
 use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
+use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Page\AssetRenderer;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Resource\RelativeCssPathFixer;
 use TYPO3\CMS\Core\Resource\ResourceCompressor;
 use TYPO3\CMS\Core\Service\MarkerBasedTemplateService;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -46,11 +49,13 @@ final class PageRendererTest extends FunctionalTestCase
             $container->get(MarkerBasedTemplateService::class),
             $container->get(MetaTagManagerRegistry::class),
             $container->get(AssetRenderer::class),
+            $container->get(AssetCollector::class),
             new ResourceCompressor(),
             new RelativeCssPathFixer(),
             $container->get(LanguageServiceFactory::class),
             $container->get(ResponseFactoryInterface::class),
             $container->get(StreamFactoryInterface::class),
+            $container->get(IconRegistry::class),
         );
     }
 
@@ -95,7 +100,7 @@ final class PageRendererTest extends FunctionalTestCase
         $subject->addHeaderData($headerData);
 
         $subject->loadJavaScriptModule('@typo3/core/ajax/ajax-request.js');
-        $expectedJavaScriptModuleString = '"type":"javaScriptModuleInstruction","payload":{"name":"@typo3\/core\/ajax\/ajax-request.js"';
+        $expectedJavaScriptModuleScriptRegExp = '#<script type="module" async="async" src="[^"]*typo3/sysext/core/Resources/Public/JavaScript/ajax/ajax-request\.js\?bust=[^"]*"></script>#';
 
         $subject->addJsLibrary(
             'test',
@@ -138,7 +143,7 @@ final class PageRendererTest extends FunctionalTestCase
         self::assertStringContainsString($expectedFavouriteIconPartOne, $renderedString);
         self::assertStringContainsString($expectedInlineCommentString, $renderedString);
         self::assertStringContainsString($expectedHeaderData, $renderedString);
-        self::assertStringContainsString($expectedJavaScriptModuleString, $renderedString);
+        self::assertMatchesRegularExpression($expectedJavaScriptModuleScriptRegExp, $renderedString);
         self::assertMatchesRegularExpression($expectedJsLibraryRegExp, $renderedString);
         self::assertMatchesRegularExpression($expectedJsFileRegExp, $renderedString);
         self::assertMatchesRegularExpression($expectedJsFileWithoutTypeRegExp, $renderedString);
@@ -165,7 +170,7 @@ final class PageRendererTest extends FunctionalTestCase
         self::assertStringContainsString($expectedFavouriteIconPartOne, $stateBasedRenderedString);
         self::assertStringContainsString($expectedInlineCommentString, $stateBasedRenderedString);
         self::assertStringContainsString($expectedHeaderData, $stateBasedRenderedString);
-        self::assertStringContainsString($expectedJavaScriptModuleString, $stateBasedRenderedString);
+        self::assertMatchesRegularExpression($expectedJavaScriptModuleScriptRegExp, $stateBasedRenderedString);
         self::assertMatchesRegularExpression($expectedJsLibraryRegExp, $stateBasedRenderedString);
         self::assertMatchesRegularExpression($expectedJsFileRegExp, $stateBasedRenderedString);
         self::assertMatchesRegularExpression($expectedJsFileWithoutTypeRegExp, $stateBasedRenderedString);
@@ -261,7 +266,7 @@ final class PageRendererTest extends FunctionalTestCase
         if ($requestType === SystemEnvironmentBuilder::REQUESTTYPE_FE) {
             $expectedInlineAssignmentsPrefix = 'var TYPO3 = Object.assign(TYPO3 || {}, Object.fromEntries(Object.entries({"settings":';
         } else {
-            $expectedInlineAssignmentsPrefix = '<script src="typo3/sysext/core/Resources/Public/JavaScript/java-script-item-handler.js?%i" async="async">/* [{"type":"globalAssignment","payload":{"TYPO3":{"settings":';
+            $expectedInlineAssignmentsPrefix = '<script>Object.assign(globalThis, {"TYPO3":{"settings":{';
         }
 
         $renderedString = $subject->render();
@@ -447,5 +452,26 @@ final class PageRendererTest extends FunctionalTestCase
 
         self::assertStringContainsString($expectedCssFile, $renderedString);
         self::assertStringContainsString($expectedCssLibrary, $renderedString);
+    }
+
+    #[Test]
+    public function pageRendererRendersCDataBasedOnDocType(): void
+    {
+        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $subject = $this->createPageRenderer();
+        $subject->setLanguage(new Locale());
+
+        $subject->addCssInlineBlock(StringUtility::getUniqueId(), 'body {margin:20px;}');
+        $subject->addJsInlineCode(StringUtility::getUniqueId(), 'var x = "' . StringUtility::getUniqueId('jsInline-') . '"');
+        $renderedString = $subject->render();
+        self::assertStringNotContainsString('<![CDATA[', $renderedString);
+
+        $subject->addCssInlineBlock(StringUtility::getUniqueId(), 'body {margin:20px;}');
+        $subject->addJsInlineCode(StringUtility::getUniqueId(), 'var x = "' . StringUtility::getUniqueId('jsInline-') . '"');
+        $subject->setDocType(DocType::none);
+        $renderedString = $subject->render();
+        self::assertMatchesRegularExpression('/<!\[CDATA\[(.|\n)*var\sx\s=(.|\n)*]]>/', $renderedString);
+        self::assertMatchesRegularExpression('/<!\[CDATA\[(.|\n)*body\s{margin:20px;}(.|\n)*]]>/', $renderedString);
     }
 }

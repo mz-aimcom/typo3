@@ -26,7 +26,13 @@ use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\RootLevelRestriction;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\Resource\Exception\FileDoesNotExistException;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Schema\Capability\LabelCapability;
+use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -34,19 +40,23 @@ use TYPO3\CMS\Core\Versioning\VersionState;
 
 /**
  * @internal
+ *
+ * @todo: This is public:true only because testing-framework uses GU::makeInstance() on it. Get rid of this.
  */
 #[Autoconfigure(public: true)]
-class WorkspaceService implements SingletonInterface
+readonly class WorkspaceService
 {
-    protected array $versionsOnPageCache = [];
-    protected array $pagesWithVersionsInTable = [];
-
-    public const TABLE_WORKSPACE = 'sys_workspace';
     public const LIVE_WORKSPACE_ID = 0;
 
     public const PUBLISH_ACCESS_ONLY_IN_PUBLISH_STAGE = 1;
     public const PUBLISH_ACCESS_ONLY_WORKSPACE_OWNERS = 2;
     public const PUBLISH_ACCESS_HIDE_ENTIRE_WORKSPACE_ACTION_DROPDOWN = 4;
+
+    public function __construct(
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private ConnectionPool $connectionPool,
+        private ResourceFactory $resourceFactory,
+    ) {}
 
     /**
      * Retrieves the available workspaces from the database and checks whether
@@ -63,10 +73,8 @@ class WorkspaceService implements SingletonInterface
             $availableWorkspaces[self::LIVE_WORKSPACE_ID] = $this->getWorkspaceTitle(self::LIVE_WORKSPACE_ID);
         }
         // add custom workspaces (selecting all, filtering by BE_USER check):
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_workspace');
-        $queryBuilder->getRestrictions()
-            ->add(GeneralUtility::makeInstance(RootLevelRestriction::class));
-
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_workspace');
+        $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(RootLevelRestriction::class));
         $result = $queryBuilder
             ->select('uid', 'title', 'adminusers', 'members')
             ->from('sys_workspace')
@@ -82,37 +90,6 @@ class WorkspaceService implements SingletonInterface
     }
 
     /**
-     * Gets the current workspace ID.
-     */
-    public function getCurrentWorkspace(): int
-    {
-        return $this->getBackendUser()->workspace;
-    }
-
-    /**
-     * easy function to just return the number of hours.
-     *
-     * a preview link is valid, based on the workspaces' custom value (default to 48 hours)
-     * or falls back to the users' TSconfig value "options.workspaces.previewLinkTTLHours".
-     *
-     * by default, it's 48hs.
-     *
-     * @return int The hours as a number
-     */
-    public function getPreviewLinkLifetime(): int
-    {
-        $workspaceId = $this->getCurrentWorkspace();
-        if ($workspaceId > 0) {
-            $wsRecord = BackendUtility::getRecord('sys_workspace', $workspaceId, '*');
-            if (($wsRecord['previewlink_lifetime'] ?? 0) > 0) {
-                return (int)$wsRecord['previewlink_lifetime'];
-            }
-        }
-        $ttlHours = (int)($this->getBackendUser()->getTSConfig()['options.']['workspaces.']['previewLinkTTLHours'] ?? 0);
-        return $ttlHours ?: 24 * 2;
-    }
-
-    /**
      * Find the title for the requested workspace.
      */
     public function getWorkspaceTitle(int $wsId): string
@@ -123,7 +100,10 @@ class WorkspaceService implements SingletonInterface
                 $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_misc.xlf:shortcut_onlineWS');
                 break;
             default:
-                $labelField = $GLOBALS['TCA']['sys_workspace']['ctrl']['label'];
+                $schema = $this->tcaSchemaFactory->get('sys_workspace');
+                /** @var LabelCapability $labelCapability */
+                $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+                $labelField = $labelCapability->getPrimaryFieldName();
                 $wsRecord = BackendUtility::getRecord('sys_workspace', $wsId, 'uid,' . $labelField);
                 if (is_array($wsRecord)) {
                     $title = (string)$wsRecord[$labelField];
@@ -216,7 +196,7 @@ class WorkspaceService implements SingletonInterface
      * @param int $pageId Page id: Live page for which to find versions in workspace!
      * @param int $recursionLevel Recursion Level - select versions recursive - parameter is only relevant if $pageId != -1
      * @param string $selectionType How to collect records for "listing" or "modify" these tables. Support the permissions of each type of record, see \TYPO3\CMS\Core\Authentication\BackendUserAuthentication::check.
-     * @param int $language Select specific language only
+     * @param int|null $language Select specific language only
      * @return array Array of all records uids etc. First key is table name, second key incremental integer. Records are associative arrays with uid and t3ver_oidfields. The pid of the online record is found as "livepid" the pid of the offline record is found in "wspid
      */
     public function selectVersionsInWorkspace(int $wsid, int $stage = -99, int $pageId = -1, int $recursionLevel = 0, string $selectionType = 'tables_select', ?int $language = null): array
@@ -241,28 +221,30 @@ class WorkspaceService implements SingletonInterface
                 $pageList = implode(',', array_unique(explode(',', $pageList)));
             }
         }
-        // Traversing all tables supporting versioning:
-        foreach ($GLOBALS['TCA'] as $table => $cfg) {
+        // Traversing all tables supporting versioning
+        foreach ($this->tcaSchemaFactory->all() as $schema) {
+            if (!$schema->isWorkspaceAware()) {
+                continue;
+            }
+            $table = $schema->getName();
             // we do not collect records from tables without permissions on them.
             if (!$backendUser->check($selectionType, $table)) {
                 continue;
             }
-            if (BackendUtility::isTableWorkspaceEnabled($table)) {
-                $recs = $this->selectAllVersionsFromPages($table, $pageList, $wsid, $stage, $language);
-                $newRecords = $this->getNewVersionsForPages($table, $pageList, $wsid, $stage, $language);
-                foreach ($newRecords as &$newRecord) {
-                    // If we're dealing with a 'new' record, this one has no t3ver_oid. On publish, there is no
-                    // live counterpart, but the publish methods later need a live uid to publish to. We thus
-                    // use the uid as t3ver_oid here to be transparent on javascript side.
-                    $newRecord['t3ver_oid'] = $newRecord['uid'];
-                }
-                unset($newRecord);
-                $moveRecs = $this->getMovedRecordsFromPages($table, $pageList, $wsid, $stage);
-                $recs = array_merge($recs, $newRecords, $moveRecs);
-                $recs = $this->filterPermittedElements($recs, $table);
-                if (!empty($recs)) {
-                    $output[$table] = $recs;
-                }
+            $recs = $this->selectAllVersionsFromPages($schema, $pageList, $wsid, $stage, $language);
+            $newRecords = $this->getNewVersionsForPages($schema, $pageList, $wsid, $stage, $language);
+            foreach ($newRecords as &$newRecord) {
+                // If we're dealing with a 'new' record, this one has no t3ver_oid. On publish, there is no
+                // live counterpart, but the publish methods later need a live uid to publish to. We thus
+                // use the uid as t3ver_oid here to be transparent on javascript side.
+                $newRecord['t3ver_oid'] = $newRecord['uid'];
+            }
+            unset($newRecord);
+            $moveRecs = $this->getMovedRecordsFromPages($schema, $pageList, $wsid, $stage);
+            $recs = array_merge($recs, $newRecords, $moveRecs);
+            $recs = $this->filterPermittedElements($recs, $table);
+            if (!empty($recs)) {
+                $output[$table] = $recs;
             }
         }
         return $output;
@@ -271,32 +253,28 @@ class WorkspaceService implements SingletonInterface
     /**
      * Find all versionized elements except moved and new records.
      */
-    protected function selectAllVersionsFromPages(string $table, string $pageList, int $wsid, int $stage, ?int $language = null): array
+    protected function selectAllVersionsFromPages(TcaSchema $schema, string $pageList, int $wsid, int $stage, ?int $language = null): array
     {
         // Include root level page as there might be some records with where root level
         // restriction is ignored (e.g. FAL records)
-        if ($pageList !== '' && BackendUtility::isRootLevelRestrictionIgnored($table)) {
+        /** @var RootLevelCapability $capability */
+        $capability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        if ($pageList !== '' && $capability->shallIgnoreRootLevelRestriction()) {
             $pageList .= ',0';
         }
-        $isTableLocalizable = BackendUtility::isTableLocalizable($table);
-        $languageParentField = '';
         // If table is not localizable, but localized records shall
         // be collected, an empty result array needs to be returned:
-        if ($isTableLocalizable === false && $language > 0) {
+        if (!$schema->isLanguageAware() && $language > 0) {
             return [];
         }
-        if ($isTableLocalizable) {
-            $languageParentField = 'A.' . $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'];
-        }
-
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        $table = $schema->getName();
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
         $fields = ['A.uid', 'A.pid', 'A.t3ver_oid', 'A.t3ver_stage', 'B.pid', 'B.pid AS wspid', 'B.pid AS livepid'];
-        if ($isTableLocalizable) {
-            $fields[] = $languageParentField;
-            $fields[] = 'A.' . $GLOBALS['TCA'][$table]['ctrl']['languageField'];
+        if ($schema->isLanguageAware()) {
+            $fields[] = 'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+            $fields[] = 'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName();
         }
         // Table A is the offline version and t3ver_oid>0 defines offline
         // Table B (online) must have t3ver_oid=0 to signify being online.
@@ -320,7 +298,8 @@ class WorkspaceService implements SingletonInterface
 
         if ($pageList) {
             $pageIdRestriction = GeneralUtility::intExplode(',', $pageList, true);
-            if ($table === 'pages') {
+            if ($table === 'pages' && $schema->isLanguageAware()) {
+                $translationParentField = $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName();
                 $constraints[] = $queryBuilder->expr()->or(
                     $queryBuilder->expr()->in(
                         'B.uid',
@@ -330,7 +309,7 @@ class WorkspaceService implements SingletonInterface
                         )
                     ),
                     $queryBuilder->expr()->in(
-                        'B.' . $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'],
+                        'B.' . $translationParentField,
                         $queryBuilder->createNamedParameter(
                             $pageIdRestriction,
                             Connection::PARAM_INT_ARRAY
@@ -348,9 +327,9 @@ class WorkspaceService implements SingletonInterface
             }
         }
 
-        if ($isTableLocalizable && MathUtility::canBeInterpretedAsInteger($language)) {
+        if ($schema->isLanguageAware() && MathUtility::canBeInterpretedAsInteger($language)) {
             $constraints[] = $queryBuilder->expr()->eq(
-                'A.' . $GLOBALS['TCA'][$table]['ctrl']['languageField'],
+                'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                 $queryBuilder->createNamedParameter($language, Connection::PARAM_INT)
             );
         }
@@ -362,7 +341,7 @@ class WorkspaceService implements SingletonInterface
             );
         }
 
-        if ((int)$stage !== -99) {
+        if ($stage !== -99) {
             $constraints[] = $queryBuilder->expr()->eq(
                 'A.t3ver_stage',
                 $queryBuilder->createNamedParameter($stage, Connection::PARAM_INT)
@@ -392,7 +371,7 @@ class WorkspaceService implements SingletonInterface
      * so this method does not need to have a JOIN SQL statement.
      */
     protected function getNewVersionsForPages(
-        string $table,
+        TcaSchema $schema,
         string $pageList,
         int $wsid,
         int $stage,
@@ -400,28 +379,29 @@ class WorkspaceService implements SingletonInterface
     ): array {
         // Include root level page as there might be some records with where root level
         // restriction is ignored (e.g. FAL records)
-        if ($pageList !== '' && BackendUtility::isRootLevelRestrictionIgnored($table)) {
+        /** @var RootLevelCapability $capability */
+        $capability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        if ($pageList !== '' && $capability->shallIgnoreRootLevelRestriction()) {
             $pageList .= ',0';
         }
-        $isTableLocalizable = BackendUtility::isTableLocalizable($table);
         // If table is not localizable, but localized records shall
         // be collected, an empty result array needs to be returned:
-        if ($isTableLocalizable === false && $language > 0) {
+        if (!$schema->isLanguageAware() && $language > 0) {
             return [];
         }
 
-        $languageField = $GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? '';
-        $transOrigPointerField = $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'] ?? '';
+        $languageField = $schema->isLanguageAware() ? $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName() : '';
+        $transOrigPointerField = $schema->isLanguageAware() ? $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName() : '';
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        $table = $schema->getName();
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
         $fields = ['uid', 'pid', 't3ver_oid', 't3ver_state', 't3ver_stage', 'pid AS wspid', 'pid AS livepid'];
 
         // If the table is localizable, $languageField and $transOrigPointerField
         // are set and should be added to the query
-        if ($isTableLocalizable) {
+        if ($schema->isLanguageAware()) {
             $fields[] = $languageField;
             $fields[] = $transOrigPointerField;
         }
@@ -438,7 +418,7 @@ class WorkspaceService implements SingletonInterface
 
         if ($pageList) {
             $pageIdRestriction = GeneralUtility::intExplode(',', $pageList, true);
-            if ($table === 'pages' && $transOrigPointerField !== '') {
+            if ($table === 'pages' && $schema->isLanguageAware()) {
                 $constraints[] = $queryBuilder->expr()->or(
                     $queryBuilder->expr()->in(
                         'uid',
@@ -466,7 +446,7 @@ class WorkspaceService implements SingletonInterface
             }
         }
 
-        if ($isTableLocalizable && MathUtility::canBeInterpretedAsInteger($language)) {
+        if ($schema->isLanguageAware() && MathUtility::canBeInterpretedAsInteger($language)) {
             $constraints[] = $queryBuilder->expr()->eq(
                 $languageField,
                 $queryBuilder->createNamedParameter((int)$language, Connection::PARAM_INT)
@@ -502,11 +482,11 @@ class WorkspaceService implements SingletonInterface
     /**
      * Find all moved records at their new position.
      */
-    protected function getMovedRecordsFromPages(string $table, string $pageList, int $wsid, int $stage): array
+    protected function getMovedRecordsFromPages(TcaSchema $schema, string $pageList, int $wsid, int $stage): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->getRestrictions()->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+        $table = $schema->getName();
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
         // Aliases:
         // B - online record
@@ -540,7 +520,7 @@ class WorkspaceService implements SingletonInterface
             );
         }
 
-        if ((int)$stage !== -99) {
+        if ($stage !== -99) {
             $constraints[] = $queryBuilder->expr()->eq(
                 'C.t3ver_stage',
                 $queryBuilder->createNamedParameter($stage, Connection::PARAM_INT)
@@ -549,7 +529,7 @@ class WorkspaceService implements SingletonInterface
 
         if ($pageList) {
             $pageIdRestriction = GeneralUtility::intExplode(',', $pageList, true);
-            if ($table === 'pages') {
+            if ($table === 'pages' && $schema->isLanguageAware()) {
                 $constraints[] = $queryBuilder->expr()->or(
                     $queryBuilder->expr()->in(
                         'B.uid',
@@ -566,7 +546,7 @@ class WorkspaceService implements SingletonInterface
                         )
                     ),
                     $queryBuilder->expr()->in(
-                        'B.' . $GLOBALS['TCA'][$table]['ctrl']['transOrigPointerField'],
+                        'B.' . $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                         $queryBuilder->createNamedParameter(
                             $pageIdRestriction,
                             Connection::PARAM_INT_ARRAY
@@ -611,8 +591,8 @@ class WorkspaceService implements SingletonInterface
         );
         if ($pageId > 0) {
             $pageList = array_merge(
-                [ (int)$pageId ],
-                $this->getPageChildrenRecursive((int)$pageId, (int)$recursionLevel, 0, $permsClause)
+                [$pageId],
+                $this->getPageChildrenRecursive($pageId, $recursionLevel, 0, $permsClause)
             );
         } else {
             $mountPoints = $backendUser->uc['pageTree_temporaryMountPoint'];
@@ -624,19 +604,17 @@ class WorkspaceService implements SingletonInterface
                 $pageList = array_merge(
                     $pageList,
                     [ (int)$mountPoint ],
-                    $this->getPageChildrenRecursive((int)$mountPoint, (int)$recursionLevel, 0, $permsClause)
+                    $this->getPageChildrenRecursive((int)$mountPoint, $recursionLevel, 0, $permsClause)
                 );
             }
         }
         $pageList = array_unique($pageList);
 
-        if (BackendUtility::isTableWorkspaceEnabled('pages') && !empty($pageList)) {
+        if ($this->tcaSchemaFactory->get('pages')->isWorkspaceAware() && !empty($pageList)) {
             // Remove the "subbranch" if a page was moved away
             $pageIds = $pageList;
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
-            $queryBuilder->getRestrictions()
-                ->removeAll()
-                ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
+            $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
             $result = $queryBuilder
                 ->select('uid', 'pid', 't3ver_oid')
                 ->from('pages')
@@ -678,10 +656,8 @@ class WorkspaceService implements SingletonInterface
             } while ($changed);
 
             // In case moving pages is enabled we need to replace all move-to pointer with their origin
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
-            $queryBuilder->getRestrictions()
-                ->removeAll()
-                ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
+            $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
             $result = $queryBuilder->select('uid', 't3ver_oid')
                 ->from('pages')
                 ->where(
@@ -727,7 +703,7 @@ class WorkspaceService implements SingletonInterface
     {
         $children = [];
         if ($pid && $depth > 0) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
             $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
             $statement = $queryBuilder->select('uid')
                 ->from('pages')
@@ -757,11 +733,48 @@ class WorkspaceService implements SingletonInterface
     {
         $permittedElements = [];
         foreach ($recs as $rec) {
-            if ($this->isPageAccessibleForCurrentUser($table, $rec) && $this->isLanguageAccessibleForCurrentUser($table, $rec)) {
+            if ($this->isPageAccessibleForCurrentUser($table, $rec)
+                && $this->isLanguageAccessibleForCurrentUser($table, $rec)
+                && $this->isFileAccessibleForCurrentUser($table, $rec)
+            ) {
                 $permittedElements[] = $rec;
             }
         }
         return $permittedElements;
+    }
+
+    /**
+     * Check if the current backend user has access to the file record.
+     */
+    protected function isFileAccessibleForCurrentUser(string $table, array $record): bool
+    {
+        if ($table !== 'sys_file_reference' && $table !== 'sys_file_metadata' && $table !== 'sys_file') {
+            return true;
+        }
+
+        $dbRecord = BackendUtility::getRecord($table, $record['uid']);
+
+        $fileId = 0;
+
+        if ($table === 'sys_file_reference') {
+            $fileId = (int)$dbRecord['uid_local'];
+        } elseif ($table === 'sys_file_metadata') {
+            $fileId = (int)$dbRecord['file'];
+        } elseif ($table === 'sys_file') {
+            $fileId = (int)$dbRecord['uid'];
+        }
+
+        if ($fileId === 0) {
+            return true;
+        }
+
+        try {
+            $fileObject = $this->resourceFactory->getFileObject($fileId);
+        } catch (FileDoesNotExistException) {
+            return false;
+        }
+
+        return $fileObject->getStorage()->checkFileActionPermission('write', $fileObject);
     }
 
     /**
@@ -777,7 +790,10 @@ class WorkspaceService implements SingletonInterface
         if ($pageId === null) {
             return false;
         }
-        if ($pageId === 0 && BackendUtility::isRootLevelRestrictionIgnored($table)) {
+        $schema = $this->tcaSchemaFactory->get($table);
+        /** @var RootLevelCapability $capability */
+        $capability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        if ($pageId === 0 && $capability->shallIgnoreRootLevelRestriction()) {
             return true;
         }
         $page = BackendUtility::getRecord('pages', $pageId, 'uid,pid,perms_userid,perms_user,perms_groupid,perms_group,perms_everybody');
@@ -793,8 +809,10 @@ class WorkspaceService implements SingletonInterface
      */
     protected function isLanguageAccessibleForCurrentUser(string $table, array $record): bool
     {
-        if (BackendUtility::isTableLocalizable($table)) {
-            $languageUid = $record[$GLOBALS['TCA'][$table]['ctrl']['languageField']] ?? 0;
+        $schema = $this->tcaSchemaFactory->get($table);
+        if ($schema->isLanguageAware()) {
+            $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+            $languageUid = $record[$languageField] ?? 0;
         } else {
             return true;
         }
@@ -812,25 +830,23 @@ class WorkspaceService implements SingletonInterface
         $isNewPage = false;
         // If the language is not default, check state of overlay
         if ($language > 0) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getQueryBuilderForTable('pages');
-            $queryBuilder->getRestrictions()
-                ->removeAll()
-                ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            $schema = $this->tcaSchemaFactory->get('pages');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
+            $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
             $row = $queryBuilder->select('t3ver_state')
                 ->from('pages')
                 ->where(
                     $queryBuilder->expr()->eq(
-                        $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'],
+                        $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                         $queryBuilder->createNamedParameter($id, Connection::PARAM_INT)
                     ),
                     $queryBuilder->expr()->eq(
-                        $GLOBALS['TCA']['pages']['ctrl']['languageField'],
+                        $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                         $queryBuilder->createNamedParameter($language, Connection::PARAM_INT)
                     ),
                     $queryBuilder->expr()->eq(
                         't3ver_wsid',
-                        $queryBuilder->createNamedParameter($this->getCurrentWorkspace(), Connection::PARAM_INT)
+                        $queryBuilder->createNamedParameter($this->getBackendUser()->workspace, Connection::PARAM_INT)
                     )
                 )
                 ->setMaxResults(1)
@@ -847,139 +863,6 @@ class WorkspaceService implements SingletonInterface
             }
         }
         return $isNewPage;
-    }
-
-    /**
-     * Determines whether a page has workspace versions.
-     *
-     * @param int $workspaceId
-     * @param int $pageId
-     * @return bool
-     */
-    public function hasPageRecordVersions(int $workspaceId, int $pageId): bool
-    {
-        if ($workspaceId === 0 || $pageId === 0) {
-            return false;
-        }
-
-        if (isset($this->versionsOnPageCache[$workspaceId][$pageId])) {
-            return $this->versionsOnPageCache[$workspaceId][$pageId];
-        }
-
-        $this->versionsOnPageCache[$workspaceId][$pageId] = false;
-
-        foreach ($GLOBALS['TCA'] as $tableName => $tableConfiguration) {
-            if ($tableName === 'pages' || !BackendUtility::isTableWorkspaceEnabled($tableName)) {
-                continue;
-            }
-
-            $pages = $this->fetchPagesWithVersionsInTable($workspaceId, $tableName);
-            // Early break on first match
-            if (!empty($pages[(string)$pageId])) {
-                $this->versionsOnPageCache[$workspaceId][$pageId] = true;
-                break;
-            }
-        }
-
-        return $this->versionsOnPageCache[$workspaceId][$pageId];
-    }
-
-    /**
-     * Gets all pages that have workspace versions per table.
-     *
-     * Result:
-     * [
-     *   'sys_template' => [],
-     *   'tt_content' => [
-     *     1 => true,
-     *     11 => true,
-     *     13 => true,
-     *     15 => true
-     *   ],
-     *   'tx_something => [
-     *     15 => true,
-     *     11 => true,
-     *     21 => true
-     *   ],
-     * ]
-     */
-    public function getPagesWithVersionsInTable(int $workspaceId): array
-    {
-        foreach ($GLOBALS['TCA'] as $tableName => $tableConfiguration) {
-            if ($tableName === 'pages' || !BackendUtility::isTableWorkspaceEnabled($tableName)) {
-                continue;
-            }
-
-            $this->fetchPagesWithVersionsInTable($workspaceId, $tableName);
-        }
-
-        return $this->pagesWithVersionsInTable[$workspaceId];
-    }
-
-    /**
-     * Gets all pages that have workspace versions in a particular table.
-     *
-     * Result:
-     * [
-     *   1 => true,
-     *   11 => true,
-     *   13 => true,
-     *   15 => true
-     * ],
-     */
-    protected function fetchPagesWithVersionsInTable(int $workspaceId, string $tableName): array
-    {
-        if ((int)$workspaceId === 0) {
-            return [];
-        }
-
-        if (!isset($this->pagesWithVersionsInTable[$workspaceId])) {
-            $this->pagesWithVersionsInTable[$workspaceId] = [];
-        }
-
-        if (!isset($this->pagesWithVersionsInTable[$workspaceId][$tableName])) {
-            $this->pagesWithVersionsInTable[$workspaceId][$tableName] = [];
-
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($tableName);
-            $queryBuilder->getRestrictions()
-                ->removeAll()
-                ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-
-            // Fetch all versioned record within a workspace
-            $result = $queryBuilder
-                ->select('pid')
-                ->from($tableName)
-                ->where(
-                    $queryBuilder->expr()->or(
-                        $queryBuilder->expr()->eq(
-                            't3ver_state',
-                            $queryBuilder->createNamedParameter(VersionState::NEW_PLACEHOLDER->value, Connection::PARAM_INT)
-                        ),
-                        $queryBuilder->expr()->gt(
-                            't3ver_oid',
-                            $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
-                        ),
-                    ),
-                    $queryBuilder->expr()->eq(
-                        't3ver_wsid',
-                        $queryBuilder->createNamedParameter(
-                            $workspaceId,
-                            Connection::PARAM_INT
-                        )
-                    )
-                )
-                ->groupBy('pid')
-                ->executeQuery();
-
-            $pageIds = [];
-            while ($row = $result->fetchAssociative()) {
-                $pageIds[$row['pid']] = true;
-            }
-
-            $this->pagesWithVersionsInTable[$workspaceId][$tableName] = $pageIds;
-        }
-
-        return $this->pagesWithVersionsInTable[$workspaceId][$tableName];
     }
 
     protected function getLanguageService(): LanguageService

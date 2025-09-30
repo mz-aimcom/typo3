@@ -16,7 +16,6 @@
  * Contains all JS functions related to TYPO3 TCEforms/FormEngineValidation
  * @internal
  */
-import $ from 'jquery';
 import { DateTime } from 'luxon';
 import Md5 from '@typo3/backend/hashing/md5';
 import Modal from '@typo3/backend/modal';
@@ -26,80 +25,86 @@ import RegularEvent from '@typo3/core/event/regular-event';
 import DomHelper from '@typo3/backend/utility/dom-helper';
 import { selector } from '@typo3/core/literals';
 import SubmitInterceptor from '@typo3/backend/form/submit-interceptor';
+import { FormEngineReview } from '@typo3/backend/form-engine-review';
+import type FormEngine from '@typo3/backend/form-engine';
+import type { FormEngineFieldElement } from '@typo3/backend/form-engine';
 
-type FormEngineFieldElement = HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement;
 type CustomEvaluationCallback = (value: string) => string;
 type FormEngineInputParams = { field: string, evalList?: string, is_in?: string };
 
-export default (function() {
+export interface PostValidationEvent {
+  field: FormEngineFieldElement,
+  isValid: boolean,
+}
 
-  /**
-   * The main FormEngineValidation object
-   *
-   * @type {{rulesSelector: string, inputSelector: string, markerSelector: string, groupFieldHiddenElement: string, relatedFieldSelector: string, errorClass: string, lastYear: number, lastDate: number, lastTime: number, passwordDummy: string}}
-   * @exports @typo3/backend/form-engine-validation
-   */
-  const FormEngineValidation: any = {
-    rulesSelector: '[data-formengine-validation-rules]',
-    inputSelector: '[data-formengine-input-params]',
-    markerSelector: '.t3js-formengine-validation-marker',
-    groupFieldHiddenElement: '.t3js-formengine-field-group input[type=hidden]',
-    relatedFieldSelector: '[data-relatedfieldname]',
-    errorClass: 'has-error',
-    lastYear: 0,
-    lastDate: 0,
-    lastTime: 0,
-    passwordDummy: '********'
-  };
+let formEngineInstance: typeof FormEngine;
+let validationSuspended = false;
 
-  let formEngineFormElement: HTMLFormElement;
+const customEvaluations: Map<string, CustomEvaluationCallback> = new Map();
 
-  const customEvaluations: Map<string, CustomEvaluationCallback> = new Map();
+/**
+ * The main FormEngineValidation object
+ *
+ * @exports @typo3/backend/form-engine-validation
+ */
+export default class FormEngineValidation {
+
+  public static rulesSelector: string = '[data-formengine-validation-rules]';
+  public static inputSelector: string = '[data-formengine-input-params]';
+  public static markerSelector: string = '.t3js-formengine-validation-marker';
+  public static labelSelector: string = '.t3js-formengine-label';
+  public static errorClass: string = 'has-error';
+  public static validationErrorClass: string = 'has-validation-error';
+  public static passwordDummy: string = '********';
 
   /**
    * Initialize validation for the first time
    */
-  FormEngineValidation.initialize = function(formElement: HTMLFormElement): void {
-    formEngineFormElement = formElement;
-    formEngineFormElement.querySelectorAll('.' + FormEngineValidation.errorClass).forEach((e: HTMLElement) => e.classList.remove(FormEngineValidation.errorClass));
+  public static initialize(formEngine: typeof FormEngine): void {
+    formEngineInstance = formEngine;
+    formEngineInstance.formElement.querySelectorAll('.' + FormEngineValidation.errorClass).forEach((e: HTMLElement) => e.classList.remove(FormEngineValidation.errorClass));
 
     // Initialize input fields
     FormEngineValidation.initializeInputFields();
 
+    new FormEngineReview(formEngineInstance.formElement);
+
     // Bind to field changes
     new RegularEvent('change', (e: Event, target: FormEngineFieldElement): void => {
       FormEngineValidation.validateField(target);
-      FormEngineValidation.markFieldAsChanged(target);
-    }).delegateTo(formEngineFormElement, FormEngineValidation.rulesSelector);
+      formEngineInstance.markFieldAsChanged(target);
+    }).delegateTo(formEngineInstance.formElement, FormEngineValidation.rulesSelector);
 
     FormEngineValidation.registerSubmitCallback();
 
     FormEngineValidation.validate();
-  };
+  }
 
   /**
    * Initialize all input fields
    */
-  FormEngineValidation.initializeInputFields = function(): void {
-    formEngineFormElement.querySelectorAll(FormEngineValidation.inputSelector).forEach((visibleField: FormEngineFieldElement): void => {
+  public static initializeInputFields(): void {
+    formEngineInstance.formElement.querySelectorAll(FormEngineValidation.inputSelector).forEach((visibleField: FormEngineFieldElement): void => {
+      // ignore fields which already have been initialized
+      if ('formengineInputInitialized' in visibleField.dataset) {
+        return;
+      }
+
       const config = JSON.parse(visibleField.dataset.formengineInputParams);
       const fieldName = config.field;
-      const actualValueField = formEngineFormElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
+      const actualValueField = formEngineInstance.formElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
 
-      // ignore fields which already have been initialized
-      if (!('formengineInputInitialized' in visibleField.dataset)) {
-        actualValueField.dataset.config = visibleField.dataset.formengineInputParams;
-        FormEngineValidation.initializeInputField(fieldName);
-      }
+      actualValueField.dataset.config = visibleField.dataset.formengineInputParams;
+      FormEngineValidation.initializeInputField(fieldName);
     });
-  };
+  }
 
   /**
    * Initialize field by name
    */
-  FormEngineValidation.initializeInputField = function(fieldName: string): void {
-    const field = formEngineFormElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
-    const humanReadableField = formEngineFormElement.querySelector(selector`[data-formengine-input-name="${fieldName}"]`) as FormEngineFieldElement;
+  public static initializeInputField(fieldName: string): void {
+    const field = formEngineInstance.formElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
+    const humanReadableField = formEngineInstance.formElement.querySelector(selector`[data-formengine-input-name="${fieldName}"]`) as FormEngineFieldElement;
 
     if (field.dataset.config !== undefined) {
       const config = JSON.parse(field.dataset.config);
@@ -115,15 +120,15 @@ export default (function() {
 
     // add the attribute so that acceptance tests can know when the field initialization has completed
     humanReadableField.dataset.formengineInputInitialized = 'true';
-  };
+  }
 
-  FormEngineValidation.registerCustomEvaluation = function(name: string, handler: CustomEvaluationCallback): void {
+  public static registerCustomEvaluation(name: string, handler: CustomEvaluationCallback): void {
     if (!customEvaluations.has(name)) {
       customEvaluations.set(name, handler);
     }
-  };
+  }
 
-  FormEngineValidation.formatByEvals = function(config: FormEngineInputParams, value: string): string {
+  public static formatByEvals(config: FormEngineInputParams, value: string): string {
     if (config.evalList !== undefined) {
       const evalList = Utility.trimExplode(',', config.evalList);
       for (const evalInstruction of evalList) {
@@ -131,58 +136,45 @@ export default (function() {
       }
     }
     return value;
-  };
+  }
 
   /**
    * Format field value
    */
-  FormEngineValidation.formatValue = function(type: string, value: string|number): string {
-    let theString = '';
+  public static formatValue(type: string, value: string|number): string {
     switch (type) {
       case 'date':
       case 'datetime':
       case 'time':
       case 'timesec':
-        // if value is '0' (string), it's supposed to be empty
-        if (value === '' || value === '0') {
+        if (value === '') {
           return '';
         }
-
-        const isoDt = DateTime.fromISO(String(value), { zone: 'utc' });
-        if (isoDt.isValid) {
-          return isoDt.toISO({ suppressMilliseconds: true });
+        const isoDt = DateTime.fromISO(String(value));
+        if (!isoDt.isValid) {
+          throw new Error('Invalid ISO8601 DateTime string: ' + value);
         }
-
-        const parsedInt = typeof value === 'number' ? value : parseInt(value, 10);
-        if (isNaN(parsedInt)) {
-          theString = '';
-        } else {
-          const dt = DateTime.fromSeconds(parsedInt, { zone: 'utc' });
-          theString = dt.toISO({ suppressMilliseconds: true });
-        }
-        break;
+        return isoDt.toISO({ suppressMilliseconds: true, includeOffset: false });
       case 'password':
-        theString = (value) ? FormEngineValidation.passwordDummy : '';
-        break;
+        return (value) ? FormEngineValidation.passwordDummy : '';
       default:
-        theString = value.toString();
+        return value.toString();
     }
-    return theString;
-  };
+  }
 
   /**
    * Update input field after change
    */
-  FormEngineValidation.updateInputField = function(fieldName: string): void {
-    const field = formEngineFormElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
-    const humanReadableField = formEngineFormElement.querySelector(selector`[data-formengine-input-name="${fieldName}"]`) as FormEngineFieldElement;
+  public static updateInputField(fieldName: string): void {
+    const field = formEngineInstance.formElement.querySelector(selector`[name="${fieldName}"]`) as HTMLInputElement;
+    const humanReadableField = formEngineInstance.formElement.querySelector(selector`[data-formengine-input-name="${fieldName}"]`) as FormEngineFieldElement;
 
     if (field.dataset.config !== undefined) {
       const config = JSON.parse(field.dataset.config);
       const newValue = FormEngineValidation.processByEvals(config, humanReadableField.value);
       const formattedValue = FormEngineValidation.formatByEvals(config, newValue);
 
-      // Only update fields if value actually changed
+      // Only update value field if value actually changed
       if (field.value !== newValue) {
         if (field.disabled && field.dataset.enableOnModification) {
           field.disabled = false;
@@ -191,36 +183,28 @@ export default (function() {
         // After updating the value of the main field, dispatch a "change" event to inform e.g. the "RequestUpdate"
         // component, which always listens to the main field instead of the "human readable field", about it.
         field.dispatchEvent(new Event('change'));
+      }
+
+      // Synchronize the "human-readable field" as the data normalization may have cleared invalid characters
+      if (humanReadableField.value !== formattedValue) {
         humanReadableField.value = formattedValue;
       }
     }
-  };
+  }
 
   /**
    * Run validation for field
    */
-  FormEngineValidation.validateField = function(field: FormEngineFieldElement|JQuery, value?: string): string {
-    if (field instanceof $) {
-      // @deprecated
-      console.warn('Passing a jQuery element to FormEngineValidation.validateField() is deprecated and will be removed in TYPO3 v14.');
-      console.trace();
-      field = <FormEngineFieldElement>(field as JQuery).get(0);
+  public static validateField(field: FormEngineFieldElement): void {
+    if (field.dataset.formengineValidationRules === undefined) {
+      return;
     }
-    if (!(field instanceof HTMLElement)) {
-      // Can be removed altogether with jQuery support in TYPO3 v14
-      return value;
-    }
-    value = value || field.value || '';
 
-    if (typeof field.dataset.formengineValidationRules === 'undefined') {
-      return value;
-    }
+    let value = field.value || '';
 
     const rules: any = JSON.parse(field.dataset.formengineValidationRules);
     let markParent = false;
     let selected = 0;
-    // keep the original value, validateField should not alter it
-    const returnValue: string = value;
     let relatedField: FormEngineFieldElement;
     let minItems: number;
     let maxItems: number;
@@ -238,13 +222,14 @@ export default (function() {
         case 'required':
           if (value === '') {
             markParent = true;
-            field.closest(FormEngineValidation.markerSelector).classList.add(FormEngineValidation.errorClass);
+            field.classList.add(FormEngineValidation.errorClass);
+            field.closest(FormEngineValidation.markerSelector)?.querySelector(FormEngineValidation.labelSelector)?.classList.add(FormEngineValidation.errorClass);
           }
           break;
         case 'range':
           if (value !== '') {
             if (rule.minItems || rule.maxItems) {
-              relatedField = formEngineFormElement.querySelector(selector`[name="${field.dataset.relatedfieldname}"]`) as FormEngineFieldElement;
+              relatedField = formEngineInstance.formElement.querySelector(selector`[name="${field.dataset.relatedfieldname}"]`) as FormEngineFieldElement;
               if (relatedField !== null) {
                 selected = Utility.trimExplode(',', relatedField.value).length;
               } else {
@@ -264,15 +249,35 @@ export default (function() {
               }
             }
             if (rule.lower !== undefined) {
-              const minValue = rule.lower * 1;
-              if (!isNaN(minValue) && parseInt(value, 10) < minValue) {
-                markParent = true;
+              if (field.dataset.inputType === 'datetimepicker') {
+                // HEADS up: value and range.lower are both fake UTC-0 ISO8601 strings (they are not UTC-0, but actually server localtime!)
+                // But it's fine to compare them in UTC for this comparison and not map to localtime as in date-time-picker parseDate.
+                const dt = DateTime.fromISO(value, { zone: 'utc' });
+                const lower = DateTime.fromISO(rule.lower, { zone: 'utc' });
+                if (!dt.isValid || dt < lower.minus(lower.second * 1000)) {
+                  markParent = true;
+                }
+              } else {
+                const minValue = rule.lower * 1;
+                if (!isNaN(minValue) && parseInt(value, 10) < minValue) {
+                  markParent = true;
+                }
               }
             }
             if (rule.upper !== undefined) {
-              const maxValue = rule.upper * 1;
-              if (!isNaN(maxValue) && parseInt(value, 10) > maxValue) {
-                markParent = true;
+              if (field.dataset.inputType === 'datetimepicker') {
+                // HEADS up: value and range.upper are both fake UTC-0 ISO8601 strings (they are not UTC-0, but actually server localtime!)
+                // But it's fine to compare them in UTC-0 for this comparison and not map to localtime as in date-time-picker parseDate.
+                const dt = DateTime.fromISO(value, { zone: 'utc' });
+                const upper = DateTime.fromISO(rule.upper, { zone: 'utc' });
+                if (!dt.isValid || dt > upper.plus((59 - upper.second) * 1000)) {
+                  markParent = true;
+                }
+              } else {
+                const maxValue = rule.upper * 1;
+                if (!isNaN(maxValue) && parseInt(value, 10) > maxValue) {
+                  markParent = true;
+                }
               }
             }
           }
@@ -280,7 +285,7 @@ export default (function() {
         case 'select':
         case 'category':
           if (rule.minItems || rule.maxItems) {
-            relatedField = formEngineFormElement.querySelector(selector`[name="${field.dataset.relatedfieldname}"]`) as FormEngineFieldElement;
+            relatedField = formEngineInstance.formElement.querySelector(selector`[name="${field.dataset.relatedfieldname}"]`) as FormEngineFieldElement;
             if (relatedField !== null) {
               selected = Utility.trimExplode(',', relatedField.value).length;
             } else if (field instanceof HTMLSelectElement) {
@@ -354,19 +359,15 @@ export default (function() {
     }
 
     const isValid = !markParent;
-    const validationMarker = field.closest(FormEngineValidation.markerSelector);
-    if (validationMarker !== null) {
-      // Validation marker may be unavailable (e.g. due to maximized ckeditor)
-      validationMarker.classList.toggle(FormEngineValidation.errorClass, !isValid);
-    }
+    field.classList.toggle(FormEngineValidation.errorClass, !isValid);
+    field.setAttribute('aria-invalid', markParent.toString());
+    field.closest(FormEngineValidation.markerSelector)?.querySelector(FormEngineValidation.labelSelector)?.classList.toggle(FormEngineValidation.errorClass, !isValid);
 
     FormEngineValidation.markParentTab(field, isValid);
-    formEngineFormElement.dispatchEvent(new CustomEvent('t3-formengine-postfieldvalidation', { cancelable: false, bubbles: true }));
+    formEngineInstance.formElement.dispatchEvent(new CustomEvent<PostValidationEvent>('t3-formengine-postfieldvalidation', { detail: { field: field, isValid: isValid }, cancelable: false, bubbles: true }));
+  }
 
-    return returnValue;
-  };
-
-  FormEngineValidation.processByEvals = function(config: FormEngineInputParams, value: string): string {
+  public static processByEvals(config: FormEngineInputParams, value: string): string {
     if (config.evalList !== undefined) {
       const evalList = Utility.trimExplode(',', config.evalList);
       for (const evalInstruction of evalList) {
@@ -374,12 +375,12 @@ export default (function() {
       }
     }
     return value;
-  };
+  }
 
   /**
    * Process a value by given command and config
    */
-  FormEngineValidation.processValue = function(command: string, value: string, config: FormEngineInputParams): string {
+  public static processValue(command: string, value: string, config: FormEngineInputParams): string {
     let newString = '';
     let theValue = '';
     let a = 0;
@@ -446,7 +447,7 @@ export default (function() {
         break;
       case 'integer':
         if (value !== '') {
-          returnValue = FormEngineValidation.parseInt(value);
+          returnValue = FormEngineValidation.parseInt(value).toString();
         }
         break;
       case 'decimal':
@@ -460,21 +461,12 @@ export default (function() {
       case 'time':
       case 'timesec':
         if (value !== '') {
-          const dt = DateTime.fromISO(value, { zone: 'utc' }).set({
+          const dt = DateTime.fromISO(value).set({
             year: 1970,
             month: 1,
             day: 1
           });
-          returnValue = dt.toISO({ suppressMilliseconds: true });
-        }
-        break;
-      case 'year':
-        if (value !== '') {
-          let year = parseInt(value, 10);
-          if (isNaN(year)) {
-            year = new Date().getUTCFullYear();
-          }
-          returnValue = year.toString(10);
+          returnValue = dt.toISO({ suppressMilliseconds: true, includeOffset: false });
         }
         break;
       case 'null':
@@ -491,73 +483,41 @@ export default (function() {
         }
     }
     return returnValue;
-  };
+  }
 
   /**
    * Validate the complete form
    */
-  FormEngineValidation.validate = function(section?: Element): void {
+  public static validate(section?: Element): void {
     if (typeof section === 'undefined' || section instanceof Document) {
-      formEngineFormElement.querySelectorAll(FormEngineValidation.markerSelector + ', .t3js-tabmenu-item').forEach((tabMenuItem: HTMLElement): void => {
-        tabMenuItem.classList.remove(FormEngineValidation.errorClass, 'has-validation-error')
+      formEngineInstance.formElement.querySelectorAll(FormEngineValidation.markerSelector + ', .t3js-tabmenu-item').forEach((tabMenuItem: HTMLElement): void => {
+        tabMenuItem.classList.remove(FormEngineValidation.validationErrorClass);
       });
     }
 
     const sectionElement = section || document;
     for (const field of sectionElement.querySelectorAll<FormEngineFieldElement>(FormEngineValidation.rulesSelector)) {
       if (field.closest('.t3js-flex-section-deleted, .t3js-inline-record-deleted, .t3js-file-reference-deleted') === null) {
-        let modified = false;
-        const currentValue = field.value;
-        const newValue = FormEngineValidation.validateField(field, currentValue);
-        if (Array.isArray(newValue) && Array.isArray(currentValue)) {
-          // handling for multi-selects
-          if (newValue.length !== currentValue.length) {
-            modified = true;
-          } else {
-            for (let i = 0; i < newValue.length; i++) {
-              if (newValue[i] !== currentValue[i]) {
-                modified = true;
-                break;
-              }
-            }
-          }
-        } else if (newValue.length && currentValue !== newValue) {
-          modified = true;
-        }
-        if (modified) {
-          if (field.disabled && field.dataset.enableOnModification) {
-            field.disabled = false;
-          }
-          field.value = newValue;
-        }
+        FormEngineValidation.validateField(field);
       }
     }
-  };
+  }
 
   /**
    * Helper function to mark a field as changed.
+   *
+   * @deprecated
    */
-  FormEngineValidation.markFieldAsChanged = function(field: FormEngineFieldElement|JQuery): void {
-    if (field instanceof $) {
-      // @deprecated
-      console.warn('Passing a jQuery element to FormEngineValidation.markFieldAsChanged() is deprecated and will be removed in TYPO3 v14.');
-      console.trace();
-      field = <FormEngineFieldElement>(field as JQuery).get(0);
-    }
-    if (!(field instanceof HTMLElement)) {
-      // Can be removed altogether with jQuery support in TYPO3 v14
-      return;
-    }
-    const paletteField = field.closest('.t3js-formengine-palette-field');
-    if (paletteField !== null) {
-      paletteField.classList.add('has-change');
-    }
-  };
+  public static markFieldAsChanged(field: FormEngineFieldElement): void {
+    console.warn('Calling markFieldAsChanged() from \'@typo3/backend/form-engine-validation\' is deprecated and will be removed in TYPO3 v15. Instead, call the method from \'@typo3/backend/form-engine\'.');
+
+    formEngineInstance.markFieldAsChanged(field);
+  }
 
   /**
    * Parse value to integer
    */
-  FormEngineValidation.parseInt = function(value: number|string|boolean): number {
+  public static parseInt(value: number|string|boolean): number {
     const theVal = '' + value;
 
     if (!value) {
@@ -569,12 +529,12 @@ export default (function() {
       return 0;
     }
     return returnValue;
-  };
+  }
 
   /**
    * Parse value to double
    */
-  FormEngineValidation.parseDouble = function(value: number|string|boolean, precision: number = 2): string {
+  public static parseDouble(value: number|string|boolean, precision: number = 2): string {
     let theVal = '' + value;
     theVal = theVal.replace(/[^0-9,.-]/g, '');
     const negative = theVal.startsWith('-');
@@ -592,18 +552,12 @@ export default (function() {
     theVal = theNumberVal.toFixed(precision);
 
     return theVal;
-  };
-
-  FormEngineValidation.pol = function(foreign: string, value: string): object {
-    // @todo deprecate
-    // eslint-disable-next-line no-eval
-    return eval(((foreign == '-') ? '-' : '') + value);
-  };
+  }
 
   /**
    * Find tab by field and mark it as has-validation-error
    */
-  FormEngineValidation.markParentTab = function(element: FormEngineFieldElement, isValid: boolean): void {
+  public static markParentTab(element: FormEngineFieldElement, isValid: boolean): void {
     const panes = DomHelper.parents(element, '.tab-pane');
     panes.forEach((pane: HTMLElement): void => {
       if (isValid) {
@@ -612,38 +566,58 @@ export default (function() {
       }
 
       const id = pane.id;
-      formEngineFormElement
-        .querySelector('a[href="#' + id + '"]')
+      formEngineInstance.formElement
+        .querySelector('[data-bs-target="#' + id + '"]')
         .closest('.t3js-tabmenu-item')
-        .classList.toggle('has-validation-error', !isValid);
+        .classList.toggle(FormEngineValidation.validationErrorClass, !isValid);
     });
-  };
+  }
 
-  FormEngineValidation.registerSubmitCallback = function () {
-    const submitInterceptor = new SubmitInterceptor(formEngineFormElement);
+  /**
+   * @internal
+   */
+  public static suspend() {
+    validationSuspended = true;
+  }
+
+  /**
+   * @internal
+   */
+  public static resume() {
+    validationSuspended = false;
+  }
+
+  public static isValid(): boolean {
+    return document.querySelector('.' + FormEngineValidation.errorClass) === null;
+  }
+
+  public static showErrorModal(): void {
+    const modal = Modal.confirm(
+      TYPO3.lang.alert || 'Alert',
+      TYPO3.lang['FormEngine.fieldsMissing'],
+      Severity.error,
+      [
+        {
+          text: TYPO3.lang['button.ok'] || 'OK',
+          active: true,
+          btnClass: 'btn-default',
+          name: 'ok',
+        },
+      ]
+    );
+    modal.addEventListener('button.clicked', () => modal.hideModal());
+  }
+
+  public static registerSubmitCallback() {
+    const submitInterceptor = new SubmitInterceptor(formEngineInstance.formElement);
     submitInterceptor.addPreSubmitCallback((): boolean => {
-      if (document.querySelector('.' + FormEngineValidation.errorClass) === null) {
+      if (validationSuspended || FormEngineValidation.isValid()) {
         return true;
       }
 
-      const modal = Modal.confirm(
-        TYPO3.lang.alert || 'Alert',
-        TYPO3.lang['FormEngine.fieldsMissing'],
-        Severity.error,
-        [
-          {
-            text: TYPO3.lang['button.ok'] || 'OK',
-            active: true,
-            btnClass: 'btn-default',
-            name: 'ok',
-          },
-        ]
-      );
-      modal.addEventListener('button.clicked', () => modal.hideModal());
+      FormEngineValidation.showErrorModal();
 
       return false;
     });
-  };
-
-  return FormEngineValidation;
-})();
+  }
+}

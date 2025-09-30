@@ -43,7 +43,6 @@ CREATE TABLE pages (
 	mount_pid int(10) unsigned DEFAULT '0' NOT NULL,
 
 	KEY determineSiteRoot (is_siteroot),
-	KEY language_identifier (l10n_parent,sys_language_uid),
 	KEY slug (slug(127))
 );
 
@@ -85,19 +84,21 @@ CREATE TABLE sys_file (
 	# @todo: Incomplete or broken TCA
 	identifier text,
 	# No TCA column
-	identifier_hash char(40) DEFAULT '' NOT NULL,
+	identifier_hash varchar(40) DEFAULT '' NOT NULL,
 	# No TCA column
-	folder_hash char(40) DEFAULT '' NOT NULL,
+	folder_hash varchar(40) DEFAULT '' NOT NULL,
 	# No TCA column
 	extension varchar(255) DEFAULT '' NOT NULL,
 	# @todo: Restrict to varchar(255)?
 	name tinytext,
 	# No TCA column
-	sha1 char(40) DEFAULT '' NOT NULL,
+	sha1 varchar(40) DEFAULT '' NOT NULL,
 	# No TCA column
 	creation_date int(11) DEFAULT '0' NOT NULL,
 	# No TCA column
 	modification_date int(11) DEFAULT '0' NOT NULL,
+	# Default int(11) too small. Keep same size (20) from earlier TYPO3 versions
+	size bigint(20) DEFAULT '0' NOT NULL,
 
 	KEY sel01 (storage,identifier_hash),
 	KEY folder (storage,folder_hash),
@@ -112,8 +113,7 @@ CREATE TABLE sys_file_metadata (
 	# @todo: Restrict to varchar(255)?
 	alternative text,
 
-	KEY file (file),
-	KEY fal_filelist (l10n_parent,sys_language_uid)
+	KEY file (file)
 );
 
 # Define table and fields since it has no TCA
@@ -127,10 +127,10 @@ CREATE TABLE sys_file_processedfile (
 	name tinytext,
 	processing_url text,
 	configuration blob,
-	configurationsha1 char(40) DEFAULT '' NOT NULL,
-	originalfilesha1 char(40) DEFAULT '' NOT NULL,
+	configurationsha1 varchar(40) DEFAULT '' NOT NULL,
+	originalfilesha1 varchar(40) DEFAULT '' NOT NULL,
 	task_type varchar(200) DEFAULT '' NOT NULL,
-	checksum char(32) DEFAULT '' NOT NULL,
+	checksum varchar(32) DEFAULT '' NOT NULL,
 	width int(11) DEFAULT '0',
 	height int(11) DEFAULT '0',
 
@@ -178,7 +178,7 @@ CREATE TABLE sys_history (
 	PRIMARY KEY (uid),
 	KEY recordident_1 (tablename(100),recuid),
 	KEY recordident_2 (tablename(100),tstamp)
-) ENGINE=InnoDB;
+);
 
 # Define table and fields since it has no TCA
 CREATE TABLE sys_lockedrecords (
@@ -197,8 +197,7 @@ CREATE TABLE sys_lockedrecords (
 
 # Define table and fields since it has no TCA
 CREATE TABLE sys_refindex (
-	# @todo: Force a latin1 field to reduce primary key length, it only holds hex chars 0-9,a-f.
-	hash varchar(32) DEFAULT '' NOT NULL,
+	hash varchar(32) DEFAULT '' NOT NULL CHARACTER SET ascii COLLATE ascii_bin,
 	tablename varchar(64) DEFAULT '' NOT NULL,
 	recuid int unsigned DEFAULT 0 NOT NULL,
 	field varchar(64) DEFAULT '' NOT NULL,
@@ -249,12 +248,10 @@ CREATE TABLE sys_log (
 	details text,
 	type tinyint(3) unsigned DEFAULT '0' NOT NULL,
 	channel varchar(20) DEFAULT 'default' NOT NULL,
-	details_nr tinyint(3) DEFAULT '0' NOT NULL,
 	IP varchar(39) DEFAULT '' NOT NULL,
 	log_data text,
 	event_pid int(11) DEFAULT '-1' NOT NULL,
 	workspace int(11) DEFAULT '0' NOT NULL,
-	NEWid varchar(30) DEFAULT '' NOT NULL,
 	request_id varchar(13) DEFAULT '' NOT NULL,
 	time_micro float DEFAULT '0' NOT NULL,
 	component varchar(255) DEFAULT '' NOT NULL,
@@ -271,7 +268,7 @@ CREATE TABLE sys_log (
 	KEY errorcount (tstamp, error),
 	KEY index_channel (channel),
 	KEY index_level (level)
-) ENGINE=InnoDB;
+);
 
 CREATE TABLE sys_category (
 	# @todo: type=group fields, but rely on integer.
@@ -295,7 +292,7 @@ CREATE TABLE `sys_messenger_messages` (
 	KEY queue_name (queue_name),
 	KEY available_at (available_at),
 	KEY delivered_at (delivered_at)
-) ENGINE=InnoDB;
+);
 
 # Define table and fields since it has no TCA
 CREATE TABLE sys_http_report (
@@ -304,7 +301,7 @@ CREATE TABLE sys_http_report (
 	created int(11) unsigned NOT NULL,
 	changed int(11) unsigned NOT NULL,
 	type varchar(32) NOT NULL,
-	scope varchar(32) NOT NULL,
+	scope varchar(100) NOT NULL,
 	request_time bigint(20) unsigned NOT NULL,
 	meta mediumtext,
 	details mediumtext,
@@ -317,7 +314,7 @@ CREATE TABLE sys_http_report (
 	KEY request_time (request_time),
 	KEY summary_created (summary,created),
 	KEY all_conditions (type,status,scope,summary,request_time)
-) ENGINE=InnoDB;
+);
 
 # Define table and fields since it has no TCA
 CREATE TABLE sys_csp_resolution (
@@ -330,4 +327,4 @@ CREATE TABLE sys_csp_resolution (
 
 	PRIMARY KEY (summary),
 	KEY created (created),
-) ENGINE=InnoDB;
+);

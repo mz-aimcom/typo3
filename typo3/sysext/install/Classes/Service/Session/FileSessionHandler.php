@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Service\Session;
 
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Security\BlockSerializationTrait;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -42,12 +43,14 @@ class FileSessionHandler implements \SessionHandlerInterface
      */
     private int $expirationTimeInMinutes;
 
+    private HashService $hashService;
+
     public function __construct(
-        string $sessionPath,
+        ?string $sessionPath,
         int $expirationTimeInMinutes,
-        private readonly HashService $hashService
     ) {
-        $this->sessionPath = rtrim($sessionPath, '/') . '/';
+        $this->hashService = new HashService();
+        $this->sessionPath = rtrim($sessionPath ?? Environment::getVarPath() . '/session', '/') . '/';
         $this->expirationTimeInMinutes = $expirationTimeInMinutes;
         // Start our PHP session early so that hasSession() works
         session_save_path($this->getSessionSavePath());
@@ -57,9 +60,8 @@ class FileSessionHandler implements \SessionHandlerInterface
      * Returns the path where to store our session files
      *
      * @throws \TYPO3\CMS\Install\Exception
-     * @return string Session save path
      */
-    private function getSessionSavePath()
+    private function getSessionSavePath(): string
     {
         if (empty($GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'])) {
             throw new \TYPO3\CMS\Install\Exception(
@@ -74,10 +76,8 @@ class FileSessionHandler implements \SessionHandlerInterface
 
     /**
      * Returns the file where to store our session data
-     *
-     * @return string A filename
      */
-    private function getSessionFile(string $id)
+    private function getSessionFile(string $id): string
     {
         $sessionSavePath = $this->getSessionSavePath();
         return $sessionSavePath . '/hash_' . $this->getSessionHash($id);
@@ -183,7 +183,7 @@ class FileSessionHandler implements \SessionHandlerInterface
         }
         $deleted = 0;
         foreach ($files as $filename) {
-            if (filemtime($filename) + $this->expirationTimeInMinutes * 60 < time()) {
+            if (@filemtime($filename) + $this->expirationTimeInMinutes * 60 < time()) {
                 @unlink($filename);
                 $deleted++;
             }
@@ -270,11 +270,11 @@ class FileSessionHandler implements \SessionHandlerInterface
 	Require all denied
 </IfModule>
 			';
-            GeneralUtility::writeFile($sessionSavePath . '/.htaccess', $htaccessContent);
+            GeneralUtility::writeFile($sessionSavePath . '/.htaccess', $htaccessContent, true);
             $indexContent = '<!DOCTYPE html>';
             $indexContent .= '<html><head><title></title><meta http-equiv=Refresh Content="0; Url=../../"/>';
             $indexContent .= '</head></html>';
-            GeneralUtility::writeFile($sessionSavePath . '/index.html', $indexContent);
+            GeneralUtility::writeFile($sessionSavePath . '/index.html', $indexContent, true);
         }
     }
 }

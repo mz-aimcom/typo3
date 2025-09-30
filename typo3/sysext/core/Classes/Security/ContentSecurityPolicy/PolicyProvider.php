@@ -22,9 +22,12 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Core\RequestId;
+use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\Uri;
+use TYPO3\CMS\Core\Middleware\AbstractContentSecurityPolicyReporter;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Configuration\DispositionConfiguration;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Event\PolicyMutatedEvent;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
@@ -47,6 +50,7 @@ final class PolicyProvider
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly MutationRepository $mutationRepository,
         private readonly BackendEntryPointResolver $backendEntryPointResolver,
+        private readonly HashService $hashService,
     ) {}
 
     /**
@@ -78,18 +82,32 @@ final class PolicyProvider
         return $event->getCurrentPolicy();
     }
 
-    public function getReportingUrlFor(Scope $scope, ServerRequestInterface $request): ?UriInterface
-    {
-        $value = $GLOBALS['TYPO3_CONF_VARS'][$scope->type->abbreviate()]['contentSecurityPolicyReportingUrl'] ?? null;
-        if (!empty($value) && is_string($value)) {
+    public function getReportingUrlFor(
+        Scope $scope,
+        ServerRequestInterface $request,
+        ?DispositionConfiguration $dispositionConfiguration = null,
+    ): ?UriInterface {
+        $value = $dispositionConfiguration->reportingUrl
+            ?? DispositionConfiguration::normalizeReportingUrl(
+                $GLOBALS['TYPO3_CONF_VARS'][$scope->type->abbreviate()]['contentSecurityPolicyReportingUrl'] ?? null
+            );
+        // using the local reporting URI is explicitly disabled
+        if ($value === false) {
+            return null;
+        }
+        if (is_string($value) && $value !== '') {
             try {
                 return new Uri($value);
             } catch (\InvalidArgumentException) {
                 return null;
             }
         }
+        $requestTime = (string)$this->requestId->microtime;
+        $requestHash = $this->hashService->hmac($requestTime, AbstractContentSecurityPolicyReporter::class);
         $uriBase = $this->getDefaultReportingUriBase($scope, $request);
-        return $uriBase->withQuery($uriBase->getQuery() . '&requestTime=' . $this->requestId->microtime);
+        return $uriBase->withQuery(
+            $uriBase->getQuery() . '&requestTime=' . $requestTime . '&requestHash=' . $requestHash
+        );
     }
 
     /**

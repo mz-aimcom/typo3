@@ -40,15 +40,17 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * Handle FormEngine files ajax calls
  */
 #[AsController]
-class FormFilesAjaxController extends AbstractFormEngineAjaxController
+readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
 {
     private const FILE_REFERENCE_TABLE = 'sys_file_reference';
 
     public function __construct(
-        private readonly ResponseFactoryInterface $responseFactory,
-        private readonly StreamFactoryInterface $streamFactory,
-        private readonly FormDataCompiler $formDataCompiler,
-        private readonly HashService $hashService,
+        private ResponseFactoryInterface $responseFactory,
+        private StreamFactoryInterface $streamFactory,
+        private FormDataCompiler $formDataCompiler,
+        private HashService $hashService,
+        private NodeFactory $nodeFactory,
+        private InlineStackProcessor $inlineStackProcessor,
     ) {}
 
     /**
@@ -72,13 +74,11 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
             $fileId = (int)$arguments[1];
         }
 
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByParsingDomObjectIdString($domObjectId);
-        $inlineStackProcessor->setAjaxConfiguration($parentConfig);
-        $inlineTopMostParent = $inlineStackProcessor->getStructureLevel(0);
-
-        $parent = $inlineStackProcessor->getStructureLevel(-1);
-        $fileReference = $inlineStackProcessor->getUnstableStructure();
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
+        $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
+        $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
+        $fileReference = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure);
 
         if (isset($fileReference['uid']) && MathUtility::canBeInterpretedAsInteger($fileReference['uid'])) {
             // If uid comes in, it is the id of the record neighbor record "create after"
@@ -94,11 +94,11 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
             'tableName' => self::FILE_REFERENCE_TABLE,
             'vanillaUid' => $fileReferenceVanillaUid,
             'isInlineChild' => true,
-            'inlineStructure' => $inlineStackProcessor->getStructure(),
+            'inlineStructure' => $inlineStructure,
             'inlineFirstPid' => $inlineFirstPid,
-            'inlineParentUid' => $parent['uid'],
-            'inlineParentTableName' => $parent['table'],
-            'inlineParentFieldName' => $parent['field'],
+            'inlineParentUid' => $inlineParent['uid'],
+            'inlineParentTableName' => $inlineParent['table'],
+            'inlineParentFieldName' => $inlineParent['field'],
             'inlineParentConfig' => $parentConfig,
             'inlineTopMostParentUid' => $inlineTopMostParent['uid'],
             'inlineTopMostParentTableName' => $inlineTopMostParent['table'],
@@ -110,7 +110,7 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
 
         $fileReferenceData = $this->formDataCompiler->compile($formDataCompilerInput, GeneralUtility::makeInstance(TcaDatabaseRecord::class));
 
-        $fileReferenceData['inlineParentUid'] = $parent['uid'];
+        $fileReferenceData['inlineParentUid'] = $inlineParent['uid'];
         $fileReferenceData['renderType'] = 'fileReferenceContainer';
 
         return $this->jsonResponse(
@@ -118,14 +118,13 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
                 [
                     'data' => '',
                     'stylesheetFiles' => [],
-                    'scriptItems' => GeneralUtility::makeInstance(JavaScriptItems::class),
+                    'scriptItems' => new JavaScriptItems(),
                     'compilerInput' => [
                         'uid' => $fileReferenceData['databaseRow']['uid'],
                         'childChildUid' => $fileId,
-                        'parentConfig' => $parentConfig,
                     ],
                 ],
-                GeneralUtility::makeInstance(NodeFactory::class)->create($fileReferenceData)->render()
+                $this->nodeFactory->create($fileReferenceData)->render()
             )
         );
     }
@@ -141,12 +140,12 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
         $inlineFirstPid = $this->getInlineFirstPidFromDomObjectId($domObjectId);
         $parentConfig = $this->extractSignedParentConfigFromRequest((string)($arguments['context'] ?? ''));
 
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByParsingDomObjectIdString($domObjectId);
-        $inlineStackProcessor->setAjaxConfiguration($parentConfig);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
+        $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
+        $fileReference = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure);
 
-        $parent = $inlineStackProcessor->getStructureLevel(-1);
-        $parentFieldName = $parent['field'];
+        $parentFieldName = $inlineParent['field'];
 
         // Set flag in config so that only the fields are rendered
         // @todo: Solve differently / rename / whatever
@@ -160,21 +159,14 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
                     ],
                 ],
             ],
-            'uid' => $parent['uid'],
-            'tableName' => $parent['table'],
+            'uid' => $inlineParent['uid'],
+            'tableName' => $inlineParent['table'],
             'inlineFirstPid' => $inlineFirstPid,
             'returnUrl' => $parentConfig['originalReturnUrl'],
         ];
 
-        $fileReference = $inlineStackProcessor->getUnstableStructure();
-        $fileReferenceData = $this->compileFileReference(
-            $request,
-            $parentData,
-            $parentFieldName,
-            (int)$fileReference['uid'],
-            $inlineStackProcessor->getStructure()
-        );
-        $fileReferenceData['inlineParentUid'] = (int)$parent['uid'];
+        $fileReferenceData = $this->compileFileReference($request, $parentData, $parentFieldName, (int)$fileReference['uid'], $inlineStructure);
+        $fileReferenceData['inlineParentUid'] = (int)$inlineParent['uid'];
         $fileReferenceData['renderType'] = 'fileReferenceContainer';
 
         return $this->jsonResponse(
@@ -182,9 +174,9 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
                 [
                     'data' => '',
                     'stylesheetFiles' => [],
-                    'scriptItems' => GeneralUtility::makeInstance(JavaScriptItems::class),
+                    'scriptItems' => new JavaScriptItems(),
                 ],
-                GeneralUtility::makeInstance(NodeFactory::class)->create($fileReferenceData)->render()
+                $this->nodeFactory->create($fileReferenceData)->render()
             )
         );
     }
@@ -200,39 +192,38 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
         $type = $arguments[1] ?? null;
         $parentConfig = $this->extractSignedParentConfigFromRequest((string)($arguments['context'] ?? ''));
 
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByParsingDomObjectIdString($domObjectId);
-        $inlineStackProcessor->setAjaxConfiguration($parentConfig);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         $inlineFirstPid = $this->getInlineFirstPidFromDomObjectId($domObjectId);
 
         $jsonArray = [
             'data' => '',
             'stylesheetFiles' => [],
-            'scriptItems' => GeneralUtility::makeInstance(JavaScriptItems::class),
+            'scriptItems' => new JavaScriptItems(),
             'compilerInput' => [
                 'localize' => [],
             ],
         ];
         if ($type === 'localize' || $type === 'synchronize' || MathUtility::canBeInterpretedAsInteger($type)) {
             // Parent, this table embeds the sys_file_reference table
-            $parent = $inlineStackProcessor->getStructureLevel(-1);
-            $parentFieldName = $parent['field'];
+            $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
+            $parentFieldName = $inlineParent['field'];
 
-            $processedTca = $GLOBALS['TCA'][$parent['table']];
+            $processedTca = $GLOBALS['TCA'][$inlineParent['table']];
             $processedTca['columns'][$parentFieldName]['config'] = $parentConfig;
 
             $formDataCompilerInputForParent = [
                 'request' => $request,
-                'vanillaUid' => (int)$parent['uid'],
+                'vanillaUid' => (int)$inlineParent['uid'],
                 'command' => 'edit',
-                'tableName' => $parent['table'],
+                'tableName' => $inlineParent['table'],
                 'processedTca' => $processedTca,
                 'inlineFirstPid' => $inlineFirstPid,
                 'columnsToProcess' => [
                     $parentFieldName,
                 ],
                 // @todo: still needed? NO!
-                'inlineStructure' => $inlineStackProcessor->getStructure(),
+                'inlineStructure' => $inlineStructure,
                 // Do not compile existing file references, we don't need them now
                 'inlineCompileExistingChildren' => false,
             ];
@@ -248,17 +239,17 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
             }
 
             $cmd = [];
-            // Localize a single file reference from default language of the parent element
+            // Localize a single file reference from default language of the inlineParent element
             if (MathUtility::canBeInterpretedAsInteger($type)) {
-                $cmd[$parent['table']][$parent['uid']]['inlineLocalizeSynchronize'] = [
-                    'field' => $parent['field'],
+                $cmd[$inlineParent['table']][$inlineParent['uid']]['inlineLocalizeSynchronize'] = [
+                    'field' => $inlineParent['field'],
                     'language' => $parentLanguage,
                     'ids' => [$type],
                 ];
             } else {
-                // Either localize or synchronize all file references from default language of the parent element
-                $cmd[$parent['table']][$parent['uid']]['inlineLocalizeSynchronize'] = [
-                    'field' => $parent['field'],
+                // Either localize or synchronize all file references from default language of the inlineParent element
+                $cmd[$inlineParent['table']][$inlineParent['uid']]['inlineLocalizeSynchronize'] = [
+                    'field' => $inlineParent['field'],
                     'language' => $parentLanguage,
                     'action' => $type,
                 ];
@@ -270,7 +261,7 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
 
             $oldItems = $this->getFileReferenceUids((string)$oldItemList);
 
-            $newItemList = (string)($tce->registerDBList[$parent['table']][$parent['uid']][$parentFieldName] ?? '');
+            $newItemList = (string)($tce->registerDBList[$inlineParent['table']][$inlineParent['uid']][$parentFieldName] ?? '');
             $newItems = $this->getFileReferenceUids($newItemList);
 
             // Render error messages from DataHandler
@@ -296,13 +287,13 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
 
             $localizedItems = array_diff($newItems, $oldItems);
             foreach ($localizedItems as $i => $localizedFileReferenceUid) {
-                $fileReferenceData = $this->compileFileReference($request, $parentData, $parentFieldName, (int)$localizedFileReferenceUid, $inlineStackProcessor->getStructure());
-                $fileReferenceData['inlineParentUid'] = (int)$parent['uid'];
+                $fileReferenceData = $this->compileFileReference($request, $parentData, $parentFieldName, (int)$localizedFileReferenceUid, $inlineStructure);
+                $fileReferenceData['inlineParentUid'] = (int)$inlineParent['uid'];
                 $fileReferenceData['renderType'] = 'fileReferenceContainer';
 
                 $jsonArray = $this->mergeFileReferenceResultIntoJsonResult(
                     $jsonArray,
-                    GeneralUtility::makeInstance(NodeFactory::class)->create($fileReferenceData)->render()
+                    $this->nodeFactory->create($fileReferenceData)->render()
                 );
 
                 // Get the name of the field used as foreign selector (if any):
@@ -341,11 +332,9 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
     {
         [$domObjectId, $expand, $collapse] = $request->getParsedBody()['ajax'];
 
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByParsingDomObjectIdString($domObjectId);
-
-        $currentTable = $inlineStackProcessor->getUnstableStructure()['table'];
-        $top = $inlineStackProcessor->getStructureLevel(0);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $currentTable = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure)['table'];
+        $top = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
         $stateArray = $this->getReferenceExpandCollapseStateArray();
         // Only do some action if the top record and the current record were saved before
         if (MathUtility::canBeInterpretedAsInteger($top['uid'])) {
@@ -373,10 +362,7 @@ class FormFilesAjaxController extends AbstractFormEngineAjaxController
 
     protected function compileFileReference(ServerRequestInterface $request, array $parentData, $parentFieldName, $fileReferenceUid, array $inlineStructure): array
     {
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByGivenStructure($inlineStructure);
-        $inlineTopMostParent = $inlineStackProcessor->getStructureLevel(0);
-
+        $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
         return $this->formDataCompiler
             ->compile(
                 [

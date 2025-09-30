@@ -31,9 +31,7 @@ export default [...compat.extends(
 
   languageOptions: {
     parser: tsParser,
-    ecmaVersion: 5,
-    sourceType: "script",
-
+    ecmaVersion: 2023,
     parserOptions: {
       project: [
         path.resolve(__dirname, "./tsconfig.eslint.json")
@@ -49,6 +47,7 @@ export default [...compat.extends(
 
   rules: {
     "@stylistic/indent": ["error", 2],
+    "@stylistic/semi": ["error"],
     "@typescript-eslint/no-inferrable-types": "off",
     "@typescript-eslint/no-restricted-types": "error",
     "@typescript-eslint/no-unsafe-function-type": "error",
@@ -97,6 +96,7 @@ export default [...compat.extends(
     "no-multi-spaces": "error",
     "no-var": "error",
     "no-case-declarations": "off",
+    "no-unneeded-ternary": "error",
 
     "no-restricted-properties": ["error", {
       object: "window",

@@ -11,13 +11,12 @@
 * The TYPO3 project - inspiring people to share!
 */
 
-import type { SelectTree } from './select-tree';
-import type { SelectTreeToolbar } from './select-tree-toolbar';
-import './select-tree';
-import './select-tree-toolbar';
-import '@typo3/backend/element/icon-element';
-import { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
+import DocumentService from '@typo3/core/document-service';
 import { selector } from '@typo3/core/literals';
+import { type SelectTree } from './select-tree';
+import { type SelectTreeToolbar } from './select-tree-toolbar';
+import '@typo3/backend/element/icon-element';
+import type { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
 
 /**
  * Module: @typo3/backend/form-engine/element/category-element
@@ -32,12 +31,18 @@ import { selector } from '@typo3/core/literals';
  * This is based on W3C custom elements ("web components") specification, see
  * https://developer.mozilla.org/en-US/docs/Web/Web_Components/Using_custom_elements
  */
-class CategoryElement extends HTMLElement{
+class CategoryElement extends HTMLElement {
   private recordField: HTMLInputElement = null;
   private treeWrapper: HTMLElement = null;
   private tree: SelectTree = null;
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
+    if (this.tree !== null) {
+      // Element is already initialized, which means the component has been rendered before. Nothing to do here.
+      return;
+    }
+
+    await DocumentService.ready();
     this.recordField = <HTMLInputElement>this.querySelector(selector`#${this.getAttribute('recordFieldId') || '' as string}`);
     this.treeWrapper = <HTMLElement>this.querySelector(selector`#${this.getAttribute('treeWrapperId') || '' as string}`);
 

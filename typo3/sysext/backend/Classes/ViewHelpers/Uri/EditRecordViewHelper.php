@@ -21,36 +21,27 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Use this ViewHelper to provide edit links (only the uri) to records. The ViewHelper will
+ * ViewHelper to provide edit links (only the URI) to records. The ViewHelper will
  * pass the uid and table to FormEngine.
  *
  * The uid must be given as a positive integer.
- * For new records, use the :ref:`<be:uri.newRecord> <typo3-backend-uri-newrecord>`.
+ * For new records, use `<be:uri.newRecord>`.
  *
- * Examples
- * ========
- *
- * URI to the record-edit action passed to FormEngine::
- *
- *    <be:uri.editRecord uid="42" table="a_table" returnUrl="foo/bar" />
- *
- * ``/typo3/record/edit?edit[a_table][42]=edit&returnUrl=foo/bar``
- *
- * URI to the edit record action: edit only the fields title and subtitle of
- * page uid=42 and return to foo/bar::
- *
+ * ```
  *    <be:uri.editRecord uid="42" table="pages" fields="title,subtitle" returnUrl="foo/bar" />
+ * ```
  *
- * ``<a href="/typo3/record/edit&edit[pages][42]=edit&returnUrl=foo/bar&columnsOnly[pages]=title,subtitle">``
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-uri-editrecord
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-uri-newrecord
  */
 final class EditRecordViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
+    public function __construct(
+        private readonly UriBuilder $uriBuilder
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -61,31 +52,27 @@ final class EditRecordViewHelper extends AbstractViewHelper
     }
 
     /**
-     * @param array<string, mixed> $arguments
-     *
      * @throws \InvalidArgumentException
      * @throws RouteNotFoundException
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        if ($arguments['uid'] < 1) {
-            throw new \InvalidArgumentException('Uid must be a positive integer, ' . $arguments['uid'] . ' given.', 1526128259);
+        if ($this->arguments['uid'] < 1) {
+            throw new \InvalidArgumentException('Uid must be a positive integer, ' . $this->arguments['uid'] . ' given.', 1526128259);
         }
-        if (empty($arguments['returnUrl'])) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
-            $arguments['returnUrl'] = $request->getAttribute('normalizedParams')->getRequestUri();
+        if (empty($this->arguments['returnUrl'])) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
+            $this->arguments['returnUrl'] = $request->getAttribute('normalizedParams')->getRequestUri();
         }
-
         $params = [
-            'edit' => [$arguments['table'] => [$arguments['uid'] => 'edit']],
-            'returnUrl' => $arguments['returnUrl'],
+            'edit' => [$this->arguments['table'] => [$this->arguments['uid'] => 'edit']],
+            'returnUrl' => $this->arguments['returnUrl'],
         ];
-        if ($arguments['fields'] ?? false) {
+        if ($this->arguments['fields'] ?? false) {
             $params['columnsOnly'] = [
-                $arguments['table'] => GeneralUtility::trimExplode(',', $arguments['fields'], true),
+                $this->arguments['table'] => GeneralUtility::trimExplode(',', $this->arguments['fields'], true),
             ];
         }
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-        return (string)$uriBuilder->buildUriFromRoute('record_edit', $params);
+        return (string)$this->uriBuilder->buildUriFromRoute('record_edit', $params);
     }
 }

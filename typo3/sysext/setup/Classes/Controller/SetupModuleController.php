@@ -30,8 +30,6 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderRegistry;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
-use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
@@ -73,6 +71,10 @@ class SetupModuleController
     protected array $overrideConf = [];
     protected bool $languageUpdate = false;
     protected bool $pagetreeNeedsRefresh = false;
+    protected bool $colorSchemeChanged = false;
+    protected bool $themeChanged = false;
+    protected bool $backendTitleFormatChanged = false;
+
     protected array $tsFieldConf = [];
     protected int $passwordIsUpdated = self::PASSWORD_NOT_UPDATED;
     protected bool $passwordIsSubmitted = false;
@@ -114,8 +116,28 @@ class SetupModuleController
     {
         $view = $this->initialize($request);
         $this->storeIncomingData($request);
-        if ($this->pagetreeNeedsRefresh) {
+        if ($this->pagetreeNeedsRefresh || $this->settingsAreResetToDefault) {
             BackendUtility::setUpdateSignal('updatePageTree');
+        }
+        if ($this->colorSchemeChanged || $this->settingsAreResetToDefault) {
+            BackendUtility::setUpdateSignal('updateColorScheme', $this->getBackendUser()->uc['colorScheme'] ?? 'auto');
+        }
+        if ($this->themeChanged || $this->settingsAreResetToDefault) {
+            BackendUtility::setUpdateSignal('updateTheme', $this->getBackendUser()->uc['theme'] ?? 'modern');
+        }
+        if ($this->backendTitleFormatChanged || $this->settingsAreResetToDefault) {
+            BackendUtility::setUpdateSignal('updateTitleFormat', $this->getBackendUser()->uc['backendTitleFormat'] ?? 'titleFirst');
+        }
+        if ($this->languageUpdate) {
+            $this->getLanguageService()->init($this->getBackendUser()->user['lang'] ?? 'default');
+            $locale = $this->getLanguageService()->getLocale();
+            if ($locale !== null) {
+                $parameters = [
+                    'language' => $locale->getLanguageCode(),
+                    'direction' => $locale->isRightToLeftLanguageDirection() ? 'rtl' : null,
+                ];
+                BackendUtility::setUpdateSignal('updateBackendLanguage', $parameters);
+            }
         }
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $this->addFlashMessages($view);
@@ -153,7 +175,6 @@ class SetupModuleController
         // if password is disabled, disable repeat of password too (password2)
         if ($this->tsFieldConf['password.']['disabled'] ?? false) {
             $this->tsFieldConf['password2.']['disabled'] = 1;
-            $this->tsFieldConf['passwordCurrent.']['disabled'] = 1;
         }
         return $view;
     }
@@ -198,6 +219,16 @@ class SetupModuleController
             if (isset($d['titleLen']) && $d['titleLen'] !== $backendUser->uc['titleLen']) {
                 $this->pagetreeNeedsRefresh = true;
             }
+            if (isset($d['colorScheme']) && $d['colorScheme'] !== ($backendUser->uc['colorScheme'] ?? null)) {
+                $this->colorSchemeChanged = true;
+            }
+            if (isset($d['theme']) && $d['theme'] !== ($backendUser->uc['theme'] ?? null)) {
+                $this->themeChanged = true;
+            }
+            if (isset($d['backendTitleFormat']) && $d['backendTitleFormat'] !== ($backendUser->uc['backendTitleFormat'] ?? null)) {
+                $this->backendTitleFormatChanged = true;
+            }
+
             if ($d['setValuesToDefault']) {
                 // If every value should be default
                 $backendUser->resetUC();
@@ -208,7 +239,7 @@ class SetupModuleController
                     if (!in_array($field, $fieldList, true)) {
                         continue;
                     }
-                    if (($config['table']  ?? '') === 'be_users' && !in_array($field, ['password', 'password2', 'passwordCurrent', 'email', 'realName', 'admin', 'avatar'], true)) {
+                    if (($config['table']  ?? '') === 'be_users' && !in_array($field, ['password', 'password2', 'email', 'realName', 'admin', 'avatar'], true)) {
                         if (!isset($config['access']) || $this->checkAccess($config) && ($backendUser->user[$field] !== $d['be_users'][$field])) {
                             if (($config['type'] ?? false) === 'check') {
                                 $fieldValue = isset($d['be_users'][$field]) ? 1 : 0;
@@ -233,7 +264,7 @@ class SetupModuleController
                     $params = ['be_user_data' => &$be_user_data];
                     GeneralUtility::callUserFunction($function, $params, $this);
                 }
-                $this->passwordIsSubmitted = (string)$be_user_data['password'] !== '';
+                $this->passwordIsSubmitted = (string)($be_user_data['password'] ?? '') !== '';
                 $passwordIsConfirmed = $this->passwordIsSubmitted && $be_user_data['password'] === $be_user_data['password2'];
 
                 // Validate password against password policy
@@ -270,26 +301,8 @@ class SetupModuleController
                 }
                 // Update the password:
                 if ($passwordIsConfirmed && $passwordValid) {
-                    if ($backendUser->isAdmin()) {
-                        $passwordOk = true;
-                    } else {
-                        $currentPasswordHashed = $backendUser->user['password'];
-                        $passwordOk = false;
-                        $saltFactory = GeneralUtility::makeInstance(PasswordHashFactory::class);
-                        try {
-                            $hashInstance = $saltFactory->get($currentPasswordHashed, 'BE');
-                            $passwordOk = $hashInstance->checkPassword($be_user_data['passwordCurrent'], $currentPasswordHashed);
-                        } catch (InvalidPasswordHashException $e) {
-                            // Could not find hash class responsible for existing password. This is a
-                            // misconfiguration and user can not change its password.
-                        }
-                    }
-                    if ($passwordOk) {
-                        $this->passwordIsUpdated = self::PASSWORD_UPDATED;
-                        $storeRec['be_users'][$beUserId]['password'] = $be_user_data['password'];
-                    } else {
-                        $this->passwordIsUpdated = self::PASSWORD_OLD_WRONG;
-                    }
+                    $this->passwordIsUpdated = self::PASSWORD_UPDATED;
+                    $storeRec['be_users'][$beUserId]['password'] = $be_user_data['password'];
                 } elseif ($passwordIsConfirmed) {
                     $this->passwordIsUpdated = self::PASSWORD_POLICY_FAILED;
                 } else {
@@ -306,7 +319,7 @@ class SetupModuleController
             // If something in the uc-array of the user has changed, we save the array...
             if ($save_before != $save_after) {
                 $backendUser->writeUC();
-                $backendUser->writelog(SystemLogType::SETTING, SystemLogSettingAction::CHANGE, SystemLogErrorClassification::MESSAGE, 1, 'Personal settings changed', []);
+                $backendUser->writelog(SystemLogType::SETTING, SystemLogSettingAction::CHANGE, SystemLogErrorClassification::MESSAGE, null, 'Personal settings changed', []);
                 $this->setupIsUpdated = true;
             }
             // Persist data if something has changed:
@@ -321,6 +334,7 @@ class SetupModuleController
                 // This is to make sure that the users record can be updated even if in another workspace. This is tolerated.
                 $dataHandler->bypassWorkspaceRestrictions = true;
                 $dataHandler->process_datamap();
+                $dataHandler->printLogErrorMessages();
                 // reset the user record admin flag to previous value, just in case it gets used any further.
                 $backendUser->user['admin'] = $savedUserAdminState;
                 if ($this->passwordIsUpdated === self::PASSWORD_NOT_UPDATED || count($storeRec['be_users'][$beUserId]) > 1) {
@@ -412,8 +426,8 @@ class SetupModuleController
                 $more .= ' disabled="disabled"';
             }
             $isBeUsersTable = ($config['table'] ?? false) === 'be_users';
-            $value = $isBeUsersTable ? ($backendUser->user[$fieldName] ?? false) : ($backendUser->uc[$fieldName] ?? false);
-            if (!$value && isset($config['default'])) {
+            $value = $isBeUsersTable ? ($backendUser->user[$fieldName] ?? null) : ($backendUser->uc[$fieldName] ?? null);
+            if ($value === null && isset($config['default'])) {
                 $value = $config['default'];
             }
             $dataAdd = $isBeUsersTable ? '[be_users]' : '';
@@ -657,7 +671,14 @@ class SetupModuleController
             if (!$this->locales->isLanguageKeyAvailable($languageCode)) {
                 continue;
             }
-            $labelIdentifier = $officialLanguages->getLabelIdentifier($languageCode);
+            // TYPO3 + Ecosystem wrongly uses "ch" as Chinese, but it should be Chamorro (see #106125)
+            // Ideally, we should remove "ch" from the system, marked as chinese, and then "go for it".
+            // Chinese Simplified is "zh-CN"
+            if ($languageCode === 'ch') {
+                $labelIdentifier = $languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:warning.chineseSimplified');
+            } else {
+                $labelIdentifier = $officialLanguages->getLabelIdentifier($languageCode);
+            }
             $localizedName = htmlspecialchars($languageService->sL($labelIdentifier) ?: $name);
             $defaultName = $defaultLanguageLabelService->sL($labelIdentifier);
             if ($defaultName === $localizedName || $defaultName === '') {
@@ -765,14 +786,6 @@ class SetupModuleController
     protected function getFieldsFromShowItem()
     {
         $allowedFields = GeneralUtility::trimExplode(',', $GLOBALS['TYPO3_USER_SETTINGS']['showitem'], true);
-        if ($this->getBackendUser()->isAdmin()) {
-            // Do not ask for current password if admin (unknown for other users and no security gain)
-            $key = array_search('passwordCurrent', $allowedFields);
-            if ($key !== false) {
-                unset($allowedFields[$key]);
-            }
-        }
-
         $backendUser = $this->getBackendUser();
         if ($backendUser->getOriginalUserIdWhenInSwitchUserMode() && $backendUser->isSystemMaintainer(true)) {
             // DataHandler denies changing the password of system maintainer users in switch user mode.
@@ -914,14 +927,8 @@ class SetupModuleController
         if ($this->settingsAreResetToDefault) {
             $view->addFlashMessage($languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:settingsAreReset'), $languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:resetConfiguration'));
         }
-        if ($this->setupIsUpdated || $this->settingsAreResetToDefault) {
-            $view->addFlashMessage($languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:activateChanges'), '', ContextualFeedbackSeverity::INFO);
-        }
         if ($this->passwordIsSubmitted) {
             switch ($this->passwordIsUpdated) {
-                case self::PASSWORD_OLD_WRONG:
-                    $view->addFlashMessage($languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:oldPassword_failed'), $languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:newPassword'), ContextualFeedbackSeverity::ERROR);
-                    break;
                 case self::PASSWORD_NOT_THE_SAME:
                     $view->addFlashMessage($languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:newPassword_failed'), $languageService->sL('LLL:EXT:setup/Resources/Private/Language/locallang.xlf:newPassword'), ContextualFeedbackSeverity::ERROR);
                     break;

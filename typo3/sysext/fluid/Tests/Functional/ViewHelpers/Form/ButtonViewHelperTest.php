@@ -41,4 +41,12 @@ final class ButtonViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:form.button type="reset"></f:form.button>');
         self::assertSame('<button type="reset" name="" value=""></button>', (new TemplateView($context))->render());
     }
+
+    #[Test]
+    public function integerAsButtonRenderChildrenRendersTagContent(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:form.button type="{i}">{k}</f:form.button></f:for>');
+        self::assertSame('<button type="4712" name="" value="">4711</button>', (new TemplateView($context))->render());
+    }
 }

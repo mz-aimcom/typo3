@@ -14,14 +14,14 @@
 import DocumentService from '@typo3/core/document-service';
 import BrowserSession from '@typo3/backend/storage/browser-session';
 import NProgress from 'nprogress';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import Severity from '@typo3/backend/severity';
 import SecurityUtility from '@typo3/core/security-utility';
 import ExtensionManagerRepository from './repository';
 import ExtensionManagerUpdate from './update';
 import ExtensionManagerUploadForm from './upload-form';
 import '@typo3/backend/input/clearable';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import RegularEvent from '@typo3/core/event/regular-event';
@@ -112,8 +112,13 @@ class ExtensionManager {
                 text: TYPO3.lang['button.reimport'],
                 btnClass: 'btn-warning',
                 trigger: (): void => {
-                  window.location.href = target.href;
-                  Modal.dismiss();
+                  NProgress.start();
+                  new AjaxRequest(target.href).post({}).then((): void => {
+                    location.reload();
+                  }).finally((): void => {
+                    NProgress.done();
+                    Modal.dismiss();
+                  });
                 },
               },
             ],
@@ -198,7 +203,7 @@ class ExtensionManager {
 
   private removeExtensionFromDisk(trigger: HTMLAnchorElement): void {
     NProgress.start();
-    new AjaxRequest(trigger.href).get().then((): void => {
+    new AjaxRequest(trigger.href).post({}).then((): void => {
       location.reload();
     }).finally((): void => {
       NProgress.done();
@@ -264,9 +269,9 @@ class ExtensionManager {
           btnClass: 'btn-warning',
           trigger: (e: Event, modal: ModalElement): void => {
             NProgress.start();
-            new AjaxRequest(data.url).withQueryArguments({
+            new AjaxRequest(data.url).post({
               version: (modal.querySelector('input[name="version"]:checked') as HTMLInputElement)?.value,
-            }).get().finally((): void => {
+            }).finally((): void => {
               location.reload();
             });
             modal.hideModal();

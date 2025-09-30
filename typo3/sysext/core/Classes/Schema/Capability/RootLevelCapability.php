@@ -20,14 +20,12 @@ namespace TYPO3\CMS\Core\Schema\Capability;
 /**
  * Capability to understand the flag within
  * - security.ignoreRootLevelRestriction
- *
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
  */
 final readonly class RootLevelCapability implements SchemaCapabilityInterface
 {
-    public const TYPE_ONLY_ON_PAGES = 1;
-    public const TYPE_ONLY_ON_ROOTLEVEL = 0;
-    public const TYPE_BOTH = -1;
+    public const TYPE_ONLY_ON_PAGES = 0; // must be on a page (not pid=0)
+    public const TYPE_ONLY_ON_ROOTLEVEL = 1; // only allowed on pid=0
+    public const TYPE_BOTH = -1; // does not matter
 
     public function __construct(
         protected int $rootLevelType,
@@ -46,12 +44,12 @@ final readonly class RootLevelCapability implements SchemaCapabilityInterface
 
     public function canExistOnRootLevel(): bool
     {
-        return $this->rootLevelType == self::TYPE_BOTH || $this->rootLevelType == self::TYPE_ONLY_ON_ROOTLEVEL;
+        return $this->rootLevelType === self::TYPE_BOTH || $this->rootLevelType === self::TYPE_ONLY_ON_ROOTLEVEL;
     }
 
     public function canExistOnPages(): bool
     {
-        return $this->rootLevelType == self::TYPE_BOTH || $this->rootLevelType == self::TYPE_ONLY_ON_PAGES;
+        return $this->rootLevelType === self::TYPE_BOTH || $this->rootLevelType === self::TYPE_ONLY_ON_PAGES;
     }
 
     /**
@@ -59,6 +57,6 @@ final readonly class RootLevelCapability implements SchemaCapabilityInterface
      */
     public function canAccessRecordsOnRootLevel(): bool
     {
-        return $this->ignoreRootLevelRestriction;
+        return !$this->rootLevelType || $this->ignoreRootLevelRestriction;
     }
 }

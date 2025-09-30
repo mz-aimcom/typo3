@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
-use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
@@ -40,74 +39,18 @@ abstract class AbstractFile implements FileInterface
 
     /**
      * The storage this file is located in
-     *
-     * @var ResourceStorage|null
      */
-    protected $storage;
-
-    /**
-     * The identifier of this file to identify it on the storage.
-     * On some drivers, this is the path to the file, but drivers could also just
-     * provide any other unique identifier for this file on the specific storage.
-     *
-     * @var string
-     */
-    protected $identifier;
+    protected ?ResourceStorage $storage = null;
 
     /**
      * The file name of this file
-     *
-     * @var string
      */
-    protected $name;
+    protected string $name = '';
 
     /**
      * If set to true, this file is regarded as being deleted.
-     *
-     * @var bool
      */
-    protected $deleted = false;
-
-    /**
-     * any other file
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::UNKNOWN instead
-     */
-    public const FILETYPE_UNKNOWN = 0;
-
-    /**
-     * Any kind of text
-     * @see http://www.iana.org/assignments/media-types/text
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::TEXT instead
-     */
-    public const FILETYPE_TEXT = 1;
-
-    /**
-     * Any kind of image
-     * @see http://www.iana.org/assignments/media-types/image
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::IMAGE instead
-     */
-    public const FILETYPE_IMAGE = 2;
-
-    /**
-     * Any kind of audio file
-     * @see http://www.iana.org/assignments/media-types/audio
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::AUDIO instead
-     */
-    public const FILETYPE_AUDIO = 3;
-
-    /**
-     * Any kind of video
-     * @see http://www.iana.org/assignments/media-types/video
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::VIDEO instead
-     */
-    public const FILETYPE_VIDEO = 4;
-
-    /**
-     * Any kind of application
-     * @see http://www.iana.org/assignments/media-types/application
-     * @deprecated will be removed in TYPO3 v14, use TYPO3\CMS\Core\Resource\FileType::APPLICATION instead
-     */
-    public const FILETYPE_APPLICATION = 5;
+    protected bool $deleted = false;
 
     /******************
      * VARIOUS FILE PROPERTY GETTERS
@@ -140,14 +83,9 @@ abstract class AbstractFile implements FileInterface
      *
      * @return array<non-empty-string, mixed>
      */
-    public function getProperties()
+    public function getProperties(): array
     {
         return $this->properties;
-    }
-
-    public function getIdentifier(): string
-    {
-        return $this->identifier;
     }
 
     /**
@@ -193,10 +131,8 @@ abstract class AbstractFile implements FileInterface
 
     /**
      * Returns the uid of this file
-     *
-     * @return int
      */
-    public function getUid()
+    public function getUid(): int
     {
         return (int)$this->getProperty('uid');
     }
@@ -247,10 +183,7 @@ abstract class AbstractFile implements FileInterface
     public function getExtension(): string
     {
         $pathinfo = PathUtility::pathinfo($this->getName());
-
-        $extension = strtolower($pathinfo['extension'] ?? '');
-
-        return $extension;
+        return strtolower($pathinfo['extension'] ?? '');
     }
 
     /**
@@ -277,12 +210,29 @@ abstract class AbstractFile implements FileInterface
      * "video"
      * "other"
      * see FileType enum
-     *
-     * @return int $fileType
-     * @todo will return an instance of FileType enum in TYPO3 v14.0
      */
-    #[\ReturnTypeWillChange]
-    public function getType()
+    public function getType(): int
+    {
+        return $this->getFileType()->value;
+    }
+
+    public function isType(FileType $fileType): bool
+    {
+        return $this->getFileType() === $fileType;
+    }
+
+    /**
+     * Returns the fileType of this file
+     * basically there are only five main "file types"
+     * "audio"
+     * "image"
+     * "software"
+     * "text"
+     * "video"
+     * "other"
+     * see FileType enum
+     */
+    public function getFileType(): FileType
     {
         // this basically extracts the mimetype and guess the filetype based
         // on the first part of the mimetype works for 99% of all cases, and
@@ -290,12 +240,7 @@ abstract class AbstractFile implements FileInterface
         if (!($this->properties['type'] ?? false)) {
             $this->properties['type'] = FileType::tryFromMimeType($this->getMimeType())->value;
         }
-        return (int)$this->properties['type'];
-    }
-
-    public function isType(FileType $fileType): bool
-    {
-        return FileType::tryFrom($this->getType()) === $fileType;
+        return $this->properties['type'] instanceof FileType ? $this->properties['type'] : FileType::from((int)$this->properties['type']);
     }
 
     /**
@@ -378,7 +323,7 @@ abstract class AbstractFile implements FileInterface
      *
      * @return bool TRUE if this file physically exists
      */
-    public function exists()
+    public function exists(): bool
     {
         if ($this->deleted) {
             return false;
@@ -391,25 +336,13 @@ abstract class AbstractFile implements FileInterface
      * \TYPO3\CMS\Core\Resource-internal usage; don't use it to move files.
      *
      * @internal Should only be used by other parts of the File API (e.g. drivers after moving a file)
+     *
      * @return $this
      */
-    public function setStorage(ResourceStorage $storage)
+    public function setStorage(ResourceStorage $storage): self
     {
         $this->storage = $storage;
         $this->properties['storage'] = $storage->getUid();
-        return $this;
-    }
-
-    /**
-     * Set the identifier of this file
-     *
-     * @internal Should only be used by other parts of the File API (e.g. drivers after moving a file)
-     * @param string $identifier
-     * @return $this
-     */
-    public function setIdentifier($identifier)
-    {
-        $this->identifier = $identifier;
         return $this;
     }
 
@@ -419,7 +352,7 @@ abstract class AbstractFile implements FileInterface
      *
      * @return string Combined storage and file identifier, e.g. StorageUID:path/and/fileName.png
      */
-    public function getCombinedIdentifier()
+    public function getCombinedIdentifier(): string
     {
         if (!empty($this->properties['storage']) && MathUtility::canBeInterpretedAsInteger($this->properties['storage'])) {
             $combinedIdentifier = $this->properties['storage'] . ':' . $this->getIdentifier();
@@ -450,102 +383,17 @@ abstract class AbstractFile implements FileInterface
      * Marks this file as deleted. This should only be used inside the
      * File Abstraction Layer, as it is a low-level API method.
      */
-    public function setDeleted()
+    public function setDeleted(): void
     {
         $this->deleted = true;
     }
 
     /**
      * Returns TRUE if this file has been deleted
-     *
-     * @return bool
      */
-    public function isDeleted()
+    public function isDeleted(): bool
     {
         return $this->deleted;
-    }
-
-    /**
-     * Renames this file.
-     *
-     * @param non-empty-string $newName The new file name
-     * @param string|DuplicationBehavior $conflictMode
-     * @todo change $conflictMode parameter type to DuplicationBehavior in TYPO3 v14.0
-     */
-    public function rename(string $newName, $conflictMode = DuplicationBehavior::RENAME): FileInterface
-    {
-        if ($this->deleted) {
-            throw new \RuntimeException('File has been deleted.', 1329821482);
-        }
-
-        if (!$conflictMode instanceof DuplicationBehavior) {
-            trigger_error(
-                'Using a string of the non-native enumeration TYPO3\CMS\Core\Resource\DuplicationBehavior in AbstractFile->rename()'
-                . ' will stop working in TYPO3 v14.0. Use native TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior instead.',
-                E_USER_DEPRECATED
-            );
-            $conflictMode = DuplicationBehavior::tryFrom($conflictMode) ?? DuplicationBehavior::getDefaultDuplicationBehaviour();
-        }
-
-        return $this->getStorage()->renameFile($this, $newName, $conflictMode);
-    }
-
-    /**
-     * Copies this file into a target folder
-     *
-     * @param Folder $targetFolder Folder to copy file into.
-     * @param string $targetFileName an optional destination fileName
-     * @param string|DuplicationBehavior $conflictMode
-     *
-     * @throws \RuntimeException
-     * @return File The new (copied) file.
-     * @todo change $conflictMode parameter type to DuplicationBehavior in TYPO3 v14.0
-     */
-    public function copyTo(Folder $targetFolder, $targetFileName = null, $conflictMode = DuplicationBehavior::RENAME)
-    {
-        if ($this->deleted) {
-            throw new \RuntimeException('File has been deleted.', 1329821483);
-        }
-
-        if (!$conflictMode instanceof DuplicationBehavior) {
-            trigger_error(
-                'Using a string of the non-native enumeration TYPO3\CMS\Core\Resource\DuplicationBehavior in AbstractFile->copyTo()'
-                . ' will stop working in TYPO3 v14.0. Use native TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior instead.',
-                E_USER_DEPRECATED
-            );
-            $conflictMode = DuplicationBehavior::tryFrom($conflictMode) ?? DuplicationBehavior::getDefaultDuplicationBehaviour();
-        }
-
-        return $targetFolder->getStorage()->copyFile($this, $targetFolder, $targetFileName, $conflictMode);
-    }
-
-    /**
-     * Moves the file into the target folder
-     *
-     * @param Folder $targetFolder Folder to move file into.
-     * @param string $targetFileName an optional destination fileName
-     * @param string|DuplicationBehavior $conflictMode
-     *
-     * @throws \RuntimeException
-     * @return File This file object, with updated properties.
-     * @todo change $conflictMode parameter type to DuplicationBehavior in TYPO3 v14.0
-     */
-    public function moveTo(Folder $targetFolder, $targetFileName = null, $conflictMode = DuplicationBehavior::RENAME)
-    {
-        if ($this->deleted) {
-            throw new \RuntimeException('File has been deleted.', 1329821484);
-        }
-
-        if (!$conflictMode instanceof DuplicationBehavior) {
-            trigger_error(
-                'Using a string of the non-native enumeration TYPO3\CMS\Core\Resource\DuplicationBehavior in AbstractFile->moveTo()'
-                . ' will stop working in TYPO3 v14.0. Use native TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior instead.',
-                E_USER_DEPRECATED
-            );
-            $conflictMode = DuplicationBehavior::tryFrom($conflictMode) ?? DuplicationBehavior::getDefaultDuplicationBehaviour();
-        }
-
-        return $targetFolder->getStorage()->moveFile($this, $targetFolder, $targetFileName, $conflictMode);
     }
 
     /*****************
@@ -595,7 +443,7 @@ abstract class AbstractFile implements FileInterface
      */
     abstract public function updateProperties(array $properties);
 
-    public function getParentFolder(): FolderInterface
+    public function getParentFolder(): Folder
     {
         return $this->getStorage()->getFolder($this->getStorage()->getFolderIdentifierFromFileIdentifier($this->getIdentifier()));
     }

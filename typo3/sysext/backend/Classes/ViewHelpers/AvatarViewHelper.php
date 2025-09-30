@@ -21,58 +21,30 @@ use TYPO3\CMS\Backend\Backend\Avatar\Avatar;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Render the avatar markup, including the :html:`<img>` tag, for a given backend user.
- *
- * Examples
- * ========
- *
- * Default
- * -------
- *
- * ::
- *
- *    <be:avatar backendUser="{user.uid}" size="32" showIcon="true" />
- *
- * Output::
- *
- *    <span class="avatar">
- *        <span class="avatar-image">
- *            <img src="/typo3/sysext/core/Resources/Public/Icons/T3Icons/avatar/svgs/avatar-default.svg" width="32" height="32" alt="" />
- *        </span>
- *    </span>
- *
+ * ViewHelper to render the avatar markup (including the `<img>` tag) for a given backend user.
  * If the given backend user hasn't added a custom avatar yet, a default one is used.
  *
- * Inline notation
- * ---------------
+ * ```
+ *    <be:avatar backendUser="{user.uid}" size="32" showIcon="true" />
+ * ```
  *
- * ::
- *
- *    {be:avatar(backendUser: user.id, size: 32, showIcon: 'true')}
- *
- * Output::
- *
- *    <span class="avatar">
- *        <span class="avatar-image">
- *            <img src="/fileadmin/_processed_/7/9/csm_custom-avatar_4ea4a18f58.jpg" width="32" height="32" alt="" />
- *        </span>
- *    </span>
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-avatar
  */
 final class AvatarViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * As this ViewHelper renders HTML, the output must not be escaped.
      *
      * @var bool
      */
     protected $escapeOutput = false;
+
+    public function __construct(
+        private readonly ConnectionPool $connectionPool
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -83,13 +55,11 @@ final class AvatarViewHelper extends AbstractViewHelper
 
     /**
      * Resolve user avatar from a given backend user id.
-     *
-     * @param array{backendUser: int, size: int, showIcon: bool} $arguments
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        if ($arguments['backendUser'] > 0) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('be_users');
+        if ($this->arguments['backendUser'] > 0) {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('be_users');
             $queryBuilder->getRestrictions()->removeAll();
             $backendUser = $queryBuilder
                 ->select('*')
@@ -97,7 +67,7 @@ final class AvatarViewHelper extends AbstractViewHelper
                 ->where(
                     $queryBuilder->expr()->eq(
                         'uid',
-                        $queryBuilder->createNamedParameter($arguments['backendUser'], Connection::PARAM_INT)
+                        $queryBuilder->createNamedParameter($this->arguments['backendUser'], Connection::PARAM_INT)
                     )
                 )
                 ->executeQuery()
@@ -110,6 +80,6 @@ final class AvatarViewHelper extends AbstractViewHelper
             return '';
         }
         $avatar = GeneralUtility::makeInstance(Avatar::class);
-        return $avatar->render($backendUser, $arguments['size'], $arguments['showIcon']);
+        return $avatar->render($backendUser, $this->arguments['size'], $this->arguments['showIcon']);
     }
 }

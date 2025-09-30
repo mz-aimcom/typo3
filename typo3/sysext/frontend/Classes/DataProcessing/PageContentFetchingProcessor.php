@@ -17,11 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\DataProcessing;
 
-use TYPO3\CMS\Core\Page\PageLayoutResolver;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Content\ContentSlideMode;
 use TYPO3\CMS\Frontend\Content\RecordCollector;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\ContentObject\DataProcessorInterface;
+use TYPO3\CMS\Frontend\Event\AfterContentHasBeenFetchedEvent;
 
 /**
  * All-in-one data processor that loads all tt_content records from the current page
@@ -51,7 +54,7 @@ readonly class PageContentFetchingProcessor implements DataProcessorInterface
 {
     public function __construct(
         protected RecordCollector $recordCollector,
-        protected PageLayoutResolver $pageLayoutResolver,
+        protected EventDispatcherInterface $eventDispatcher,
     ) {}
 
     public function process(
@@ -63,12 +66,12 @@ readonly class PageContentFetchingProcessor implements DataProcessorInterface
         if (isset($processorConfiguration['if.']) && !$cObj->checkIf($processorConfiguration['if.'])) {
             return $processedData;
         }
-        $pageInformation = $cObj->getRequest()->getAttribute('frontend.page.information');
+        $recordIdentityMap = GeneralUtility::makeInstance(RecordIdentityMap::class);
+        $request = $cObj->getRequest();
+        $pageInformation = $request->getAttribute('frontend.page.information');
         $pageLayout = $pageInformation->getPageLayout();
 
-        $targetVariableName = $cObj->stdWrapValue('as', $processorConfiguration, 'content');
-        $groupedContents = [];
-
+        $groupedContent = [];
         $contentAreasWithSlideMode = [];
         $contentAreasWithoutSlideMode = [];
         foreach ($pageLayout?->getContentAreas() ?? [] as $contentAreaData) {
@@ -86,7 +89,7 @@ readonly class PageContentFetchingProcessor implements DataProcessorInterface
             // Create the content for the $groupedContents array
             $contentAreaName = $contentAreaData['identifier'];
             $contentAreaData['records'] = [];
-            $groupedContents[$contentAreaName] = $contentAreaData;
+            $groupedContent[$contentAreaName] = $contentAreaData;
         }
 
         // 1. Content Areas without slide mode can be fetched with one SQL query, so let's do that first
@@ -103,13 +106,14 @@ readonly class PageContentFetchingProcessor implements DataProcessorInterface
                     'orderBy' => 'colPos, sorting',
                 ],
                 ContentSlideMode::None,
-                $cObj
+                $cObj,
+                $recordIdentityMap
             );
             // 1b. Sort the records into the contentArea they belong to
             foreach ($flatRecords as $recordToSort) {
-                $colPosOfRecord = (int)$recordToSort['colPos'];
+                $colPosOfRecord = (int)$recordToSort->get('colPos');
                 $groupIdentifier = $contentAreasWithoutSlideMode[$colPosOfRecord]['identifier'];
-                $groupedContents[$groupIdentifier]['records'][] = $recordToSort;
+                $groupedContent[$groupIdentifier]['records'][] = $recordToSort;
             }
         }
 
@@ -122,13 +126,18 @@ readonly class PageContentFetchingProcessor implements DataProcessorInterface
                     'orderBy' => 'sorting',
                 ],
                 ContentSlideMode::tryFrom($contentAreaData['slideMode'] ?? null),
-                $cObj
+                $cObj,
+                $recordIdentityMap
             );
             $contentAreaData['records'] = $records;
             $contentAreaName = $contentAreaData['identifier'];
-            $groupedContents[$contentAreaName] = $contentAreaData;
+            $groupedContent[$contentAreaName] = $contentAreaData;
         }
-        $processedData[$targetVariableName] = $groupedContents;
+
+        $targetVariableName = $cObj->stdWrapValue('as', $processorConfiguration, 'content');
+        $processedData[$targetVariableName] = $this->eventDispatcher->dispatch(
+            new AfterContentHasBeenFetchedEvent($groupedContent, $request)
+        )->groupedContent;
         return $processedData;
     }
 }

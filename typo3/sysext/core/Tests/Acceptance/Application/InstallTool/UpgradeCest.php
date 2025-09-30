@@ -39,7 +39,6 @@ final class UpgradeCest extends AbstractCest
 
         $I->amGoingTo('open the core updater');
         $I->see('TYPO3 CMS core to its latest minor release');
-        $I->click('.t3js-modal-close');
     }
 
     public function seeViewUpgradeDocumentation(ApplicationTester $I, ModalDialog $modalDialog): void
@@ -54,12 +53,12 @@ final class UpgradeCest extends AbstractCest
 
         $I->amGoingTo('mark an item as read');
         // pick 2nd named version (e.g. `12.4`), current dev versions might be empty (e.g. `13.0` and `12.4.x`)
-        $I->click('#heading-2 > h2:nth-child(1) > a:nth-child(1) > strong:nth-child(2)');
+        $I->click('#heading-2');
         $I->waitForElement('#version-2', 5, ModalDialog::$openedModalSelector);
 
         $textCurrentFirstPanelHeading = $I->grabTextFrom($versionPanel . ' .panel-heading');
 
-        $I->click($versionPanel . ' a[data-bs-toggle="collapse"]');
+        $I->click($versionPanel . ' button[data-bs-toggle="collapse"]');
         $I->click($versionPanel . ' .t3js-upgradeDocs-markRead');
 
         $I->dontSee($textCurrentFirstPanelHeading, '#version-2');
@@ -71,8 +70,6 @@ final class UpgradeCest extends AbstractCest
         $I->see($textCurrentFirstPanelHeading, '#collapseRead');
         $I->click('#collapseRead .t3js-changelog-list > div:first-child .t3js-upgradeDocs-unmarkRead');
         $I->see($textCurrentFirstPanelHeading, '#version-2');
-
-        $I->click('.t3js-modal-close');
     }
 
     public function seeCheckTca(ApplicationTester $I, ModalDialog $modalDialog): void
@@ -80,8 +77,6 @@ final class UpgradeCest extends AbstractCest
         $I->click('Check TCA…');
         $modalDialog->canSeeDialog();
         $I->see('No TCA changes in ext_tables.php files.', ModalDialog::$openedModalSelector);
-
-        $I->click('.t3js-modal-close');
     }
 
     public function seeCheckForBrokenExtensions(ApplicationTester $I, ModalDialog $modalDialog): void
@@ -99,8 +94,6 @@ final class UpgradeCest extends AbstractCest
         $I->see('ext_localconf.php of all loaded extensions successfully loaded');
         $I->waitForText('ext_tables.php of all loaded extensions successfully loaded');
         $I->see('ext_tables.php of all loaded extensions successfully loaded');
-
-        $I->click('.t3js-modal-close');
     }
 
     public function seeCheckTcaMigrations(ApplicationTester $I, ModalDialog $modalDialog): void
@@ -108,7 +101,5 @@ final class UpgradeCest extends AbstractCest
         $I->click('Check TCA Migrations…');
         $modalDialog->canSeeDialog();
         $I->see('Checks whether the current TCA needs migrations and displays the new migration paths which need to be adjusted manually', ModalDialog::$openedModalSelector);
-
-        $I->click('.t3js-modal-close');
     }
 }

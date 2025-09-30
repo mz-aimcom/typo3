@@ -61,23 +61,6 @@ class TcaColumnsProcessCommon implements FormDataProviderInterface
             $result['columnsToProcess'][] = $tableProperties['transOrigDiffSourceField'];
         }
 
-        // fields added to subtypes_addlist (can be pi_flexform)
-        $recordTypeValue = $result['recordTypeValue'];
-        if (!empty($result['processedTca']['types'][$recordTypeValue]['subtype_value_field'])) {
-            $subtypeFieldName = $result['processedTca']['types'][$recordTypeValue]['subtype_value_field'];
-            $fieldName = $result['databaseRow'][$subtypeFieldName] ?? null;
-            if ($fieldName !== null && !empty($result['processedTca']['types'][$recordTypeValue]['subtypes_addlist'][$fieldName])) {
-                $fields = GeneralUtility::trimExplode(
-                    ',',
-                    $result['processedTca']['types'][$recordTypeValue]['subtypes_addlist'][$fieldName],
-                    true
-                );
-                foreach ($fields as $field) {
-                    $result['columnsToProcess'][] = $field;
-                }
-            }
-        }
-
         return $result;
     }
 }

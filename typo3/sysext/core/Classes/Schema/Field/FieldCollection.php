@@ -17,9 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
 final readonly class FieldCollection implements \ArrayAccess, \IteratorAggregate, \Countable
 {
     public function __construct(
@@ -28,6 +25,11 @@ final readonly class FieldCollection implements \ArrayAccess, \IteratorAggregate
          */
         protected array $fieldDefinitions = []
     ) {}
+
+    public static function __set_state(array $state): self
+    {
+        return new self(...$state);
+    }
 
     public function offsetExists(mixed $offset): bool
     {
@@ -49,6 +51,11 @@ final readonly class FieldCollection implements \ArrayAccess, \IteratorAggregate
         throw new \InvalidArgumentException('Fields cannot be unset.', 1712539280);
     }
 
+    public function getNames(): array
+    {
+        return array_keys($this->fieldDefinitions);
+    }
+
     /**
      * @return \Traversable|FieldTypeInterface[]
      */
@@ -60,10 +67,5 @@ final readonly class FieldCollection implements \ArrayAccess, \IteratorAggregate
     public function count(): int
     {
         return count($this->fieldDefinitions);
-    }
-
-    public static function __set_state(array $state): self
-    {
-        return new self(...$state);
     }
 }

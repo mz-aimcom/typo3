@@ -14,8 +14,8 @@
 import Notification from '@typo3/backend/notification';
 import DocumentService from '@typo3/core/document-service';
 import RegularEvent from '@typo3/core/event/regular-event';
-import { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
 import { selector } from '@typo3/core/literals';
+import type { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
 
 export enum MultiRecordSelectionSelectors {
   actionsSelector = '.t3js-multi-record-selection-actions',
@@ -47,7 +47,6 @@ enum CheckboxState {
  */
 class MultiRecordSelection {
   static activeClass: string = 'active';
-  static disabledClass: string = 'disabled';
   private lastChecked: HTMLInputElement = null;
 
   constructor() {
@@ -82,12 +81,7 @@ class MultiRecordSelection {
       return;
     }
     checkbox.checked = check;
-    // Dispatch the standard "change" event, which might be used by form components, e.g. FormEngine
-    checkbox.dispatchEvent(new CustomEvent('change', { bubbles: true }));
-    // Dispatch custom event, which might be used by components to keep track of external state changes
-    checkbox.dispatchEvent(new CustomEvent('multiRecordSelection:checkbox:state:changed',{
-      detail: { identifier: MultiRecordSelection.getIdentifier(checkbox) }, bubbles: true, cancelable: false
-    }));
+    checkbox.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   /**
@@ -165,7 +159,7 @@ class MultiRecordSelection {
         return;
       }
       // Start the evaluation by disabling the action
-      action.classList.add(this.disabledClass);
+      action.disabled = true;
       // Get all currently checked elements
       const checked: NodeListOf<HTMLInputElement> = MultiRecordSelection.getCheckboxes(CheckboxState.checked, identifier);
       for (let i = 0; i < checked.length; i++) {
@@ -173,7 +167,7 @@ class MultiRecordSelection {
         if ((checked[i].closest(MultiRecordSelectionSelectors.elementSelector) as HTMLElement)?.dataset[configuration.idField]) {
           // If a checked element contains the idField, remove the "disabled"
           // state and end the search since the action can be performed.
-          action.classList.remove(this.disabledClass);
+          action.disabled = false;
           break;
         }
       }
@@ -263,6 +257,14 @@ class MultiRecordSelection {
       const identifier: string = e.detail?.identifier || '';
       const actionContainers: NodeListOf<HTMLElement> = document.querySelectorAll(MultiRecordSelection.getCombinedSelector(MultiRecordSelectionSelectors.actionsSelector, identifier));
       actionContainers.forEach((container: HTMLElement): void => MultiRecordSelection.changeActionContainerVisibility(container, false));
+    }).bindTo(document);
+    new RegularEvent('multiRecordSelection:checkboxes:check', (e: CustomEvent): void => {
+      const identifier: string = e.detail?.identifier || '';
+      MultiRecordSelection.getCheckboxes(CheckboxState.any, identifier).forEach((checkbox: HTMLInputElement): void => MultiRecordSelection.changeCheckboxState(checkbox, true));
+    }).bindTo(document);
+    new RegularEvent('multiRecordSelection:checkboxes:uncheck', (e: CustomEvent): void => {
+      const identifier: string = e.detail?.identifier || '';
+      MultiRecordSelection.getCheckboxes(CheckboxState.any, identifier).forEach((checkbox: HTMLInputElement): void => MultiRecordSelection.changeCheckboxState(checkbox, false));
     }).bindTo(document);
   }
 
@@ -381,7 +383,7 @@ class MultiRecordSelection {
       ].join(' '));
 
       if (checkAll !== null) {
-        checkAll.classList.toggle('disabled', !MultiRecordSelection.getCheckboxes(CheckboxState.unchecked, identifier).length);
+        checkAll.disabled = !MultiRecordSelection.getCheckboxes(CheckboxState.unchecked, identifier).length;
       }
 
       const checkNone: HTMLButtonElement = document.querySelector([
@@ -390,7 +392,7 @@ class MultiRecordSelection {
       ].join(' '));
 
       if (checkNone !== null) {
-        checkNone.classList.toggle('disabled', !MultiRecordSelection.getCheckboxes(CheckboxState.checked, identifier).length);
+        checkNone.disabled = !MultiRecordSelection.getCheckboxes(CheckboxState.checked, identifier).length;
       }
 
       const toggle: HTMLButtonElement = document.querySelector([
@@ -399,7 +401,7 @@ class MultiRecordSelection {
       ].join(' '));
 
       if (toggle !== null) {
-        toggle.classList.toggle('disabled', !MultiRecordSelection.getCheckboxes(CheckboxState.any, identifier).length);
+        toggle.disabled = !MultiRecordSelection.getCheckboxes(CheckboxState.any, identifier).length;
       }
     }).delegateTo(document, MultiRecordSelectionSelectors.checkboxActionsToggleSelector);
   }

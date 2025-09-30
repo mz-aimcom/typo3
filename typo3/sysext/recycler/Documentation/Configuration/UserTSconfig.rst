@@ -5,13 +5,12 @@
 User TSconfig
 =============
 
-The module can be configured via :ref:`user TSconfig <t3tsconfig:setting-user-tsconfig>`
+The module can be configured via :ref:`user TSconfig <t3tsref:setting-user-tsconfig>`
 for backend users or groups:
 
 ..  _recordspagelimit:
 
-..  option:: recordsPageLimit
-
+..  confval:: recordsPageLimit
     :Type: integer
     :Default: 25
 
@@ -28,8 +27,7 @@ for backend users or groups:
 
 ..  _allowdelete:
 
-..  option:: allowDelete
-
+..  confval:: allowDelete
     :Type: boolean
     :Default: 0
 

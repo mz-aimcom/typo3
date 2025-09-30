@@ -13,13 +13,14 @@
 
 import interact from 'interactjs';
 import DocumentService from '@typo3/core/document-service';
-import PersistentStorage, { UC } from '@typo3/backend/storage/persistent';
+import PersistentStorage, { type UC } from '@typo3/backend/storage/persistent';
 import RegularEvent from '@typo3/core/event/regular-event';
 import DebounceEvent from '@typo3/core/event/debounce-event';
-import { ResizeEvent } from '@interactjs/actions/resize/plugin';
+import type { ResizeEvent } from '@interactjs/actions/resize/plugin';
 
 enum Selectors {
   resizableContainerIdentifier = '.t3js-viewpage-resizeable',
+  moduleDocheaderSelector = '.t3js-module-docheader',
   moduleBodySelector = '.t3js-module-body',
   customSelector = '.t3js-preset-custom',
   customWidthSelector = '.t3js-preset-custom-width',
@@ -99,12 +100,15 @@ class ViewPage {
     if (height < this.minimalHeight) {
       height = this.minimalHeight;
     }
+    height = Math.round(height);
+
     if (isNaN(width)) {
       width = this.calculateContainerMaxWidth();
     }
     if (width < this.minimalWidth) {
       width = this.minimalWidth;
     }
+    width = Math.round(width);
 
     this.inputCustomWidth.valueAsNumber = width;
     this.inputCustomHeight.valueAsNumber = height;
@@ -153,8 +157,12 @@ class ViewPage {
       this.persistCurrentPreset();
     }).bindTo(document.querySelector(Selectors.changeOrientationSelector));
 
-    // On change
     [this.inputCustomWidth, this.inputCustomHeight].forEach((customDimensionControl: HTMLInputElement): void => {
+      new RegularEvent('input', (e: Event): void => {
+        const input = e.target as HTMLInputElement;
+        input.valueAsNumber = Math.round(parseInt(input.value, 10));
+      }).bindTo(customDimensionControl);
+
       new DebounceEvent('change', (): void => {
         this.setSize(this.getCurrentWidth(), this.getCurrentHeight());
         this.setLabel(this.defaultLabel);
@@ -193,13 +201,15 @@ class ViewPage {
       },
       listeners: {
         move: (event: ResizeEvent): void => {
+          const roundedWidth = Math.round(event.rect.width);
+          const roundedHeight = Math.round(event.rect.height);
           Object.assign(event.target.style, {
-            width: `${event.rect.width}px`,
-            height: `${event.rect.height}px`,
+            width: `${roundedWidth}px`,
+            height: `${roundedHeight}px`,
           });
 
-          this.inputCustomWidth.valueAsNumber = event.rect.width;
-          this.inputCustomHeight.valueAsNumber = event.rect.height;
+          this.inputCustomWidth.valueAsNumber = roundedWidth;
+          this.inputCustomHeight.valueAsNumber = roundedHeight;
 
           this.setLabel(this.defaultLabel);
         }
@@ -218,13 +228,14 @@ class ViewPage {
   private calculateContainerMaxHeight(): number {
     this.resizableContainer.hidden = true;
 
+    const docheaderHeight: number = document.querySelector(Selectors.moduleDocheaderSelector).getBoundingClientRect().height;
     const computedStyleOfModuleBody = getComputedStyle(document.querySelector(Selectors.moduleBodySelector));
     const padding = parseFloat(computedStyleOfModuleBody.getPropertyValue('padding-top')) + parseFloat(computedStyleOfModuleBody.getPropertyValue('padding-bottom'));
     const documentHeight: number = document.body.getBoundingClientRect().height;
     const topbarHeight = (document.querySelector(Selectors.topbarContainerSelector) as HTMLElement).getBoundingClientRect().height;
 
     this.resizableContainer.hidden = false;
-    return documentHeight - padding - topbarHeight - 8;
+    return documentHeight - docheaderHeight - padding - topbarHeight - 8;
   }
 
   private calculateContainerMaxWidth(): number {

@@ -19,13 +19,13 @@ namespace TYPO3\CMS\Form\Controller;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Symfony\Component\Yaml\Yaml;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Charset\CharsetConverter;
+use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -33,14 +33,17 @@ use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Pagination\ArrayPaginator;
 use TYPO3\CMS\Core\Pagination\SimplePagination;
-use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
+use TYPO3\CMS\Form\Event\BeforeFormIsCreatedEvent;
+use TYPO3\CMS\Form\Event\BeforeFormIsDeletedEvent;
+use TYPO3\CMS\Form\Event\BeforeFormIsDuplicatedEvent;
 use TYPO3\CMS\Form\Exception as FormException;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
+use TYPO3\CMS\Form\Mvc\Configuration\YamlSource;
 use TYPO3\CMS\Form\Mvc\Persistence\Exception\PersistenceManagerException;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 use TYPO3\CMS\Form\Service\DatabaseService;
@@ -54,6 +57,8 @@ use TYPO3\CMS\Form\Service\TranslationService;
  */
 class FormManagerController extends ActionController
 {
+    use AllowedMethodsTrait;
+
     protected const JS_MODULE_NAMES = ['app', 'viewModel'];
     protected const PAGINATION_MAX = 20;
 
@@ -67,6 +72,7 @@ class FormManagerController extends ActionController
         protected readonly TranslationService $translationService,
         protected readonly CharsetConverter $charsetConverter,
         protected readonly UriBuilder $coreUriBuilder,
+        protected readonly YamlSource $yamlSource,
     ) {}
 
     /**
@@ -118,6 +124,7 @@ class FormManagerController extends ActionController
      */
     protected function initializeCreateAction(): void
     {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
         $this->defaultViewObjectName = JsonView::class;
     }
 
@@ -140,20 +147,16 @@ class FormManagerController extends ActionController
             throw new FormException('No form name', 1472312204);
         }
         $templatePath = GeneralUtility::getFileAbsFileName($templatePath);
-        $form = Yaml::parse((string)file_get_contents($templatePath));
+        $form = $this->yamlSource->load([$templatePath]);
         $form['label'] = $formName;
         $form['identifier'] = $this->formPersistenceManager->getUniqueIdentifier($formSettings, $this->convertFormNameToIdentifier($formName));
         $form['prototypeName'] = $prototypeName;
         $formPersistenceIdentifier = $this->formPersistenceManager->getUniquePersistenceIdentifier($form['identifier'], $savePath, $formSettings);
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['beforeFormCreate'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'beforeFormCreate')) {
-                $form = $hookObj->beforeFormCreate(
-                    $formPersistenceIdentifier,
-                    $form
-                );
-            }
-        }
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeFormIsCreatedEvent($formPersistenceIdentifier, $form)
+        );
+        $formPersistenceIdentifier = $event->formPersistenceIdentifier;
+        $form = $event->form;
         $response = [
             'status' => 'success',
             'url' => $this->uriBuilder->uriFor('index', ['formPersistenceIdentifier' => $formPersistenceIdentifier], 'FormEditor'),
@@ -185,6 +188,7 @@ class FormManagerController extends ActionController
      */
     protected function initializeDuplicateAction(): void
     {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
         $this->defaultViewObjectName = JsonView::class;
     }
 
@@ -206,15 +210,11 @@ class FormManagerController extends ActionController
         $formToDuplicate['label'] = $formName;
         $formToDuplicate['identifier'] = $this->formPersistenceManager->getUniqueIdentifier($formSettings, $this->convertFormNameToIdentifier($formName));
         $formPersistenceIdentifier = $this->formPersistenceManager->getUniquePersistenceIdentifier($formToDuplicate['identifier'], $savePath, $formSettings);
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['beforeFormDuplicate'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'beforeFormDuplicate')) {
-                $formToDuplicate = $hookObj->beforeFormDuplicate(
-                    $formPersistenceIdentifier,
-                    $formToDuplicate
-                );
-            }
-        }
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeFormIsDuplicatedEvent($formPersistenceIdentifier, $formToDuplicate)
+        );
+        $formPersistenceIdentifier = $event->formPersistenceIdentifier;
+        $formToDuplicate = $event->form;
         $response = [
             'status' => 'success',
             'url' => $this->uriBuilder->uriFor('index', ['formPersistenceIdentifier' => $formPersistenceIdentifier], 'FormEditor'),
@@ -273,6 +273,12 @@ class FormManagerController extends ActionController
         return $this->jsonResponse();
     }
 
+    protected function initializeDeleteAction(): void
+    {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
+        $this->defaultViewObjectName = JsonView::class;
+    }
+
     /**
      * Delete a formDefinition identified by the $formPersistenceIdentifier.
      *
@@ -284,28 +290,48 @@ class FormManagerController extends ActionController
         if (!$this->formPersistenceManager->isAllowedPersistencePath($formPersistenceIdentifier, $formSettings)) {
             throw new PersistenceManagerException(sprintf('Delete "%s" is not allowed', $formPersistenceIdentifier), 1614500661);
         }
-        if (empty($this->databaseService->getReferencesByPersistenceIdentifier($formPersistenceIdentifier))) {
-            foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['beforeFormDelete'] ?? [] as $className) {
-                $hookObj = GeneralUtility::makeInstance($className);
-                if (method_exists($hookObj, 'beforeFormDelete')) {
-                    $hookObj->beforeFormDelete(
-                        $formPersistenceIdentifier
-                    );
-                }
-            }
-            $this->formPersistenceManager->delete($formPersistenceIdentifier, $formSettings);
+
+        $hasReferences = !empty($this->databaseService->getReferencesByPersistenceIdentifier($formPersistenceIdentifier));
+
+        if ($hasReferences) {
+            $response = $this->getErrorResponseForDeleteAction($formSettings, $formPersistenceIdentifier);
         } else {
-            $controllerConfiguration = $this->translationService->translateValuesRecursive(
-                $formSettings['formManager']['controller'],
-                $formSettings['formManager']['translationFiles'] ?? []
+            $event = $this->eventDispatcher->dispatch(
+                new BeforeFormIsDeletedEvent($formPersistenceIdentifier)
             );
-            $this->addFlashMessage(
-                sprintf($controllerConfiguration['deleteAction']['errorMessage'], $formPersistenceIdentifier),
-                $controllerConfiguration['deleteAction']['errorTitle'],
-                ContextualFeedbackSeverity::ERROR,
-            );
+            if ($event->preventDeletion) {
+                $response = $this->getErrorResponseForDeleteAction($formSettings, $formPersistenceIdentifier);
+            } else {
+                $this->formPersistenceManager->delete($formPersistenceIdentifier, $formSettings);
+                $response = [
+                    'status' => 'success',
+                    'url' => $this->uriBuilder->uriFor('index', [], 'FormManager'),
+                ];
+            }
         }
-        return $this->redirect('index');
+
+        // deleteAction uses the extbase JsonView::class.
+        // That's why we have to set the view variables in this way.
+        /** @var JsonView $view */
+        $view = $this->view;
+        $view->assign('response', $response);
+        $view->setVariablesToRender([
+            'response',
+        ]);
+        return $this->jsonResponse();
+    }
+
+    protected function getErrorResponseForDeleteAction(array $formSettings, string $formPersistenceIdentifier): array
+    {
+        $controllerConfiguration = $this->translationService->translateValuesRecursive(
+            $formSettings['formManager']['controller'],
+            $formSettings['formManager']['translationFiles'] ?? []
+        );
+        return [
+            'status' => 'error',
+            'title' => $controllerConfiguration['deleteAction']['errorTitle'],
+            'message' => sprintf($controllerConfiguration['deleteAction']['errorMessage'], $formPersistenceIdentifier),
+        ];
     }
 
     protected function getFormSettings(): array
@@ -435,8 +461,8 @@ class FormManagerController extends ActionController
                 'returnUrl' => $this->getModuleUrl('web_FormFormbuilder'),
             ];
             $references[] = [
-                'recordPageTitle' => is_array($pageRecord) ? $this->getRecordTitle('pages', $pageRecord) : '',
-                'recordTitle' => $this->getRecordTitle($referenceRow['tablename'], $record, true),
+                'recordPageTitle' => is_array($pageRecord) ? BackendUtility::getRecordTitle('pages', $pageRecord) : '',
+                'recordTitle' => BackendUtility::getRecordTitle($referenceRow['tablename'], $record),
                 'recordIcon' => $this->iconFactory->getIconForRecord($referenceRow['tablename'], $record, IconSize::SMALL)->render(),
                 'recordUid' => $referenceRow['recuid'],
                 'recordEditUrl' => $this->getModuleUrl('record_edit', $urlParameters),
@@ -519,7 +545,7 @@ class FormManagerController extends ActionController
     protected function convertFormNameToIdentifier(string $formName): string
     {
         $formName = \Normalizer::normalize($formName) ?: $formName;
-        $formIdentifier = $this->charsetConverter->specCharsToASCII('utf-8', $formName);
+        $formIdentifier = $this->charsetConverter->utf8_char_mapping($formName);
         $formIdentifier = (string)preg_replace('/[^a-zA-Z0-9-_]/', '', $formIdentifier);
         return lcfirst($formIdentifier);
     }
@@ -530,14 +556,6 @@ class FormManagerController extends ActionController
     protected function getRecord(string $table, int $uid): ?array
     {
         return BackendUtility::getRecord($table, $uid);
-    }
-
-    /**
-     * Wrapper used for unit testing.
-     */
-    protected function getRecordTitle(string $table, array $row, bool $prep = false): string
-    {
-        return BackendUtility::getRecordTitle($table, $row, $prep);
     }
 
     /**

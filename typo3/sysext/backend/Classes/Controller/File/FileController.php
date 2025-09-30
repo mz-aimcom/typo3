@@ -100,7 +100,7 @@ class FileController
     public function mainAction(ServerRequestInterface $request): ResponseInterface
     {
         $this->init($request);
-        $this->main();
+        $this->main($request);
 
         BackendUtility::setUpdateSignal('updateFolderTree');
 
@@ -129,7 +129,7 @@ class FileController
     public function processAjaxRequest(ServerRequestInterface $request): ResponseInterface
     {
         $this->init($request);
-        $this->main();
+        $this->main($request);
         $flatResult = [
             'hasErrors' => false,
         ];
@@ -238,11 +238,11 @@ class FileController
      * Performing the file admin action:
      * Initializes the objects, setting permissions, sending data to object.
      */
-    protected function main(): void
+    protected function main(ServerRequestInterface $request): void
     {
         $this->fileProcessor->setActionPermissions();
         $this->fileProcessor->setExistingFilesConflictMode($this->overwriteExistingFiles);
-        $this->fileProcessor->start($this->file);
+        $this->fileProcessor->start($this->file, $request->getUploadedFiles());
         $this->fileData = $this->fileProcessor->processData();
     }
 
@@ -278,17 +278,13 @@ class FileController
         $thumbUrl = $result->isImage()
             ? ($result->process(ProcessedFile::CONTEXT_IMAGEPREVIEW, [])->getPublicUrl() ?? '')
             : '';
-        $path = '';
-        if (is_callable([$result->getParentFolder(), 'getReadablePath'])) {
-            $path = $result->getParentFolder()->getReadablePath();
-        }
         return array_merge(
             $result->toArray(),
             [
                 'date' => BackendUtility::date($result->getModificationTime()),
                 'icon' => $this->iconFactory->getIconForFileExtension($result->getExtension(), IconSize::SMALL)->render(),
                 'thumbUrl' => $thumbUrl,
-                'path' => $path,
+                'path' => $result->getParentFolder()->getReadablePath(),
             ]
         );
     }

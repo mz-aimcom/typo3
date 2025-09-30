@@ -17,15 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Reflection\ClassSchema;
 
-use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithAllTypesOfProperties;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithLazyDoctrineAnnotation;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyModel;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyModelDeprecated;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\Validation\Validator\DummyValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\StringLengthValidator;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -183,6 +181,7 @@ final class PropertyTest extends UnitTestCase
             $property->getValidators()
         );
     }
+
     #[Test]
     public function classSchemaDetectsValidateAttributeModelProperties(): void
     {
@@ -318,74 +317,74 @@ final class PropertyTest extends UnitTestCase
     }
 
     #[Test]
-    #[IgnoreDeprecations]
-    public function classSchemaDetectsValidateAnnotationsModelPropertiesDeprecated(): void
+    public function classSchemaDetectsFileUploadAnnotationModelProperties(): void
     {
-        $property = (new ClassSchema(DummyModelDeprecated::class))
-            ->getProperty('propertyWithValidateAnnotations');
+        $property = (new ClassSchema(DummyModel::class))
+            ->getProperty('propertyWithFileUploadAnnotation');
 
         self::assertSame(
             [
-                [
-                    'name' => 'TYPO3.CMS.Extbase:NotEmpty',
-                    'options' => [],
-                    'className' => NotEmptyValidator::class,
+                'validation' => [
+                    'required' => true,
+                    'maxFiles' => 1,
+                    'fileSize' => ['minimum' => '0K', 'maximum' => '2M'],
+                    'mimeType' => ['allowedMimeTypes' => ['image/png']],
+                    'allowedMimeTypes' => ['image/png'],
                 ],
-                [
-                    'name' => 'TYPO3.CMS.Extbase.Tests.Unit.Reflection.Fixture:DummyValidator',
-                    'options' => [],
-                    'className' => DummyValidator::class,
-                ],
+                'uploadFolder' => '1:/user_upload/',
+                'addRandomSuffix' => true,
+                'duplicationBehavior' => DuplicationBehavior::REPLACE,
+                'createUploadFolderIfNotExist' => true,
             ],
-            $property->getValidators()
+            $property->getFileUpload()
         );
     }
 
     #[Test]
-    #[IgnoreDeprecations]
-    public function classSchemaDetectsValidateAttributeModelPropertiesDeprecated(): void
+    public function classSchemaDetectsFileUploadAttributeModelProperties(): void
     {
-        $property = (new ClassSchema(DummyModelDeprecated::class))
-            ->getProperty('propertyWithValidateAttributes');
+        $property = (new ClassSchema(DummyModel::class))
+            ->getProperty('propertyWithFileUploadAttribute');
 
         self::assertSame(
             [
-                [
-                    'name' => 'TYPO3.CMS.Extbase:NotEmpty',
-                    'options' => [],
-                    'className' => NotEmptyValidator::class,
+                'validation' => [
+                    'required' => true,
+                    'maxFiles' => 1,
+                    'fileSize' => ['minimum' => '0K', 'maximum' => '2M'],
+                    'mimeType' => ['allowedMimeTypes' => ['image/jpeg', 'image/png']],
+                    'allowedMimeTypes' => ['image/png'],
                 ],
-                [
-                    'name' => 'TYPO3.CMS.Extbase.Tests.Unit.Reflection.Fixture:DummyValidator',
-                    'options' => [],
-                    'className' => DummyValidator::class,
-                ],
+                'uploadFolder' => '1:/user_upload/',
+                'addRandomSuffix' => true,
+                'duplicationBehavior' => DuplicationBehavior::REPLACE,
+                'createUploadFolderIfNotExist' => true,
             ],
-            $property->getValidators()
+            $property->getFileUpload()
         );
     }
 
     #[Test]
-    #[IgnoreDeprecations]
-    public function classSchemaDetectsValidateAttributeOnPromotedModelPropertiesDeprecated(): void
+    public function classSchemaDetectsFileUploadAttributeOnPromotedModelProperties(): void
     {
-        $property = (new ClassSchema(DummyModelDeprecated::class))
+        $property = (new ClassSchema(DummyModel::class))
             ->getProperty('dummyPromotedProperty');
 
         self::assertSame(
             [
-                [
-                    'name' => 'TYPO3.CMS.Extbase:NotEmpty',
-                    'options' => [],
-                    'className' => NotEmptyValidator::class,
+                'validation' => [
+                    'required' => true,
+                    'maxFiles' => 1,
+                    'fileSize' => ['minimum' => '0K', 'maximum' => '2M'],
+                    'mimeType' => ['allowedMimeTypes' => ['image/jpeg', 'image/png']],
+                    'allowedMimeTypes' => ['image/png'],
                 ],
-                [
-                    'name' => 'TYPO3.CMS.Extbase.Tests.Unit.Reflection.Fixture:DummyValidator',
-                    'options' => [],
-                    'className' => DummyValidator::class,
-                ],
+                'uploadFolder' => '1:/user_upload/',
+                'addRandomSuffix' => true,
+                'duplicationBehavior' => DuplicationBehavior::REPLACE,
+                'createUploadFolderIfNotExist' => true,
             ],
-            $property->getValidators()
+            $property->getFileUpload()
         );
     }
 }

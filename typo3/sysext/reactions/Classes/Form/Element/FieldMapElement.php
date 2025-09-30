@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Reactions\Form\Element;
 
 use TYPO3\CMS\Backend\Form\Element\AbstractFormElement;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
 /**
  * Creates a dynamic element to add values to table fields.
@@ -41,6 +42,10 @@ class FieldMapElement extends AbstractFormElement
 
     protected array $supportedFieldTypes = ['input', 'textarea', 'text', 'email', 'number', 'datetime', 'color'];
 
+    public function __construct(
+        private readonly TcaSchemaFactory $schemaFactory
+    ) {}
+
     public function render(): array
     {
         $languageService = $this->getLanguageService();
@@ -50,20 +55,20 @@ class FieldMapElement extends AbstractFormElement
         $itemName = $parameterArray['itemFormElName'];
 
         $tableName = (string)($this->data['databaseRow']['table_name'][0] ?? '');
-        $columns = $GLOBALS['TCA'][$tableName]['columns'] ?? [];
 
         $fieldsHtml = '';
-        if (is_array($columns) && $columns !== []) {
-            foreach ($columns as $fieldName => $fieldConfig) {
-                if (!in_array($fieldConfig['config']['type'], $this->supportedFieldTypes, true)) {
+        if ($this->schemaFactory->has($tableName)) {
+            $itemValue = is_array($itemValue) ? $itemValue : [];
+            foreach ($this->schemaFactory->get($tableName)->getFields() as $fieldName => $fieldInfo) {
+                if (!in_array($fieldInfo->getType(), $this->supportedFieldTypes, true)) {
                     continue;
                 }
                 $fieldName = htmlspecialchars($fieldName);
-                $fieldValue = is_array($itemValue) && isset($itemValue[$fieldName]) ? htmlspecialchars((string)$itemValue[$fieldName]) : '';
+                $fieldValue = isset($itemValue[$fieldName]) ? htmlspecialchars((string)$itemValue[$fieldName]) : '';
                 $fieldsHtml .= '
                     <div class="form-group">
                         <label class="form-label" for="' . $fieldName . '">
-                            ' . $languageService->sL($fieldConfig['label']) /** @todo This is not how a field label should be resolved **/ . '
+                            ' . $languageService->sL($fieldInfo->getLabel()) /** @todo This is not how a field label should be resolved **/ . '
                         </label>
                         <input type="text" class="form-control" id="' . $fieldName . '" name="' . htmlspecialchars($itemName) . '[' . $fieldName . ']" value="' . $fieldValue . '">
                     </div>';

@@ -23,8 +23,6 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\RouteRedirect;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
-use TYPO3\CMS\Core\Configuration\Exception\SettingsWriteException;
-use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -33,6 +31,7 @@ use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
@@ -42,20 +41,15 @@ use TYPO3\CMS\Core\Page\ImportMap;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\View\FluidViewAdapter;
 use TYPO3\CMS\Core\View\ViewInterface;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
-use TYPO3\CMS\Install\Configuration\FeatureManager;
+use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\CMS\Install\FolderStructure\DefaultFactory;
 use TYPO3\CMS\Install\Service\EnableFileService;
-use TYPO3\CMS\Install\Service\Exception\ConfigurationChangedException;
-use TYPO3\CMS\Install\Service\Exception\SilentConfigurationUpgradeReadonlyException;
-use TYPO3\CMS\Install\Service\Exception\TemplateFileChangedException;
+use TYPO3\CMS\Install\Service\Exception\ConfigurationDirectoryDoesNotExistException;
 use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\SetupDatabaseService;
 use TYPO3\CMS\Install\Service\SetupService;
-use TYPO3\CMS\Install\Service\SilentConfigurationUpgradeService;
-use TYPO3\CMS\Install\Service\SilentTemplateFileUpgradeService;
 use TYPO3\CMS\Install\SystemEnvironment\Check;
 use TYPO3\CMS\Install\SystemEnvironment\SetupCheck;
 use TYPO3\CMS\Install\WebserverType;
@@ -73,8 +67,6 @@ final class InstallerController
 
     public function __construct(
         private readonly LateBootService $lateBootService,
-        private readonly SilentConfigurationUpgradeService $silentConfigurationUpgradeService,
-        private readonly SilentTemplateFileUpgradeService $silentTemplateFileUpgradeService,
         private readonly ConfigurationManager $configurationManager,
         private readonly FailsafePackageManager $packageManager,
         private readonly VerifyHostHeader $verifyHostHeader,
@@ -82,6 +74,7 @@ final class InstallerController
         private readonly SetupService $setupService,
         private readonly SetupDatabaseService $setupDatabaseService,
         private readonly HashService $hashService,
+        private readonly IconRegistry $iconRegistry,
     ) {}
 
     /**
@@ -104,6 +97,7 @@ final class InstallerController
         $view = $this->initializeView();
         $view->assign('bust', $bust);
         $view->assign('initModule', $initModule);
+        $view->assign('iconCacheIdentifier', sha1($this->iconRegistry->getBackendIconsCacheIdentifier()));
         $nonce = new ConsumableNonce();
         $view->assign('importmap', $importMap->render($sitePath, $nonce));
 
@@ -184,27 +178,18 @@ final class InstallerController
      */
     public function executeEnvironmentAndFoldersAction(ServerRequestInterface $request): ResponseInterface
     {
-        $folderStructureFactory = GeneralUtility::makeInstance(DefaultFactory::class);
-        $structureFacade = $folderStructureFactory->getStructure(WebserverType::fromRequest($request));
-        $structureFixMessageQueue = $structureFacade->fix();
-        $errorsFromStructure = $structureFixMessageQueue->getAllMessages(ContextualFeedbackSeverity::ERROR);
-
-        if ($this->configurationManager->canWriteConfiguration()) {
-            $this->configurationManager->createLocalConfigurationFromFactoryConfiguration();
-            // Create a PackageStates.php with all packages activated marked as "part of factory default"
-            $this->packageManager->recreatePackageStatesFileIfMissing(true);
-            $extensionConfiguration = new ExtensionConfiguration();
-            $extensionConfiguration->synchronizeExtConfTemplateWithLocalConfigurationOfAllExtensions();
-
+        $errorsFromStructure = $this->setupService->createDirectoryStructure(WebserverType::fromRequest($request));
+        try {
+            $this->setupService->prepareSystemSettings();
+        } catch (ConfigurationDirectoryDoesNotExistException) {
             return new JsonResponse([
-                'success' => true,
+                'success' => false,
+                'status' => $errorsFromStructure,
             ]);
         }
-        $errorsFromStructure[] = new FlashMessage('Unable to write configuration file', 'Error', ContextualFeedbackSeverity::ERROR);
 
         return new JsonResponse([
-            'success' => false,
-            'status' => $errorsFromStructure,
+            'success' => true,
         ]);
     }
 
@@ -234,44 +219,6 @@ final class InstallerController
         }
         return new JsonResponse([
             'success' => true,
-        ]);
-    }
-
-    /**
-     * Execute silent configuration update. May be called multiple times until success = true is returned.
-     *
-     * @return ResponseInterface success = true if no change has been done
-     */
-    public function executeSilentConfigurationUpdateAction(): ResponseInterface
-    {
-        $success = true;
-        try {
-            $this->silentConfigurationUpgradeService->execute();
-        } catch (ConfigurationChangedException) {
-            $success = false;
-        } catch (SettingsWriteException $e) {
-            throw new SilentConfigurationUpgradeReadonlyException(code: 1688464086, throwable: $e);
-        }
-        return new JsonResponse([
-            'success' => $success,
-        ]);
-    }
-
-    /**
-     * Execute silent template files update. May be called multiple times until success = true is returned.
-     *
-     * @return ResponseInterface success = true if no change has been done
-     */
-    public function executeSilentTemplateFileUpdateAction(): ResponseInterface
-    {
-        $success = true;
-        try {
-            $this->silentTemplateFileUpgradeService->execute();
-        } catch (TemplateFileChangedException $e) {
-            $success = false;
-        }
-        return new JsonResponse([
-            'success' => $success,
         ]);
     }
 
@@ -509,7 +456,6 @@ final class InstallerController
         $view = $this->initializeView();
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $view->assignMultiple([
-            'siteName' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'],
             'executeDatabaseDataToken' => $formProtection->generateToken('installTool', 'executeDatabaseData'),
         ]);
         return new JsonResponse([
@@ -606,10 +552,6 @@ final class InstallerController
      */
     public function executeDefaultConfigurationAction(ServerRequestInterface $request): ResponseInterface
     {
-        $featureManager = new FeatureManager();
-        // Get best matching configuration presets
-        $configurationValues = $featureManager->getBestMatchingConfigurationForAllFeatures();
-
         $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
         // Use the container here instead of makeInstance() to use the factory of the container for building the UriBuilder
         $uriBuilder = $container->get(UriBuilder::class);
@@ -650,8 +592,6 @@ final class InstallerController
         }
         // Mark upgrade wizards as done
         $this->setupDatabaseService->markWizardsDone($container);
-
-        $this->configurationManager->setLocalConfigurationValuesByPathValuePairs($configurationValues);
 
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $formProtection->clean();

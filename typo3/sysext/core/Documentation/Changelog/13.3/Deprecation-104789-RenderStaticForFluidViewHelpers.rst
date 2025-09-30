@@ -13,8 +13,8 @@ Description
 
 The usage of :php:`renderStatic()` for Fluid ViewHelpers has been deprecated.
 Also, Fluid standalone traits
-:php:`TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic`
-and :php:`TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic`
+:php:`\TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic`
+and :php:`\TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic`
 have been marked as deprecated.
 
 
@@ -40,8 +40,8 @@ Migration
 ViewHelpers should always use :php:`render()` as their primary rendering method.
 
 ViewHelpers using just :php:`renderStatic()` without any trait or with the trait
-:php:`CompileWithRenderStatic` can be migrated by converting the static rendering
-method to a non-static method:
+:php-short:`\TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic`
+can be migrated by converting the static rendering method to a non-static method:
 
 Before:
 
@@ -67,8 +67,8 @@ After:
         }
     }
 
-ViewHelpers using :php:`CompileWithContentArgumentAndRenderStatic` can use the new
-contentArgumentName feature added with Fluid v2.15:
+ViewHelpers using :php:`\TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic`
+can use the new contentArgumentName feature added with Fluid v2.15:
 
 Before:
 
@@ -113,5 +113,43 @@ After:
             return 'value';
         }
     }
+
+Here is a basic recipe to perform this migration, preferably utilizing
+statical code analysis/replacement tools on your :file:`*ViewHelper.php`
+files:
+
+*   Find definitions of :php:`renderStatic`
+
+*   Rename method to :php:`render()`, remove the arguments, remove :php:`static` declaration
+
+*   Within that method:
+
+    *   Replace :php:`$arguments` with :php:`$this->arguments`
+    *   Replace :php:`$renderingContext` with :php:`$this->renderingContext`
+    *   Replace :php:`$renderChildrenClosure()` with :php:`$this->renderChildren()`
+    *   Replace remaining :php:`$renderChildrenClosure` usages with proper closure handling, like :php:`$this->renderChildren(...)`.
+
+*   Replace :php:`resolveContentArgumentName(` with :php:`getContentArgumentName(`
+
+*   Remove the mentioned definitions:
+
+    *   :php:`use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;`
+    *   :php:`use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;`
+    *   :php:`use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic;`
+    *   :php:`use CompileWithRenderStatic;` (class trait)
+    *   :php:`use CompileWithContentArgumentAndRenderStatic;` (class trait)
+
+*   (Optionally remove custom phpdoc annotations to the `renderStatic` parameters)
+
+*   If you previously called ViewHelper's :php:`renderStatic` methods in other places,
+    you may utilize something like:
+
+    ..  code-block:: php
+        $this->renderingContext->getViewHelperInvoker()->invoke(
+            MyViewHelper::class,
+            $arguments,
+            $this->renderingContext,
+            $this->renderChildren(...),
+        );
 
 .. index:: Fluid, PartiallyScanned, ext:fluid

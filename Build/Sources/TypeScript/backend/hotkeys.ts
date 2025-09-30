@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import HotkeyStorage, { ScopedHotkeyMap, HotkeyStruct, Options, HotkeySetup } from '@typo3/backend/hotkeys/hotkey-storage';
+import HotkeyStorage, { type ScopedHotkeyMap, type HotkeyStruct, type Options, type HotkeySetup } from '@typo3/backend/hotkeys/hotkey-storage';
 import RegularEvent from '@typo3/core/event/regular-event';
 
 export enum ModifierKeys {
@@ -35,13 +35,13 @@ type Hotkey = string[];
 class Hotkeys {
   // navigator.platform is deprecated, but https://developer.mozilla.org/en-US/docs/Web/API/User-Agent_Client_Hints_API is experimental for now
   public readonly normalizedCtrlModifierKey = navigator.platform.toLowerCase().startsWith('mac') ? ModifierKeys.META : ModifierKeys.CTRL;
-  private readonly scopedHotkeyMap: ScopedHotkeyMap
+  private readonly scopedHotkeyMap: ScopedHotkeyMap;
   private readonly defaultOptions: Options = {
     scope: 'all',
     allowOnEditables: false,
     allowRepeat: false,
     bindElement: undefined
-  }
+  };
 
   public constructor() {
     this.scopedHotkeyMap = HotkeyStorage.getScopedHotkeyMap();
@@ -158,7 +158,7 @@ class Hotkeys {
         shift: e.shiftKey,
         alt: e.altKey,
       },
-      key: e.key.toLowerCase(),
+      key: e.key?.toLowerCase(),
     };
   }
 

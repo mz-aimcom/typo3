@@ -13,56 +13,62 @@
 
 import 'bootstrap';
 import DocumentService from '@typo3/core/document-service';
-import FormEngine from '@typo3/backend/form-engine';
 import { selector } from '@typo3/core/literals';
 import '@typo3/backend/element/icon-element';
 import Popover from './popover';
-import { Popover as BootstrapPopover, Tab as BootstrapTab } from 'bootstrap';
+import { type Popover as BootstrapPopover, Tab as BootstrapTab } from 'bootstrap';
+import type { PostValidationEvent } from '@typo3/backend/form-engine-validation';
+import DomHelper from '@typo3/backend/utility/dom-helper';
 
 /**
  * Module: @typo3/backend/form-engine-review
  * Enables interaction with record fields that need review
  * @exports @typo3/backend/form-engine-review
  */
-class FormEngineReview {
+export class FormEngineReview {
 
-  /**
-   * Class for the toggle button
-   */
   private readonly toggleButtonClass: string = 't3js-toggle-review-panel';
-
-  /**
-   * Class of FormEngine labels
-   */
   private readonly labelSelector: string = '.t3js-formengine-label';
-
-  /**
-   * Class of FormEngine legends
-   */
-  private readonly legendSelector: string = '.t3js-formengine-legend';
+  private readonly invalidFields: Set<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>;
 
   /**
    * The constructor, set the class properties default values
    */
-  constructor() {
+  constructor(
+    private readonly formElement: HTMLFormElement
+  ) {
+    this.invalidFields = new Set();
     this.initialize();
   }
 
   /**
-   * Fetches all fields that have a failed validation
+   * Initialize the events
    */
-  public static findInvalidField(): NodeListOf<HTMLElement> {
-    return document.querySelectorAll('.tab-content .' + FormEngine.Validation.errorClass);
+  private initialize(): void {
+    this.formElement.addEventListener('t3-formengine-postfieldvalidation', (e: CustomEvent<PostValidationEvent>): void => {
+      const field = e.detail.field;
+      if (e.detail.isValid) {
+        this.invalidFields.delete(field);
+      } else {
+        this.invalidFields.add(field);
+      }
+      this.checkForReviewableField();
+    });
+
+    DocumentService.ready().then((): void => {
+      this.attachButtonToModuleHeader();
+      this.checkForReviewableField();
+    });
   }
 
   /**
    * Renders an invisible button to toggle the review panel into the least possible toolbar
    */
-  public attachButtonToModuleHeader(): void {
+  private attachButtonToModuleHeader(): void {
     const leastButtonBar: HTMLElement = document.querySelector('.t3js-module-docheader-bar-buttons').lastElementChild.querySelector('[role="toolbar"]');
 
     const icon = document.createElement('typo3-backend-icon');
-    icon.setAttribute('identifier', 'actions-info');
+    icon.setAttribute('identifier', 'actions-exclamation-circle');
     icon.setAttribute('size', 'small');
 
     const button = document.createElement('button');
@@ -76,38 +82,36 @@ class FormEngineReview {
   }
 
   /**
-   * Initialize the events
-   */
-  public initialize(): void {
-    DocumentService.ready().then((): void => {
-      this.attachButtonToModuleHeader();
-      FormEngine.formElement.addEventListener('t3-formengine-postfieldvalidation', (): void => {
-        this.checkForReviewableField();
-      });
-    });
-  }
-
-  /**
    * Checks if fields have failed validation. In such case, the markup is rendered and the toggle button is unlocked.
    */
-  public checkForReviewableField(): void {
-    const invalidFields = FormEngineReview.findInvalidField();
+  private checkForReviewableField(): void {
     const toggleButton: HTMLElement = document.querySelector('.' + this.toggleButtonClass);
     if (toggleButton === null) {
       return;
     }
 
-    if (invalidFields.length > 0) {
+    if (this.invalidFields.size > 0) {
       const erroneousListGroup = document.createElement('div');
       erroneousListGroup.classList.add('list-group');
 
-      for (const invalidField of invalidFields) {
-        const relatedInputField = invalidField.querySelector('[data-formengine-validation-rules]') as HTMLElement;
+      for (const invalidField of this.invalidFields) {
+        const fieldContainer = invalidField.closest('.t3js-formengine-validation-marker');
+        if (fieldContainer === null) {
+          console.error(invalidField);
+          throw new Error('Could not find an element containing the `t3js-formengine-validation-marker` class for the previously logged input field.');
+        }
+        const relatedInputField = fieldContainer.querySelector('[data-formengine-validation-rules]') as HTMLElement;
+        if (relatedInputField === null) {
+          console.error(fieldContainer);
+          throw new Error('Could not find an element containing the `data-formengine-validation-rules` attribute for the previously logged container.');
+        }
         const link = document.createElement('a');
         link.classList.add('list-group-item');
         link.href = '#';
-        link.textContent = invalidField.querySelector(this.labelSelector)?.textContent || invalidField.querySelector(this.legendSelector)?.textContent || '';
-        link.addEventListener('click', (e: Event) => this.switchToField(e, relatedInputField));
+        link.textContent = fieldContainer.querySelector(this.labelSelector)?.textContent || '';
+        link.addEventListener('click', (e: Event) => {
+          this.switchToField(e, fieldContainer, relatedInputField);
+        });
 
         erroneousListGroup.append(link);
       }
@@ -126,7 +130,7 @@ class FormEngineReview {
   /**
    * Finds the field in the form and focuses it
    */
-  public switchToField(e: Event, inputField: HTMLElement): void {
+  private switchToField(e: Event, fieldContainer: Element, inputField: HTMLElement): void {
     e.preventDefault();
 
     // iterate possibly nested tab panels
@@ -139,9 +143,13 @@ class FormEngineReview {
       ref = ref.parentElement;
     }
 
-    inputField.focus();
+    // Check if the field is visible to the user. If this is the case, the field will be focussed, triggering a scroll
+    // to the input field. If checkVisibility() returns false, the input field is not visible, therefore scroll the
+    // field container into the view instead.
+    if (inputField.checkVisibility()) {
+      inputField.focus();
+    } else {
+      DomHelper.scrollIntoViewIfNeeded(fieldContainer);
+    }
   }
 }
-
-// create an instance and return it
-export default new FormEngineReview();

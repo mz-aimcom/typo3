@@ -139,7 +139,7 @@ final class SettingsCest extends AbstractCest
         $modalDialog->canSeeDialog();
 
         // Check if value was saved as expected
-        $fileCacheValue = $I->grabValueFrom('#t3-install-tool-configuration-cache-file');
+        $fileCacheValue = $I->grabValueFrom('input[type="radio"][name="install[values][Cache][enable]"]:checked');
         $I->assertEquals('File', $fileCacheValue);
 
         // Reset cache to custom configuration
@@ -170,12 +170,7 @@ final class SettingsCest extends AbstractCest
         // Switch back hit count feature toggle
         $I->click($button);
         $modalDialog->canSeeDialog();
-        if (str_contains($scenario->current('env'), 'classic')) {
-            // ['features']['redirects.hitCount'] is enabled by default in classic mode (set by TF BackendEnvironment setup)
-            $I->cantSeeCheckboxIsChecked($featureToggle);
-        } else {
-            $I->canSeeCheckboxIsChecked($featureToggle);
-        }
+        $I->canSeeCheckboxIsChecked($featureToggle);
         $I->amGoingTo('reset hit count feature toggle and save it');
         $I->click($featureToggle);
         $I->click($modalButton, ModalDialog::$openedModalButtonContainerSelector);
@@ -217,7 +212,13 @@ final class SettingsCest extends AbstractCest
     private function closeModalAndHideFlashMessage(ApplicationTester $I): void
     {
         // We need to close the flash message here to be able to close the modal
-        $I->click('.close', self::$alertContainerSelector);
-        $I->click('.t3js-modal-close');
+        if ($I->tryToSeeElement(self::$alertContainerSelector)) {
+            $I->click('.close', self::$alertContainerSelector);
+            $I->waitForElementNotVisible(self::$alertContainerSelector);
+        }
+        if ($I->tryToSeeElement('.modal-dialog')) {
+            $I->click('.t3js-modal-close');
+            $I->waitForElementNotVisible('.modal-dialog');
+        }
     }
 }

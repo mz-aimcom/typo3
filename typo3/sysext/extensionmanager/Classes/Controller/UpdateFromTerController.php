@@ -18,7 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extensionmanager\Controller;
 
 use Psr\Http\Message\ResponseInterface;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
+use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
 use TYPO3\CMS\Extensionmanager\Domain\Repository\ExtensionRepository;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
@@ -30,6 +32,8 @@ use TYPO3\CMS\Extensionmanager\Remote\RemoteRegistry;
  */
 class UpdateFromTerController extends AbstractController
 {
+    use AllowedMethodsTrait;
+
     public function __construct(
         private readonly RemoteRegistry $remoteRegistry,
         private readonly ExtensionRepository $extensionRepository
@@ -42,6 +46,8 @@ class UpdateFromTerController extends AbstractController
      */
     public function updateExtensionListFromTerAction(bool $forceUpdateCheck = false): ResponseInterface
     {
+        $this->assertAllowedHttpMethod($this->request, 'POST');
+
         $updated = false;
         $errorMessage = '';
         $lastUpdate = null;
@@ -66,9 +72,11 @@ class UpdateFromTerController extends AbstractController
             $lastUpdatedSince = $this->translate('LLL:EXT:extensionmanager/Resources/Private/Language/locallang.xlf:extensionList.updateFromTer.never');
             $lastUpdateTime = date($timeFormat);
         } else {
-            $lastUpdatedSince = BackendUtility::calcAge(
-                $GLOBALS['EXEC_TIME'] - $lastUpdate->format('U'),
-                $this->translate('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
+            $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
+            $lastUpdatedSince = (new DateFormatter())->formatDateInterval(
+                // absolute diff, we don't want a sign to be displayed
+                $now->diff($lastUpdate, true),
+                $this->translate('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears'),
             );
             $lastUpdateTime = $lastUpdate->format($timeFormat);
         }

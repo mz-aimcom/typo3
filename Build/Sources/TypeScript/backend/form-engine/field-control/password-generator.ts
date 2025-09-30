@@ -12,11 +12,11 @@
  */
 
 import DocumentService from '@typo3/core/document-service';
-import SecurityUtility from '@typo3/core/security-utility';
+import FormEngine from '@typo3/backend/form-engine';
 import FormEngineValidation from '@typo3/backend/form-engine-validation';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import Notification from '@typo3/backend/notification';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 interface PasswordRules {
   length: number;
@@ -31,15 +31,12 @@ interface PasswordRules {
  * Handles the "Generate Password" field control
  */
 class PasswordGenerator {
-  private readonly securityUtility: SecurityUtility = null;
   private controlElement: HTMLAnchorElement = null;
   private humanReadableField: HTMLInputElement = null;
   private hiddenField: HTMLInputElement = null;
   private passwordRules: PasswordRules = null;
 
   constructor(controlElementId: string) {
-    this.securityUtility = new SecurityUtility();
-
     DocumentService.ready().then((): void => {
       this.controlElement = <HTMLAnchorElement>document.getElementById(controlElementId);
       this.humanReadableField = <HTMLInputElement>document.querySelector(
@@ -92,7 +89,7 @@ class PasswordGenerator {
           this.humanReadableField.value = this.hiddenField.value;
           // Finally validate and mark the field as changed
           FormEngineValidation.validateField(this.humanReadableField);
-          FormEngineValidation.markFieldAsChanged(this.humanReadableField);
+          FormEngine.markFieldAsChanged(this.humanReadableField);
         } else {
           Notification.warning(resolvedBody.message || 'No password was generated');
         }

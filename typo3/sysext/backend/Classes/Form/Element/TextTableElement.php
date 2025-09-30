@@ -119,9 +119,7 @@ class TextTableElement extends AbstractFormElement
             $html[] =   '<div class="form-wizards-wrap">';
             $html[] =       '<div class="form-wizards-item-element">';
             $html[] =           '<div class="form-control-wrap" style="overflow: auto;">';
-            $html[] =               '<textarea class="form-control" id="' . htmlspecialchars($fieldId) . '" name="' . htmlspecialchars($itemName) . '" rows="' . $rows . '" disabled>';
-            $html[] =                   htmlspecialchars($itemValue);
-            $html[] =               '</textarea>';
+            $html[] =               GeneralUtility::renderTextarea($itemValue, [ 'class' => 'form-control', 'id' => $fieldId, 'name' => $itemName, 'rows' => $rows, 'disabled' => 'disabled']);
             $html[] =           '</div>';
             $html[] =       '</div>';
             $html[] =   '</div>';
@@ -194,7 +192,7 @@ class TextTableElement extends AbstractFormElement
         $html[] =   '<div class="form-control-wrap" style="overflow: auto">';
         $html[] =       '<div class="form-wizards-wrap">';
         $html[] =           '<div hidden>';
-        $html[] =               '<textarea ' . GeneralUtility::implodeAttributes($attributes, true) . '>' . htmlspecialchars($itemValue) . '</textarea>';
+        $html[] =               GeneralUtility::renderTextarea($itemValue, $attributes);
         $html[] =           '</div>';
         $html[] =           $this->getTableWizard($attributes['id']);
         if (!empty($fieldControlHtml)) {
@@ -232,8 +230,8 @@ class TextTableElement extends AbstractFormElement
     protected function getTableWizard(string $dataId): string
     {
         $row = $this->data['databaseRow'];
-        $delimiter = ($row['table_delimiter'][0] ?? false) ? chr((int)$row['table_delimiter'][0]) : '|';
-        $enclosure = ($row['table_enclosure'][0] ?? false) ? chr((int)$row['table_enclosure'][0]) : '';
+        $delimiter = (is_array($row['table_delimiter'] ?? '') && ($row['table_delimiter'][0] ?? false)) ? chr((int)$row['table_delimiter'][0]) : '|';
+        $enclosure = (is_array($row['table_enclosure'] ?? '') && ($row['table_enclosure'][0] ?? false)) ? chr((int)$row['table_enclosure'][0]) : '';
 
         return sprintf(
             '<typo3-formengine-table-wizard %s></typo3-formengine-table-wizard>',

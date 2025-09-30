@@ -20,7 +20,12 @@ namespace TYPO3\CMS\Dashboard;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Dashboard\Widgets\WidgetConfigurationInterface;
+use TYPO3\CMS\Core\Settings\Settings;
+use TYPO3\CMS\Dashboard\Dto\Dashboard as TransferDashboard;
+use TYPO3\CMS\Dashboard\Dto\WidgetConfiguration as TransferWidgetConfiguration;
+use TYPO3\CMS\Dashboard\Factory\WidgetSettingsFactory;
+use TYPO3\CMS\Dashboard\Widgets\WidgetContext;
+use TYPO3\CMS\Dashboard\Widgets\WidgetRendererInterface;
 
 /**
  * @internal
@@ -28,24 +33,22 @@ use TYPO3\CMS\Dashboard\Widgets\WidgetConfigurationInterface;
 class Dashboard
 {
     /**
-     * @var array<string,WidgetConfigurationInterface>
+     * @var array<string,DashboardEntry>
      */
-    protected $widgets = [];
+    protected array $widgets = [];
+
+    protected ?object $widgetPositions = null;
 
     /**
-     * @var array<string,array>
-     */
-    protected $widgetOptions = [];
-
-    /**
-     * @param array<string,array<string,string>> $widgetConfig
+     * @param array<string,array<string,string|array>> $widgetConfig
      */
     public function __construct(
         protected readonly string $identifier,
         protected readonly string $title,
         protected readonly array $widgetConfig,
         protected readonly WidgetRegistry $widgetRegistry,
-        protected readonly ContainerInterface $container
+        protected readonly WidgetSettingsFactory $widgetSettingsFactory,
+        protected readonly ContainerInterface $container,
     ) {}
 
     public function getIdentifier(): string
@@ -64,11 +67,21 @@ class Dashboard
     }
 
     /**
-     * @return array<string,WidgetConfigurationInterface>
+     * @return array<string,DashboardEntry>
      */
     public function getWidgets(): array
     {
         return $this->widgets;
+    }
+
+    public function getWidget(string $identifier): ?DashboardEntry
+    {
+        return $this->widgets[$identifier] ?? null;
+    }
+
+    public function getWidgetPositions(): object
+    {
+        return $this->widgetPositions ?? new \stdClass();
     }
 
     /**
@@ -78,27 +91,69 @@ class Dashboard
     public function initializeWidgets(ServerRequestInterface $request): void
     {
         $availableWidgets = $this->widgetRegistry->getAvailableWidgets();
+        $this->widgetPositions = new \stdClass();
         foreach ($this->widgetConfig as $hash => $widgetConfig) {
             $widgetConfigIdentifier = $widgetConfig['identifier'] ?? '';
             if ($widgetConfigIdentifier !== '' && array_key_exists($widgetConfigIdentifier, $availableWidgets)) {
-                $this->widgets[$hash] = $availableWidgets[$widgetConfigIdentifier];
 
-                $widgetObject = $this->widgetRegistry->getAvailableWidget($request, $widgetConfigIdentifier);
-                $this->widgetOptions[$hash] = $widgetObject->getOptions();
+                // Widget (Renderer) Instance
+                $widgetRenderer = $this->widgetRegistry->getAvailableWidget($request, $widgetConfigIdentifier);
+
+                // Dashboard Entry with Widget Context
+                $this->widgets[$hash] = new DashboardEntry(
+                    context: new WidgetContext(
+                        identifier: $hash,
+                        rawData: $widgetConfig,
+                        configuration: $availableWidgets[$widgetConfigIdentifier],
+                        settings: $widgetRenderer instanceof WidgetRendererInterface ? $this->widgetSettingsFactory->createSettings(
+                            $widgetConfigIdentifier,
+                            $widgetConfig['settings'] ?? [],
+                            $widgetRenderer->getSettingsDefinitions(),
+                        ) : new Settings([]),
+                        request: $request,
+                    ),
+                    renderer: $widgetRenderer,
+                );
+
+                // Widget Positions
+                $positions = $widgetConfig['positions'] ?? [];
+                foreach ($positions as $columnCount => $position) {
+                    if (!isset($position['height']) || !isset($position['width']) || !isset($position['x']) || !isset($position['y'])) {
+                        continue;
+                    }
+                    if (!isset($this->widgetPositions->{$columnCount})) {
+                        $this->widgetPositions->{$columnCount} = [];
+                    }
+                    $this->widgetPositions->{$columnCount}[] = [
+                        'identifier' => $hash,
+                        'height' => (int)$position['height'],
+                        'width' => (int)$position['width'],
+                        'x' => (int)$position['x'],
+                        'y' => (int)$position['y'],
+                    ];
+                }
             }
         }
+        foreach (array_keys(get_object_vars($this->widgetPositions)) as $columnCount) {
+            usort(
+                $this->widgetPositions->{$columnCount},
+                static fn(array $a, array $b): int => $a['y'] !== $b['y'] ? $a['y'] - $b['y'] : $a['x'] - $b['x']
+            );
+        }
+    }
+
+    public function getTransferData(): TransferDashboard
+    {
+        return new TransferDashboard(
+            identifier: $this->getIdentifier(),
+            title: $this->getTitle(),
+            widgets: array_values(array_map(fn(DashboardEntry $entry): TransferWidgetConfiguration => $entry->getTransferWidgetConfiguration(), $this->getWidgets())),
+            widgetPositions: $this->getWidgetPositions(),
+        );
     }
 
     protected function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
-    }
-
-    /**
-     * @return array<string,array>
-     */
-    public function getWidgetOptions(): array
-    {
-        return $this->widgetOptions;
     }
 }

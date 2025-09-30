@@ -20,7 +20,9 @@ namespace TYPO3\CMS\Core\Tests\Unit\DataHandling;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Charset\CharsetConverter;
+use TYPO3\CMS\Core\Charset\CharsetProvider;
 use TYPO3\CMS\Core\DataHandling\SlugHelper;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Slug\SlugNormalizer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -143,7 +145,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function sanitizeConvertsString(array $configuration, string $input, string $expected): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             'dummyTable',
             'dummyField',
@@ -181,8 +184,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generateNeverDeliversEmptySlug(string $input, string $expected): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        $GLOBALS['dummyTable']['ctrl'] = [];
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             'dummyTable',
             'dummyField',
@@ -333,7 +336,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function sanitizeConvertsStringForPages(array $configuration, string $input, string $expected): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             'pages',
             'slug',
@@ -371,8 +375,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generateNeverDeliversEmptySlugForPages(string $input, string $expected): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        $GLOBALS['dummyTable']['ctrl'] = [];
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             'pages',
             'slug',
@@ -444,6 +448,92 @@ final class SlugHelperTest extends UnitTestCase
                     ],
                 ],
             ],
+            'title with slash and regex replace' => [
+                'Some Job in city1/city2 (m/w)',
+                '/parent-page/some-job-in-city1-city2',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'replacements' => [
+                            '/' => '-',
+                        ],
+                        'regexReplacements' => [
+                            '/\(.*\)/' => '',
+                        ],
+                    ],
+                ],
+            ],
+            'title with slash and regex replace using delim @' => [
+                'Some Job in city1/city2 (m/w)',
+                '/parent-page/some-job-in-city1-city2',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'regexReplacements' => [
+                            '@\(.*\)@' => '',
+                            '@/@' => '-',
+                        ],
+                    ],
+                ],
+            ],
+            'title with case insensitive regex replace' => [
+                'Product Cow',
+                '/parent-page/product-pig',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'regexReplacements' => [
+                            '/cow/i' => 'pig',
+                        ],
+                    ],
+                ],
+            ],
+            'regexp replaces multiple occurrences' => [
+                'Product Cow Tool - Cow specific tool products',
+                '/parent-page/product-pig-tool-pig-specific-tool-products',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'regexReplacements' => [
+                            '/cow/i' => 'pig',
+                        ],
+                    ],
+                ],
+            ],
+            'invalid regexp pattern ignores the replacement but does not emit errors' => [
+                'Product Cow',
+                '/parent-page/product-cow',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'regexReplacements' => [
+                            // invalid regexp pattern on purpose
+                            'cow/i' => 'pig',
+                        ],
+                    ],
+                ],
+            ],
+            'early invalid regexp pattern still executes subsequent regexp replacements' => [
+                'Product Cow - Enhances Persons capabilities',
+                '/parent-page/product-cow-enhances-animals-capabilities',
+                [
+                    'generatorOptions' => [
+                        'fields' => ['title'],
+                        'prefixParentPageSlug' => true,
+                        'regexReplacements' => [
+                            // invalid regexp pattern on purpose
+                            'cow/i' => 'pig',
+                            '/persons/i' => 'animals',
+                        ],
+                    ],
+                ],
+            ],
+
             'title with invalid characters' => [
                 'Products - Cows',
                 '/parent-page/products-cows',
@@ -471,8 +561,11 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generatePrependsSlugsForPages(string $input, string $expected, array $options): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        $GLOBALS['dummyTable']['ctrl'] = [];
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+
         $parentPage = [
             'uid' => '13',
             'pid' => '10',
@@ -491,7 +584,7 @@ final class SlugHelperTest extends UnitTestCase
             [13, $parentPage],
             [10, null],
         ];
-        $subject->expects(self::exactly(2))
+        $subject->expects($this->exactly(2))
             ->method('resolveParentPageRecord')
             ->willReturnCallback(function (int $pid) use (&$series): ?array {
                 $arguments = array_shift($series);
@@ -611,8 +704,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generateSlugWithNavTitleAndFallbackForPages(array $input, string $expected, array $options): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        $GLOBALS['dummyTable']['ctrl'] = [];
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             'pages',
             'slug',
@@ -633,7 +726,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generateSlugWithHookModifiers(): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $options = [];
         $options['fallbackCharacter'] = '-';
         $options['generatorOptions'] = [
@@ -684,10 +778,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generateSlugWithPid0(array $input, string $expected)
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        if (empty($GLOBALS[$input['table']]['ctrl'])) {
-            $GLOBALS[$input['table']]['ctrl'] = [];
-        }
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $subject = new SlugHelper(
             $input['table'],
             'title',
@@ -719,8 +811,8 @@ final class SlugHelperTest extends UnitTestCase
     #[Test]
     public function generatePrependsSlugsForNonPages(string $input, string $expected, array $options): void
     {
-        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter()));
-        $GLOBALS['dummyTable']['ctrl'] = [];
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(SlugNormalizer::class, new SlugNormalizer(new CharsetConverter(new CharsetProvider())));
         $parentPage = [
             'uid' => '0',
             'pid' => null,
@@ -734,7 +826,7 @@ final class SlugHelperTest extends UnitTestCase
                 $options,
             ]
         );
-        $subject->expects(self::any())
+        $subject->expects($this->any())
             ->method('resolveParentPageRecord')
             ->withAnyParameters()
             ->willReturn($parentPage);

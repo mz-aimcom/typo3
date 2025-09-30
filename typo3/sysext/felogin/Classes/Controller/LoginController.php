@@ -20,7 +20,6 @@ namespace TYPO3\CMS\FrontendLogin\Controller;
 use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Authentication\LoginType;
 use TYPO3\CMS\Core\Context\Context;
-use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Security\RequestToken;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -48,15 +47,12 @@ class LoginController extends ActionController
     protected string $loginType = '';
     protected string $redirectUrl = '';
     protected RedirectConfiguration $configuration;
-    protected UserAspect $userAspect;
 
     public function __construct(
         protected readonly RedirectHandler $redirectHandler,
         protected readonly Context $context,
         protected readonly PageRepository $pageRepository
-    ) {
-        $this->userAspect = $context->getAspect('frontend.user');
-    }
+    ) {}
 
     /**
      * Initialize redirects
@@ -121,7 +117,7 @@ class LoginController extends ActionController
      */
     public function overviewAction(bool $showLoginMessage = false): ResponseInterface
     {
-        if (!$this->userAspect->isLoggedIn()) {
+        if (!$this->context->getAspect('frontend.user')->isLoggedIn()) {
             return new ForwardResponse('login');
         }
         $this->eventDispatcher->dispatch(new LoginConfirmedEvent($this, $this->view, $this->request));
@@ -138,23 +134,14 @@ class LoginController extends ActionController
     }
 
     /**
-     * Show logout form
+     * Show logout form. Note, that this action should never process any redirects.
      */
-    public function logoutAction(int $redirectPageLogout = 0): ResponseInterface
+    public function logoutAction(): ResponseInterface
     {
-        if (($redirectResponse = $this->handleRedirect()) !== null) {
-            return $redirectResponse;
-        }
         $this->view->assignMultiple(
             [
                 'user' => $this->request->getAttribute('frontend.user')->user,
                 'noRedirect' => $this->isRedirectDisabled(),
-                'actionUri' => $this->redirectHandler->getLogoutFormRedirectUrl(
-                    $this->request,
-                    $this->configuration,
-                    $redirectPageLogout,
-                    $this->isRedirectDisabled()
-                ),
             ]
         );
         return $this->htmlResponse();
@@ -183,11 +170,9 @@ class LoginController extends ActionController
         if ($this->shouldRedirectToOverview()) {
             return (new ForwardResponse('overview'))->withArguments(['showLoginMessage' => true]);
         }
-
-        if ($this->userAspect->isLoggedIn()) {
-            return (new ForwardResponse('logout'))->withArguments(['redirectPageLogout' => $this->settings['redirectPageLogout']]);
+        if ($this->context->getAspect('frontend.user')->isLoggedIn()) {
+            return new ForwardResponse('logout');
         }
-
         return null;
     }
 
@@ -214,7 +199,7 @@ class LoginController extends ActionController
      */
     protected function shouldRedirectToOverview(): bool
     {
-        return $this->userAspect->isLoggedIn()
+        return $this->context->getAspect('frontend.user')->isLoggedIn()
                && (LoginType::tryFrom($this->loginType) === LoginType::LOGIN)
                && !($this->settings['showLogoutFormAfterLogin'] ?? 0);
     }
@@ -241,23 +226,23 @@ class LoginController extends ActionController
     }
 
     /**
-     * Is redirect disabled by setting or noredirect parameter
+     * Is redirect disabled by setting or noredirect GET/POST parameter
      */
-    public function isRedirectDisabled(): bool
+    protected function isRedirectDisabled(): bool
     {
         return
-            $this->request->hasArgument('noredirect')
+            (int)($this->request->getParsedBody()['noredirect'] ?? $this->request->getQueryParams()['noredirect'] ?? 0) === 1
             || ($this->settings['noredirect'] ?? false)
             || ($this->settings['redirectDisable'] ?? false);
     }
 
     protected function isLogoutSuccessful(): bool
     {
-        return LoginType::tryFrom($this->loginType) === LoginType::LOGOUT && !$this->userAspect->isLoggedIn();
+        return LoginType::tryFrom($this->loginType) === LoginType::LOGOUT && !$this->context->getAspect('frontend.user')->isLoggedIn();
     }
 
     protected function hasLoginErrorOccurred(): bool
     {
-        return LoginType::tryFrom($this->loginType) === LoginType::LOGIN && !$this->userAspect->isLoggedIn();
+        return LoginType::tryFrom($this->loginType) === LoginType::LOGIN && !$this->context->getAspect('frontend.user')->isLoggedIn();
     }
 }

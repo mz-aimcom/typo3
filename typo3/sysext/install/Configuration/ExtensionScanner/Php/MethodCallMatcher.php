@@ -5799,6 +5799,7 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-101175-VersionState.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Page\PageRenderer->loadRequireJs' => [
@@ -5840,6 +5841,7 @@ return [
         'maximumNumberOfArguments' => 0,
         'restFiles' => [
             'Deprecation-101475-IconSizeStringConstants.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Backend\Tree\View\LinkParameterProviderInterface->getScriptUrl' => [
@@ -6281,6 +6283,7 @@ return [
         'maximumNumberOfArguments' => 3,
         'restFiles' => [
             'Deprecation-102793-PageRepositoryEnableFields.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extensionmanager\Utility\InstallUtility->processExtensionSetup' => [
@@ -6297,6 +6300,7 @@ return [
         'restFiles' => [
             'Deprecation-102763-ExtbaseHashService.rst',
             'Breaking-102763-ExtbaseHashServiceUsageReplacedWithCoreHashService.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Security\Cryptography\HashService->appendHmac' => [
@@ -6305,6 +6309,7 @@ return [
         'restFiles' => [
             'Deprecation-102763-ExtbaseHashService.rst',
             'Breaking-102763-ExtbaseHashServiceUsageReplacedWithCoreHashService.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Security\Cryptography\HashService->validateHmac' => [
@@ -6313,6 +6318,7 @@ return [
         'restFiles' => [
             'Deprecation-102763-ExtbaseHashService.rst',
             'Breaking-102763-ExtbaseHashServiceUsageReplacedWithCoreHashService.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Extbase\Security\Cryptography\HashService->validateAndStripHmac' => [
@@ -6321,6 +6327,7 @@ return [
         'restFiles' => [
             'Deprecation-102763-ExtbaseHashService.rst',
             'Breaking-102763-ExtbaseHashServiceUsageReplacedWithCoreHashService.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Utility\DiffUtility->makeDiffDisplay' => [
@@ -6328,6 +6335,7 @@ return [
         'maximumNumberOfArguments' => 3,
         'restFiles' => [
             'Deprecation-104325-DiffUtility-makeDiffDisplay.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper->registerUniversalTagAttributes' => [
@@ -6356,6 +6364,168 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-104764-FluidTemplatePaths-fillDefaultsByPackageName.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->addCacheTags' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-102422-TypoScriptFrontendController-addCacheTags.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->getPageCacheTags' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-102422-TypoScriptFrontendController-addCacheTags.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\FileRepository->findFileReferenceByUid' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-101948-FileBasedAbstractRepositoryClassRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->conv' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->utf8_encode' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->utf8_decode' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->specCharsToASCII' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->sb_char_mapping' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Charset\CharsetConverter->euc_char_mapping' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-105695-SimplifiedCharsetConverter.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Collection\FileCollectionRegistry->addTypeToTCA' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 4,
+        'restFiles' => [
+            'Deprecation-107287-FileCollectionRegistryAddTypeToTCA.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->renderListRow' => [
+        'numberOfMandatoryArguments' => 5,
+        'maximumNumberOfArguments' => 5,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->makeControl' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->makeCheckbox' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->languageFlag' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->makeLocalizationPanel' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->linkWrapItems' => [
+        'numberOfMandatoryArguments' => 4,
+        'maximumNumberOfArguments' => 4,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->getPreviewUriBuilder' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->isRecordDeletePlaceholder' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Controller\RecordListController->getDocHeaderButtons' => [
+        'numberOfMandatoryArguments' => 6,
+        'maximumNumberOfArguments' => 6,
+        'restFiles' => [
+            'Breaking-107356-UseRecordAPIInListModule.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\ProcessedFile->generateProcessedFileNameWithoutExtension' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107397-CircularDependencyBetweenProcessedFileAndTaskRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\ProcessedFile->getTask' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107397-CircularDependencyBetweenProcessedFileAndTaskRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Form\Domain\Finishers\AbstractFinisher->getTypoScriptFrontendController' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107507-RemovedExtformAbstractFinisher-getTypoScriptFrontendController.rst',
+        ],
+    ],
+    /** Note (leave this at the bottom):
+     *  The FQCN object definitions here are not actually checked, only
+     *  the method name itself. That means, never list generic method names
+     *  in this scanner definition.
+     */
 ];

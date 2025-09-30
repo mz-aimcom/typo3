@@ -26,7 +26,6 @@ return [
         ],
         'useColumnsForDefaultValues' => 'usergroup,options,db_mountpoints,file_mountpoints,file_permissions,userMods',
         'versioningWS_alwaysAllowLiveEdit' => true,
-        'searchFields' => 'username,email,realName',
     ],
     'columns' => [
         'username' => [
@@ -39,6 +38,9 @@ return [
                 'eval' => 'nospace,trim,lower,unique',
                 'autocomplete' => false,
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'password' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.password',
@@ -48,6 +50,10 @@ return [
                 'size' => 20,
                 'required' => true,
             ],
+            'authenticationContext' => [
+                //'group' => 'be.userManagement',
+                'once' => true,
+            ],
         ],
         'mfa' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.mfa',
@@ -55,6 +61,9 @@ return [
                 // @todo Use a new internal TCA type to prevent raw data being displayed in the backend
                 'type' => 'none',
                 'renderType' => 'mfaInfo',
+            ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
             ],
         ],
         'usergroup' => [
@@ -87,6 +96,9 @@ return [
                     ],
                 ],
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'avatar' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.avatar',
@@ -97,13 +109,17 @@ return [
             ],
         ],
         'db_mountpoints' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_db_mounts',
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_page_tree_entry_points',
+            'description' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_page_tree_entry_points.description',
             'config' => [
                 'type' => 'group',
                 'allowed' => 'pages',
                 'size' => 3,
                 'maxitems' => 100,
                 'autoSizeMax' => 10,
+            ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
             ],
         ],
         'file_mountpoints' => [
@@ -138,12 +154,18 @@ return [
                     ],
                 ],
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'email' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.email',
             'config' => [
                 'type' => 'email',
                 'size' => 20,
+            ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
             ],
         ],
         'realName' => [
@@ -167,13 +189,16 @@ return [
                     ],
                 ],
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'options' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options',
             'config' => [
                 'type' => 'check',
                 'items' => [
-                    ['label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_db_mounts'],
+                    ['label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_page_tree_entry_points'],
                     ['label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.options_file_mounts'],
                 ],
                 'default' => 3,
@@ -208,9 +233,13 @@ return [
                 'maxitems' => 17,
                 'default' => 'readFolder,writeFolder,addFolder,renameFolder,moveFolder,deleteFolder,readFile,writeFile,addFile,renameFile,replaceFile,moveFile,copyFile,deleteFile',
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'workspace_perms' => [
             'displayCond' => 'USER:TYPO3\CMS\Core\Hooks\TcaDisplayConditions->isExtensionInstalled:workspaces',
+            'description' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:workspace_perms.description',
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:workspace_perms',
             'config' => [
                 'type' => 'check',
@@ -219,6 +248,9 @@ return [
                 'items' => [
                     ['label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:workspace_perms_live'],
                 ],
+            ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
             ],
         ],
         'lang' => [
@@ -246,6 +278,9 @@ return [
                 'autoSizeMax' => 50,
                 'maxitems' => 100,
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
         'allowed_languages' => [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:allowed_languages',
@@ -255,6 +290,9 @@ return [
                 'renderType' => 'selectCheckBox',
                 'itemsProcFunc' => \TYPO3\CMS\Core\Localization\TcaSystemLanguageCollector::class . '->populateAvailableSiteLanguages',
                 'dbFieldLength' => 255,
+            ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
             ],
         ],
         'TSconfig' => [
@@ -287,41 +325,82 @@ return [
                     ],
                 ],
             ],
+            'authenticationContext' => [
+                'group' => 'be.userManagement',
+            ],
         ],
     ],
     'types' => [
-        '0' => ['showitem' => '
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
-                admin, username, password, mfa, usergroup, lang, lastlogin,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
-                realName, email, avatar,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.permissions,
-                userMods, allowed_languages,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.mounts_and_workspaces,
-                workspace_perms, db_mountpoints, options, file_mountpoints, file_permissions, category_perms,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
-                TSconfig,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
-                disable, --palette--;;timeRestriction,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
-                description,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
-        '],
-        '1' => ['showitem' => '
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
-                admin, username, password, mfa, usergroup, lang, lastlogin,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
-                realName, email, avatar,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
-                TSconfig, db_mountpoints, options, file_mountpoints,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
-                disable, --palette--;;timeRestriction,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
-                description,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
-        '],
+        '0' => [
+            'showitem' => '
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                    --palette--;;account,
+                    usergroup,
+                    --palette--;;authentication,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
+                    realName, email, avatar, lang,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.permissionRecords,
+                    --palette--;;permissionLanguages,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.permissions,
+                    userMods, workspace_perms,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.mounts_and_workspaces,
+                    db_mountpoints, options, file_mountpoints, file_permissions, category_perms,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
+                    TSconfig,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                    --palette--;;status,
+                    --palette--;;timeRestriction,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                    description,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+            ',
+            'creationOptions' => [
+                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.types.user',
+            ],
+        ],
+        '1' => [
+            'showitem' => '
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                    --palette--;;account,
+                    usergroup,
+                    --palette--;;authentication,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
+                    realName, email, avatar, lang,
+                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
+                    TSconfig, db_mountpoints, options, file_mountpoints,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                    --palette--;;status,
+                    --palette--;;timeRestriction,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                    description,
+                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+            ',
+            'creationOptions' => [
+                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.types.admin',
+            ],
+        ],
     ],
     'palettes' => [
-        'timeRestriction' => ['showitem' => 'starttime, endtime'],
+        'account' => [
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.account',
+            'showitem' => '
+                admin,
+                --linebreak--, username, password
+            ',
+        ],
+        'authentication' => [
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.authentication',
+            'showitem' => 'mfa',
+        ],
+        'permissionLanguages' => [
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.permissionLanguages',
+            'showitem' => 'allowed_languages',
+        ],
+        'status' => [
+            'showitem' => 'disable, lastlogin',
+        ],
+        'timeRestriction' => [
+            'showitem' => 'starttime, endtime',
+        ],
     ],
 ];

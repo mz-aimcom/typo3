@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
+use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -27,15 +28,11 @@ class File extends AbstractFile
     /**
      * Contains the names of all properties that have been update since the
      * instantiation of this object
-     *
-     * @var array
      */
-    protected $updatedProperties = [];
+    protected array $updatedProperties = [];
+    private ?MetaDataAspect $metaDataAspect = null;
 
-    /**
-     * @var MetaDataAspect
-     */
-    private $metaDataAspect;
+    protected string $identifier;
 
     /**
      * Constructor for a file object. Should normally not be used directly, use
@@ -43,14 +40,19 @@ class File extends AbstractFile
      */
     public function __construct(array $fileData, ResourceStorage $storage, array $metaData = [])
     {
-        $this->identifier = $fileData['identifier'] ?? null;
+        $this->identifier = $fileData['identifier'] ?? '';
         $this->name = $fileData['name'] ?? '';
         $this->properties = $fileData;
         $this->storage = $storage;
 
-        if (!empty($metaData)) {
+        if ($metaData !== []) {
             $this->getMetaData()->add($metaData);
         }
+    }
+
+    public function getIdentifier(): string
+    {
+        return $this->identifier;
     }
 
     /*******************************
@@ -70,12 +72,60 @@ class File extends AbstractFile
     }
 
     /**
+     * Renames this file.
+     *
+     * @param non-empty-string $newName The new file name
+     */
+    public function rename(string $newName, DuplicationBehavior $conflictMode = DuplicationBehavior::RENAME): FileInterface
+    {
+        if ($this->deleted) {
+            throw new \RuntimeException('File has been deleted.', 1329821482);
+        }
+
+        return $this->getStorage()->renameFile($this, $newName, $conflictMode);
+    }
+
+    /**
+     * Copies this file into a target folder
+     * @param Folder $targetFolder Folder to copy file into.
+     * @param string|null $targetFileName an optional destination fileName
+     *
+     * @return self The new (copied) file.
+     * @throws \RuntimeException
+     */
+    public function copyTo(Folder $targetFolder, ?string $targetFileName = null, DuplicationBehavior $conflictMode = DuplicationBehavior::RENAME): FileInterface
+    {
+        if ($this->deleted) {
+            throw new \RuntimeException('File has been deleted.', 1329821483);
+        }
+
+        return $targetFolder->getStorage()->copyFile($this, $targetFolder, $targetFileName, $conflictMode);
+    }
+
+    /**
+     * Moves the file into the target folder
+     *
+     * @param Folder $targetFolder Folder to move file into.
+     * @param string|null $targetFileName an optional destination fileName
+     * @param DuplicationBehavior $conflictMode
+     *
+     * @return FileInterface This file object, with updated properties.
+     * @throws \RuntimeException
+     */
+    public function moveTo(Folder $targetFolder, ?string $targetFileName = null, DuplicationBehavior $conflictMode = DuplicationBehavior::RENAME): FileInterface
+    {
+        if ($this->deleted) {
+            throw new \RuntimeException('File has been deleted.', 1329821484);
+        }
+
+        return $targetFolder->getStorage()->moveFile($this, $targetFolder, $targetFileName, $conflictMode);
+    }
+
+    /**
      * Checks if the file has a (metadata) property which
      * can be retrieved by "getProperty"
-     *
-     * @param string $key
      */
-    public function hasProperty($key): bool
+    public function hasProperty(string $key): bool
     {
         if (!parent::hasProperty($key)) {
             return isset($this->getMetaData()[$key]);
@@ -151,10 +201,9 @@ class File extends AbstractFile
      *
      * NOTE: This method should not be called from outside the File Abstraction Layer (FAL)!
      *
-     * @param array $properties
      * @internal
      */
-    public function updateProperties(array $properties)
+    public function updateProperties(array $properties): void
     {
         // Setting identifier and name to update values; we have to do this
         // here because we might need a new identifier when loading
@@ -190,10 +239,8 @@ class File extends AbstractFile
 
     /**
      * Returns the names of all properties that have been updated in this record
-     *
-     * @return array
      */
-    public function getUpdatedProperties()
+    public function getUpdatedProperties(): array
     {
         return $this->updatedProperties;
     }
@@ -205,9 +252,8 @@ class File extends AbstractFile
      * Check if a file operation (= action) is allowed for this file
      *
      * @param string $action can be read, write, delete
-     * @return bool
      */
-    public function checkActionPermission($action)
+    public function checkActionPermission(string $action): bool
     {
         return $this->getStorage()->checkFileActionPermission($action, $this);
     }
@@ -222,7 +268,7 @@ class File extends AbstractFile
      *
      * @return string the MD5 hash
      */
-    public function calculateChecksum()
+    public function calculateChecksum(): string
     {
         return md5(
             $this->getCombinedIdentifier() . '|' .
@@ -277,18 +323,12 @@ class File extends AbstractFile
         return $array;
     }
 
-    /**
-     * @return bool
-     */
-    public function isMissing()
+    public function isMissing(): bool
     {
         return (bool)$this->getProperty('missing');
     }
 
-    /**
-     * @param bool $missing
-     */
-    public function setMissing($missing)
+    public function setMissing(bool $missing): void
     {
         $this->updateProperties(['missing' => $missing ? 1 : 0]);
     }
@@ -309,11 +349,9 @@ class File extends AbstractFile
     }
 
     /**
-     * @param string $key
      * @internal Only for use in Repositories and indexer
-     * @return mixed
      */
-    public function _getPropertyRaw($key)
+    public function _getPropertyRaw(string $key): mixed
     {
         return parent::getProperty($key);
     }

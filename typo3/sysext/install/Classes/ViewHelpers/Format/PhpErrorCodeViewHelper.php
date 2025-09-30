@@ -17,20 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\ViewHelpers\Format;
 
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Transform PHP error code to readable text
+ * ViewHelper to transform a PHP error code to readable text
+ *
+ * ```
+ *   <i:format.phpErrorCode phpErrorCode="{someErrorCodeIntegerValue}" />
+ * ```
  *
  * @internal
  */
 final class PhpErrorCodeViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
-    protected static array $levelNames = [
+    private static array $levelNames = [
         E_ERROR => 'E_ERROR',
         E_WARNING => 'E_WARNING',
         E_PARSE => 'E_PARSE',
@@ -42,10 +42,13 @@ final class PhpErrorCodeViewHelper extends AbstractViewHelper
         E_USER_ERROR => 'E_USER_ERROR',
         E_USER_WARNING => 'E_USER_WARNING',
         E_USER_NOTICE => 'E_USER_NOTICE',
-        E_STRICT => 'E_STRICT',
         E_RECOVERABLE_ERROR => 'E_RECOVERABLE_ERROR',
         E_DEPRECATED => 'E_DEPRECATED',
         E_USER_DEPRECATED => 'E_USER_DEPRECATED',
+        // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
+        //        and only kept here here because possible custom PHP extensions may still use it.
+        //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
+        2048 /* deprecated E_STRICT */ => 'PHP Runtime Notice',
     ];
 
     public function initializeArguments(): void
@@ -56,9 +59,9 @@ final class PhpErrorCodeViewHelper extends AbstractViewHelper
     /**
      * Render a readable string for PHP error code.
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $phpErrorCode = (int)$arguments['phpErrorCode'];
+        $phpErrorCode = (int)$this->arguments['phpErrorCode'];
         $levels = [];
         if (($phpErrorCode & E_ALL) == E_ALL) {
             $levels[] = 'E_ALL';
@@ -69,12 +72,10 @@ final class PhpErrorCodeViewHelper extends AbstractViewHelper
                 $levels[] = $name;
             }
         }
-
         $output = '';
         if (!empty($levels)) {
             $output = implode(' | ', $levels);
         }
-
         return $output;
     }
 }

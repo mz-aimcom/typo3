@@ -191,6 +191,7 @@ final class DatabaseRecordTypeValueTest extends UnitTestCase
     public function addDataSetsRecordTypeValueToZeroIfValueOfDatabaseFieldIsEmptyString(): void
     {
         $input = [
+            'tableName' => 'aTable',
             'recordTypeValue' => '',
             'processedTca' => [
                 'ctrl' => [
@@ -327,7 +328,7 @@ final class DatabaseRecordTypeValueTest extends UnitTestCase
             'foreignField' => 3,
         ];
 
-        $this->subject->expects(self::once())
+        $this->subject->expects($this->once())
             ->method('getDatabaseRow')
             ->with('foreignTable', 42, 'foreignField')
             ->willReturn($foreignRecordResult);
@@ -375,7 +376,7 @@ final class DatabaseRecordTypeValueTest extends UnitTestCase
             'type' => 2,
         ];
 
-        $this->subject->expects(self::once())
+        $this->subject->expects($this->once())
             ->method('getDatabaseRow')
             ->with('sys_file', 222, 'type')
             ->willReturn($foreignRecordResult);

@@ -6,7 +6,6 @@ return [
         'descriptionColumn' => 'description',
         'tstamp' => 'tstamp',
         'sortby' => 'sorting',
-        'default_sortby' => 'title',
         'prependAtCopy' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.prependAtCopy',
         'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:sys_filemounts',
         'adminOnly' => true,
@@ -20,7 +19,6 @@ return [
             'default' => 'mimetypes-x-sys_filemounts',
         ],
         'versioningWS_alwaysAllowLiveEdit' => true,
-        'searchFields' => 'title,path',
     ],
     'columns' => [
         'title' => [

@@ -21,6 +21,9 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\DataHandling\History\RecordHistoryStore;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -32,54 +35,37 @@ class RecordHistory
 {
     /**
      * Maximum number of sys_history steps to show.
-     *
-     * @var int
      */
-    protected $maxSteps = 20;
+    protected int $maxSteps = 20;
 
     /**
      * On a pages table - show sub elements as well.
-     *
-     * @var bool
      */
-    protected $showSubElements = true;
+    protected bool $showSubElements = true;
 
     /**
      * Element reference, syntax [tablename]:[uid]
-     *
-     * @var string
      */
-    protected $element;
+    protected string $element = '';
 
     /**
      * sys_history uid which is selected
-     *
-     * @var int
      */
-    protected $lastHistoryEntry = 0;
+    protected int $lastHistoryEntry = 0;
 
     /**
      * Internal cache
-     * @var array
      */
-    protected $pageAccessCache = [];
-
-    /**
-     * Either "table:uid" or "table:uid:field" to know which data should be rolled back
-     * @var string
-     */
-    protected $rollbackFields = '';
+    protected array $pageAccessCache = [];
 
     /**
      * Constructor to define which element to work on - can be overridden with "setLastHistoryEntryNumber"
      *
      * @param string $element in the form of "tablename:uid"
-     * @param string $rollbackFields
      */
-    public function __construct($element = '', $rollbackFields = '')
+    public function __construct($element = '')
     {
         $this->element = $this->sanitizeElementValue((string)$element);
-        $this->rollbackFields = $this->sanitizeRollbackFieldsValue((string)$rollbackFields);
     }
 
     /**
@@ -139,7 +125,7 @@ class RecordHistory
      */
     public function getElementString(): string
     {
-        return (string)$this->element;
+        return $this->element;
     }
 
     /*******************************
@@ -205,7 +191,7 @@ class RecordHistory
         $historyDataForRecord = $this->getHistoryDataForRecord($table, $uid, $lastHistoryEntry);
         // get history of tables of this page and merge it into changelog
         if ($table === 'pages' && $includeSubEntries && $this->hasPageAccess('pages', $uid)) {
-            foreach ($GLOBALS['TCA'] as $tablename => $value) {
+            foreach ($this->getTcaSchemaFactory()->all()->getNames() as $tablename) {
                 // check if there are records on the page
                 $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($tablename);
                 $queryBuilder->getRestrictions()->removeAll();
@@ -223,10 +209,8 @@ class RecordHistory
                 while ($row = $result->fetchAssociative()) {
                     // if there is history data available, merge it into changelog
                     $newChangeLog = $this->getHistoryDataForRecord($tablename, $row['uid'], $lastHistoryEntry);
-                    if (is_array($newChangeLog) && !empty($newChangeLog)) {
-                        foreach ($newChangeLog as $key => $newChangeLogEntry) {
-                            $historyDataForRecord[$key] = $newChangeLogEntry;
-                        }
+                    foreach ($newChangeLog as $key => $newChangeLogEntry) {
+                        $historyDataForRecord[$key] = $newChangeLogEntry;
                     }
                 }
             }
@@ -254,7 +238,7 @@ class RecordHistory
      */
     public function getHistoryDataForRecord(string $table, int $uid, ?int $lastHistoryEntry = null): array
     {
-        if (empty($GLOBALS['TCA'][$table]) || !$this->hasTableAccess($table) || !$this->hasPageAccess($table, $uid)) {
+        if (!$this->getTcaSchemaFactory()->has($table) || !$this->hasTableAccess($table) || !$this->hasPageAccess($table, $uid)) {
             return [];
         }
 
@@ -267,7 +251,7 @@ class RecordHistory
      */
     public function getUserIdFromDeleteActionForRecord(string $table, int $uid): int
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_history');
+        $queryBuilder = $this->getQueryBuilder();
         $queryBuilder->select('userid')
             ->from('sys_history')
             ->where(
@@ -308,8 +292,11 @@ class RecordHistory
      */
     protected function resolveElement(string $table, int $uid): int
     {
-        if (isset($GLOBALS['TCA'][$table])
-            && $workspaceVersion = BackendUtility::getWorkspaceVersionOfRecord($this->getBackendUser()->workspace, $table, $uid, 'uid')) {
+        if (!$this->getTcaSchemaFactory()->has($table)) {
+            return $uid;
+        }
+        $workspaceVersion = BackendUtility::getWorkspaceVersionOfRecord($this->getBackendUser()->workspace, $table, $uid, 'uid');
+        if ($workspaceVersion) {
             $uid = $workspaceVersion['uid'];
         }
         return $uid;
@@ -353,25 +340,6 @@ class RecordHistory
             ->executeQuery()
             ->fetchAssociative();
         return $result ?: null;
-    }
-
-    /**
-     * Fetches the history entry for an ADD/creation action for a list of records
-     * @internal only to be used in TYPO3 Core
-     */
-    public function getCreationInformationForMultipleRecords(string $table, array $recordIds): array
-    {
-        $queryBuilder = $this->getQueryBuilder();
-        return $queryBuilder
-            ->select('*')
-            ->from('sys_history')
-            ->where(
-                $queryBuilder->expr()->eq('tablename', $queryBuilder->createNamedParameter($table)),
-                $queryBuilder->expr()->in('recuid', $queryBuilder->createNamedParameter($recordIds, Connection::PARAM_INT_ARRAY)),
-                $queryBuilder->expr()->eq('actiontype', $queryBuilder->createNamedParameter(RecordHistoryStore::ACTION_ADD, Connection::PARAM_INT))
-            )
-            ->executeQuery()
-            ->fetchAllAssociative();
     }
 
     /**
@@ -436,6 +404,9 @@ class RecordHistory
             if ($actionType === RecordHistoryStore::ACTION_DELETE) {
                 $row['action'] = 'delete';
             }
+            if ($actionType === RecordHistoryStore::ACTION_PUBLISH) {
+                $row['action'] = 'publish';
+            }
             if ($row['history_data'] === null) {
                 $events[$identifier] = $row;
                 continue;
@@ -460,14 +431,10 @@ class RecordHistory
 
     /**
      * Determines whether user has access to a page.
-     *
-     * @param string $table
-     * @param int $uid
      */
-    protected function hasPageAccess($table, $uid): bool
+    protected function hasPageAccess(string $table, int $uid): bool
     {
         $pageRecord = null;
-        $uid = (int)$uid;
 
         if ($table === 'pages') {
             $pageId = $uid;
@@ -476,16 +443,18 @@ class RecordHistory
             $pageId = ($record['pid'] ?? 0);
         }
 
-        if ($pageId === 0 && ($GLOBALS['TCA'][$table]['ctrl']['security']['ignoreRootLevelRestriction'] ?? false)) {
+        $schema = $this->getTcaSchema($table);
+
+        if ($pageId === 0 && ($schema?->getCapability(TcaSchemaCapability::RestrictionRootLevel)->shallIgnoreRootLevelRestriction() ?? false)) {
             return true;
         }
 
         if (!isset($this->pageAccessCache[$pageId])) {
             $isDeletedPage = false;
-            if (isset($GLOBALS['TCA']['pages']['ctrl']['delete'])) {
-                $deletedField = $GLOBALS['TCA']['pages']['ctrl']['delete'];
-                $fields = 'pid,' . $deletedField;
-                $pageRecord = BackendUtility::getRecord('pages', $pageId, $fields, '', false);
+            $pageSchema = $this->getTcaSchemaFactory()->get('pages');
+            if ($pageSchema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+                $deletedField = $pageSchema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
+                $pageRecord = BackendUtility::getRecord('pages', $pageId, '*', '', false);
                 $isDeletedPage = (bool)($pageRecord[$deletedField] ?? false);
             }
             if ($isDeletedPage) {
@@ -523,22 +492,9 @@ class RecordHistory
     }
 
     /**
-     * Evaluates if the rollback field is correct
-     */
-    protected function sanitizeRollbackFieldsValue(string $value): string
-    {
-        if ($value !== '' && !preg_match('#^[a-z\d_.]+(:[\d]+(:[a-z\d_.]+)?)?$#i', $value)) {
-            return '';
-        }
-        return $value;
-    }
-
-    /**
      * Determines whether user has access to a table.
-     *
-     * @param string $table
      */
-    protected function hasTableAccess($table): bool
+    protected function hasTableAccess(string $table): bool
     {
         return $this->getBackendUser()->check('tables_select', $table);
     }
@@ -552,6 +508,20 @@ class RecordHistory
     {
         return GeneralUtility::makeInstance(ConnectionPool::class)
             ->getQueryBuilderForTable('sys_history');
+    }
+
+    protected function getTcaSchemaFactory(): TcaSchemaFactory
+    {
+        return GeneralUtility::makeInstance(TcaSchemaFactory::class);
+    }
+
+    protected function getTcaSchema(string $table): ?TcaSchema
+    {
+        $schemaFactory = $this->getTcaSchemaFactory();
+        if ($schemaFactory->has($table)) {
+            return $schemaFactory->get($table);
+        }
+        return null;
     }
 
     protected function updateCurrentElement(): void

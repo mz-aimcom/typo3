@@ -163,6 +163,11 @@ final class HtmlViewHelperTest extends FunctionalTestCase
                 '<a href="t3://page?uid=9876">visit</a>',
                 'visit',
             ],
+            't3-page invalid uid anchor ("removeEnclosure") nested' => [
+                'removeEnclosure',
+                '<p>Previously <a href="t3://page?uid=9876">visit <span>more</span> than</a> you think</p>',
+                '<p>Previously visit <span>more</span> than you think</p>',
+            ],
             't3-page invalid uid anchor ("removeTag")' => [
                 'removeTag',
                 '<a href="t3://page?uid=9876">visit</a>',
@@ -197,5 +202,13 @@ final class HtmlViewHelperTest extends FunctionalTestCase
             $payload
         ));
         self::assertSame($expectation, (new TemplateView($context))->render());
+    }
+
+    #[Test]
+    public function isTransformedWithIntegerTagContent(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:transform.html>4711</f:transform.html></f:for>');
+        self::assertSame('4711', (new TemplateView($context))->render());
     }
 }

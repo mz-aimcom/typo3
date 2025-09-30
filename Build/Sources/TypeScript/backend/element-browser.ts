@@ -41,10 +41,7 @@ declare global {
  */
 class ElementBrowser {
   private opener: Window = null;
-  private formFieldName: string = '';
   private fieldReference: string = '';
-  private targetDoc: Window;
-  private elRef: Element;
   private readonly rte: RTESettings = {
     parameters: '',
     configuration: '',
@@ -56,7 +53,6 @@ class ElementBrowser {
   constructor() {
     DocumentService.ready().then((): void => {
       const data = document.body.dataset;
-      this.formFieldName = data.formFieldName;
       this.fieldReference = data.fieldReference;
       this.rte.parameters = data.rteParameters;
       this.rte.configuration = data.rteConfiguration;
@@ -64,23 +60,31 @@ class ElementBrowser {
     });
   }
 
-  public setReferences(): boolean {
-    if (this.getParent() && this.getParent().content && this.getParent().content.document.editform
-      && this.getParent().content.document.editform[this.formFieldName]) {
-      this.targetDoc = this.getParent().content.document;
-      this.elRef = this.targetDoc.editform[this.formFieldName];
-      return true;
-    } else {
-      return false;
-    }
-  }
-
   /**
    * Returns the parent document object
    */
   public getParent(): Window | null {
+    const isInModalFrame = typeof window.frames !== 'undefined'
+      && typeof window.frames.frameElement !== 'undefined'
+      && window.frames.frameElement.classList.contains('t3js-modal-iframe');
+    const otherModalFrames = Array.from(top.frames || []).filter((item: Window) => {
+      try {
+        return typeof item.frameElement !== 'undefined'
+          && item.frameElement.classList.contains('t3js-modal-iframe')
+          && item.frameElement !== window.frames.frameElement;
+      } catch {
+        // browser extensions might inject their own frames, resulting in
+        // `DOMException: Permission denied to access property "document" on cross-origin object`
+        return false;
+      }
+    });
+
     if (this.opener === null) {
-      if (
+      // in case the current modal frame was triggered by another modal frame
+      // (which is NOT the parent element in the DOM)
+      if (isInModalFrame && otherModalFrames.length > 0) {
+        this.opener = otherModalFrames.pop();
+      } else if (
         typeof window.parent !== 'undefined' &&
         typeof window.parent.document.list_frame !== 'undefined' &&
         window.parent.document.list_frame.parent.document.querySelector('.t3js-modal-iframe') !== null
@@ -130,7 +134,9 @@ class ElementBrowser {
       }
 
       if (close) {
-        this.focusOpenerAndClose();
+        // // > After postMessage() is called, the MessageEvent will be dispatched only after all pending execution contexts have finished.
+        // // See: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage#notes
+        setTimeout(() => this.focusOpenerAndClose(), 0);
       }
 
       return true;
@@ -162,7 +168,9 @@ class ElementBrowser {
       MessageUtility.send(message, this.getParent());
 
       if (close) {
-        this.focusOpenerAndClose();
+        // > After postMessage() is called, the MessageEvent will be dispatched only after all pending execution contexts have finished.
+        // See: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage#notes
+        setTimeout(() => this.focusOpenerAndClose(), 0);
       }
     } else {
       alert('Error - reference to main window is not set properly!');

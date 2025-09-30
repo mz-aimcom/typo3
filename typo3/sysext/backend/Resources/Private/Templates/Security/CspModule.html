@@ -6,18 +6,37 @@
 
 <f:layout name="Module" />
 
+<f:section name="Before">
+    <f:asset.module identifier="@typo3/backend/security/element/csp-reports.js"/>
+</f:section>
+
 <f:section name="Content">
-
-    <f:be.pageRenderer
-        includeJavaScriptModules="{
-            0: '@typo3/backend/security/element/csp-reports.js'
-        }"
-    />
-    <h1>Content Security Policy</h1>
-
+    <h1><f:translate key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.headline" /></h1>
+    <p>
+        <f:if condition="{extLowlevelAvailable}">
+            <f:then>
+                <f:variable name="moduleLink">
+                    <f:be.link route="system_config" parameters="{tree: 'contentSecurityPolicyMutations'}"><f:translate key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.introtext.moduleName" /></f:be.link>
+                </f:variable>
+                <f:sanitize.html>
+                    <f:translate
+                        key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.introtext"
+                        arguments="{0: '{moduleLink}'}" />
+                </f:sanitize.html>
+            </f:then>
+            <f:else>
+                <f:translate
+                    key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.introtextLowlevelMissing"
+                    arguments="{0: '{f:translate(key:\'LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.introtext.moduleName\')}'}" />
+            </f:else>
+        </f:if>
+    </p>
 
     <f:if condition="{configurationStatus.featureDisabled.backend} || {configurationStatus.featureDisabled.frontend}">
-        <f:be.infobox state="{f:constant(name: 'TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper::STATE_INFO')}">
+        <f:be.infobox
+            state="{f:constant(name: 'TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper::STATE_INFO')}"
+            title="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.callout.featureDisabled.title')}"
+        >
             <p>
                 <f:translate key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.callout.featureDisabled.message" />
             </p>
@@ -32,7 +51,10 @@
     </f:if>
 
     <f:if condition="{configurationStatus.customReporting.BE} || {configurationStatus.customReporting.FE}">
-        <f:be.infobox state="{f:constant(name: 'TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper::STATE_INFO')}">
+        <f:be.infobox
+            state="{f:constant(name: 'TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper::STATE_INFO')}"
+            title="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.callout.customReporting.title')}"
+        >
             <p>
                 <f:translate key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.callout.customReporting.message" />
             </p>

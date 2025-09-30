@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import DocumentService from '@typo3/core/document-service';
 import Modal from '@typo3/backend/modal';
@@ -22,11 +22,11 @@ import '@typo3/workspaces/renderable/send-to-stage-form';
 import RegularEvent from '@typo3/core/event/regular-event';
 
 enum Identifiers {
-  topbar = '#typo3-topbar',
-  workspacePanel = '.workspace-panel',
-  liveView = '#live-view',
-  stageSlider = '#workspace-stage-slider',
-  workspaceView = '#workspace-view',
+  topbar = '.t3js-workspace-topbar',
+  stageSliderContainer = '.t3js-stage-slider-container',
+  stageSlider = '.t3js-stage-slider',
+  liveView = '.t3js-workspace-view-live',
+  workspaceView = '.t3js-workspace-view-workspace',
   sendToStageAction = '[data-action="send-to-stage"]',
   discardAction = '[data-action="discard"]',
   stageButtonsContainer = '.t3js-stage-buttons',
@@ -50,17 +50,8 @@ class Preview extends Workspaces {
       this.getElements();
       this.resizeViews();
       this.registerEvents();
+      this.initStageButtons();
     });
-  }
-
-  /**
-   * Calculate the available space based on the viewport height
-   */
-  private static getAvailableSpace(): number {
-    const viewportHeight = document.documentElement.clientHeight;
-    const topbarHeight = (document.querySelector(Identifiers.topbar) as HTMLElement).offsetHeight;
-
-    return viewportHeight - topbarHeight;
   }
 
   /**
@@ -68,7 +59,7 @@ class Preview extends Workspaces {
    */
   private getElements(): void {
     this.elements.liveView = document.querySelector(Identifiers.liveView) as HTMLElement;
-    this.elements.workspacePanel = document.querySelector(Identifiers.workspacePanel) as HTMLElement;
+    this.elements.stageSliderContainer = document.querySelector(Identifiers.stageSliderContainer) as HTMLElement;
     this.elements.stageSlider = document.querySelector(Identifiers.stageSlider) as HTMLElement;
     this.elements.workspaceView = document.querySelector(Identifiers.workspaceView) as HTMLElement;
     this.elements.stageButtonsContainer = document.querySelector(Identifiers.stageButtonsContainer) as HTMLElement;
@@ -101,6 +92,14 @@ class Preview extends Workspaces {
     new RegularEvent('click', this.changePreviewMode.bind(this)).delegateTo(this.elements.previewModeContainer, '[data-preview-mode]');
   }
 
+  private initStageButtons(): void {
+    this.sendRemoteRequest([
+      this.generateRemotePayloadBody('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
+    ], Identifiers.topbar).then(async (response: AjaxResponse): Promise<void> => {
+      this.renderStageButtons((await response.resolve())[0].result);
+    });
+  }
+
   /**
    * Renders the staging buttons
    */
@@ -120,15 +119,8 @@ class Preview extends Workspaces {
    * Resize the views based on the current viewport height and slider position
    */
   private resizeViews(): void {
-    const availableSpace = Preview.getAvailableSpace();
-    const relativeHeightOfLiveView = (this.currentSlidePosition - 100) * -1;
-    const absoluteHeightOfLiveView = Math.round(Math.abs(availableSpace * relativeHeightOfLiveView / 100));
-    const outerHeightDifference = this.elements.liveView.offsetHeight - this.elements.liveView.clientHeight;
-
-    this.elements.workspacePreview.style.height = availableSpace + 'px';
-
     if (this.elements.activePreviewMode.dataset.activePreviewMode === 'slider') {
-      this.elements.liveView.style.height = (absoluteHeightOfLiveView - outerHeightDifference) + 'px';
+      this.elements.liveView.style.height = (100 - this.currentSlidePosition) + '%';
     }
   }
 
@@ -160,9 +152,9 @@ class Preview extends Workspaces {
     modal.addEventListener('button.clicked', (e: Event): void => {
       if ((e.target as HTMLButtonElement).name === 'ok') {
         this.sendRemoteRequest([
-          this.generateRemoteActionsPayload('discardStagesFromPage', [TYPO3.settings.Workspaces.id]),
-          this.generateRemoteActionsPayload('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
-        ], '#typo3-topbar').then(async (response: AjaxResponse): Promise<void> => {
+          this.generateRemotePayloadBody('discardStagesFromPage', [TYPO3.settings.Workspaces.id]),
+          this.generateRemotePayloadBody('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
+        ], Identifiers.topbar).then(async (response: AjaxResponse): Promise<void> => {
           modal.hideModal();
           this.renderStageButtons((await response.resolve())[1].result);
           // Reloading live view IFRAME
@@ -188,8 +180,8 @@ class Preview extends Workspaces {
     }
 
     this.sendRemoteRequest(
-      this.generateRemoteActionsPayload(actionName, [TYPO3.settings.Workspaces.id]),
-      '#typo3-topbar'
+      this.generateRemotePayloadBody(actionName, [TYPO3.settings.Workspaces.id]),
+      Identifiers.topbar
     ).then(async (response: AjaxResponse): Promise<void> => {
       const resolvedResponse = await response.resolve();
       const modal = this.renderSendToStageWindow(resolvedResponse);
@@ -199,13 +191,11 @@ class Preview extends Workspaces {
           const serializedForm = Utility.convertFormToObject(modal.querySelector('form'));
           serializedForm.affects = resolvedResponse[0].result.affects;
           serializedForm.stageId = parseInt(target.dataset.stageId, 10);
-
           this.sendRemoteRequest([
-            this.generateRemoteActionsPayload('sentCollectionToStage', [serializedForm]),
-            this.generateRemoteActionsPayload('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
-          ], '#typo3-topbar').then(async (updateResponse: AjaxResponse): Promise<void> => {
+            this.generateRemotePayloadBody('sendCollectionToStage', [serializedForm]),
+            this.generateRemotePayloadBody('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
+          ], Identifiers.topbar).then(async (updateResponse: AjaxResponse): Promise<void> => {
             modal.hideModal();
-
             this.renderStageButtons((await updateResponse.resolve())[1].result);
           });
         }
@@ -224,20 +214,15 @@ class Preview extends Workspaces {
 
     this.elements.activePreviewMode.textContent = target.textContent;
     this.elements.activePreviewMode.dataset.activePreviewMode = newPreviewMode;
-    this.elements.workspacePreview.parentElement.classList.remove('preview-mode-' + currentPreviewMode)
-    this.elements.workspacePreview.parentElement.classList.add('preview-mode-' + newPreviewMode);
+    this.elements.workspacePreview.classList.remove('typo3-workspace-preview-' + currentPreviewMode);
+    this.elements.workspacePreview.classList.add('typo3-workspace-preview-' + newPreviewMode);
 
     if (newPreviewMode === 'slider') {
-      this.elements.stageSlider.parentElement.style.display = '';
+      this.elements.stageSliderContainer.style.display = '';
       this.resizeViews();
     } else {
-      this.elements.stageSlider.parentElement.style.display = 'none';
-
-      if (newPreviewMode === 'vbox') {
-        this.elements.liveView.style.height = '100%';
-      } else {
-        this.elements.liveView.style.height = '50%';
-      }
+      this.elements.stageSliderContainer.style.display = 'none';
+      this.elements.liveView.style.height = '';
     }
   }
 }

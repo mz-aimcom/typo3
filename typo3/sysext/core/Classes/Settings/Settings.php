@@ -20,21 +20,21 @@ namespace TYPO3\CMS\Core\Settings;
 /**
  * @internal
  */
-readonly class Settings implements SettingsInterface
+final readonly class Settings implements SettingsInterface
 {
     public function __construct(
-        protected array $settings,
+        private array $settings,
     ) {}
 
     public function has(string $identifier): bool
     {
-        return isset($this->settings[$identifier]);
+        return array_key_exists($identifier, $this->settings);
     }
 
     public function get(string $identifier): mixed
     {
         if (!$this->has($identifier)) {
-            throw new \InvalidArgumentException('Setting does not exist', 1709555772);
+            throw new SettingNotFoundException('Setting does not exist', 1709555772);
         }
         return $this->settings[$identifier];
     }
@@ -44,8 +44,8 @@ readonly class Settings implements SettingsInterface
         return array_keys($this->settings);
     }
 
-    public static function __set_state(array $state): self
+    public static function __set_state(array $state): static
     {
-        return new self(...$state);
+        return new static(...$state);
     }
 }

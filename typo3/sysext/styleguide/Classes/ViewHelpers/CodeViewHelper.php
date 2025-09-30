@@ -24,18 +24,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
- * ViewHelper for rendering a code example
+ * ViewHelper for rendering a code example.
  *
- * Examples
- * ========
- *
- * Simple:
- *
- *    <sg:code language="html">your code</sg:code>
- *
- * All options:
- *
+ * ```
  *    <sg:code language="html" decodeEntities="true" disableOuterWrap="true">your code</sg:code>
+ * ```
  *
  * @internal
  */
@@ -51,12 +44,11 @@ final class CodeViewHelper extends AbstractViewHelper
      */
     protected $escapeChildren = false;
 
-    protected PageRenderer $pageRenderer;
-
-    public function injectPageRenderer(PageRenderer $pageRenderer): void
-    {
-        $this->pageRenderer = $pageRenderer;
-    }
+    public function __construct(
+        private readonly PageRenderer $pageRenderer,
+        private readonly CodeEditor $codeEditor,
+        private readonly ModeRegistry $modeRegistry,
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -69,7 +61,7 @@ final class CodeViewHelper extends AbstractViewHelper
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/code-editor/element/code-mirror-element.js');
         // Compile and register code editor configuration
-        GeneralUtility::makeInstance(CodeEditor::class)->registerConfiguration();
+        $this->codeEditor->registerConfiguration();
 
         $content = $this->renderChildren();
         $_lines = explode("\n", $content);
@@ -85,15 +77,14 @@ final class CodeViewHelper extends AbstractViewHelper
         foreach ($lines as $line) {
             $tmp = substr($line, $indentSize) ?: '';
             $spaces = strlen($tmp) - strlen(ltrim($tmp));
-            $contentLines[] = str_repeat('  ', $spaces) . ltrim($line);
+            $contentLines[] = str_repeat(' ', $spaces) . ltrim($line);
         }
         $content = implode(chr(10), $contentLines);
 
-        $registry = GeneralUtility::makeInstance(ModeRegistry::class);
-        if ($registry->isRegistered($this->arguments['language'])) {
-            $mode = $registry->getByFormatCode($this->arguments['language']);
+        if ($this->modeRegistry->isRegistered($this->arguments['language'])) {
+            $mode = $this->modeRegistry->getByFormatCode($this->arguments['language']);
         } else {
-            $mode = $registry->getDefaultMode();
+            $mode = $this->modeRegistry->getDefaultMode();
         }
 
         $codeMirrorConfig = [

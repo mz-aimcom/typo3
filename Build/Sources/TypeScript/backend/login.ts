@@ -14,8 +14,10 @@
 import 'bootstrap';
 import '@typo3/backend/input/clearable';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import RegularEvent from '@typo3/core/event/regular-event';
+import PastedPasswordChecker from '@typo3/backend/login/pasted-password-checker';
+import DocumentService from '@typo3/core/document-service';
 
 interface PreflightResponse {
   capabilities: PreflightResponseCapabilities;
@@ -42,12 +44,15 @@ class BackendLogin {
       error: '.t3js-login-error',
       errorNoCookies: '.t3js-login-error-nocookies',
       errorNoReferrer: '.t3js-login-error-noreferrer',
+      warningPasswordWhitespace: '.t3js-login-warning-password-whitespace',
+      warningPasswordWhitespaceActionLink: '.t3js-login-warning-password-whitespace-action',
       formFields: '.t3js-login-formfields',
       loginForm: '#typo3-login-form',
       loginUrlLink: 't3js-login-url',
       submitButton: '.t3js-login-submit',
       submitHandler: null,
       useridentField: '.t3js-login-userident-field',
+      passwordField: '#t3-password',
     };
 
     this.checkLoginRefresh();
@@ -125,12 +130,11 @@ class BackendLogin {
     document.querySelector(this.options.errorNoCookies)?.classList.remove('hidden');
   }
 
-  /**
-   * Hides cookie warning and shows input fields
-   */
-  private hideCookieWarning(): void {
-    document.querySelector(this.options.formFields)?.classList.remove('hidden');
-    document.querySelector(this.options.errorNoCookies)?.classList.add('hidden');
+  private showWhitespaceAroundPasswordWarning() {
+    document.querySelector(this.options.warningPasswordWhitespace)?.classList.remove('hidden');
+  }
+  private removeWhitespaceAroundPasswordWarning() {
+    document.querySelector(this.options.warningPasswordWhitespace)?.classList.add('hidden');
   }
 
   private checkLoginRefresh(): void {
@@ -173,12 +177,33 @@ class BackendLogin {
   /**
    * Registers listeners for the Login Interface
    */
-  private initializeEvents(): void {
+  private async initializeEvents(): Promise<void> {
+    await DocumentService.ready();
     new RegularEvent('submit', this.handleSubmit.bind(this)).bindTo(document.querySelector(this.options.loginForm));
 
     (document.querySelectorAll('.t3js-clearable') as NodeListOf<HTMLInputElement>).forEach(
       (clearableField: HTMLInputElement) => clearableField.clearable(),
     );
+
+    const passwordField: HTMLInputElement = document.querySelector(this.options.passwordField);
+    if (passwordField === null) {
+      return;
+    }
+    new RegularEvent('paste', (event: ClipboardEvent): void => {
+      const text = event.clipboardData.getData('text/plain');
+      if (PastedPasswordChecker.hasSurroundingWhitespace(text)) {
+        this.showWhitespaceAroundPasswordWarning();
+      }
+    }).bindTo(passwordField);
+
+    const warningPasswordWhitespaceActionLink = document.querySelector(this.options.warningPasswordWhitespaceActionLink);
+    if (warningPasswordWhitespaceActionLink === null) {
+      return;
+    }
+    new RegularEvent('click', () => {
+      passwordField.value = PastedPasswordChecker.removeSurroundingWhitespace(passwordField.value);
+      this.removeWhitespaceAroundPasswordWarning();
+    }).bindTo(warningPasswordWhitespaceActionLink);
   }
 }
 

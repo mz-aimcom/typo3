@@ -17,8 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Impexp\Tests\Functional\Import;
 
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Impexp\Import;
 use TYPO3\CMS\Impexp\Tests\Functional\AbstractImportExportTestCase;
 
@@ -219,6 +221,7 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
     }
 
     #[Test]
+    #[DoesNotPerformAssertions]
     public function importImageIntoSystemAndMatchingThePathOfTheSecondStorage(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DatabaseImports/sys_file_single_image.csv');
@@ -228,7 +231,6 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
         $subject->setPid(0);
         $subject->loadFile('EXT:impexp/Tests/Functional/Fixtures/XmlImports/pages-and-ttcontent-with-two-images.xml');
         $subject->checkImportPrerequisites();
-        self::assertTrue(true);
     }
 
     #[Test]
@@ -236,7 +238,8 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DatabaseImports/pages.csv');
 
-        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds']['default'] = '
+        $GLOBALS['TCA']['tt_content']['types']['text']['showitem'] .= ',pi_flexform';
+        $GLOBALS['TCA']['tt_content']['types']['text']['columnsOverrides']['pi_flexform']['config']['ds'] = '
 <T3DataStructure>
     <ROOT>
         <type>array</type>
@@ -254,6 +257,7 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
         </el>
     </ROOT>
 </T3DataStructure>';
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $subject = $this->get(Import::class);
         $subject->setPid(1);
@@ -279,7 +283,8 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DatabaseImports/sys_file_single_image.csv');
 
-        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds']['default'] = $this->getFlexFormSoftReferenceDataStructure();
+        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds'] = $this->getFlexFormSoftReferenceDataStructure();
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $subject = $this->get(Import::class);
         $subject->setPid(0);
@@ -301,7 +306,8 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DatabaseImports/sys_file_single_image.csv');
 
-        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds']['default'] = $this->getFlexFormSoftReferenceDataStructure();
+        $GLOBALS['TCA']['tt_content']['types']['form_formframework']['columnsOverrides']['pi_flexform']['config']['ds'] = $this->getFlexFormSoftReferenceDataStructure();
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $subject = $this->get(Import::class);
         $subject->setPid(0);
@@ -324,7 +330,8 @@ final class PagesAndTtContentWithImagesInFilledDatabaseTest extends AbstractImpo
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DatabaseImports/sys_file_single_image.csv');
 
-        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds']['default'] = $this->getFlexFormSoftReferenceDataStructure();
+        $GLOBALS['TCA']['tt_content']['columns']['pi_flexform']['config']['ds'] = $this->getFlexFormSoftReferenceDataStructure();
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
         $subject = $this->get(Import::class);
         $subject->setPid(0);

@@ -63,8 +63,8 @@ final readonly class TcaFactory
     public function create(): array
     {
         $tca = $this->loadConfigurationTcaFiles();
-        $tca = $this->enrichTca($tca);
         $tca = $this->dispatchBeforeTcaOverridesEvent($tca);
+        $tca = $this->enrichTca($tca);
         $tca = $this->loadConfigurationTcaOverridesFiles($tca);
         $tca = $this->migrateTca($tca);
         $tca = $this->prepareTca($tca);
@@ -77,6 +77,7 @@ final readonly class TcaFactory
     public function createNotMigrated(): array
     {
         $tca = $this->loadConfigurationTcaFiles();
+        $tca = $this->dispatchBeforeTcaOverridesEvent($tca);
         $tca = $this->enrichTca($tca);
         return $this->loadConfigurationTcaOverridesFiles($tca);
     }
@@ -109,7 +110,7 @@ final readonly class TcaFactory
             return require $filename;
         };
         // First load "full table" files from Configuration/TCA
-        $GLOBALS['TCA'] = [];
+        $tca = [];
         $activePackages = $this->packageManager->getActivePackages();
         foreach ($activePackages as $package) {
             try {
@@ -122,12 +123,10 @@ final readonly class TcaFactory
                 $tcaOfTable = $scopedReturnRequire($fileInfo->getPathname());
                 if (is_array($tcaOfTable)) {
                     $tcaTableName = substr($fileInfo->getBasename(), 0, -4);
-                    $GLOBALS['TCA'][$tcaTableName] = $tcaOfTable;
+                    $tca[$tcaTableName] = $tcaOfTable;
                 }
             }
         }
-        $tca = $GLOBALS['TCA'];
-        unset($GLOBALS['TCA']);
         return $tca;
     }
 
@@ -165,8 +164,8 @@ final readonly class TcaFactory
     {
         // Call the TcaMigration and log any deprecations.
         $tcaMigration = new TcaMigration();
-        $tca = $tcaMigration->migrate($tca);
-        $messages = $tcaMigration->getMessages();
+        $tcaProcessingResult = $tcaMigration->migrate($tca);
+        $messages = $tcaProcessingResult->getMessages();
         if (!empty($messages)) {
             $context = 'Automatic TCA migration done during bootstrap. Please adapt TCA accordingly, these migrations'
                 . ' will be removed. The backend module "Configuration -> TCA" shows the modified values.'
@@ -174,7 +173,7 @@ final readonly class TcaFactory
             array_unshift($messages, $context);
             trigger_error(implode(LF, $messages), E_USER_DEPRECATED);
         }
-        return $tca;
+        return $tcaProcessingResult->getTca();
     }
 
     private function prepareTca(array $tca): array

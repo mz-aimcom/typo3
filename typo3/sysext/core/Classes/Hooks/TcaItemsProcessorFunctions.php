@@ -21,10 +21,16 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidIdentifierException;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\Field\CategoryFieldType;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
 /**
  * Various items processor functions, mainly used for special select fields in `be_users` and `be_groups`
@@ -39,33 +45,31 @@ readonly class TcaItemsProcessorFunctions
         private IconRegistry $iconRegistry,
         private ModuleProvider $moduleProvider,
         private FlexFormTools $flexFormTools,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private PageDoktypeRegistry $pageDoktypeRegistry,
     ) {}
 
     public function populateAvailableTables(array &$fieldDefinition): void
     {
-        foreach ($GLOBALS['TCA'] as $tableName => $tableConfiguration) {
-            if ($tableConfiguration['ctrl']['adminOnly'] ?? false) {
-                // Hide "admin only" tables
+        /** @var TcaSchema $schema */
+        foreach ($this->tcaSchemaFactory->all() as $tableName => $schema) {
+            // Hide "admin only" tables
+            if ($schema->hasCapability(TcaSchemaCapability::AccessAdminOnly)) {
                 continue;
             }
-            $label = ($tableConfiguration['ctrl']['title'] ?? '') ?: '';
             $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($tableName, []);
-            $fieldDefinition['items'][] = ['label' => $label, 'value' => $tableName, 'icon' => $icon];
+            $fieldDefinition['items'][] = ['label' => $schema->getTitle(), 'value' => $tableName, 'icon' => $icon];
         }
     }
 
     public function populateAvailablePageTypes(array &$fieldDefinition): void
     {
-        $pageTypes = $GLOBALS['TCA']['pages']['columns']['doktype']['config']['items'] ?? [];
-        if (is_array($pageTypes) && $pageTypes !== []) {
-            foreach ($pageTypes as $pageType) {
-                if (!is_array($pageType) || !isset($pageType['value']) || $pageType['value'] === '--div--') {
-                    // Skip non arrays and divider items
-                    continue;
-                }
-                $icon = $this->iconFactory->mapRecordTypeToIconIdentifier('pages', ['doktype' => $pageType['value']]);
-                $fieldDefinition['items'][] = ['label' => $pageType['label'], 'value' => $pageType['value'], 'icon' => $icon];
+        foreach ($this->pageDoktypeRegistry->getAllDoktypes() as $pageType) {
+            if (!$pageType->getValue()) {
+                continue;
             }
+            $icon = $this->iconFactory->mapRecordTypeToIconIdentifier('pages', ['doktype' => $pageType->getValue()]);
+            $fieldDefinition['items'][] = ['label' => $pageType->getLabel(), 'value' => $pageType->getValue(), 'icon' => $icon];
         }
     }
 
@@ -106,6 +110,7 @@ readonly class TcaItemsProcessorFunctions
         foreach ($this->getGroupedExcludeFields() as $excludeFieldGroup) {
             $table = $excludeFieldGroup['table'] ?? '';
             $origin = $excludeFieldGroup['origin'] ?? '';
+            $schema = $this->tcaSchemaFactory->get($table);
             // If the field comes from a FlexForm, the syntax is more complex
             if ($origin === 'flexForm') {
                 // The field comes from a plugins FlexForm
@@ -118,15 +123,14 @@ readonly class TcaItemsProcessorFunctions
                 }
             } elseif (!isset($fieldDefinition['items'][$table])) {
                 // Add header if not yet set for table
-                $sectionHeader = $GLOBALS['TCA'][$table]['ctrl']['title'] ?? '';
                 $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($table, []);
-                $fieldDefinition['items'][$table] = ['label' => $sectionHeader, 'value' => '--div--', 'icon' => $icon];
+                $fieldDefinition['items'][$table] = ['label' => $schema->getTitle(), 'value' => '--div--', 'icon' => $icon];
             }
             $fullField = $excludeFieldGroup['fullField'] ?? '';
             $fieldName = $excludeFieldGroup['fieldName'] ?? '';
             $label = $origin === 'flexForm'
                 ? ($excludeFieldGroup['fieldLabel'] ?? '')
-                : $languageService->sL($GLOBALS['TCA'][$table]['columns'][$fieldName]['label'] ?? '');
+                : $languageService->sL($schema->getField($fieldName)->getLabel());
             // Item configuration:
             $fieldDefinition['items'][] = [
                 'label' => rtrim($label, ':') . ' (' . $fieldName . ')',
@@ -206,9 +210,8 @@ readonly class TcaItemsProcessorFunctions
             throw new \UnexpectedValueException('No table to search for category fields given.', 1627565458);
         }
 
-        $columns = $GLOBALS['TCA'][$table]['columns'] ?? false;
-        if (!is_array($columns) || $columns === []) {
-            throw new \RuntimeException('Given table ' . $table . ' does not define any columns to search for category fields.', 1627565459);
+        if (!$this->tcaSchemaFactory->has($table)) {
+            throw new \RuntimeException('Given table ' . $table . ' does not define any valid schema to search for category fields.', 1627565459);
         }
 
         // Only category fields with the "manyToMany" relationship are allowed by default.
@@ -218,15 +221,21 @@ readonly class TcaItemsProcessorFunctions
             $allowedRelationships = ['manyToMany'];
         }
 
+        $schema = $this->tcaSchemaFactory->get($table);
+
         // Loop on all table columns to find category fields
-        foreach ($columns as $fieldName => $fieldConfig) {
-            if (($fieldConfig['config']['type'] ?? '') !== 'category'
-                || !in_array($fieldConfig['config']['relationship'] ?? '', $allowedRelationships, true)
-            ) {
+        foreach ($schema->getFields() as $fieldName => $fieldConfig) {
+            /** @var CategoryFieldType $fieldConfig */
+            if (!$fieldConfig->isType(TableColumnType::CATEGORY)) {
                 continue;
             }
-            $fieldLabel = $this->getLanguageService()->sL($GLOBALS['TCA'][$table]['columns'][$fieldName]['label']);
-            $fieldDefinition['items'][] = ['label' => $fieldLabel, 'value' => $fieldName];
+            if (!in_array($fieldConfig->getConfiguration()['relationship'] ?? '', $allowedRelationships, true)) {
+                continue;
+            }
+            $fieldDefinition['items'][] = [
+                'label' => $this->getLanguageService()->sL($fieldConfig->getLabel()),
+                'value' => $fieldName,
+            ];
         }
     }
 
@@ -245,49 +254,59 @@ readonly class TcaItemsProcessorFunctions
         // Fetch translations for table names
         $tableToTranslation = [];
         // All TCA keys
-        foreach ($GLOBALS['TCA'] as $table => $conf) {
-            $tableToTranslation[$table] = $languageService->sL($conf['ctrl']['title'] ?? '');
+        foreach ($this->tcaSchemaFactory->all() as $table => $schema) {
+            $tableToTranslation[$table] = $schema->getTitle($languageService->sL(...)) ?: $table;
         }
         // Sort by translations
         asort($tableToTranslation);
         foreach ($tableToTranslation as $table => $translatedTable) {
             $excludeFieldGroup = [];
+            $schema = $this->tcaSchemaFactory->get($table);
 
             // All field names configured and not restricted to admins
-            if (!empty($GLOBALS['TCA'][$table]['columns'])
-                && is_array($GLOBALS['TCA'][$table]['columns'])
-                && empty($GLOBALS['TCA'][$table]['ctrl']['adminOnly'])
-                && (empty($GLOBALS['TCA'][$table]['ctrl']['rootLevel']) || !empty($GLOBALS['TCA'][$table]['ctrl']['security']['ignoreRootLevelRestriction']))
-            ) {
-                foreach ($GLOBALS['TCA'][$table]['columns'] as $fieldName => $fieldDefinition) {
-                    // Only show fields that can be excluded for editors, or are hidden for non-admins
-                    if (($fieldDefinition['exclude'] ?? false) && ($fieldDefinition['displayCond'] ?? '') !== 'HIDE_FOR_NON_ADMINS') {
-                        // Get human readable names of fields
-                        $translatedField = $languageService->sL($fieldDefinition['label'] ?? '');
-                        // Add entry, key 'labels' needed for sorting
-                        $excludeFieldGroup[] = [
-                            'labels' => $translatedTable . ':' . $translatedField,
-                            'sectionHeader' => $translatedTable,
-                            'table' => $table,
-                            'tableField' => $fieldName,
-                            'fieldName' => $fieldName,
-                            'fullField' => $fieldName,
-                            'fieldLabel' => $translatedField,
-                            'origin' => 'tca',
-                        ];
-                    }
+            $rootLevelCapability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+            // Skip this table if it’s rootlevel-only and the rootlevel restriction applies
+            // (unless ignoreRootLevelRestriction is enabled).
+
+            if (!$rootLevelCapability->shallIgnoreRootLevelRestriction() && $rootLevelCapability->getRootLevelType() === RootLevelCapability::TYPE_ONLY_ON_ROOTLEVEL) {
+                continue;
+            }
+            if ($schema->hasCapability(TcaSchemaCapability::AccessAdminOnly)) {
+                continue;
+            }
+
+            foreach ($schema->getFields() as $fieldName => $fieldDefinition) {
+                // Only show fields that can be excluded for editors, or are hidden for non-admins
+                if ($fieldDefinition->supportsAccessControl() && $fieldDefinition->getDisplayConditions() !== 'HIDE_FOR_NON_ADMINS') {
+                    // Get human-readable names of fields
+                    $translatedField = $languageService->sL($fieldDefinition->getLabel());
+                    // Add entry, key 'labels' needed for sorting
+                    $excludeFieldGroup[] = [
+                        'labels' => $translatedTable . ':' . $translatedField,
+                        'sectionHeader' => $translatedTable,
+                        'table' => $table,
+                        'tableField' => $fieldName,
+                        'fieldName' => $fieldName,
+                        'fullField' => $fieldName,
+                        'fieldLabel' => $translatedField,
+                        'origin' => 'tca',
+                    ];
                 }
             }
             // All FlexForm fields
             $flexFormArray = $this->getRegisteredFlexForms((string)$table);
             foreach ($flexFormArray as $tableField => $flexForms) {
-                // Prefix for field label, e.g. "Plugin Options:"
-                $labelPrefix = '';
-                if (!empty($GLOBALS['TCA'][$table]['columns'][$tableField]['label'])) {
-                    $labelPrefix = $languageService->sL($GLOBALS['TCA'][$table]['columns'][$tableField]['label']);
-                }
+                $flexFieldLabel = '';
                 // Get all sheets
                 foreach ($flexForms as $extIdent => $extConf) {
+                    if ($schema->hasSubSchema((string)$extIdent)) {
+                        $fieldDefinition = $schema->getSubSchema((string)$extIdent)->getField($tableField);
+                    } else {
+                        $fieldDefinition = $schema->getField($tableField);
+                    }
+                    if ($fieldDefinition->getLabel() !== '') {
+                        $flexFieldLabel = $languageService->sL($fieldDefinition->getLabel());
+                    }
                     if (empty($extConf['sheets']) || !is_array($extConf['sheets'])) {
                         continue;
                     }
@@ -303,8 +322,8 @@ readonly class TcaItemsProcessorFunctions
                             }
                             $fieldLabel = !empty($field['label']) ? $languageService->sL($field['label']) : $pluginFieldName;
                             $excludeFieldGroup[] = [
-                                'labels' => trim($translatedTable . ' ' . $labelPrefix . ' ' . $extIdent, ': ') . ':' . $fieldLabel,
-                                'sectionHeader' => trim($translatedTable . ' ' . $labelPrefix . ' ' . $extIdent, ':'),
+                                'labels' => trim($translatedTable . ' ' . $flexFieldLabel . ' ' . $extIdent, ': ') . ':' . $fieldLabel,
+                                'sectionHeader' => trim($translatedTable . ' ' . $flexFieldLabel . ' ' . $extIdent, ':'),
                                 'table' => $table,
                                 'tableField' => $tableField,
                                 'extIdent' => $extIdent,
@@ -338,7 +357,7 @@ readonly class TcaItemsProcessorFunctions
      * Returns FlexForm data structures it finds. Used in select "special" for be_groups
      * to set "exclude" flags for single flex form fields.
      *
-     * This only finds flex forms registered in 'ds' config sections.
+     * This only finds flex forms registered in 'ds' config sections - default and record type specific.
      * This does not resolve other sophisticated flex form data structure references.
      *
      * @todo: This approach is limited and doesn't find everything. It works for casual tt_content plugins, though:
@@ -354,42 +373,50 @@ readonly class TcaItemsProcessorFunctions
      */
     protected function getRegisteredFlexForms(string $table): array
     {
-        if (empty($GLOBALS['TCA'][$table]['columns']) || !is_array($GLOBALS['TCA'][$table]['columns'])) {
+        if (!$this->tcaSchemaFactory->has($table)) {
             return [];
         }
+        $schema = $this->tcaSchemaFactory->get($table);
         $flexForms = [];
-        foreach ($GLOBALS['TCA'][$table]['columns'] as $field => $fieldDefinition) {
-            if (($fieldDefinition['config']['type'] ?? '') !== 'flex'
-                || empty($fieldDefinition['config']['ds'])
-                || !is_array($fieldDefinition['config']['ds'])
-            ) {
+        // Get all flex fields and add the default data structure
+        foreach ($schema->getFields() as $field => $fieldDefinition) {
+            if ($fieldDefinition->getType() !== TableColumnType::FLEX->value) {
                 continue;
             }
             $flexForms[$field] = [];
-            foreach (array_keys($fieldDefinition['config']['ds']) as $flexFormKey) {
-                $flexFormKey = (string)$flexFormKey;
-                // Get extension identifier (uses second value if it's not empty, "list" or "*", else first one)
-                $identFields = GeneralUtility::trimExplode(',', $flexFormKey);
-                $extIdent = $identFields[0] ?? '';
-                if (!empty($identFields[1]) && $identFields[1] !== 'list' && $identFields[1] !== '*') {
-                    $extIdent = $identFields[1];
-                }
-                $flexFormDataStructureIdentifier = json_encode([
+            // Default data structure
+            try {
+                $flexForms[$field]['default'] = $this->flexFormTools->parseDataStructureByIdentifier(json_encode([
                     'type' => 'tca',
                     'tableName' => $table,
                     'fieldName' => $field,
-                    'dataStructureKey' => $flexFormKey,
-                ]);
-                try {
-                    $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($flexFormDataStructureIdentifier);
-                    $flexForms[$field][$extIdent] = $dataStructure;
-                } catch (InvalidIdentifierException $e) {
-                    // Deliberately empty: The DS identifier is guesswork and the flex ds parser throws
-                    // this exception if it can not resolve to a valid data structure. This is "ok" here
-                    // and the exception is just eaten.
+                    'dataStructureKey' => 'default',
+                ]), $schema);
+            } catch (InvalidIdentifierException $e) {
+                // Skip default on error
+            }
+        }
+
+        // If flex fields exist and the table supports sub schemata, add specific data strcuturs for those sub schemas
+        if ($flexForms !== [] && $schema->supportsSubSchema()) {
+            foreach ($schema->getSubSchemata() as $recordType => $subSchema) {
+                foreach (array_keys($flexForms) as $fieldName) {
+                    if ($subSchema->hasField($fieldName)) {
+                        try {
+                            $flexForms[$fieldName][$recordType] = $this->flexFormTools->parseDataStructureByIdentifier(json_encode([
+                                'type' => 'tca',
+                                'tableName' => $table,
+                                'fieldName' => $fieldName,
+                                'dataStructureKey' => $recordType,
+                            ]), $schema);
+                        } catch (InvalidIdentifierException $e) {
+                            // Skip record type specific config on error
+                        }
+                    }
                 }
             }
         }
+
         return $flexForms;
     }
 
@@ -403,13 +430,10 @@ readonly class TcaItemsProcessorFunctions
     {
         $languageService = $this->getLanguageService();
         $allowOptions = [];
-        foreach ($GLOBALS['TCA'] as $table => $tableConfiguration) {
-            if (empty($tableConfiguration['columns']) || !is_array($tableConfiguration['columns'])) {
-                continue;
-            }
+        foreach ($this->tcaSchemaFactory->all() as $table => $schema) {
             // All field names configured:
-            foreach ($tableConfiguration['columns'] as $field => $fieldDefinition) {
-                $fieldConfig = $fieldDefinition['config'] ?? [];
+            foreach ($schema->getFields() as $field => $fieldDefinition) {
+                $fieldConfig = $fieldDefinition->getConfiguration();
                 if (($fieldConfig['type'] ?? '') !== 'select'
                     || ($fieldConfig['authMode'] ?? false) !== 'explicitAllow'
                     || empty($fieldConfig['items'])
@@ -419,8 +443,8 @@ readonly class TcaItemsProcessorFunctions
                 }
                 // Get Human Readable names of fields and table:
                 $allowOptions[$table . ':' . $field]['tableFieldLabel'] =
-                    $languageService->sL($GLOBALS['TCA'][$table]['ctrl']['title'] ?? '') . ': '
-                    . $languageService->sL($GLOBALS['TCA'][$table]['columns'][$field]['label'] ?? '');
+                    $schema->getTitle($languageService->sL(...)) . ': '
+                    . $languageService->sL($fieldDefinition->getLabel());
 
                 foreach ($fieldConfig['items'] as $item) {
                     $itemIdentifier = (string)($item['value'] ?? '');

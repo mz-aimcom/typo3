@@ -38,17 +38,11 @@ final class UploadedResourceViewHelper extends AbstractFormFieldViewHelper
      */
     protected $tagName = 'input';
 
-    protected HashService $hashService;
-    protected PropertyMapper $propertyMapper;
-
-    public function injectHashService(HashService $hashService)
-    {
-        $this->hashService = $hashService;
-    }
-
-    public function injectPropertyMapper(PropertyMapper $propertyMapper)
-    {
-        $this->propertyMapper = $propertyMapper;
+    public function __construct(
+        private readonly HashService $hashService,
+        private readonly PropertyMapper $propertyMapper,
+    ) {
+        parent::__construct();
     }
 
     public function initializeArguments(): void
@@ -111,7 +105,7 @@ final class UploadedResourceViewHelper extends AbstractFormFieldViewHelper
      * Return a previously uploaded resource.
      * Return NULL if errors occurred during property mapping for this property.
      */
-    protected function getUploadedResource(): ?FileReference
+    private function getUploadedResource(): ?FileReference
     {
         if ($this->getMappingResultsForProperty()->hasErrors()) {
             return null;

@@ -18,17 +18,19 @@ declare(strict_types=1);
 namespace TYPO3\CMS\IndexedSearch\ViewHelpers\Format;
 
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
+ * ViewHelper to display the flag badges of a record (description/keyword/title)
+ *
+ * ```
+ *   <is:format.flagValue flags="{word.flags}" />
+ * ```
+ *
  * @internal
  */
 final class FlagValueViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     protected $escapeOutput = false;
 
     public function initializeArguments(): void
@@ -39,9 +41,9 @@ final class FlagValueViewHelper extends AbstractViewHelper
     /**
      * Render additional flag information
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $flags = (int)($arguments['flags'] ?? 0);
+        $flags = (int)($this->arguments['flags'] ?? 0);
         $languageService = self::getLanguageService();
         $content = [];
         if ($flags & 128) {
@@ -62,7 +64,7 @@ final class FlagValueViewHelper extends AbstractViewHelper
         return implode(' ', $content);
     }
 
-    protected static function getLanguageService(): LanguageService
+    private static function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

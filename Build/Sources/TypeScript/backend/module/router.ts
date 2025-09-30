@@ -11,9 +11,9 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, HasChanged, LitElement, TemplateResult } from 'lit';
+import { html, css, LitElement, type TemplateResult, type HasChanged } from 'lit';
 import { customElement, property, query } from 'lit/decorators';
-import { ModuleState, ModuleUtility } from '@typo3/backend/module';
+import { ModuleUtility, type ModuleState } from '@typo3/backend/module';
 
 const IFRAME_COMPONENT = '@typo3/backend/module/iframe';
 
@@ -31,7 +31,7 @@ const alwaysUpdate: HasChanged = () => true;
  */
 @customElement('typo3-backend-module-router')
 export class ModuleRouter extends LitElement {
-  public static styles = css`
+  public static override styles = css`
     :host {
       width: 100%;
       min-height: 100%;
@@ -49,9 +49,12 @@ export class ModuleRouter extends LitElement {
   @property({ type: String, hasChanged: alwaysUpdate }) endpoint: string = '';
   @property({ type: String, attribute: 'state-tracker' }) stateTrackerUrl: string;
   @property({ type: String, attribute: 'sitename' }) sitename: string;
-  @property({ type: Boolean, attribute: 'sitename-first' }) sitenameFirst: boolean;
   @property({ type: String, attribute: 'entry-point' }) entryPoint: string;
   @query('slot', true) slotElement: HTMLSlotElement;
+
+  // Not a @property, since changes must not cause a module-reload
+  sitenameFirst: boolean = false;
+  titleComponents: string[]|null = null;
 
   constructor() {
     super();
@@ -121,14 +124,34 @@ export class ModuleRouter extends LitElement {
     });
   }
 
-  protected render(): TemplateResult {
+  public static override get observedAttributes(): string[] {
+    return [
+      ...super.observedAttributes,
+      'sitename-first',
+    ];
+  }
+
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    this.sitenameFirst = this.hasAttribute('sitename-first');
+  }
+
+  public override attributeChangedCallback(name: string, oldValue: string|null, newValue: string): void {
+    super.attributeChangedCallback(name, oldValue, newValue);
+    if (name === 'sitename-first') {
+      this.sitenameFirst = newValue !== null;
+      this.updateBrowserTitle();
+    }
+  }
+
+  protected override render(): TemplateResult {
     const moduleData = ModuleUtility.getFromName(this.module);
     const jsModule = moduleData.component || IFRAME_COMPONENT;
 
     return html`<slot name="${jsModule}"></slot>`;
   }
 
-  protected updated(): void {
+  protected override updated(): void {
     const moduleData = ModuleUtility.getFromName(this.module);
     const jsModule = moduleData.component || IFRAME_COMPONENT;
 
@@ -185,6 +208,20 @@ export class ModuleRouter extends LitElement {
     component.setAttribute('endpoint', url);
   }
 
+  private updateBrowserTitle(): void {
+    let { titleComponents } = this;
+
+    if (titleComponents === null) {
+      // updateBrowserState has not been invoked yet, nothing to update for now
+      return;
+    }
+
+    if (this.sitenameFirst) {
+      titleComponents = titleComponents.toReversed();
+    }
+    document.title = titleComponents.join(' · ');
+  }
+
   private updateBrowserState(state: ModuleState): void {
     const url = new URL(state.url || '', window.location.origin);
     const params = new URLSearchParams(url.search);
@@ -197,32 +234,27 @@ export class ModuleRouter extends LitElement {
       if (title !== '') {
         titleComponents.unshift(title);
       }
-      if (this.sitenameFirst) {
-        titleComponents.reverse();
-      }
-      document.title = titleComponents.join(' · ');
+      this.titleComponents = titleComponents;
+      this.updateBrowserTitle();
     }
 
-    if (!params.has('token')) {
+    if (params.has('token')) {
+      params.delete('token');
+      url.search = params.toString();
+    } else if (params.has('install[controller]')) {
       // InstallTool doesn't use a backend-route with a token,
       // but has backend-routes that act as wrappers.
       // Rewrite the URL for display in the browser URL bar.
       // @todo: rewrite installtool as webcomponent backend
       // module in order to advertise a proper module URL on it's own
-      if (params.has('install[controller]')) {
-        const controller = params.get('install[controller]');
-        params.delete('install[controller]');
-        params.delete('install[context]');
-        url.pathname = url.pathname.replace('/typo3/install.php', this.entryPoint + 'module/tools/' + controller);
-      } else {
-        // non token-urls cannot be mapped by
-        // the main backend controller right now
-        return;
-      }
+      const controller = params.get('install[controller]');
+      url.pathname = this.entryPoint + 'module/tools/' + controller;
+      url.search = '';
+    } else {
+      // non token-urls cannot be mapped by
+      // the main backend controller right now
+      return;
     }
-
-    params.delete('token');
-    url.search = params.toString();
 
     const niceUrl = url.toString();
     window.history.replaceState(state, '', niceUrl);

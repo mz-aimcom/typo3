@@ -49,8 +49,6 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * This is done that way to ensure that all objects can not be modified anymore, and we have a complete
  * representation of the data structures available.
- *
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
  */
 #[Autoconfigure(public: true, shared: true)]
 class TcaSchemaFactory
@@ -187,7 +185,7 @@ class TcaSchemaFactory
             $schemaConfiguration['palettes'] = $schemaDefinition['palettes'];
         }
 
-        // Resolve all subtypes and collect their fields while keeping the system fields
+        // Resolve all sub schemas and collect their fields while keeping the system fields
         $subSchemata = [];
         if (isset($schemaDefinition['ctrl']['type'])) {
             foreach ($schemaDefinition['types'] ?? [] as $subSchemaName => $subSchemaDefinition) {
@@ -211,13 +209,13 @@ class TcaSchemaFactory
 
                     $subSchemaFields[$fieldName] = $field;
                 }
-                $subSchema = new TcaSchema(
+
+                $subSchemata[$subSchemaName] = new TcaSchema(
                     $schemaName . '.' . $subSchemaName,
                     new FieldCollection($subSchemaFields),
                     // Merge parts from the "types" section into the ctrl section of the main schema
-                    array_replace_recursive($schemaConfiguration, $subSchemaDefinition)
+                    array_replace_recursive($schemaConfiguration, $subSchemaDefinition),
                 );
-                $subSchemata[$subSchemaName] = $subSchema;
             }
         }
         $schema = new TcaSchema(
@@ -239,7 +237,7 @@ class TcaSchemaFactory
             throw new \InvalidArgumentException('Subschema "' . $subSchemaName . '" not found.', 1715269835);
         }
         $subSchemaConfig = $tcaForTable['types'][$subSchemaName];
-        $showItemArray = GeneralUtility::trimExplode(',', $subSchemaConfig['showitem']);
+        $showItemArray = GeneralUtility::trimExplode(',', $subSchemaConfig['showitem'] ?? '', true);
         foreach ($showItemArray as $aShowItemFieldString) {
             [$fieldName, $fieldLabel, $paletteName] = GeneralUtility::trimExplode(';', $aShowItemFieldString . ';;;');
             if ($fieldName === '--div--') {

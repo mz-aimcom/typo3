@@ -12,8 +12,7 @@
  */
 
 import 'bootstrap';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInteractableModule, ModuleLoadedResponse } from '../abstract-interactable-module';
+import { AbstractInteractableModule, type ModuleLoadedResponse } from '../abstract-interactable-module';
 import Notification from '@typo3/backend/notification';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import SecurityUtility from '@typo3/core/security-utility';
@@ -21,12 +20,15 @@ import { FlashMessage } from '../../renderable/flash-message';
 import { InfoBox } from '../../renderable/info-box';
 import Severity from '../../renderable/severity';
 import Router from '../../router';
-import MessageInterface from '@typo3/install/message-interface';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ModalElement } from '@typo3/backend/modal';
+import type { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
+import type MessageInterface from '@typo3/install/message-interface';
 
 enum Identifiers {
   outputWizardsContainer = '.t3js-upgradeWizards-wizards-output',
+  outputMessagesContainer = '.t3js-upgradeWizards-wizards-messages-output',
   outputDoneContainer = '.t3js-upgradeWizards-done-output',
   wizardsBlockingAddsTemplate = '#t3js-upgradeWizards-blocking-adds-template',
   wizardsBlockingAddsRows = '.t3js-upgradeWizards-blocking-adds-rows',
@@ -73,23 +75,23 @@ type UpgradeWizardsBlockingDatabaseAddsResponse = {
 type UpgradeWizardBlockingDatabaseCharsetTestResponse = {
   needsUpdate: boolean;
   success: boolean;
-}
+};
 
 type UpgradeWizardBlockingDatabaseCharsetFixResponse = {
   status: MessageInterface[];
   success: boolean;
-}
+};
 
 type UpgradeWizardsBlockingDatabaseExecuteResponse = {
   status: MessageInterface[];
   success: boolean;
-}
+};
 
 type UpgradeWizardsListResponse = {
   status: MessageInterface[];
   success: boolean;
   wizards: UpgradeWizard[]
-}
+};
 
 type UpgradeWizardsInputResponse = {
   status: MessageInterface[];
@@ -100,7 +102,7 @@ type UpgradeWizardsInputResponse = {
     description: string;
     wizardHtml: string;
   }
-}
+};
 
 type UpgradeWizardsExecuteResponse = {
   status: MessageInterface[];
@@ -117,7 +119,7 @@ type UpgradeWizardsDoneUpgradesResponse = {
 type UpgradeWizardsMarkUndoneResponse = {
   status: MessageInterface[];
   success: boolean;
-}
+};
 
 type UpgradeWizard = {
   class: string;
@@ -145,10 +147,10 @@ class UpgradeWizards extends AbstractInteractableModule {
   }
 
   private static removeLoadingMessage(container: HTMLElement): void {
-    container.querySelector('typo3-backend-progress-bar')?.remove();
+    container.querySelectorAll('typo3-backend-progress-bar').forEach((progressBar: ProgressBarElement): void => progressBar.remove());
   }
 
-  public initialize(currentModal: ModalElement): void {
+  public override initialize(currentModal: ModalElement): void {
     super.initialize(currentModal);
 
     Promise.all([
@@ -230,7 +232,7 @@ class UpgradeWizards extends AbstractInteractableModule {
             if (data.needsUpdate === true) {
               UpgradeWizards.removeLoadingMessage(outputContainer);
               modalContent.querySelector(Identifiers.outputWizardsContainer)
-                .appendChild((modalContent.querySelector(Identifiers.wizardsBlockingCharsetTemplate)) as HTMLTemplateElement).content.cloneNode(true);
+                .appendChild((modalContent.querySelector(Identifiers.wizardsBlockingCharsetTemplate) as HTMLTemplateElement).content.cloneNode(true));
             } else {
               this.blockingUpgradesDatabaseAdds();
             }
@@ -373,7 +375,7 @@ class UpgradeWizards extends AbstractInteractableModule {
     const modalContent = this.getModalBody();
     const outputContainer = this.findInModal(Identifiers.outputWizardsContainer);
     this.renderProgressBar(outputContainer, {
-      label: 'Loading upgrade wizards...'
+      label: 'Loading upgrade wizards...',
     });
     (new AjaxRequest(Router.getUrl('upgradeWizardsList')))
       .get({ cache: 'no-cache' })
@@ -483,6 +485,7 @@ class UpgradeWizards extends AbstractInteractableModule {
       postData[name] = value.toString();
     }
     const outputContainer = this.findInModal(Identifiers.outputWizardsContainer);
+    const messagesContainer = this.findInModal(Identifiers.outputMessagesContainer);
     this.renderProgressBar(outputContainer, {
       label: 'Executing "' + title + '"...'
     });
@@ -491,12 +494,15 @@ class UpgradeWizards extends AbstractInteractableModule {
       .then(
         async (response: AjaxResponse): Promise<void> => {
           const data: UpgradeWizardsExecuteResponse = await response.resolve();
-          outputContainer.innerHTML = '';
+          messagesContainer.replaceChildren();
+
           if (data.success === true) {
             if (Array.isArray(data.status)) {
+              const messages: InfoBox[] = [];
               data.status.forEach((element: MessageInterface): void => {
-                outputContainer.append(InfoBox.create(element.severity, element.title, element.message));
+                messages.push(InfoBox.create(element.severity, element.title, element.message));
               });
+              messagesContainer.append(...messages);
             }
             this.wizardsList();
             modalContent.querySelector(Identifiers.outputDoneContainer).innerHTML = '';
@@ -566,6 +572,7 @@ class UpgradeWizards extends AbstractInteractableModule {
   private markUndone(identifier: string): void {
     const executeToken = this.getModuleContent().dataset.upgradeWizardsMarkUndoneToken;
     const modalContent = this.getModalBody();
+    const messagesContainer = this.findInModal(Identifiers.outputMessagesContainer);
     const outputContainer = this.findInModal(Identifiers.outputDoneContainer);
     this.renderProgressBar(outputContainer, {
       label: 'Marking upgrade wizard as undone...'
@@ -581,8 +588,10 @@ class UpgradeWizards extends AbstractInteractableModule {
       .then(
         async (response: AjaxResponse): Promise<void> => {
           const data: UpgradeWizardsMarkUndoneResponse = await response.resolve();
-          outputContainer.innerHTML = '';
-          modalContent.querySelector(Identifiers.outputDoneContainer).innerHTML = '';
+          messagesContainer.replaceChildren();
+          outputContainer.replaceChildren();
+          modalContent.querySelector(Identifiers.outputDoneContainer).replaceChildren();
+
           if (data.success === true && Array.isArray(data.status)) {
             data.status.forEach((element: MessageInterface): void => {
               Notification.success(element.title, element.message);

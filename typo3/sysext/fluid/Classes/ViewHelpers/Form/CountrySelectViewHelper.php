@@ -22,62 +22,22 @@ use TYPO3\CMS\Core\Country\CountryFilter;
 use TYPO3\CMS\Core\Country\CountryProvider;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
+use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
 
 /**
- * Renders a :html:`<select>` tag with all available countries as options.
+ * ViewHelper which renders a `<select>` tag with all or specific countries as options.
  *
- * Examples
- * ========
+ * ```
+ *   <f:form.countrySelect name="country" value="AT" />
+ *   <f:form.countrySelect name="country" value="DE"
+ *       optionLabelField="localizedOfficialName"
+ *       prioritizedCountries="{0: 'DE', 1: 'AT', 2: 'CH'}"
+ *       alternativeLanguage="fr"
+ *       sortByOptionLabel="true"
+ *   />
+ * ```
  *
- * Basic usage
- * -----------
- *
- * ::
- *
- *    <f:form.countrySelect name="country" value="{defaultCountry}" />
- *
- * Output::
- *
- *    <select name="country">
- *      <option value="BE">Belgium</option>
- *      <option value="FR">France</option>
- *      ....
- *    </select>
- *
- * Prioritize countries
- * --------------------
- *
- * Define a list of countries which should be listed as first options in the
- * form element::
- *
- *    <f:form.countrySelect
- *      name="country"
- *      value="AT"
- *      prioritizedCountries="{0: 'DE', 1: 'AT', 2: 'CH'}"
- *    />
- *
- *  Additionally, Austria is pre-selected.
- *
- * Display another language
- * ------------------------
- *
- * A combination of optionLabelField and alternativeLanguage is possible. For
- * instance, if you want to show the localized official names but not in your
- * default language but in French. You can achieve this by using the following
- * combination::
- *
- *    <f:form.countrySelect
- *      name="country"
- *      optionLabelField="localizedOfficialName"
- *      alternativeLanguage="fr"
- *      sortByOptionLabel="true"
- *    />
- *
- * Bind an object
- * --------------
- *
- * You can also use the "property" attribute if you have bound an object to the form.
- * See :ref:`<f:form> <typo3-fluid-form>` for more documentation.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-form-countryselect
  */
 final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
 {
@@ -137,7 +97,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
      * @param Country[] $countries
      * @return array<string, string>
      */
-    protected function createOptions(array $countries): array
+    private function createOptions(array $countries): array
     {
         $options = [];
         foreach ($countries as $code => $country) {
@@ -159,7 +119,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
                     $options[$code] = $name;
                     break;
                 default:
-                    throw new \TYPO3Fluid\Fluid\Core\ViewHelper\Exception('Argument "optionLabelField" of <f:form.countrySelect> must either be set to "localizedName", "name", "officialName", or "localizedOfficialName".', 1674076708);
+                    throw new Exception('Argument "optionLabelField" of <f:form.countrySelect> must either be set to "localizedName", "name", "officialName", or "localizedOfficialName".', 1674076708);
             }
         }
         if ($this->arguments['sortByOptionLabel']) {
@@ -184,7 +144,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
         return $options;
     }
 
-    protected function translate(string $label): string
+    private function translate(string $label): string
     {
         if ($this->arguments['alternativeLanguage']) {
             return (string)LocalizationUtility::translate($label, languageKey: $this->arguments['alternativeLanguage']);
@@ -195,7 +155,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
     /**
      * Render prepended option tag
      */
-    protected function renderPrependOptionTag(): string
+    private function renderPrependOptionTag(): string
     {
         if ($this->hasArgument('prependOptionLabel')) {
             $value = $this->hasArgument('prependOptionValue') ? $this->arguments['prependOptionValue'] : '';
@@ -213,7 +173,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
      * @param bool $isSelected specifies whether to add selected attribute
      * @return string the rendered option tag
      */
-    protected function renderOptionTag(string $value, string $label, bool $isSelected): string
+    private function renderOptionTag(string $value, string $label, bool $isSelected): string
     {
         $output = '<option value="' . htmlspecialchars($value) . '"';
         if ($isSelected) {
@@ -226,11 +186,26 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
     /**
      * @return Country[]
      */
-    protected function getCountryList(): array
+    private function getCountryList(): array
     {
         $filter = new CountryFilter();
         $filter->setOnlyCountries($this->arguments['onlyCountries'] ?? [])
             ->setExcludeCountries($this->arguments['excludeCountries'] ?? []);
         return GeneralUtility::makeInstance(CountryProvider::class)->getFiltered($filter);
+    }
+
+    /**
+     * Converts an arbitrary value to a plain value.
+     * Evaluates possible direct "Country" type properties.
+     *
+     * @param mixed $value The value to convert
+     * @return mixed
+     */
+    protected function convertToPlainValue($value)
+    {
+        if ($value instanceof Country) {
+            return $value->getAlpha2IsoCode();
+        }
+        return parent::convertToPlainValue($value);
     }
 }

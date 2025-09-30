@@ -34,7 +34,9 @@ use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -51,6 +53,8 @@ class NewMultiplePagesController
         protected readonly IconFactory $iconFactory,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly SelectItemProcessor $selectItemProcessor,
+        protected readonly PageDoktypeRegistry $pageDoktypeRegistry,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -72,7 +76,7 @@ class NewMultiplePagesController
         // Doc header handling
         $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
         $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $previewDataAttributes = PreviewUriBuilder::create($pageUid)
+        $previewDataAttributes = PreviewUriBuilder::create($pageRecord)
             ->withRootLine(BackendUtility::BEgetRootLine($pageUid))
             ->buildDispatcherDataAttributes();
         $viewButton = $buttonBar->makeLinkButton()
@@ -185,7 +189,7 @@ class NewMultiplePagesController
         $pagesTsConfig = $tsConfig['TCEFORM.']['pages.'] ?? [];
 
         // Find all available doktypes for the current user
-        $types = GeneralUtility::makeInstance(PageDoktypeRegistry::class)->getRegisteredDoktypes();
+        $types = $this->pageDoktypeRegistry->getRegisteredDoktypes();
         $types[] = PageRepository::DOKTYPE_DEFAULT;
         $types[] = PageRepository::DOKTYPE_LINK;
         $types[] = PageRepository::DOKTYPE_SHORTCUT;
@@ -198,20 +202,15 @@ class NewMultiplePagesController
         $removeItems = isset($pagesTsConfig['doktype.']['removeItems']) ? GeneralUtility::intExplode(',', $pagesTsConfig['doktype.']['removeItems'], true) : [];
         $allowedPageTypes = array_diff($types, $removeItems);
 
-        // Transform items to SelectItem for easier usage.
-        $pageTypeConfig = $GLOBALS['TCA']['pages']['columns']['doktype']['config'];
-        $availablePageTypes = $pageTypeConfig['items'];
-        $transformToSelectItem = function (array $item) use ($pageTypeConfig): SelectItem {
-            if ($item['value'] !== '--div--') {
-                $item['value'] = (int)$item['value'];
-            }
-            return SelectItem::fromTcaItemArray($item, $pageTypeConfig['type']);
-        };
-        $availablePageTypes = array_map($transformToSelectItem, $availablePageTypes);
+        $schema = $this->tcaSchemaFactory->get('pages');
+        $pageTypeConfig = $schema->getField($schema->getSubSchemaTypeInformation()->getFieldName())->getConfiguration();
+        $availablePageTypes = $this->pageDoktypeRegistry->getAllDoktypes();
 
         // Filter out unavailable types.
-        $filterPageTypes = fn(SelectItem $item): bool => $item->isDivider() || in_array($item->getValue(), $allowedPageTypes, true);
-        $availablePageTypes = array_filter($availablePageTypes, $filterPageTypes);
+        $availablePageTypes = array_filter(
+            $availablePageTypes,
+            fn(SelectItem $item): bool => $item->isDivider() || in_array($item->getValue(), $allowedPageTypes, false)
+        );
 
         // Sort items.
         $sortedItems = $this->selectItemProcessor->groupAndSortItems($availablePageTypes, $pageTypeConfig['itemGroups'], $pageTypeConfig['sortItems'] ?? []);
@@ -251,7 +250,7 @@ class NewMultiplePagesController
                     $queryBuilder->createNamedParameter($pageUid, Connection::PARAM_INT)
                 ),
                 $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA']['pages']['ctrl']['languageField'],
+                    $this->tcaSchemaFactory->get('pages')->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                     $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 )
             )

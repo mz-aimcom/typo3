@@ -30,20 +30,14 @@ use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 
 /**
- * A ViewHelper for creating links to extbase actions. Tailored for extbase plugins, uses extbase Request and extbase UriBuilder.
+ * ViewHelper for creating links to Extbase actions. Tailored for Extbase
+ * plugins, uses Extbase Request and Extbase UriBuilder.
  *
- * Examples
- * ========
+ * ```
+ *   <f:link.action action="show" arguments="{blog: blog.uid}">action link</f:link.action>
+ * ```
  *
- * link to the show-action of the current controller::
- *
- *    <f:link.action action="show">action link</f:link.action>
- *
- * Output::
- *
- *    <a href="index.php?id=123&tx_myextension_plugin[action]=show&tx_myextension_plugin[controller]=Standard&cHash=xyz">action link</a>
- *
- * Depending on the current page and your TypoScript configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-link-action
  */
 final class ActionViewHelper extends AbstractTagBasedViewHelper
 {
@@ -91,7 +85,7 @@ final class ActionViewHelper extends AbstractTagBasedViewHelper
         );
     }
 
-    protected function renderFrontendLinkWithCoreContext(ServerRequestInterface $request): string
+    private function renderFrontendLinkWithCoreContext(ServerRequestInterface $request): string
     {
         // No support for following arguments:
         //  * format
@@ -190,7 +184,7 @@ final class ActionViewHelper extends AbstractTagBasedViewHelper
             unset($linkResultAttributes['target']);
 
             $this->tag->addAttributes($linkResultAttributes);
-            $this->tag->setContent($this->renderChildren());
+            $this->tag->setContent((string)$this->renderChildren());
             $this->tag->forceClosingTag(true);
             return $this->tag->render();
         } catch (UnableToLinkException) {
@@ -198,7 +192,7 @@ final class ActionViewHelper extends AbstractTagBasedViewHelper
         }
     }
 
-    protected function renderWithExtbaseContext(ExtbaseRequestInterface $request): string
+    private function renderWithExtbaseContext(ExtbaseRequestInterface $request): string
     {
         $action = $this->arguments['action'];
         $controller = $this->arguments['controller'];
@@ -238,10 +232,10 @@ final class ActionViewHelper extends AbstractTagBasedViewHelper
         }
         $uri = $uriBuilder->uriFor($action, $parameters, $controller, $extensionName, $pluginName);
         if ($uri === '') {
-            return $this->renderChildren();
+            return (string)$this->renderChildren();
         }
         $this->tag->addAttribute('href', $uri);
-        $this->tag->setContent($this->renderChildren());
+        $this->tag->setContent((string)$this->renderChildren());
         $this->tag->forceClosingTag(true);
         return $this->tag->render();
     }

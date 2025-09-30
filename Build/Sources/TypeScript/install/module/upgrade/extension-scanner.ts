@@ -13,14 +13,14 @@
 
 import 'bootstrap';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { AbstractInteractableModule, ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
+import { AbstractInteractableModule, type ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
 import type { ModalElement } from '@typo3/backend/modal';
 import Modal from '@typo3/backend/modal';
 import Notification from '@typo3/backend/notification';
 import AjaxQueue from '../../ajax/ajax-queue';
 import Router from '../../router';
 import RegularEvent from '@typo3/core/event/regular-event';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
 
 enum Identifiers {
@@ -38,7 +38,7 @@ type Match = {
   lineContent: string;
   line: number;
   restFiles: RestFile[];
-}
+};
 
 type RestFile = {
   uniqueId: string;
@@ -47,12 +47,12 @@ type RestFile = {
   content: string;
   class: string;
   file_hash: string;
-}
+};
 
 type ExtensionScannerFilesResponse = {
   files: string[],
   success: boolean,
-}
+};
 
 type ExtensionScannerScanFileResponse = {
   effectiveCodeLines: number,
@@ -60,12 +60,12 @@ type ExtensionScannerScanFileResponse = {
   isFileIgnored: boolean,
   matches: Match[],
   success: boolean,
-}
+};
 
 class ExtensionScanner extends AbstractInteractableModule {
   private readonly listOfAffectedRestFileHashes: string[] = [];
 
-  public initialize(currentModal: ModalElement): void {
+  public override initialize(currentModal: ModalElement): void {
     super.initialize(currentModal);
 
     Promise.all([
@@ -272,19 +272,20 @@ class ExtensionScanner extends AbstractInteractableModule {
                 fileData.matches.forEach((match: Match): void => {
                   hitFound = true;
                   const aMatch = modalContent.querySelector(hitTemplate + ' .panel').cloneNode(true) as HTMLElement;
-                  aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head').setAttribute('href', '#collapse' + match.uniqueId);
+                  aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head').setAttribute('data-bs-target', '#collapse' + match.uniqueId);
+                  aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head').setAttribute('aria-controls', 'collapse' + match.uniqueId);
                   aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-body').setAttribute('id', 'collapse' + match.uniqueId);
                   aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-filename').innerText = file;
                   aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-message').innerText = match.message;
                   if (match.indicator === 'strong') {
-                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .badges')
+                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .t3js-extensionScanner-hit-badges')
                       .innerHTML += '<span class="badge badge-danger" title="Reliable match, false positive unlikely">strong</span>';
                   } else {
-                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .badges')
+                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .t3js-extensionScanner-hit-badges')
                       .innerHTML += '<span class="badge badge-warning" title="Probable match, but can be a false positive">weak</span>';
                   }
                   if (match.silenced === true) {
-                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .badges')
+                    aMatch.querySelector<HTMLElement>('.t3js-extensionScanner-hit-file-panel-head .t3js-extensionScanner-hit-badges')
                       .innerHTML += '<span class="badge badge-info" title="Match has been annotated by extension author' +
                       ' as false positive match">silenced</span>';
                   }
@@ -293,8 +294,9 @@ class ExtensionScanner extends AbstractInteractableModule {
                   if (Array.isArray(match.restFiles)) {
                     match.restFiles.forEach((restFile: RestFile): void => {
                       const aRest = modalContent.querySelector(restTemplate + ' .panel').cloneNode(true) as HTMLElement;
-                      aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-head').setAttribute('href', '#collapse' + restFile.uniqueId);
-                      aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-head .badge').innerText = restFile.version;
+                      aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-head').setAttribute('data-bs-target', '#collapse' + restFile.uniqueId);
+                      aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-head').setAttribute('aria-controls', 'collapse' + restFile.uniqueId);
+                      aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-head .t3js-extensionScanner-hit-rest-badge').innerText = restFile.version;
                       aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-panel-body').setAttribute('id', 'collapse' + restFile.uniqueId);
                       aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-headline').innerText = restFile.headline;
                       aRest.querySelector<HTMLElement>('.t3js-extensionScanner-hit-rest-body').innerText = restFile.content;

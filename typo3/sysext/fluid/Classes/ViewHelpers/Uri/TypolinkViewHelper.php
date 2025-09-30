@@ -19,51 +19,22 @@ namespace TYPO3\CMS\Fluid\ViewHelpers\Uri;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
+use TYPO3\CMS\Core\LinkHandling\TypolinkParameter;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Typolink\TypolinkParameter;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * A ViewHelper to create uris from fields supported by the link wizard.
+ * ViewHelper to create URIs from fields supported by the link wizard.
  *
- * Example
- * =======
+ * ```
+ *   <f:uri.typolink parameter="123" textWrap="<span>|</span>" />
+ * ```
  *
- * ``{link}`` contains ``19 - - - &X=y``
- *
- * Please note that due to the nature of typolink you have to provide a full
- * set of parameters.
- * If you use the parameter only, then target, class and title will be discarded.
- *
- * Minimal usage
- * -------------
- *
- * ::
- *
- *    <f:uri.typolink parameter="{link}" />
- *
- * ``/page/path/name.html?X=y``
- *
- * Depending on routing and page path configuration.
- *
- * Full parameter usage
- * --------------------
- *
- * ::
- *
- *    <f:uri.typolink parameter="{link}" additionalParams="&u=b" />
- *
- * ``/page/path/name.html?X=y&u=b``
- *
- * Depending on routing and page path configuration.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-typolink
  */
 final class TypolinkViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('parameter', 'mixed', 'stdWrap.typolink style parameter string', true);
@@ -74,29 +45,27 @@ final class TypolinkViewHelper extends AbstractViewHelper
         $this->registerArgument('absolute', 'bool', 'Ensure the resulting URL is an absolute URL', false, false);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $parameter = $arguments['parameter'] ?? '';
+        $parameter = $this->arguments['parameter'] ?? '';
         $typoLinkCodecService = GeneralUtility::makeInstance(TypoLinkCodecService::class);
-
         if (!$parameter instanceof TypolinkParameter) {
             $parameter = TypolinkParameter::createFromTypolinkParts(
                 is_scalar($parameter) ? $typoLinkCodecService->decode((string)$parameter) : []
             );
         }
-
         // Merge the $parameter with other arguments and encode the typolink again
         $typolink = $typoLinkCodecService->encode(
-            TypolinkParameter::createFromTypolinkParts(self::mergeTypoLinkConfiguration($parameter->toArray(), $arguments))->toArray()
+            TypolinkParameter::createFromTypolinkParts(self::mergeTypoLinkConfiguration($parameter->toArray(), $this->arguments))->toArray()
         );
         $request = null;
-        if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
         }
-        return $typolink !== '' ? self::invokeContentObjectRenderer($arguments, $typolink, $request) : '';
+        return $typolink !== '' ? self::invokeContentObjectRenderer($this->arguments, $typolink, $request) : '';
     }
 
-    protected static function invokeContentObjectRenderer(array $arguments, string $typoLinkParameter, ?ServerRequestInterface $request): string
+    private static function invokeContentObjectRenderer(array $arguments, string $typoLinkParameter, ?ServerRequestInterface $request): string
     {
         $addQueryString = $arguments['addQueryString'] ?? false;
         $addQueryStringExclude = $arguments['addQueryStringExclude'] ?? '';
@@ -126,7 +95,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
     /**
      * Merges view helper arguments with typolink parts.
      */
-    protected static function mergeTypoLinkConfiguration(array $typoLinkConfiguration, array $arguments): array
+    private static function mergeTypoLinkConfiguration(array $typoLinkConfiguration, array $arguments): array
     {
         if ($typoLinkConfiguration === []) {
             return $typoLinkConfiguration;

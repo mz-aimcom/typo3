@@ -17,19 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Authentication;
 
-use Doctrine\DBAL\Platforms\MySQLPlatform;
+use Doctrine\DBAL\Platforms\MariaDBPlatform as DoctrineMariaDBPlatform;
+use Doctrine\DBAL\Platforms\MySQLPlatform as DoctrineMySQLPlatform;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\Mime\Address;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use TYPO3\CMS\Backend\Authentication\Event\PasswordHasBeenResetEvent;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
-use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashInterface;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -63,17 +64,21 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal this is a concrete implementation for User/Password login and not part of public TYPO3 Core API.
  */
 #[Autoconfigure(public: true)]
-class PasswordReset implements LoggerAwareInterface
+readonly class PasswordReset
 {
-    use LoggerAwareTrait;
-
     protected const TOKEN_VALID_UNTIL = '+2 hours';
-    protected const MAXIMUM_RESET_ATTEMPTS = 3;
-    protected const MAXIMUM_RESET_ATTEMPTS_SINCE = '-30 minutes';
 
     public function __construct(
-        private readonly MailerInterface $mailer,
-        private readonly HashService $hashService,
+        private LoggerInterface $logger,
+        private MailerInterface $mailer,
+        private HashService $hashService,
+        private Random $random,
+        private ConnectionPool $connectionPool,
+        private EventDispatcherInterface $eventDispatcher,
+        private PasswordHashFactory $passwordHashFactory,
+        private UriBuilder $uriBuilder,
+        private SessionManager $sessionManager,
+        private RateLimiterFactory $rateLimiterFactory,
     ) {}
 
     /**
@@ -128,7 +133,7 @@ class PasswordReset implements LoggerAwareInterface
         if (!GeneralUtility::validEmail($emailAddress)) {
             return;
         }
-        if ($this->hasExceededMaximumAttemptsForReset($context, $emailAddress)) {
+        if ($this->hasExceededMaximumAttemptsForReset($emailAddress)) {
             $this->logger->alert('Password reset requested for email {email} but was requested too many times.', ['email' => $emailAddress]);
             return;
         }
@@ -166,7 +171,6 @@ class PasswordReset implements LoggerAwareInterface
             ->setRequest($request)
             ->assign('email', $emailAddress)
             ->setTemplate('PasswordReset/AmbiguousResetRequested');
-
         $this->mailer->send($emailObject);
         $this->logger->warning('Password reset sent to email address {email} but multiple accounts found', ['email' => $emailAddress]);
         $this->log(
@@ -233,18 +237,22 @@ class PasswordReset implements LoggerAwareInterface
      */
     protected function generateResetLinkForUser(Context $context, int $userId, string $emailAddress): UriInterface
     {
-        $token = GeneralUtility::makeInstance(Random::class)->generateRandomHexString(96);
+        $token = $this->random->generateRandomHexString(96);
         $currentTime = $context->getAspect('date')->getDateTime();
         $expiresOn = $currentTime->modify(self::TOKEN_VALID_UNTIL);
         // Create a hash ("one time password") out of the token including the timestamp of the expiration date
         $hash = $this->hashService->hmac($token . '|' . $expiresOn->getTimestamp() . '|' . $emailAddress . '|' . $userId, 'password-reset');
 
         // Set the token in the database, which is hashed
-        GeneralUtility::makeInstance(ConnectionPool::class)
+        $this->connectionPool
             ->getConnectionForTable('be_users')
-            ->update('be_users', ['password_reset_token' => $this->getHasher()->getHashedPassword($hash)], ['uid' => $userId]);
+            ->update(
+                'be_users',
+                ['password_reset_token' => $this->passwordHashFactory->getDefaultHashInstance('BE')->getHashedPassword($hash)],
+                ['uid' => $userId]
+            );
 
-        return GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute(
+        return $this->uriBuilder->buildUriFromRoute(
             'password_reset_validate',
             [
                 // "token"
@@ -290,7 +298,9 @@ class PasswordReset implements LoggerAwareInterface
         $queryBuilder
             ->select('uid', 'username', 'realName', 'email', 'password_reset_token', 'password')
             ->from('be_users');
-        if ($queryBuilder->getConnection()->getDatabasePlatform() instanceof MySQLPlatform) {
+
+        $platform = $queryBuilder->getConnection()->getDatabasePlatform();
+        if ($platform instanceof DoctrineMariaDBPlatform || $platform instanceof DoctrineMySQLPlatform) {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->comparison('SHA1(CONCAT(' . $queryBuilder->quoteIdentifier('email') . ', ' . $queryBuilder->quoteIdentifier('uid') . '))', $queryBuilder->expr()::EQ, $queryBuilder->createNamedParameter($identity))
             );
@@ -312,7 +322,7 @@ class PasswordReset implements LoggerAwareInterface
 
         // Validate hash by rebuilding the hash from the parameters and the URL and see if this matches against the stored password_reset_token
         $hash = $this->hashService->hmac($token . '|' . $expirationTimestamp . '|' . $user['email'] . '|' . $user['uid'], 'password-reset');
-        if (!$this->getHasher()->checkPassword($hash, $user['password_reset_token'] ?? '')) {
+        if (!$this->passwordHashFactory->getDefaultHashInstance('BE')->checkPassword($hash, $user['password_reset_token'] ?? '')) {
             return null;
         }
         return $user;
@@ -353,9 +363,18 @@ class PasswordReset implements LoggerAwareInterface
             return false;
         }
 
-        GeneralUtility::makeInstance(ConnectionPool::class)
+        $this->connectionPool
             ->getConnectionForTable('be_users')
-            ->update('be_users', ['password_reset_token' => '', 'password' => $this->getHasher()->getHashedPassword($newPassword)], ['uid' => $userId]);
+            ->update(
+                'be_users',
+                [
+                    'password_reset_token' => '',
+                    'password' => $this->passwordHashFactory->getDefaultHashInstance('BE')->getHashedPassword($newPassword),
+                ],
+                ['uid' => $userId]
+            );
+
+        $this->eventDispatcher->dispatch(new PasswordHasBeenResetEvent($userId));
 
         $this->invalidateUserSessions($userId);
 
@@ -386,7 +405,7 @@ class PasswordReset implements LoggerAwareInterface
      */
     protected function getPreparedQueryBuilder(): QueryBuilder
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('be_users');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('be_users');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(RootLevelRestriction::class))
@@ -408,11 +427,6 @@ class PasswordReset implements LoggerAwareInterface
         return $queryBuilder;
     }
 
-    protected function getHasher(): PasswordHashInterface
-    {
-        return GeneralUtility::makeInstance(PasswordHashFactory::class)->getDefaultHashInstance('BE');
-    }
-
     /**
      * Adds an entry to "sys_log", also used to track the maximum allowed attempts.
      *
@@ -424,78 +438,54 @@ class PasswordReset implements LoggerAwareInterface
      */
     protected function log(string $message, int $action, int $error, int $userId, array $data, $ipAddress, Context $context): void
     {
-        $fields = [
-            'userid' => $userId,
-            'type' => SystemLogType::LOGIN,
-            'channel' => SystemLogType::toChannel(SystemLogType::LOGIN),
-            'level' => SystemLogType::toLevel(SystemLogType::LOGIN),
-            'action' => $action,
-            'error' => $error,
-            'details_nr' => 1,
-            'details' => $message,
-            'log_data' => json_encode($data),
-            'tablename' => 'be_users',
-            'recuid' => $userId,
-            'IP' => (string)$ipAddress,
-            'tstamp' => $context->getAspect('date')->get('timestamp'),
-            'event_pid' => 0,
-            'NEWid' => '',
-            'workspace' => 0,
-        ];
-
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_log');
-        $connection->insert(
-            'sys_log',
-            $fields,
-            [
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-            ]
-        );
+        $this->connectionPool
+            ->getConnectionForTable('sys_log')
+            ->insert(
+                'sys_log',
+                [
+                    'userid' => $userId,
+                    'type' => SystemLogType::LOGIN,
+                    'channel' => SystemLogType::toChannel(SystemLogType::LOGIN),
+                    'level' => SystemLogType::toLevel(SystemLogType::LOGIN),
+                    'action' => $action,
+                    'error' => $error,
+                    'details' => $message,
+                    'log_data' => json_encode($data),
+                    'tablename' => 'be_users',
+                    'recuid' => $userId,
+                    'IP' => (string)$ipAddress,
+                    'tstamp' => $context->getAspect('date')->get('timestamp'),
+                    'event_pid' => 0,
+                    'workspace' => 0,
+                ],
+                [
+                    Connection::PARAM_INT,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_STR,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_INT,
+                    Connection::PARAM_INT,
+                ]
+            );
     }
 
     /**
-     * Checks if an email reset link has been requested more than 3 times in the last 30mins.
-     * If a password was successfully reset more than three times in 30 minutes, it would still fail.
+     * Checks if an email reset link has been requested more than the configured amount of times.
+     * Default values are 3 times in the last 30 minutes configured in Services.yaml
      */
-    protected function hasExceededMaximumAttemptsForReset(Context $context, string $email): bool
+    protected function hasExceededMaximumAttemptsForReset(string $email): bool
     {
-        $now = $context->getAspect('date')->getDateTime();
-        $numberOfAttempts = $this->getNumberOfInitiatedResetsForEmail($now->modify(self::MAXIMUM_RESET_ATTEMPTS_SINCE), $email);
-        return $numberOfAttempts > self::MAXIMUM_RESET_ATTEMPTS;
-    }
-
-    /**
-     * SQL query to find the amount of initiated resets from a given time.
-     */
-    protected function getNumberOfInitiatedResetsForEmail(\DateTimeInterface $since, string $email): int
-    {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_log');
-        return (int)$queryBuilder
-            ->count('uid')
-            ->from('sys_log')
-            ->where(
-                $queryBuilder->expr()->eq('type', $queryBuilder->createNamedParameter(SystemLogType::LOGIN)),
-                $queryBuilder->expr()->eq('action', $queryBuilder->createNamedParameter(SystemLogLoginAction::PASSWORD_RESET_REQUEST)),
-                $queryBuilder->expr()->eq('log_data', $queryBuilder->createNamedParameter(json_encode(['email' => $email]))),
-                $queryBuilder->expr()->gte('tstamp', $queryBuilder->createNamedParameter($since->getTimestamp(), Connection::PARAM_INT))
-            )
-            ->executeQuery()
-            ->fetchOne();
+        $limiter = $this->rateLimiterFactory->create($email);
+        $limit = $limiter->consume();
+        return !$limit->isAccepted();
     }
 
     /**
@@ -512,7 +502,7 @@ class PasswordReset implements LoggerAwareInterface
         $contextData = new ContextData(currentPasswordHash: $user['password']);
         $contextData->setData('currentUsername', $user['username']);
         $contextData->setData('currentFullname', $user['realName']);
-        $event = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+        $event = $this->eventDispatcher->dispatch(
             new EnrichPasswordValidationContextDataEvent(
                 $contextData,
                 $user,
@@ -529,8 +519,9 @@ class PasswordReset implements LoggerAwareInterface
      */
     protected function invalidateUserSessions(int $userId): void
     {
-        $sessionManager = GeneralUtility::makeInstance(SessionManager::class);
-        $sessionBackend = $sessionManager->getSessionBackend('BE');
-        $sessionManager->invalidateAllSessionsByUserId($sessionBackend, $userId);
+        $this->sessionManager->invalidateAllSessionsByUserId(
+            $this->sessionManager->getSessionBackend('BE'),
+            $userId
+        );
     }
 }

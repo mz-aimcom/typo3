@@ -18,10 +18,14 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Frontend\Typolink;
 
 use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Core\Cache\CacheManager;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\NullSite;
 use TYPO3\CMS\Core\TypoScript\PageTsConfig;
 use TYPO3\CMS\Core\TypoScript\PageTsConfigFactory;
@@ -31,18 +35,28 @@ use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 /**
  * Builds a TypoLink to a database record
  */
-class DatabaseRecordLinkBuilder extends AbstractTypolinkBuilder
+class DatabaseRecordLinkBuilder implements TypolinkBuilderInterface
 {
-    public function build(array &$linkDetails, string $linkText, string $target, array $conf): LinkResultInterface
-    {
-        $request = $this->contentObjectRenderer->getRequest();
+    public function __construct(
+        private readonly TcaSchemaFactory $schemaFactory,
+        #[Autowire(service: 'cache.runtime')]
+        private readonly FrontendInterface $runtimeCache,
+        private readonly TypoLinkCodecService $typoLinkCodecService,
+    ) {}
+
+    public function buildLink(
+        array $linkDetails,
+        array $configuration,
+        ServerRequestInterface $request,
+        string $linkText = '',
+    ): LinkResultInterface {
         $pageTsConfig = $this->getPageTsConfig($request);
         $configurationKey = $linkDetails['identifier'] . '.';
         $typoScriptArray = $request->getAttribute('frontend.typoscript')?->getSetupArray() ?? [];
-        $configuration = $typoScriptArray['config.']['recordLinks.'] ?? [];
+        $typoScriptLinkHandlerConfiguration = $typoScriptArray['config.']['recordLinks.'] ?? [];
         $linkHandlerConfiguration = $pageTsConfig['TCEMAIN.']['linkHandler.'] ?? [];
 
-        if (!isset($configuration[$configurationKey], $linkHandlerConfiguration[$configurationKey])) {
+        if (!isset($typoScriptLinkHandlerConfiguration[$configurationKey], $linkHandlerConfiguration[$configurationKey])) {
             throw new UnableToLinkException(
                 'Configuration how to link "' . $linkDetails['typoLinkParameter'] . '" was not found, so "' . $linkText . '" was not linked.',
                 1490989149,
@@ -50,32 +64,34 @@ class DatabaseRecordLinkBuilder extends AbstractTypolinkBuilder
                 $linkText
             );
         }
-        $typoScriptConfiguration = $configuration[$configurationKey]['typolink.'];
+        $typoScriptConfiguration = $typoScriptLinkHandlerConfiguration[$configurationKey]['typolink.'];
         $linkHandlerConfiguration = $linkHandlerConfiguration[$configurationKey]['configuration.'];
         $databaseTable = (string)($linkHandlerConfiguration['table'] ?? '');
 
         $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-        if ($configuration[$configurationKey]['forceLink'] ?? false) {
+        if ($typoScriptLinkHandlerConfiguration[$configurationKey]['forceLink'] ?? false) {
             $record = $pageRepository->getRawRecord($databaseTable, (int)$linkDetails['uid']);
         } else {
             $record = $pageRepository->checkRecord($databaseTable, (int)$linkDetails['uid']);
             $languageAspect = GeneralUtility::makeInstance(Context::class)->getAspect('language');
-            $languageField = (string)($GLOBALS['TCA'][$databaseTable]['ctrl']['languageField'] ?? '');
-
-            if (is_array($record) && $languageField !== '') {
-                $languageIdOfRecord = $record[$languageField];
-                // If a record is already in a localized version OR if the record is set to "All Languages"
-                // we allow the generation of the link
-                if ($languageIdOfRecord === 0 && $languageAspect->doOverlays()) {
-                    $overlay = $pageRepository->getLanguageOverlay(
-                        $databaseTable,
-                        $record,
-                        $languageAspect
-                    );
-                    // If the record is not translated (overlays enabled), even though it should have been done
-                    // We avoid linking to it
-                    if (!isset($overlay['_LOCALIZED_UID'])) {
-                        $record = 0;
+            if (is_array($record) && $this->schemaFactory->has($databaseTable)) {
+                $schema = $this->schemaFactory->get($databaseTable);
+                if ($schema->isLanguageAware()) {
+                    $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+                    $languageIdOfRecord = $record[$languageField];
+                    // If a record is already in a localized version OR if the record is set to "All Languages"
+                    // we allow the generation of the link
+                    if ($languageIdOfRecord === 0 && $languageAspect->doOverlays()) {
+                        $overlay = $pageRepository->getLanguageOverlay(
+                            $databaseTable,
+                            $record,
+                            $languageAspect
+                        );
+                        // If the record is not translated (overlays enabled), even though it should have been done
+                        // We avoid linking to it
+                        if (!isset($overlay['_LOCALIZED_UID'])) {
+                            $record = 0;
+                        }
                     }
                 }
             }
@@ -91,16 +107,15 @@ class DatabaseRecordLinkBuilder extends AbstractTypolinkBuilder
 
         // Unset the parameter part of the given TypoScript configuration while keeping
         // config that has been set in addition.
-        unset($conf['parameter.']);
+        unset($configuration['parameter.']);
 
-        $typoLinkCodecService = GeneralUtility::makeInstance(TypoLinkCodecService::class);
-        $parameterFromDb = $typoLinkCodecService->decode((string)($conf['parameter'] ?? ''));
+        $parameterFromDb = $this->typoLinkCodecService->decode((string)($configuration['parameter'] ?? ''));
         unset($parameterFromDb['url']);
-        $parameterFromTypoScript = $typoLinkCodecService->decode((string)($typoScriptConfiguration['parameter'] ?? ''));
+        $parameterFromTypoScript = $this->typoLinkCodecService->decode((string)($typoScriptConfiguration['parameter'] ?? ''));
         $parameter = array_replace_recursive($parameterFromTypoScript, array_filter($parameterFromDb));
-        $typoScriptConfiguration['parameter'] = $typoLinkCodecService->encode($parameter);
+        $typoScriptConfiguration['parameter'] = $this->typoLinkCodecService->encode($parameter);
 
-        $typoScriptConfiguration = array_replace_recursive($conf, $typoScriptConfiguration);
+        $typoScriptConfiguration = array_replace_recursive($configuration, $typoScriptConfiguration);
 
         if (!empty($linkDetails['fragment'])) {
             $typoScriptConfiguration['section'] = $linkDetails['fragment'];
@@ -109,7 +124,7 @@ class DatabaseRecordLinkBuilder extends AbstractTypolinkBuilder
         $localContentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
         $localContentObjectRenderer->setRequest($request);
         $localContentObjectRenderer->start($record, $databaseTable);
-        $localContentObjectRenderer->parameters = $this->contentObjectRenderer->parameters;
+        $localContentObjectRenderer->parameters = $request->getAttribute('currentContentObject')->parameters ?? [];
         return $localContentObjectRenderer->createLink($linkText, $typoScriptConfiguration);
     }
 
@@ -118,19 +133,20 @@ class DatabaseRecordLinkBuilder extends AbstractTypolinkBuilder
      */
     protected function getPageTsConfig(ServerRequestInterface $request): array
     {
+        if (!ApplicationType::fromRequest($request)->isFrontend()) {
+            return [];
+        }
         $pageInformation = $request->getAttribute('frontend.page.information');
         $id = $pageInformation->getId();
-        $runtimeCache = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
-        $pageTsConfig = $runtimeCache->get('pageTsConfig-' . $id);
+        $fullRootLine = $pageInformation->getRootLine();
+        $pageTsConfig = $this->runtimeCache->get('pageTsConfig-' . $id);
         if ($pageTsConfig instanceof PageTsConfig) {
             return $pageTsConfig->getPageTsConfigArray();
         }
-        $fullRootLine = $pageInformation->getRootLine();
         ksort($fullRootLine);
         $site = $request->getAttribute('site') ?? new NullSite();
-        $pageTsConfigFactory = GeneralUtility::makeInstance(PageTsConfigFactory::class);
-        $pageTsConfig = $pageTsConfigFactory->create($fullRootLine, $site);
-        $runtimeCache->set('pageTsConfig-' . $id, $pageTsConfig);
+        $pageTsConfig = GeneralUtility::makeInstance(PageTsConfigFactory::class)->create($fullRootLine, $site);
+        $this->runtimeCache->set('pageTsConfig-' . $id, $pageTsConfig);
         return $pageTsConfig->getPageTsConfigArray();
     }
 }

@@ -1,36 +1,49 @@
-.. include:: /Includes.rst.txt
+:navigation-title: Grouping
 
+..  include:: /Includes.rst.txt
+..  _grouping-tasks:
 
+=======================================================
+Grouping tasks together in the Scheduler backend module
+=======================================================
 
-.. _grouping-tasks:
+In case of a high number of different tasks, it may be useful to visually
+group similar tasks together:
 
-Grouping tasks together
-^^^^^^^^^^^^^^^^^^^^^^^
+..  figure:: /Images/GroupedTasks.png
+    :alt: Screenshot of the TYPO3 backend module scheduler with buttons regarding groups highlighted
 
-In case of a high number of different tasks, it may be useful to visually group similar tasks together:
+    Use button :guilabel:`New group` to create a group.
 
-.. figure:: ../../Images/GroupedTasks.png
-   :alt: Overview of tasks with grouped
+Unused groups are displayed at the bottom of the page
 
-   Grouping related tasks together
+..  _grouping-tasks-edit:
 
+Editing task groups
+===================
 
-Scheduler task groups are records stored on the root page (pid=0). They may be created, edited and sorted with Web > List:
+Scheduler task groups can be created, edited and deleted from the module
+:guilabel:`System > Scheduler`.
 
-.. figure:: ../../Images/GroupRecords.png
-   :alt: Task group records
+Technically the are records stored on the root page (pid=0). They can also be
+created, edited and sorted with module :guilabel:`Web > List`.
 
-   Management of scheduler task groups
+It is also possible to create a new task group from within the edit task form by
+clicking on the `+` icon next to the task group select box.
 
+..  _grouping-tasks-disable:
 
-It is also possible to create a new task group from within the edit task form by clicking on the `+` icon next to the
-task group select box.
+Disabling task groups
+=====================
 
-Individual tasks may then be edited as usual and associated to a given scheduler task group.
+You can use button :guilabel:`Disable group` to disable all tasks in a group
+at once.
 
-The individual groups can be sorted independent of each other by clicking the column label.
-With every click it switches between ascending and descending order of the items of the associated column
-in the corresponding group.
+..  figure:: /Images/GroupDisabled.png
+    :alt: Screenshot a disabled task group, all tasks are marked as disabled by group
 
-.. note::
-   Tasks inside a hidden group are neither automatically executed nor displayed in the scheduler module.
+    Use button :guilabel:`Enable group` to enable all tasks that had not been manually disabled.
+
+Tasks in a disabled group, just like disabled tasks in general are not executed
+when the scheduler is called by the cron job. They can, however, be executed
+manually by clicking the :guilabel:`Run task` button.

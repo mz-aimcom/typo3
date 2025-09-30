@@ -7,6 +7,7 @@
     data-table="{item.table}"
     data-uid="{item.record.uid}"
     data-language-uid="{item.record.sys_language_uid}"
+    data-move-element-url="{f:be.uri(route: 'move_element', parameters: '{uid: item.record.uid, originalPid: item.record.pid, expandPage: item.record.pid, returnUrl: context.returnUrl}')}"
     style="{style}"
 >
     <span id="element-{item.table}-{item.record.uid}-label" class="visually-hidden">id={item.record.uid} - <f:if condition="{item.record.header}">{item.record.header} - </f:if>{item.contentTypeLabel}</span>
@@ -29,12 +30,7 @@
         </f:if>
     </div>
     <f:if condition="{allowEditContent} && {item.column.contentEditable} && {column.context.allowNewContent} && {column.active}">
-        <div class="t3-page-ce-actions t3js-page-new-ce">
-            <typo3-backend-new-content-element-wizard-button class="btn btn-default btn-sm" url="{item.newContentAfterUrl}" subject="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:newContentElement')}">
-                <core:icon identifier="actions-plus" />
-                <f:translate key="LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:createNewContent" />
-            </typo3-backend-new-content-element-wizard-button>
-        </div>
+        <f:render partial="PageLayout/ActionControls" arguments="{item: item, column: column, allowEditContent: allowEditContent, url: item.newContentAfterUrl}" />
     </f:if>
-    <div class="t3-page-ce-dropzone t3js-page-ce-dropzone-available"></div>
+    <div class="t3-page-ce-dropzone t3js-page-ce-dropzone-available" hidden></div>
 </div>

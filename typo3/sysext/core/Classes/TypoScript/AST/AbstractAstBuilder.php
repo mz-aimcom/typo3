@@ -220,26 +220,26 @@ abstract class AbstractAstBuilder
                 return str_replace($functionArgument, '', $originalValue);
             case 'replaceString':
                 $functionValueArray = explode('|', $functionArgument, 2);
-                $fromStr = $functionValueArray[0] ?? '';
+                $fromStr = $functionValueArray[0];
                 $toStr = $functionValueArray[1] ?? '';
                 return str_replace($fromStr, $toStr, $originalValue);
             case 'addToList':
                 return ($originalValue !== null ? $originalValue . ',' : '') . $functionArgument;
             case 'removeFromList':
-                $existingElements = GeneralUtility::trimExplode(',', $originalValue);
+                $existingElements = GeneralUtility::trimExplode(',', $originalValue ?? '');
                 $removeElements = GeneralUtility::trimExplode(',', $functionArgument);
                 if (!empty($removeElements)) {
                     return implode(',', array_diff($existingElements, $removeElements));
                 }
                 return $originalValue;
             case 'uniqueList':
-                $elements = GeneralUtility::trimExplode(',', $originalValue);
+                $elements = GeneralUtility::trimExplode(',', $originalValue ?? '');
                 return implode(',', array_unique($elements));
             case 'reverseList':
-                $elements = GeneralUtility::trimExplode(',', $originalValue);
+                $elements = GeneralUtility::trimExplode(',', $originalValue ?? '');
                 return implode(',', array_reverse($elements));
             case 'sortList':
-                $elements = GeneralUtility::trimExplode(',', $originalValue);
+                $elements = GeneralUtility::trimExplode(',', $originalValue ?? '');
                 $arguments = GeneralUtility::trimExplode(',', $functionArgument);
                 $arguments = array_map('strtolower', $arguments);
                 $sortFlags = SORT_REGULAR;

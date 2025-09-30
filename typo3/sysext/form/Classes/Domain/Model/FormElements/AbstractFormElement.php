@@ -22,7 +22,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\Domain\Model\FormElements;
 
 use TYPO3\CMS\Core\Utility\ArrayUtility;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
 use TYPO3\CMS\Form\Domain\Exception\IdentifierNotValidException;
 use TYPO3\CMS\Form\Domain\Model\Renderable\AbstractRenderable;
@@ -62,8 +61,8 @@ abstract class AbstractFormElement extends AbstractRenderable implements FormEle
      */
     public function __construct(string $identifier, string $type)
     {
-        if (!is_string($identifier) || strlen($identifier) === 0) {
-            throw new IdentifierNotValidException('The given identifier was not a string or the string was empty.', 1477082502);
+        if (strlen($identifier) === 0) {
+            throw new IdentifierNotValidException('The given identifier string is empty.', 1477082502);
         }
         $this->identifier = $identifier;
         $this->type = $type;
@@ -72,17 +71,7 @@ abstract class AbstractFormElement extends AbstractRenderable implements FormEle
     /**
      * Override this method in your custom FormElements if needed
      */
-    public function initializeFormElement()
-    {
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['initializeFormElement'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'initializeFormElement')) {
-                $hookObj->initializeFormElement(
-                    $this
-                );
-            }
-        }
-    }
+    public function initializeFormElement() {}
 
     /**
      * Get the global unique identifier of the element

@@ -1,6 +1,6 @@
 .. include:: /Includes.rst.txt
 
-.. _for-editors:
+..  _for-editors:
 
 ===========
 For Editors
@@ -11,7 +11,7 @@ Target group: **Editors**
 Welcome to our small dashboard introduction.
 We will explain the basic usage of the TYPO3 dashboard.
 
-.. _opening-dashboard:
+..  _opening-dashboard:
 
 Opening Dashboard
 =================
@@ -35,7 +35,7 @@ The dashboard can be opened at any time by clicking the entry
 
     Ask your administrator about this.
 
-.. _adding-dashboard:
+..  _adding-dashboard:
 
 Adding Dashboard
 ================
@@ -52,7 +52,7 @@ In order to add further dashboards, press the :guilabel:`+` sign.
 
 A wizard should open which allows to add the new dashboard.
 
-There you can select a preset. At least the the default preset, which is shipped
+There you can select a preset. At least the default preset, which is shipped
 by core should be available. Depending on system configuration further dashboard
 presets might be available.
 
@@ -61,7 +61,7 @@ presets might be available.
 
    Wizard to add a new dashboard.
 
-.. _editing-dashboard:
+..  _editing-dashboard:
 
 Editing Dashboard
 =================
@@ -76,7 +76,7 @@ settings of the currently active dashboard.
    Icons on the right side of the tab bar allow adjusting settings or deletion of
    the currently selected dashboard.
 
-.. _adding-widgets:
+..  _adding-widgets:
 
 Adding Widgets
 ==============
@@ -93,7 +93,7 @@ All dashboards allow to add further widgets in the lower right corner through th
 
    Empty dashboard with possibilities to add new widgets.
 
-Once the action to add a new wizard was triggered, a wizard opens which allows to
+Once the action to add a new widget was triggered, a wizard opens which allows to
 select the widget to add.
 
 Widgets are grouped in tabs and can be added by clicking on them.
@@ -103,7 +103,7 @@ Widgets are grouped in tabs and can be added by clicking on them.
 
    Wizard to select a new widget that will be added to the active dashboard.
 
-.. _moving-widgets:
+..  _moving-widgets:
 
 Moving Widgets
 ==============
@@ -119,7 +119,7 @@ Then move to the target position.
 
    Widget in hover mode with additional icons in upper right corner.
 
-.. _deleting-widgets:
+..  _deleting-widgets:
 
 Deleting Widgets
 ================

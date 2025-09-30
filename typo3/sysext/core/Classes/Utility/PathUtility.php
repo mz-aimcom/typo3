@@ -29,10 +29,12 @@ class PathUtility
      * Gets the relative path from the current used script to a given directory.
      *
      * The allowed TYPO3 path is checked as well, thus it's not possible to go to upper levels.
+     * @deprecated will be removed in TYPO3 v15.0.
      */
     public static function getRelativePathTo(string $absolutePath): ?string
     {
-        return self::getRelativePath(self::dirname(Environment::getCurrentScript()), $absolutePath);
+        trigger_error('PathUtility::getRelativePathTo() will be removed in TYPO3 v15.0', E_USER_DEPRECATED);
+        return self::getRelativePath(self::dirname(Environment::getCurrentScript()), $absolutePath, false);
     }
 
     /**
@@ -61,11 +63,11 @@ class PathUtility
                 // It is an absolute file system path with file/folder inside document root,
                 // therefore we can strip the full file system path to the document root to obtain the URI
                 $targetPath = self::stripPathSitePrefix($targetPath);
-            } elseif (Environment::isComposerMode() && str_contains($targetPath, 'Resources/Public') && str_starts_with($targetPath, Environment::getComposerRootPath())) {
+            } elseif (Environment::isComposerMode() && str_contains($targetPath, 'Resources/Public') && str_starts_with($targetPath, Environment::getProjectPath())) {
                 // TYPO3 is in managed by Composer and it is an absolute file system path inside composer root path,
                 // and a public resource is referenced, therefore we can calculate the path to the published assets
                 // This is true for all Composer packages that are installed in vendor folder by Composer, but still recognized by TYPO3
-                $relativePath = substr($targetPath, strlen(Environment::getComposerRootPath()));
+                $relativePath = substr($targetPath, strlen(Environment::getProjectPath()));
                 // The $relativePath might contain multiple occurrences of 'Resources/Public', so only search for first one
                 [$relativePrefix, $relativeAssetPath] = explode('Resources/Public', $relativePath, 2);
                 $targetPath = '_assets/' . md5($relativePrefix) . $relativeAssetPath;
@@ -78,7 +80,7 @@ class PathUtility
             }
         } else {
             // Make an absolute path out of it
-            $targetPath = GeneralUtility::resolveBackPath(self::dirname(Environment::getCurrentScript()) . '/' . $targetPath);
+            $targetPath = self::dirname(Environment::getCurrentScript()) . '/' . $targetPath;
             $targetPath = self::stripPathSitePrefix($targetPath);
         }
 
@@ -98,13 +100,13 @@ class PathUtility
     public static function getPublicResourceWebPath(string $resourcePath, bool $prefixWithSitePath = true): string
     {
         if (!self::isExtensionPath($resourcePath)) {
-            throw new InvalidFileException('Resource paths must start with "EXT:"', 1630089406);
+            throw new InvalidFileException(sprintf('Given resource path "%s" must start with "EXT:", but does not.', $resourcePath), 1630089406);
         }
         $absoluteFilePath = GeneralUtility::getFileAbsFileName($resourcePath);
         if (!str_contains($resourcePath, 'Resources/Public')) {
             if (!str_starts_with($absoluteFilePath, Environment::getPublicPath())) {
                 // This will be thrown in Composer mode, when extension are installed in vendor folder
-                throw new InvalidFileException(sprintf('"%s" is expected to be in public directory, but is not', $resourcePath), 1635268969);
+                throw new InvalidFileException(sprintf('Given file "%s" is expected to be in public directory, but is not.', $resourcePath), 1635268969);
             }
             trigger_error(sprintf('Public resource "%s" is not in extension\'s Resources/Public folder. This is deprecated and will not be supported any more in future TYPO3 versions.', $resourcePath), E_USER_DEPRECATED);
         }
@@ -126,9 +128,13 @@ class PathUtility
      *
      * @param string $sourcePath Absolute source path
      * @param string $targetPath Absolute target path
+     * @deprecated will be removed in TYPO3 v15.0
      */
-    public static function getRelativePath(string $sourcePath, string $targetPath): ?string
+    public static function getRelativePath(string $sourcePath, string $targetPath, bool $triggerDeprecation = true): ?string
     {
+        if ($triggerDeprecation) {
+            trigger_error('PathUtility::getRelativePath() will be removed in TYPO3 v15.0', E_USER_DEPRECATED);
+        }
         $relativePath = null;
         $sourcePath = rtrim(GeneralUtility::fixWindowsFilePath($sourcePath), '/');
         $targetPath = rtrim(GeneralUtility::fixWindowsFilePath($targetPath), '/');
@@ -266,7 +272,7 @@ class PathUtility
      *
      * @see http://www.php.net/manual/en/function.pathinfo.php
      *
-     * @return string|string[]
+     * @return ($options is PATHINFO_ALL ? array{dirname?: string, basename?: string, extension?: string, filename?: string} : string)
      */
     public static function pathinfo(string $path, int $options = PATHINFO_ALL): string|array
     {
@@ -290,8 +296,8 @@ class PathUtility
         if (Environment::isWindows() && (substr($path, 1, 2) === ':/' || substr($path, 1, 2) === ':\\')) {
             return true;
         }
-        // Path starting with a / is always absolute, on every system, VFS is needed for tests
-        return str_starts_with($path, '/') || str_starts_with($path, 'vfs://');
+        // Path starting with a / is always absolute, on every system
+        return str_starts_with($path, '/');
     }
 
     /**

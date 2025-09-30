@@ -27,26 +27,19 @@ use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
  */
 class Property
 {
-    /**
-     * @var string
-     */
-    private $name;
-
     private array $definition;
+    private PropertyCharacteristics $characteristics;
 
-    /**
-     * @var PropertyCharacteristics
-     */
-    private $characteristics;
-
-    public function __construct(string $name, array $definition)
-    {
-        $this->name = $name;
+    public function __construct(
+        private readonly string $name,
+        array $definition
+    ) {
         $this->characteristics = new PropertyCharacteristics($definition['propertyCharacteristicsBit']);
         unset($definition['propertyCharacteristicsBit']);
 
         $defaults = [
             'c' => null, // cascade
+            'f' => null, // file upload
             't' => [], // types
             'v' => [], // validators
         ];
@@ -149,6 +142,11 @@ class Property
     public function getValidators(): array
     {
         return $this->definition['v'];
+    }
+
+    public function getFileUpload(): ?array
+    {
+        return $this->definition['f'];
     }
 
     public function getCascadeValue(): ?string

@@ -52,8 +52,7 @@ class YouTubeHelper extends AbstractOEmbedHelper
                     sprintf('https://img.youtube.com/vi/%s/%s', $videoId, $tryName)
                 );
                 if ($previewImage !== false) {
-                    file_put_contents($temporaryFileName, $previewImage);
-                    GeneralUtility::fixPermissions($temporaryFileName);
+                    GeneralUtility::writeFile($temporaryFileName, $previewImage, true);
                     break;
                 }
             }
@@ -79,7 +78,8 @@ class YouTubeHelper extends AbstractOEmbedHelper
         // - www.youtube-nocookie.com/v/<code> # youtube-nocookie.com web link
         // - www.youtube.com/embed/<code> # URL form iframe embed code, can also get code from full iframe snippet
         // - www.youtube.com/shorts/<code>
-        if (preg_match('%(?:youtube(?:-nocookie)?\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?|shorts)/|.*[?&]v=)|youtu\.be/)([^"&?/ ]{11})%i', $url, $match)) {
+        // - www.youtube.com/live/<code>
+        if (preg_match('%(?:youtube(?:-nocookie)?\.com/(?:[^/]+/.+/|(?:v|e(?:mbed)?|shorts|live)/|.*[?&]v=)|youtu\.be/)([^"&?/ ]{11})%i', $url, $match)) {
             $videoId = $match[1];
         }
         if (empty($videoId)) {

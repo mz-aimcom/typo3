@@ -8,8 +8,8 @@ CREATE TABLE fe_sessions (
 	ses_permanent tinyint(1) unsigned DEFAULT '0' NOT NULL,
 
 	PRIMARY KEY (ses_id),
-	KEY ses_tstamp (ses_tstamp)
-) ENGINE=InnoDB;
+	KEY ses_tstamp (ses_tstamp, ses_userid)
+);
 
 CREATE TABLE fe_users (
 	# These fields have no TCA column
@@ -34,7 +34,5 @@ CREATE TABLE tt_content (
 	# @todo: Needs a look for default null and nullable
 	table_caption varchar(255) DEFAULT NULL,
 
-	KEY parent (pid,sorting),
-	KEY t3ver_oid (t3ver_oid,t3ver_wsid),
-	KEY language (l18n_parent,sys_language_uid)
+	KEY parent (pid,sorting)
 );

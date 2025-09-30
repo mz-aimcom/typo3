@@ -61,7 +61,6 @@ use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\VarCharDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\YearDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\IndexColumnName;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\ReferenceDefinition;
-use TYPO3\CMS\Core\Database\Schema\Types\EnumType;
 use TYPO3\CMS\Core\Database\Schema\Types\SetType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -179,10 +178,24 @@ class TableBuilder
             $column->setFixed(true);
         }
 
-        if ($item->dataType instanceof EnumDataType
-            || $item->dataType instanceof SetDataType
-        ) {
-            $column->setPlatformOption('unquotedValues', $item->dataType->getValues());
+        if ($item->dataType instanceof SetDataType) {
+            $column->setValues($item->dataType->getValues());
+        }
+        if ($item->dataType instanceof EnumDataType) {
+            $column->setValues($item->dataType->getValues());
+        }
+
+        $dataTypeSupportsCharsetAndCollation = (
+            $item->dataType instanceof CharDataType
+            || $item->dataType instanceof VarCharDataType
+            || $item->dataType instanceof TextDataType
+        );
+        $options = $item->dataType->getOptions();
+        if ($dataTypeSupportsCharsetAndCollation && ($options['charset'] ?? null)) {
+            $column->setPlatformOption('charset', $options['charset']);
+        }
+        if ($dataTypeSupportsCharsetAndCollation && ($options['charset'] ?? null)) {
+            $column->setPlatformOption('collation', $options['collation']);
         }
 
         if ($item->index) {
@@ -365,7 +378,7 @@ class TableBuilder
                 $doctrineType = Types::STRING;
                 break;
             case EnumDataType::class:
-                $doctrineType = EnumType::TYPE;
+                $doctrineType = Types::ENUM;
                 break;
             case SetDataType::class:
                 $doctrineType = SetType::TYPE;

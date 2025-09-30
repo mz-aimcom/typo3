@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -15,10 +17,14 @@
 
 namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
-use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
+use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidDataStructureException;
 use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidIdentifierException;
+use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidTcaException;
+use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidTcaSchemaException;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Schema\Exception\UndefinedSchemaException;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -26,10 +32,12 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * This is the first data provider in the chain of flex form related providers.
  */
-#[Autoconfigure(public: true)]
 readonly class TcaFlexPrepare implements FormDataProviderInterface
 {
-    public function __construct(private FlexFormTools $flexFormTools) {}
+    public function __construct(
+        private FlexFormTools $flexFormTools,
+        private TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
 
     /**
      * Resolve flex data structures and prepare flex data values.
@@ -52,38 +60,47 @@ readonly class TcaFlexPrepare implements FormDataProviderInterface
     /**
      * Fetch / initialize data structure.
      *
-     * The sub array with different possible data structures in ['config']['ds'] is
-     * resolved here, ds array contains only the one resolved data structure after this method.
+     * The data structures in ['config']['ds'] is initialized here and the dataStructureIdentifier is set.
      */
     protected function initializeDataStructure(array $result, string $fieldName): array
     {
+        $dataStructureArray = ['sheets' => ['sDEF' => []]];
+
         if (!isset($result['processedTca']['columns'][$fieldName]['config']['dataStructureIdentifier'])) {
-            $dataStructureIdentifier = null;
-            $dataStructureArray = ['sheets' => ['sDEF' => []]];
             try {
+                // Actually ['config']['ds'] might already contain the resolved data structure. However,
+                // since the references value might be a file path and a couple of events exist for flex
+                // form resolving, we nevertheless need to call getDataStructureIdentifier() and
+                // parseDataStructureByIdentifier() here.
+                $schema = $this->tcaSchemaFactory->get($result['tableName']);
                 $dataStructureIdentifier = $this->flexFormTools->getDataStructureIdentifier(
                     $result['processedTca']['columns'][$fieldName],
                     $result['tableName'],
                     $fieldName,
-                    $result['databaseRow']
+                    $result['databaseRow'],
+                    $schema
                 );
-                $dataStructureArray = $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier);
-            } catch (InvalidIdentifierException) {
-                $dataStructureIdentifier = null;
-            } finally {
+                $dataStructureArray = $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier, $schema);
                 // Add the identifier to TCA to use it later during rendering
                 $result['processedTca']['columns'][$fieldName]['config']['dataStructureIdentifier'] = $dataStructureIdentifier;
+            } catch (InvalidDataStructureException|InvalidIdentifierException|InvalidTcaException|UndefinedSchemaException) {
+                // Skip the data structure if it is invalid
             }
-        } else {
-            // Assume the data structure has been given from outside if the data structure identifier is already set.
+        } elseif (is_array($result['processedTca']['columns'][$fieldName]['config']['ds'] ?? false)) {
+            // Data structure has been given from outside
             $dataStructureArray = $result['processedTca']['columns'][$fieldName]['config']['ds'];
+        } else {
+            // Resolve data structure base on given dataStructureIdentifier
+            try {
+                $dataStructureArray = $this->flexFormTools->parseDataStructureByIdentifier($result['processedTca']['columns'][$fieldName]['config']['dataStructureIdentifier'], $this->tcaSchemaFactory->get($result['tableName']));
+            } catch (InvalidDataStructureException|InvalidIdentifierException|InvalidTcaSchemaException|UndefinedSchemaException) {
+                // Skip the data structure if it is invalid
+            }
         }
         if (!isset($dataStructureArray['meta']) || !is_array($dataStructureArray['meta'])) {
             $dataStructureArray['meta'] = [];
         }
-        // This kicks one array depth:  config['ds']['listOfDataStructures'] becomes config['ds']
-        // This also ensures the final ds can be found in 'ds', even if the DS was fetch from
-        // a record, see FlexFormTools->getDataStructureIdentifier() for details.
+        // Finally add the resolved data Structure to "ds"
         $result['processedTca']['columns'][$fieldName]['config']['ds'] = $dataStructureArray;
         return $result;
     }
@@ -93,25 +110,20 @@ readonly class TcaFlexPrepare implements FormDataProviderInterface
      */
     protected function initializeDataValues(array $result, string $fieldName): array
     {
-        if (!array_key_exists($fieldName, $result['databaseRow'])) {
-            $result['databaseRow'][$fieldName] = '';
-        }
         $valueArray = [];
-        if (isset($result['databaseRow'][$fieldName])) {
-            $valueArray = $result['databaseRow'][$fieldName];
+
+        if (isset($result['databaseRow'][$fieldName]) && $result['databaseRow'][$fieldName] !== '') {
+            if (is_array($result['databaseRow'][$fieldName])) {
+                $valueArray = $result['databaseRow'][$fieldName];
+            } else {
+                $valueArray = GeneralUtility::xml2array($result['databaseRow'][$fieldName]);
+                if (!is_array($valueArray)) {
+                    $valueArray = [];
+                }
+            }
         }
-        if (!is_array($result['databaseRow'][$fieldName])) {
-            $valueArray = GeneralUtility::xml2array($result['databaseRow'][$fieldName]);
-        }
-        if (!is_array($valueArray)) {
-            $valueArray = [];
-        }
-        if (!isset($valueArray['data'])) {
-            $valueArray['data'] = [];
-        }
-        if (!isset($valueArray['meta'])) {
-            $valueArray['meta'] = [];
-        }
+        $valueArray['data'] ??= [];
+        $valueArray['meta'] ??= [];
         $result['databaseRow'][$fieldName] = $valueArray;
         return $result;
     }

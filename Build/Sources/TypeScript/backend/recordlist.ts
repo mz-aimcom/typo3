@@ -15,12 +15,13 @@ import Icons from '@typo3/backend/icons';
 import PersistentStorage from '@typo3/backend/storage/persistent';
 import RegularEvent from '@typo3/core/event/regular-event';
 import DocumentService from '@typo3/core/document-service';
-import { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
-import { SeverityEnum } from '@typo3/backend/enum/severity';
-import Severity from '@typo3/backend/severity';
 import { MultiRecordSelectionSelectors } from '@typo3/backend/multi-record-selection';
 import { selector } from '@typo3/core/literals';
+import type { ActionConfiguration, ActionEventDetails } from '@typo3/backend/multi-record-selection-action';
+import Notification from '@typo3/backend/notification';
+import AjaxRequest from '@typo3/core/ajax/ajax-request';
+import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import { sudoModeInterceptor } from '@typo3/backend/security/sudo-mode-interceptor';
 
 interface IconIdentifier {
   collapse: string;
@@ -30,24 +31,15 @@ interface RecordlistIdentifier {
   entity: string;
   toggle: string;
   localize: string;
+  hide: string;
+  delete: string;
   editMultiple: string;
   icons: IconIdentifier;
-}
-interface DataHandlerEventPayload {
-  action: string;
-  component: string;
-  table: string;
-  uid: number;
 }
 interface EditRecordsConfiguration extends ActionConfiguration {
   tableName: string;
   columnsOnly: Array<string>;
   returnUrl: string;
-}
-interface DeleteRecordsConfiguration extends ActionConfiguration {
-  ok: string;
-  title: string;
-  content: string;
 }
 
 /**
@@ -60,6 +52,8 @@ class Recordlist {
     entity: '.t3js-entity',
     toggle: '.t3js-toggle-recordlist',
     localize: '.t3js-action-localize',
+    hide: 'button[data-datahandler-action="visibility"]',
+    delete: '.t3js-record-delete',
     editMultiple: '.t3js-record-edit-multiple',
     icons: {
       collapse: 'actions-view-list-collapse',
@@ -71,14 +65,13 @@ class Recordlist {
     new RegularEvent('click', this.toggleClick).delegateTo(document, this.identifier.toggle);
     new RegularEvent('click', this.onEditMultiple).delegateTo(document, this.identifier.editMultiple);
     new RegularEvent('click', this.disableButton).delegateTo(document, this.identifier.localize);
+    new RegularEvent('click', this.toggleVisibility).delegateTo(document, this.identifier.hide);
     DocumentService.ready().then((): void => {
       this.registerPaginationEvents();
     });
-    new RegularEvent('typo3:datahandler:process', this.handleDataHandlerResult.bind(this)).bindTo(document);
 
     // multi record selection events
     new RegularEvent('multiRecordSelection:action:edit', this.onEditMultiple).bindTo(document);
-    new RegularEvent('multiRecordSelection:action:delete', this.deleteMultiple).bindTo(document);
     new RegularEvent('multiRecordSelection:action:copyMarked', (event: CustomEvent): void => {
       Recordlist.submitClipboardFormWithCommand('copyMarked', event.target as HTMLButtonElement);
     }).bindTo(document);
@@ -218,78 +211,65 @@ class Recordlist {
     target.classList.add('disabled');
   };
 
-  private handleDataHandlerResult(e: CustomEvent): void {
-    const payload = e.detail.payload;
-    if (payload.hasErrors) {
-      return;
-    }
+  private readonly toggleVisibility = (event: Event, target: HTMLButtonElement): void => {
+    target.disabled = true;
 
-    if (payload.component === 'datahandler') {
-      // In this case the delete action was triggered by AjaxDataHandler itself, which currently has its own handling.
-      // Visual handling is about to get decoupled from data handling itself, thus the logic is duplicated for now.
-      return;
-    }
+    const buttonIconElement = target.querySelector('.t3js-icon');
+    const originalIconElement = buttonIconElement.cloneNode(true);
 
-    if (payload.action === 'delete') {
-      this.deleteRow(payload);
-    }
-  }
-
-  private readonly deleteRow = (payload: DataHandlerEventPayload): void => {
-    const tableElement = document.querySelector(`table[data-table="${payload.table}"]`) as HTMLTableElement;
-    const rowElement = tableElement.querySelector(`tr[data-uid="${payload.uid}"]`) as HTMLElement;
-    const panel = tableElement.closest('.panel') as HTMLElement;
-    const panelHeading = panel.querySelector('.panel-heading') as HTMLElement;
-    const translatedRowElements = tableElement.querySelectorAll<HTMLElement>(`[data-l10nparent="${payload.uid}"]`);
-
-    [rowElement, ...translatedRowElements].forEach((rowElement: HTMLElement|null): void => {
-      rowElement?.remove();
+    Icons.getIcon('spinner-circle', Icons.sizes.small).then((icon: string): void => {
+      buttonIconElement.replaceWith(document.createRange().createContextualFragment(icon));
     });
 
-    if (tableElement.querySelector('tbody tr') === null) {
-      panel.remove();
-    }
+    const rowElement = target.closest('tr[data-uid]') as HTMLTableRowElement;
+    const table = rowElement.dataset.table;
+    const uid = parseInt(rowElement.dataset.uid, 10);
+    const isVisible = target.dataset.datahandlerStatus === 'visible';
+    const targetAction = isVisible ? 'hide' : 'show';
 
-    if (rowElement.dataset.l10nparent === '0' || rowElement.dataset.l10nparent === '') {
-      const count = Number(panelHeading.querySelector('.t3js-table-total-items').textContent);
-      const tableTotalItems = panelHeading.querySelector('.t3js-table-total-items');
+    new AjaxRequest(TYPO3.settings.ajaxUrls.record_toggle_visibility).addMiddleware(sudoModeInterceptor).post({
+      table: table,
+      uid: uid,
+      action: targetAction,
+    }).then(async (response: AjaxResponse): Promise<void> => {
+      const data = await response.resolve();
+      target.setAttribute('data-datahandler-status', data.isVisible ? 'visible' : 'hidden');
 
-      if (tableTotalItems !== null) {
-        tableTotalItems.textContent = String(count - 1);
+      const elementLabel = data.isVisible
+        ? target.dataset.datahandlerVisibleLabel
+        : target.dataset.datahandlerHiddenLabel;
+      target.setAttribute('title', elementLabel);
+      const buttonIconIdentifier = data.isVisible ? 'actions-edit-hide' : 'actions-edit-unhide';
+      Icons.getIcon(buttonIconIdentifier, Icons.sizes.small).then((icon: string): void => {
+        const buttonIconElement = target.querySelector('.t3js-icon');
+        buttonIconElement.replaceWith(document.createRange().createContextualFragment(icon));
+      });
+
+      const recordIconElement = rowElement.querySelector('.col-icon .t3js-icon');
+      recordIconElement.replaceWith(document.createRange().createContextualFragment(data.icon));
+
+      // Animate row
+      const animationEvent = new RegularEvent('animationend', (): void => {
+        rowElement.classList.remove('record-pulse');
+        animationEvent.release();
+      });
+      animationEvent.bindTo(rowElement);
+      rowElement.classList.add('record-pulse');
+
+      if (table === 'pages') {
+        top.document.dispatchEvent(new CustomEvent('typo3:pagetree:refresh'));
       }
-    }
+    }).catch(async(response: AjaxResponse): Promise<void> => {
+      target.querySelector('.t3js-icon').replaceWith(originalIconElement);
 
-    if (payload.table === 'pages') {
-      top.document.dispatchEvent(new CustomEvent('typo3:pagetree:refresh'));
-    }
-  };
-
-  private deleteMultiple (event: CustomEvent): void {
-    event.preventDefault();
-    const eventDetails: ActionEventDetails = event.detail as ActionEventDetails;
-    const configuration: DeleteRecordsConfiguration = eventDetails.configuration;
-    Modal.advanced({
-      title: configuration.title || 'Delete',
-      content: configuration.content || 'Are you sure you want to delete those records?',
-      severity: SeverityEnum.warning,
-      buttons: [
-        {
-          text: TYPO3.lang['button.close'] || 'Close',
-          active: true,
-          btnClass: 'btn-default',
-          trigger: (e: Event, modal: ModalElement) => modal.hideModal(),
-        },
-        {
-          text: configuration.ok || TYPO3.lang['button.ok'] || 'OK',
-          btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.warning),
-          trigger: (e: Event, modal: ModalElement) => {
-            modal.hideModal();
-            Recordlist.submitClipboardFormWithCommand('delete', event.target as HTMLButtonElement);
-          }
-        }
-      ]
+      const data = await response.resolve();
+      for (const message of data.messages) {
+        Notification.error(message.title, message.message);
+      }
+    }).finally((): void => {
+      target.disabled = false;
     });
-  }
+  };
 
   private readonly registerPaginationEvents = (): void => {
     document.querySelectorAll('.t3js-recordlist-paging').forEach((trigger: HTMLInputElement) => {

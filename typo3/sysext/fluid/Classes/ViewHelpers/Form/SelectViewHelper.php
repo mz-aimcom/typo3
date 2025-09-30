@@ -17,81 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\ViewHelpers\Form;
 
+use TYPO3\CMS\Extbase\DomainObject\DomainObjectInterface;
 use TYPO3\CMS\Extbase\Reflection\ObjectAccess;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
 
 /**
- * This ViewHelper generates a :html:`<select>` dropdown list for the use with a form.
+ * ViewHelper which renders a `<select>` dropdown list for use within a form.
  *
- * Basic usage
- * ===========
+ * ```
+ *   <f:form.select name="paymentOptions" options="{payPal: 'PayPal International Services', visa: 'VISA Card'}" value="visa" />
+ *   <f:form.select property="users" options="{userList}" optionValueField="id" optionLabelField="firstName" multiple="true" />
+ * ```
  *
- * The most straightforward way is to supply an associative array as the ``options`` parameter.
- * The array key is used as option key, and the value is used as human-readable name.
- *
- * Basic usage::
- *
- *    <f:form.select name="paymentOptions" options="{payPal: 'PayPal International Services', visa: 'VISA Card'}" />
- *
- * Pre select a value
- * ------------------
- *
- * To pre select a value, set ``value`` to the option key which should be selected.
- * Default value::
- *
- *    <f:form.select name="paymentOptions" options="{payPal: 'PayPal International Services', visa: 'VISA Card'}" value="visa" />
- *
- * Generates a dropdown box like above, except that "VISA Card" is selected.
- *
- * If the select box is a multi-select box :html:`multiple="1"`, then "value" can be an array as well.
- *
- * Custom options and option group rendering
- * -----------------------------------------
- *
- * Child nodes can be used to create a completely custom set of
- * :html:`<option>` and :html:`<optgroup>` tags in a way compatible with the
- * HMAC generation.
- * To do so, leave out the ``options`` argument and use child ViewHelpers:
- *
- * Custom options and optgroup::
- *
- *    <f:form.select name="myproperty">
- *       <f:form.select.option value="1">Option one</f:form.select.option>
- *       <f:form.select.option value="2">Option two</f:form.select.option>
- *       <f:form.select.optgroup>
- *          <f:form.select.option value="3">Grouped option one</f:form.select.option>
- *          <f:form.select.option value="4">Grouped option twi</f:form.select.option>
- *       </f:form.select.optgroup>
- *    </f:form.select>
- *
- * .. note::
- *    Do not use vanilla :html:`<option>` or :html:`<optgroup>` tags!
- *    They will invalidate the HMAC generation!
- *
- * Usage on domain objects
- * -----------------------
- *
- * If you want to output domain objects, you can just pass them as array into the ``options`` parameter.
- * To define what domain object value should be used as option key, use the ``optionValueField`` variable. Same goes for ``optionLabelField``.
- * If neither is given, the Identifier (UID/uid) and the :php:`__toString()` method are tried as fallbacks.
- *
- * If the ``optionValueField`` variable is set, the getter named after that value is used to retrieve the option key.
- * If the ``optionLabelField`` variable is set, the getter named after that value is used to retrieve the option value.
- *
- * If the ``prependOptionLabel`` variable is set, an option item is added in first position, bearing an empty string or -
- * if provided, the value of the ``prependOptionValue`` variable as value.
- *
- * Domain objects::
- *
- *    <f:form.select name="users" options="{userArray}" optionValueField="id" optionLabelField="firstName" />
- *
- * In the above example, the ``userArray`` is an array of "User" domain objects, with no array key specified.
- *
- * So, in the above example, the method :php:`$user->getId()` is called to
- * retrieve the key, and :php:`$user->getFirstName()` to retrieve the displayed
- * value of each entry.
- *
- * The ``value`` property now expects a domain object, and tests for object equivalence.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-form-select
  */
 final class SelectViewHelper extends AbstractFormFieldViewHelper
 {
@@ -180,7 +118,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
     /**
      * Render prepended option tag
      */
-    protected function renderPrependOptionTag(): string
+    private function renderPrependOptionTag(): string
     {
         $output = '';
         if ($this->hasArgument('prependOptionLabel')) {
@@ -194,7 +132,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
     /**
      * Render the option tags.
      */
-    protected function renderOptionTags(array $options): string
+    private function renderOptionTags(array $options): string
     {
         $output = '';
         foreach ($options as $value => $label) {
@@ -209,7 +147,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
      *
      * @return array An associative array of options, key will be the value of the option tag
      */
-    protected function getOptions(): array
+    private function getOptions(): array
     {
         if (!is_array($this->arguments['options']) && !$this->arguments['options'] instanceof \Traversable) {
             return [];
@@ -228,8 +166,8 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
                 if (!$this->hasArgument('optionLabelField')) {
                     throw new \InvalidArgumentException('Missing parameter "optionLabelField" in SelectViewHelper for array value options.', 1682693721);
                 }
-                $key = ObjectAccess::getPropertyPath($value, $this->arguments['optionValueField']);
-                $value = ObjectAccess::getPropertyPath($value, $this->arguments['optionLabelField']);
+                $key = ObjectAccess::getPropertyPath($value, (string)$this->arguments['optionValueField']);
+                $value = ObjectAccess::getPropertyPath($value, (string)$this->arguments['optionLabelField']);
                 $options[$key] = $value;
                 continue;
             }
@@ -279,7 +217,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
      * @param mixed $value Value to check for
      * @return bool True if the value should be marked as selected.
      */
-    protected function isSelected($value): bool
+    private function isSelected($value): bool
     {
         $selectedValue = $this->getSelectedValue();
         if ($value === $selectedValue || (string)$value === $selectedValue) {
@@ -301,7 +239,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
      *
      * @return mixed value string or an array of strings
      */
-    protected function getSelectedValue()
+    private function getSelectedValue()
     {
         $this->setRespectSubmittedDataValue(true);
         $value = $this->getValueAttribute();
@@ -321,7 +259,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
      * @param mixed $valueElement
      * @return string @todo: Does not always return string ...
      */
-    protected function getOptionValueScalar($valueElement)
+    private function getOptionValueScalar($valueElement)
     {
         if (is_object($valueElement)) {
             if ($this->hasArgument('optionValueField')) {
@@ -329,7 +267,20 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
             }
             // @todo use $this->persistenceManager->isNewObject() once it is implemented
             if ($this->persistenceManager->getIdentifierByObject($valueElement) !== null) {
+                if ($valueElement instanceof DomainObjectInterface) {
+                    // We prefer to use the `getUid()` method because this returns the properly overlaid identifier (defaultLanguageRecordUid).
+                    // Otherwise, an identifier would contain '[defaultLanguageRecordUid]_[localizedRecordUid]'. This in turn
+                    // will not properly trigger the select option "is selected" comparison.
+                    // @see AbstractFormFieldViewHelper->convertToPlainValue()
+                    return $valueElement->getUid() ?? $this->persistenceManager->getIdentifierByObject($valueElement);
+                }
                 return $this->persistenceManager->getIdentifierByObject($valueElement);
+            }
+            if ($valueElement instanceof \BackedEnum) {
+                return $valueElement->value;
+            }
+            if ($valueElement instanceof \UnitEnum) {
+                return $valueElement->name;
             }
             return (string)$valueElement;
         }
@@ -344,7 +295,7 @@ final class SelectViewHelper extends AbstractFormFieldViewHelper
      * @param bool $isSelected specifies whether to add selected attribute
      * @return string the rendered option tag
      */
-    protected function renderOptionTag(string $value, string $label, bool $isSelected): string
+    private function renderOptionTag(string $value, string $label, bool $isSelected): string
     {
         $output = '<option value="' . htmlspecialchars($value) . '"';
         if ($isSelected) {

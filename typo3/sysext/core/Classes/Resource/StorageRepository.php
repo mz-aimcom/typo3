@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Resource;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -34,10 +33,8 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 /**
  * Repository for accessing the file storages
  */
-class StorageRepository implements LoggerAwareInterface
+class StorageRepository
 {
-    use LoggerAwareTrait;
-
     /**
      * @var array<positive-int, array<mixed>>|null
      */
@@ -48,8 +45,6 @@ class StorageRepository implements LoggerAwareInterface
      */
     protected ?array $localDriverStorageCache = null;
 
-    protected readonly string $table;
-
     /**
      * @var array<int<0, max>, ResourceStorage>
      */
@@ -57,10 +52,12 @@ class StorageRepository implements LoggerAwareInterface
 
     public function __construct(
         protected readonly EventDispatcherInterface $eventDispatcher,
+        protected readonly ConnectionPool $connectionPool,
         protected readonly DriverRegistry $driverRegistry,
-    ) {
-        $this->table = 'sys_file_storage';
-    }
+        protected readonly FlexFormTools $flexFormTools,
+        protected readonly FlexFormService $flexFormService,
+        protected readonly LoggerInterface $logger,
+    ) {}
 
     /**
      * Returns the Default Storage
@@ -117,12 +114,9 @@ class StorageRepository implements LoggerAwareInterface
     protected function initializeLocalCache(): void
     {
         if ($this->storageRowCache === null) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getQueryBuilderForTable($this->table);
-
-            $result = $queryBuilder
+            $result = $this->connectionPool->getQueryBuilderForTable('sys_file_storage')
                 ->select('*')
-                ->from($this->table)
+                ->from('sys_file_storage')
                 ->orderBy('name')
                 ->executeQuery();
 
@@ -139,11 +133,8 @@ class StorageRepository implements LoggerAwareInterface
             // selecting just one row is enough
 
             if ($this->storageRowCache === []) {
-                $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                    ->getConnectionForTable($this->table);
-
-                $storageObjectsCount = $connection->count('uid', $this->table, []);
-
+                $storageObjectsCount = $this->connectionPool->getConnectionForTable('sys_file_storage')
+                    ->count('uid', 'sys_file_storage', []);
                 if ($storageObjectsCount === 0) {
                     if ($this->createLocalStorage(
                         rtrim($GLOBALS['TYPO3_CONF_VARS']['BE']['fileadminDir'] ?? 'fileadmin', '/'),
@@ -242,9 +233,7 @@ class StorageRepository implements LoggerAwareInterface
                 ],
             ],
         ];
-
-        $flexFormXml = GeneralUtility::makeInstance(FlexFormTools::class)->flexArray2Xml($flexFormData);
-
+        $flexFormXml = $this->flexFormTools->flexArray2Xml($flexFormData);
         // create the record
         $field_values = [
             'pid' => 0,
@@ -261,14 +250,10 @@ class StorageRepository implements LoggerAwareInterface
             'is_writable' => 1,
             'is_default' => $default ? 1 : 0,
         ];
-
-        $dbConnection = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getConnectionForTable($this->table);
-        $dbConnection->insert($this->table, $field_values);
-
+        $dbConnection = $this->connectionPool->getConnectionForTable('sys_file_storage');
+        $dbConnection->insert('sys_file_storage', $field_values);
         // Flush local resourceStorage cache so the storage can be accessed during the same request right away
         $this->flush();
-
         return (int)$dbConnection->lastInsertId();
     }
 
@@ -461,7 +446,7 @@ class StorageRepository implements LoggerAwareInterface
     protected function convertFlexFormDataToConfigurationArray(string $flexFormData): array
     {
         if ($flexFormData) {
-            return GeneralUtility::makeInstance(FlexFormService::class)->convertFlexFormContentToArray($flexFormData);
+            return $this->flexFormService->convertFlexFormContentToArray($flexFormData);
         }
         return [];
     }

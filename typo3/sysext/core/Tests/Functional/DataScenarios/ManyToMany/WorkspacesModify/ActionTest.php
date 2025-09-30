@@ -40,10 +40,10 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
-    public function addCategoryRelation(): void
+    public function addGroupMM1RelationOnForeignSide(): void
     {
-        parent::addCategoryRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/addCategoryRelation.csv');
+        parent::addGroupMM1RelationOnForeignSide();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/addGroupMM1RelationOnForeignSide.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -51,15 +51,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A', 'Category B', 'Category A.A'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A', 'Surf B', 'Surf A.A'));
     }
 
     #[Test]
-    public function deleteCategoryRelation(): void
+    public function deleteGroupMM1RelationOnForeignSide(): void
     {
-        parent::deleteCategoryRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteCategoryRelation.csv');
+        parent::deleteGroupMM1RelationOnForeignSide();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteGroupMM1RelationOnForeignSide.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -67,18 +67,18 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A'));
         self::assertThat($responseSections, (new StructureDoesNotHaveRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C', 'Category A.A'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C', 'Surf A.A'));
     }
 
     #[Test]
-    public function changeCategoryRelationSorting(): void
+    public function changeGroupMM1SortingOnForeignSide(): void
     {
-        parent::changeCategoryRelationSorting();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/changeCategoryRelationSorting.csv');
+        parent::changeGroupMM1SortingOnForeignSide();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/changeGroupMM1SortingOnForeignSide.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -86,15 +86,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A', 'Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A', 'Surf B'));
     }
 
     #[Test]
-    public function createContentAndAddRelation(): void
+    public function createContentAndAddGroupMM1Relation(): void
     {
-        parent::createContentAndAddRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentNAddRelation.csv');
+        parent::createContentAndAddGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentAndAddGroupMM1Relation.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -102,17 +102,17 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Surfing #1'));
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B'));
     }
 
     #[Test]
-    public function createCategoryAndAddRelation(): void
+    public function createTestMMAndAddGroupMM1Relation(): void
     {
-        parent::createCategoryAndAddRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createCategoryNAddRelation.csv');
+        parent::createTestMMAndAddGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createTestMMAndAddGroupMM1Relation.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -120,17 +120,17 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Testing #1'));
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surfing #1'));
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Testing #1'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surfing #1'));
     }
 
     #[Test]
-    public function createContentAndCreateRelation(): void
+    public function createTestMMAndContentWithGroupMM1Relation(): void
     {
-        parent::createContentAndCreateRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentNCreateRelation.csv');
+        parent::createTestMMAndContentWithGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createTestMMAndContentWithGroupMM1Relation.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -138,38 +138,38 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Surfing #1'));
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Testing #1'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surfing #1'));
     }
 
     #[Test]
-    public function createCategoryAndCreateRelation(): void
+    public function createContentAndTestMMWithGroupMM1Relation(): void
     {
-        parent::createCategoryAndCreateRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createCategoryNCreateRelation.csv');
+        parent::createContentAndTestMMWithGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentAndTestMMWithGroupMM1Relation.csv');
     }
 
     #[Test]
-    public function createContentWithCategoryAndAddRelation(): void
+    public function createTestMMAndContentWithAddedGroupMM1Relation(): void
     {
-        parent::createContentWithCategoryAndAddRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentWCategoryNAddRelation.csv');
+        parent::createTestMMAndContentWithAddedGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createTestMMAndContentWithAddedGroupMM1Relation.csv');
     }
 
     #[Test]
-    public function createCategoryWithContentAndAddRelation(): void
+    public function createContentAndTestMMWithAddedGroupMM1Relation(): void
     {
-        parent::createCategoryWithContentAndAddRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/createCategoryWContentNAddRelation.csv');
+        parent::createContentAndTestMMWithAddedGroupMM1Relation();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/createContentAndTestMMWithAddedGroupMM1Relation.csv');
     }
 
     #[Test]
-    public function modifyCategoryOfRelation(): void
+    public function modifyTestMM(): void
     {
-        parent::modifyCategoryOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyCategoryOfRelation.csv');
+        parent::modifyTestMM();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTestMM.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -177,15 +177,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Testing #1', 'Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surfing #1', 'Surf B'));
     }
 
     #[Test]
-    public function modifyContentOfRelation(): void
+    public function modifyContent(): void
     {
-        parent::modifyContentOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyContentOfRelation.csv');
+        parent::modifyContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyContent.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -193,14 +193,14 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Surfing #1'));
     }
 
     #[Test]
-    public function modifyBothsOfRelation(): void
+    public function modifyTestMMAndContent(): void
     {
-        parent::modifyBothsOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyBothsOfRelation.csv');
+        parent::modifyTestMMAndContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTestMMAndContent.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -208,17 +208,17 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Testing #1', 'Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surfing #1', 'Surf B'));
         self::assertThat($responseSections, (new HasRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Surfing #1'));
     }
 
     #[Test]
-    public function deleteContentOfRelation(): void
+    public function deleteContentWithMultipleRelations(): void
     {
-        parent::deleteContentOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentOfRelation.csv');
+        parent::deleteContentWithMultipleRelations();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentWithMultipleRelations.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -226,14 +226,21 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
-            ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Surfing #1'));
     }
 
     #[Test]
-    public function deleteCategoryOfRelation(): void
+    public function deleteContentWithMultipleRelationsAndWithoutSoftDelete(): void
     {
-        parent::deleteCategoryOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteCategoryOfRelation.csv');
+        parent::deleteContentWithMultipleRelationsAndWithoutSoftDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentWithMultipleRelationsAndWithoutSoftDelete.csv');
+    }
+
+    #[Test]
+    public function deleteTestMM(): void
+    {
+        parent::deleteTestMM();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteTestMM.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -241,15 +248,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureDoesNotHaveRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A'));
     }
 
     #[Test]
-    public function copyContentOfRelation(): void
+    public function copyContentWithRelations(): void
     {
-        parent::copyContentOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyContentOfRelation.csv');
+        parent::copyContentWithRelations();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyContentWithRelations.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -257,15 +264,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function copyContentToLanguageOfRelation(): void
+    public function copyContentToLanguage(): void
     {
-        parent::copyContentToLanguageOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyContentToLanguageOfRelation.csv');
+        parent::copyContentToLanguage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyContentToLanguage.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -273,15 +280,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function copyCategoryOfRelation(): void
+    public function copyTestMM(): void
     {
-        parent::copyCategoryOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyCategoryOfRelation.csv');
+        parent::copyTestMM();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyTestMM.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId),
@@ -289,15 +296,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A', 'Category A (copy 1)'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A', 'Surf A (copy 1)'));
     }
 
     #[Test]
-    public function copyCategoryToLanguageOfRelation(): void
+    public function copyTestMMToLanguage(): void
     {
-        parent::copyCategoryToLanguageOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyCategoryToLanguageOfRelation.csv');
+        parent::copyTestMMToLanguage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyTestMMToLanguage.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -305,17 +312,17 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A'));
         // As the copy is not connected, it is also not shown in the default language @todo check if this is correct
-        //    ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A', '[Translate to Dansk:] Category A'));
+        //    ->setTable(self::TABLE_Surf)->setField('title')->setValues('Surf A', '[Translate to Dansk:] Surf A'));
     }
 
     #[Test]
-    public function localizeContentOfRelation(): void
+    public function localizeContent(): void
     {
-        parent::localizeContentOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentOfRelation.csv');
+        parent::localizeContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContent.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -323,15 +330,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function localizeContentOfRelationWithLanguageSynchronization(): void
+    public function localizeContentWithLanguageSynchronization(): void
     {
-        parent::localizeContentOfRelationWithLanguageSynchronization();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentOfRelationWSynchronization.csv');
+        parent::localizeContentWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentWithLanguageSynchronization.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -339,15 +346,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function localizeContentChainOfRelationAndAddCategoryWithLanguageSynchronization(): void
+    public function localizeContentChainAndAddTestMMWithLanguageSynchronization(): void
     {
-        parent::localizeContentChainOfRelationAndAddCategoryWithLanguageSynchronization();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentChainOfRelationNAddCategoryWSynchronization.csv');
+        parent::localizeContentChainAndAddTestMMWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentChainAndAddTestMMWithLanguageSynchronization.csv');
 
         // @todo: should we check for LanguageId_Second?
         $response = $this->executeFrontendSubRequest(
@@ -356,15 +363,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function localizeContentOfRelationWithLanguageExclude(): void
+    public function localizeContentWithLanguageExclude(): void
     {
-        parent::localizeContentOfRelationWithLanguageExclude();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentOfRelationWExclude.csv');
+        parent::localizeContentWithLanguageExclude();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentWithLanguageExclude.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -372,37 +379,37 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     /**
      * @todo: this test is faulty as it adds a lot of entries
      */
     #[Test]
-    public function localizeContentOfRelationAndAddCategoryWithLanguageSynchronization(): void
+    public function localizeContentAndAddTestMMWithLanguageSynchronization(): void
     {
-        parent::localizeContentOfRelationAndAddCategoryWithLanguageSynchronization();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentOfRelationNAddCategoryWSynchronization.csv');
+        parent::localizeContentAndAddTestMMWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentAndAddTestMMWithLanguageSynchronization.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
             (new InternalRequestContext())->withBackendUserId(self::VALUE_BackendUserId)->withWorkspaceId(self::VALUE_WorkspaceId)
         );
-        // @todo: should probably also show the fourth category
+        // @todo: should probably also show the fourth Surf
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
-    public function localizeCategoryOfRelation(): void
+    public function localizeTestMM(): void
     {
         // Create translated page first
         $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
-        parent::localizeCategoryOfRelation();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeCategoryOfRelation.csv');
+        parent::localizeTestMM();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeTestMM.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId),
@@ -410,15 +417,15 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('[Translate to Dansk:] Category A', 'Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('[Translate to Dansk:] Surf A', 'Surf B'));
     }
 
     #[Test]
-    public function moveContentOfRelationToDifferentPage(): void
+    public function moveContentToDifferentPage(): void
     {
-        parent::moveContentOfRelationToDifferentPage();
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveContentOfRelationToDifferentPage.csv');
+        parent::moveContentToDifferentPage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveContentToDifferentPage.csv');
 
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest())->withPageId(self::VALUE_PageIdTarget),
@@ -426,8 +433,8 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         );
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
     }
 
     #[Test]
@@ -446,10 +453,52 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         self::assertThat($responseSections, (new HasRecordConstraint())
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #1', 'Regular Element #2'));
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentIdFirst'])->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category A', 'Category B'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentIdFirst'])->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf A', 'Surf B'));
         self::assertThat($responseSections, (new StructureHasRecordConstraint())
-            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentIdLast'])->setRecordField('categories')
-            ->setTable(self::TABLE_Category)->setField('title')->setValues('Category B', 'Category C'));
+            ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentIdLast'])->setRecordField(self::FIELD_GROUP_MM_1_FOREIGN)
+            ->setTable(self::TABLE_TEST_MM)->setField('title')->setValues('Surf B', 'Surf C'));
+    }
+
+    #[Test]
+    public function localizeTestMMSelect1MMLocal(): void
+    {
+        parent::localizeTestMMSelect1MMLocal();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeTestMMSelect1MMLocal.csv');
+    }
+
+    #[Test]
+    public function localizeTestMMSelect1MMLocalWithExclude(): void
+    {
+        parent::localizeTestMMSelect1MMLocalWithExclude();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeTestMMSelect1MMLocalWithExclude.csv');
+    }
+
+    #[Test]
+    public function localizeTestMMSelect1MMLocalWithLanguageSynchronization(): void
+    {
+        parent::localizeTestMMSelect1MMLocalWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeTestMMSelect1MMLocalWithLanguageSynchronization.csv');
+    }
+
+    #[Test]
+    public function localizeContentSelect1MMForeign(): void
+    {
+        parent::localizeContentSelect1MMForeign();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentSelect1MMForeign.csv');
+    }
+
+    #[Test]
+    public function localizeContentSelect1MMForeignWithExclude(): void
+    {
+        parent::localizeContentSelect1MMForeignWithExclude();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentSelect1MMForeignWithExclude.csv');
+    }
+
+    #[Test]
+    public function localizeContentSelect1MMForeignWithLanguageSynchronization(): void
+    {
+        parent::localizeContentSelect1MMForeignWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentSelect1MMForeignWithLanguageSynchronization.csv');
     }
 }

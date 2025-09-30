@@ -38,6 +38,7 @@ use TYPO3\CMS\Frontend\ContentObject\Exception\ContentRenderingException;
 use TYPO3\CMS\Frontend\ContentObject\Menu\Exception\NoSuchMenuTypeException;
 use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\Frontend\Event\FilterMenuItemsEvent;
+use TYPO3\CMS\Frontend\Typolink\LinkResult;
 use TYPO3\CMS\Frontend\Typolink\LinkResultInterface;
 use TYPO3\CMS\Frontend\Typolink\PageLinkBuilder;
 use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
@@ -51,6 +52,21 @@ use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
  */
 abstract class AbstractMenuContentObject
 {
+    protected const customItemStates = [
+        // IFSUB is TRUE if there exist submenu items to the current item
+        'IFSUB',
+        'ACT',
+        // ACTIFSUB is TRUE if there exist submenu items to the current item and the current item is active
+        'ACTIFSUB',
+        // CUR is TRUE if the current page equals the item here!
+        'CUR',
+        // CURIFSUB is TRUE if there exist submenu items to the current item and the current page equals the item here!
+        'CURIFSUB',
+        'USR',
+        'SPC',
+        'USERDEF1',
+        'USERDEF2',
+    ];
     /**
      * tells you which menu number this is. This is important when getting data from the setup
      */
@@ -173,22 +189,6 @@ abstract class AbstractMenuContentObject
     protected $parentMenuArr;
 
     protected bool $disableGroupAccessCheck = false;
-
-    protected const customItemStates = [
-        // IFSUB is TRUE if there exist submenu items to the current item
-        'IFSUB',
-        'ACT',
-        // ACTIFSUB is TRUE if there exist submenu items to the current item and the current item is active
-        'ACTIFSUB',
-        // CUR is TRUE if the current page equals the item here!
-        'CUR',
-        // CURIFSUB is TRUE if there exist submenu items to the current item and the current page equals the item here!
-        'CURIFSUB',
-        'USR',
-        'SPC',
-        'USERDEF1',
-        'USERDEF2',
-    ];
 
     /**
      * The initialization of the object. This just sets some internal variables.
@@ -621,14 +621,8 @@ abstract class AbstractMenuContentObject
     {
         // clone global context object (singleton)
         $context = clone GeneralUtility::makeInstance(Context::class);
-        $context->setAspect(
-            'language',
-            $languageAspect ?? GeneralUtility::makeInstance(LanguageAspect::class)
-        );
-        return GeneralUtility::makeInstance(
-            PageRepository::class,
-            $context
-        );
+        $context->setAspect('language', $languageAspect ?? new LanguageAspect());
+        return GeneralUtility::makeInstance(PageRepository::class, $context);
     }
 
     /**
@@ -645,15 +639,15 @@ abstract class AbstractMenuContentObject
             $specialValue = $this->request->getAttribute('frontend.page.information')->getId();
         }
         $items = GeneralUtility::intExplode(',', (string)$specialValue);
-        $pageLinkBuilder = GeneralUtility::makeInstance(PageLinkBuilder::class, $this->parent_cObj);
+        $pageLinkBuilder = GeneralUtility::makeInstance(PageLinkBuilder::class);
         foreach ($items as $id) {
-            $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($id);
+            $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($id, $this->parent_cObj->getRequest());
             // Checking if a page is a mount page and if so, change the ID and set the MP var properly.
             $mount_info = $this->sys_page->getMountPointInfo($id);
             if (is_array($mount_info)) {
                 if ($mount_info['overlay']) {
                     // Overlays should already have their full MPvars calculated:
-                    $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps((int)$mount_info['mount_pid']);
+                    $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps((int)$mount_info['mount_pid'], $this->parent_cObj->getRequest());
                     $MP = $MP ?: $mount_info['MPvar'];
                 } else {
                     $MP = ($MP ? $MP . ',' : '') . $mount_info['MPvar'];
@@ -694,10 +688,10 @@ abstract class AbstractMenuContentObject
             array_flip(array_intersect(array_values($pageIds), array_keys($pageRecords))),
             $pageRecords
         );
-        $pageLinkBuilder = GeneralUtility::makeInstance(PageLinkBuilder::class, $this->parent_cObj);
+        $pageLinkBuilder = GeneralUtility::makeInstance(PageLinkBuilder::class);
         foreach ($pageRecords as $row) {
             $pageId = (int)$row['uid'];
-            $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($pageId);
+            $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($pageId, $this->parent_cObj->getRequest());
             // Keep mount point?
             $mount_info = $this->sys_page->getMountPointInfo($pageId, $row);
             // $pageId is a valid mount point
@@ -715,7 +709,7 @@ abstract class AbstractMenuContentObject
                 $row['_MP_PARAM'] = $mount_info['MPvar'];
                 // Overlays should already have their full MPvars calculated, that's why we unset the
                 // existing $row['_MP_PARAM'], as the full $MP will be added again below
-                $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($mountedPageId);
+                $MP = $pageLinkBuilder->getMountPointParameterFromRootPointMaps($mountedPageId, $this->parent_cObj->getRequest());
                 if ($MP) {
                     unset($row['_MP_PARAM']);
                 }
@@ -982,15 +976,15 @@ abstract class AbstractMenuContentObject
         // Will not work out of rootline
         if ($specialValue != ($localRootLine[0]['uid'] ?? null)) {
             $recArr = [];
-            // The page record of the 'value'.
-            $value_rec = $this->sys_page->getPage((int)$specialValue, $this->disableGroupAccessCheck);
+            // The page id of the 'value'
+            $value_rec_pid = $this->sys_page->getPage((int)$specialValue, $this->disableGroupAccessCheck)['pid'] ?? null;
             // 'up' page cannot be outside rootline
-            if ($value_rec['pid']) {
+            if ($value_rec_pid) {
                 // The page record of 'up'.
-                $recArr['up'] = $this->sys_page->getPage((int)$value_rec['pid'], $this->disableGroupAccessCheck);
+                $recArr['up'] = $this->sys_page->getPage((int)$value_rec_pid, $this->disableGroupAccessCheck);
             }
             // If the 'up' item was NOT level 0 in rootline...
-            if (($recArr['up']['pid'] ?? 0) && $value_rec['pid'] != ($localRootLine[0]['uid'] ?? null)) {
+            if (($recArr['up']['pid'] ?? 0) && $value_rec_pid != ($localRootLine[0]['uid'] ?? null)) {
                 // The page record of "index".
                 $recArr['index'] = $this->sys_page->getPage((int)$recArr['up']['pid']);
             }
@@ -1000,7 +994,10 @@ abstract class AbstractMenuContentObject
                 $additionalWhere .= ' AND pages.no_search=0';
             }
             // prev / next is found
-            $prevnext_menu = $this->removeInaccessiblePages($this->sys_page->getMenu($value_rec['pid'], '*', $sortingField, $additionalWhere, true, $this->disableGroupAccessCheck));
+            $prevnext_menu = [];
+            if ($value_rec_pid) {
+                $prevnext_menu = $this->removeInaccessiblePages($this->sys_page->getMenu($value_rec_pid, '*', $sortingField, $additionalWhere, true, $this->disableGroupAccessCheck));
+            }
             $nextActive = false;
             foreach ($prevnext_menu as $k_b => $v_b) {
                 if ($nextActive) {
@@ -1033,7 +1030,7 @@ abstract class AbstractMenuContentObject
                             $nextActive = false;
                         }
                     }
-                    if ($v_b['uid'] == $value_rec['pid']) {
+                    if ($v_b['uid'] == $value_rec_pid) {
                         if (isset($lastKey)) {
                             $sectionRec_temp = $this->removeInaccessiblePages($this->sys_page->getMenu($prevnextsection_menu[$lastKey]['uid'], '*', $sortingField, $additionalWhere, true, $this->disableGroupAccessCheck));
                             if (!empty($sectionRec_temp)) {
@@ -1055,7 +1052,7 @@ abstract class AbstractMenuContentObject
                     $recArr['next'] = $recArr['nextsection'];
                 }
             }
-            $items = explode('|', $this->conf['special.']['items']);
+            $items = explode('|', ($this->conf['special.']['items'] ?? 'index|up|next|prev'));
             $c = 0;
             foreach ($items as $v_b) {
                 $v_b = strtolower(trim($v_b));
@@ -1064,6 +1061,7 @@ abstract class AbstractMenuContentObject
                 }
                 if (is_array($recArr[$v_b] ?? false)) {
                     $menuItems[$c] = $recArr[$v_b];
+                    $menuItems[$c]['ITEM_STATE'] = $v_b;
                     if ($this->conf['special.'][$v_b . '.']['target'] ?? false) {
                         $menuItems[$c]['target'] = $this->conf['special.'][$v_b . '.']['target'];
                     }
@@ -1165,7 +1163,7 @@ abstract class AbstractMenuContentObject
                 if ($this->isItemState($state, $key)) {
                     // if this is the first element of type $state, we must generate the custom configuration.
                     if ($customConfiguration === null) {
-                        $customConfiguration = $typoScriptService->explodeConfigurationForOptionSplit((array)$this->mconf[$state . '.'], $splitCount);
+                        $customConfiguration = $typoScriptService->explodeConfigurationForOptionSplit((array)($this->mconf[$state . '.'] ?? []), $splitCount);
                     }
                     // Substitute normal with the custom (e.g. IFSUB)
                     if (isset($customConfiguration[$key])) {
@@ -1236,15 +1234,18 @@ abstract class AbstractMenuContentObject
         $addParams = ($this->mconf['addParams'] ?? '') . ($this->I['val']['additionalParams'] ?? '') . $MP_params;
         try {
             $linkResult = $this->menuTypoLink($this->menuArr[$key], $mainTarget, $addParams, $typeOverride, $overrideId);
-            // Overriding URL / Target if set to do so:
-            if ($this->menuArr[$key]['_OVERRIDE_HREF'] ?? false) {
-                $linkResult = $linkResult->withAttribute('href', $this->menuArr[$key]['_OVERRIDE_HREF']);
-                if ($this->menuArr[$key]['_OVERRIDE_TARGET'] ?? false) {
-                    $linkResult = $linkResult->withAttribute('target', $this->menuArr[$key]['_OVERRIDE_TARGET']);
-                }
-            }
         } catch (UnableToLinkException $e) {
             $linkResult = null;
+        }
+        // Overriding URL / Target if set to do so:
+        if ($this->menuArr[$key]['_OVERRIDE_HREF'] ?? false) {
+            if ($linkResult === null) {
+                $linkResult = new LinkResult('', '');
+            }
+            $linkResult = $linkResult->withAttribute('href', $this->menuArr[$key]['_OVERRIDE_HREF']);
+            if ($this->menuArr[$key]['_OVERRIDE_TARGET'] ?? false) {
+                $linkResult = $linkResult->withAttribute('target', $this->menuArr[$key]['_OVERRIDE_TARGET']);
+            }
         }
         $runtimeCache->set($cacheId, $linkResult);
 
@@ -1352,8 +1353,8 @@ abstract class AbstractMenuContentObject
         }
         try {
             $page = $this->sys_page->resolveShortcutPage($page, $this->disableGroupAccessCheck);
-            $shortcutPage = (int)($page['_SHORTCUT_ORIGINAL_PAGE_UID'] ?? 0);
-            if ($shortcutPage) {
+            if (isset($page['_SHORTCUT_ORIGINAL_PAGE_UID'])) {
+                $shortcutPage = (int)($page['uid'] ?? 0);
                 if (in_array($shortcutPage, $this->alwaysActivePIDlist, true)) {
                     return true;
                 }
@@ -1384,8 +1385,8 @@ abstract class AbstractMenuContentObject
         }
         try {
             $page = $this->sys_page->resolveShortcutPage($page);
-            $shortcutPage = (int)($page['_SHORTCUT_ORIGINAL_PAGE_UID'] ?? 0);
-            if ($shortcutPage) {
+            if (isset($page['_SHORTCUT_ORIGINAL_PAGE_UID'])) {
+                $shortcutPage = (int)($page['uid'] ?? 0);
                 $testUid = $shortcutPage . ($MPvar ? ':' . $MPvar : '');
                 if (end($this->rL_uidRegister) === 'ITEM:' . $testUid) {
                     return true;
@@ -1425,7 +1426,7 @@ abstract class AbstractMenuContentObject
         $cacheIdentifierPagesNextLevel = 'menucontentobject-is-submenu-pages-next-level-' . $this->menuNumber . '-' . sha1(json_encode($pageIdsOnSameLevel));
         $cachePagesNextLevel = $runtimeCache->get($cacheIdentifierPagesNextLevel);
         if (!is_array($cachePagesNextLevel)) {
-            $cachePagesNextLevel = $this->sys_page->getMenu($pageIdsOnSameLevel, 'uid,pid,doktype,mount_pid,mount_pid_ol,nav_hide,shortcut,shortcut_mode,l18n_cfg');
+            $cachePagesNextLevel = $this->sys_page->getMenu($pageIdsOnSameLevel, 'uid,pid,doktype,mount_pid,mount_pid_ol,nav_hide,shortcut,shortcut_mode,l18n_cfg,sys_language_uid,l10n_parent,t3ver_wsid,t3ver_oid,t3ver_state', 'sorting', '', true, $this->disableGroupAccessCheck);
             $runtimeCache->set($cacheIdentifierPagesNextLevel, $cachePagesNextLevel);
         }
 

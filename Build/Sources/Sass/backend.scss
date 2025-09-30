@@ -10,24 +10,16 @@
 @import "minimal";
 
 //
-// select-pure
-//
-@import "libs/selectpure";
-
-//
 // Image Manipulation Wizard base styles
 //
 @import "cropper/cropper";
 
 //
-// Sortable.js
+// External Libs
 //
+@import "libs/selectpure";
 @import "libs/sortable";
-
-//
-// NProgress
-//
-@import "nprogress/nprogress";
+@import "libs/nprogress";
 
 //
 // Components
@@ -37,7 +29,6 @@
 @import "component/tree";
 @import "component/elementbrowser";
 @import "component/media";
-@import "component/modal";
 @import "component/note";
 @import "component/card";
 @import "component/contextmenu";
@@ -47,12 +38,16 @@
 @import "component/recordsearchbox";
 @import "component/treelist";
 @import "component/indent";
-@import "component/pagination";
+@import "component/settings";
 @import "component/example";
+@import "component/dropzone";
+@import "component/grideditor";
+@import "component/debugger-utility";
 
 //
 // Elements
 //
+@import "element/typo3-backend-color-scheme-switch";
 @import "element/typo3-backend-draggable-resizable";
 @import "element/typo3-backend-editable-page-title";
 @import "element/typo3-backend-formengine-char-counter";
@@ -62,6 +57,8 @@
 @import "element/typo3-formengine-element-link";
 @import "element/typo3-notification-message";
 @import "element/typo3-rte-ckeditor-ckeditor5";
+@import "element/typo3-scheduler-editable-group-name";
+@import "element/typo3-backend-color-picker";
 
 //
 // TYPO3 Backend Components
@@ -70,21 +67,14 @@
 @import "typo3/element_cropper";
 @import "typo3/element_page_position";
 @import "typo3/element_page_position_map";
-@import "typo3/element_slider";
-@import "typo3/element_tab";
 @import "typo3/element_tceforms";
 @import "typo3/element_tree";
 @import "typo3/element_uiblock";
-@import "typo3/element_pagination";
-@import "typo3/element_draguploader";
 @import "typo3/install";
-@import "typo3/history";
 @import "typo3/login_screen";
 @import "typo3/main_content";
-@import "typo3/main_backend_layout_wizard";
 @import "typo3/main_form";
 @import "typo3/wizard_localization";
-@import "typo3/structure/module_file_filelist";
 @import "typo3/visual/element_typoscript";
 
 //
@@ -94,6 +84,7 @@
 @import "module/access";
 @import "module/beuser";
 @import "module/extensionmanager";
+@import "module/filelist";
 @import "module/help";
 @import "module/info";
 @import "module/install";

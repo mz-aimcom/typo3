@@ -25,6 +25,11 @@ use TYPO3\CMS\Frontend\ContentObject\Event\ModifyRecordsAfterFetchingContentEven
  */
 class ContentContentObject extends AbstractContentObject
 {
+    public function __construct(
+        private readonly TimeTracker $timeTracker,
+        private readonly EventDispatcherInterface $eventDispatcher,
+    ) {}
+
     /**
      * Rendering the cObject, CONTENT
      *
@@ -72,7 +77,7 @@ class ContentContentObject extends AbstractContentObject
 
         do {
             $cobjValue = '';
-            $modifyRecordsEvent = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+            $modifyRecordsEvent = $this->eventDispatcher->dispatch(
                 new ModifyRecordsAfterFetchingContentEvent(
                     $this->cObj->getRecords($conf['table'], $conf['select.']),
                     $theValue,
@@ -93,7 +98,7 @@ class ContentContentObject extends AbstractContentObject
             $conf = $modifyRecordsEvent->getConfiguration();
 
             if ($records !== []) {
-                $this->getTimeTracker()->setTSlogMessage('NUMROWS: ' . count($records));
+                $this->timeTracker->setTSlogMessage('NUMROWS: ' . count($records));
 
                 $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $frontendController);
                 $cObj->setParent($this->cObj->data, $this->cObj->currentRecord);
@@ -149,10 +154,5 @@ class ContentContentObject extends AbstractContentObject
             --$frontendController->recordRegister[$originalRec];
         }
         return $theValue;
-    }
-
-    protected function getTimeTracker(): TimeTracker
-    {
-        return GeneralUtility::makeInstance(TimeTracker::class);
     }
 }

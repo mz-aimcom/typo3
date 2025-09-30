@@ -18,12 +18,13 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Tests\Functional\Persistence\Generic\Mapper;
 
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Extbase\Persistence\Generic\Exception\InvalidClassException;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\ColumnMap;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMap;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Tests\BlogExample\Domain\Model\Administrator;
+use TYPO3Tests\BlogExample\Domain\Model\RestrictedComment;
 use TYPO3Tests\BlogExample\Domain\Model\TtContent;
 
 final class DataMapFactoryTest extends FunctionalTestCase
@@ -32,36 +33,53 @@ final class DataMapFactoryTest extends FunctionalTestCase
 
     protected array $testExtensionsToLoad = ['typo3/sysext/extbase/Tests/Functional/Fixtures/Extensions/blog_example'];
 
-    protected DataMapFactory $dataMapFactory;
-
-    protected function setUp(): void
+    #[Test]
+    public function buildDataMapThrowsExceptionIfClassNameIsNotKnown(): void
     {
-        parent::setUp();
-        $this->dataMapFactory = $this->get(DataMapFactory::class);
-        $GLOBALS['BE_USER'] = new BackendUserAuthentication();
+        $this->expectException(InvalidClassException::class);
+        $this->expectExceptionCode(1476045117);
+        $subject = $this->get(DataMapFactory::class);
+        $subject->buildDataMap('UnknownClass');
     }
 
     #[Test]
     public function classSettingsAreResolved(): void
     {
-        $dataMap = $this->dataMapFactory->buildDataMap(Administrator::class);
-
+        $subject = $this->get(DataMapFactory::class);
+        $dataMap = $subject->buildDataMap(Administrator::class);
         self::assertInstanceOf(DataMap::class, $dataMap);
-        self::assertEquals('TYPO3Tests\BlogExample\Domain\Model\Administrator', $dataMap->getRecordType());
-        self::assertEquals('fe_users', $dataMap->getTableName());
+        self::assertEquals('TYPO3Tests\BlogExample\Domain\Model\Administrator', $dataMap->recordType);
+        self::assertEquals('fe_users', $dataMap->tableName);
     }
 
     #[Test]
     public function columnMapPropertiesAreResolved(): void
     {
-        $dataMap = $this->dataMapFactory->buildDataMap(TtContent::class);
-
+        $subject = $this->get(DataMapFactory::class);
+        $dataMap = $subject->buildDataMap(TtContent::class);
         self::assertInstanceOf(DataMap::class, $dataMap);
         self::assertNull($dataMap->getColumnMap('thisPropertyDoesNotExist'));
-
         $headerColumnMap = $dataMap->getColumnMap('header');
-
         self::assertInstanceOf(ColumnMap::class, $headerColumnMap);
-        self::assertEquals('header', $headerColumnMap->getColumnName());
+        self::assertEquals('header', $headerColumnMap->columnName);
+    }
+
+    #[Test]
+    public function customRestrictionFieldsAreMappedWithProperDataMap(): void
+    {
+        $subject = $this->get(DataMapFactory::class);
+        $map = $subject->buildDataMap(RestrictedComment::class);
+
+        self::assertSame('customhidden', $map->disabledFlagColumnName);
+        self::assertSame('customstarttime', $map->startTimeColumnName);
+        self::assertSame('customendtime', $map->endTimeColumnName);
+        self::assertSame('customfegroup', $map->frontendUserGroupColumnName);
+        self::assertSame('customsyslanguageuid', $map->languageIdColumnName);
+        self::assertSame('custom_l10182342n_parent', $map->translationOriginColumnName);
+        self::assertSame('custom_l10182342n_diff', $map->translationOriginDiffSourceName);
+        self::assertSame('customtstamp', $map->modificationDateColumnName);
+        self::assertSame('customcrdate', $map->creationDateColumnName);
+        self::assertSame('customdeleted', $map->deletedFlagColumnName);
+        self::assertSame('custom_ctype', $map->recordTypeColumnName);
     }
 }

@@ -22,13 +22,16 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
 use TYPO3\CMS\Core\Package\Cache\PackageDependentCacheIdentifier;
+use TYPO3\CMS\Core\Settings\Settings;
+use TYPO3\CMS\Core\Settings\SettingsFactory;
 use TYPO3\CMS\Core\Settings\SettingsTypeRegistry;
 use TYPO3\CMS\Core\Site\Entity\SiteSettings;
 use TYPO3\CMS\Core\Site\Set\SetRegistry;
-use TYPO3\CMS\Core\Utility\ArrayUtility;
-use TYPO3\CMS\Core\Utility\Exception\MissingArrayPathException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+/**
+ * @internal
+ */
 #[Autoconfigure(public: true)]
 readonly class SiteSettingsFactory
 {
@@ -37,6 +40,7 @@ readonly class SiteSettingsFactory
         protected string $configPath,
         protected SetRegistry $setRegistry,
         protected SettingsTypeRegistry $settingsTypeRegistry,
+        protected SettingsFactory $settingsFactory,
         protected YamlFileLoader $yamlFileLoader,
         #[Autowire(service: 'cache.core')]
         protected PhpFrontend $cache,
@@ -59,9 +63,29 @@ readonly class SiteSettingsFactory
         } catch (\Error) {
         }
 
-        $settings = $this->createSettings($siteIdentifier, $siteConfiguration);
+        $settings = $this->createSettings(
+            $siteConfiguration['dependencies'] ?? [],
+            $siteIdentifier,
+            $siteConfiguration['settings'] ?? [],
+        );
         $this->cache->set($cacheIdentifier, 'return ' . var_export($settings, true) . ';');
         return $settings;
+    }
+
+    /**
+     * Load settings from config/sites/{$siteIdentifier}/settings.yaml.
+     */
+    public function loadLocalSettings(string $siteIdentifier): ?array
+    {
+        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . $this->settingsFileName;
+        if (!file_exists($fileName)) {
+            return null;
+        }
+
+        return $this->yamlFileLoader->load(
+            GeneralUtility::fixWindowsFilePath($fileName),
+            YamlFileLoader::PROCESS_PLACEHOLDERS | YamlFileLoader::PROCESS_IMPORTS | YamlFileLoader::ALLOW_EMPTY_FILE
+        );
     }
 
     /**
@@ -73,66 +97,43 @@ readonly class SiteSettingsFactory
      *       placeholder should be resolved during yaml file loading or not. The SiteConfiguration save action currently
      *       avoid calling this method.
      */
-    public function createSettings(string $siteIdentifier, array $siteConfiguration): SiteSettings
+    public function createSettings(array $sets = [], ?string $siteIdentifier = null, array $inlineSettings = []): SiteSettings
     {
-        $sets = $siteConfiguration['dependencies'] ?? [];
-        $settings = [];
+        $rawSettings = [];
+        if ($siteIdentifier !== null) {
+            $rawSettings = $this->loadLocalSettings($siteIdentifier) ?? $inlineSettings;
+        }
 
-        $definitions = [];
+        return $this->composeSettings($rawSettings, $sets);
+    }
+
+    public function composeSettings(array $rawSettings, array $sets): SiteSettings
+    {
+        return SiteSettings::create(
+            $this->settingsFactory->resolveSettings(
+                ...$this->getSettingsProviders($rawSettings, $sets)
+            )
+        );
+    }
+
+    /**
+     * @return SiteSettingsProvider[]
+     */
+    protected function getSettingsProviders(array $settings, array $sets): array
+    {
         $activeSets = [];
         if (is_array($sets) && $sets !== []) {
             $activeSets = $this->setRegistry->getSets(...$sets);
         }
 
+        /** @var SiteSettingsProvider[] $providers */
+        $providers = [];
         foreach ($activeSets as $set) {
-            foreach ($set->settingsDefinitions as $settingDefinition) {
-                $definitions[] = $settingDefinition;
-            }
+            $providers[] = new SiteSettingsProvider($set->settings, $set->settingsDefinitions);
         }
 
-        foreach ($definitions as $settingDefinition) {
-            $settings = ArrayUtility::setValueByPath($settings, $settingDefinition->key, $settingDefinition->default, '.');
-        }
+        $providers[] = new SiteSettingsProvider($settings);
 
-        foreach ($activeSets as $set) {
-            ArrayUtility::mergeRecursiveWithOverrule($settings, $this->validateSettings($set->settings, $definitions));
-        }
-
-        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . $this->settingsFileName;
-        if (file_exists($fileName)) {
-            $siteSettings = $this->yamlFileLoader->load(GeneralUtility::fixWindowsFilePath($fileName));
-        } else {
-            $siteSettings = $siteConfiguration['settings'] ?? [];
-        }
-
-        ArrayUtility::mergeRecursiveWithOverrule($settings, $this->validateSettings($siteSettings, $definitions));
-
-        return new SiteSettings($settings);
+        return $providers;
     }
-
-    protected function validateSettings(array $settings, array $definitions): array
-    {
-        foreach ($definitions as $definition) {
-            try {
-                $value = ArrayUtility::getValueByPath($settings, $definition->key, '.');
-            } catch (MissingArrayPathException) {
-                continue;
-            }
-            if (!$this->settingsTypeRegistry->has($definition->type)) {
-                throw new \RuntimeException('Setting type ' . $definition->type . ' is not defined.', 1712437727);
-            }
-            $type = $this->settingsTypeRegistry->get($definition->type);
-            if (!$type->validate($value, $definition)) {
-                $settings = ArrayUtility::removeByPath($settings, $definition->key, '.');
-            }
-
-            $newValue = $type->transformValue($value, $definition);
-            if ($newValue !== $value) {
-                ArrayUtility::setValueByPath($settings, $definition->key, $newValue, '.');
-            }
-        }
-
-        return $settings;
-    }
-
 }

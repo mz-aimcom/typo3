@@ -11,11 +11,11 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { LitElement, html } from 'lit';
+import { LitElement, html, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators';
 import { classMap } from 'lit/directives/class-map';
 import { ifDefined } from 'lit/directives/if-defined';
-import { AbstractAction } from './action-button/abstract-action';
+import type { AbstractAction } from './action-button/abstract-action';
 import { SeverityEnum } from './enum/severity';
 import Severity from './severity';
 import '@typo3/backend/element/icon-element';
@@ -120,9 +120,9 @@ class Notification {
       this.messageContainer = document.createElement('div');
       this.messageContainer.setAttribute('id', 'alert-container');
       this.notificationList = document.createElement('div');
-      this.notificationList.setAttribute('class', 'alert-list')
+      this.notificationList.setAttribute('class', 'alert-list');
       // Enable focusing for keyboard scrolling (accessibility)
-      this.notificationList.setAttribute('tabindex', '0')
+      this.notificationList.setAttribute('tabindex', '0');
       this.messageContainer.appendChild(this.notificationList);
 
       this.clearAllButton = <ClearNotificationMessages>document.createElement('typo3-notification-clear-all');
@@ -133,7 +133,7 @@ class Notification {
       document.addEventListener('typo3-notification-open', () => {
         this.totalNotifications++;
         this.containerItemVisibility();
-      })
+      });
 
       document.addEventListener('typo3-notification-clear', () => {
         // Avoid negative value
@@ -142,7 +142,7 @@ class Notification {
         }
 
         this.containerItemVisibility();
-      })
+      });
     }
 
     const box = <NotificationMessage>document.createElement('typo3-notification-message');
@@ -158,7 +158,7 @@ class Notification {
     // Wait for the animation to finish, before scrolling into view
     setTimeout(() => {
       this.notificationList.querySelector('typo3-notification-message:last-child').scrollIntoView();
-    }, Number(duration))
+    }, Number(duration));
 
     this.notificationList.appendChild(box);
   }
@@ -178,14 +178,14 @@ export class ClearNotificationMessages extends LitElement {
       new CustomEvent('typo3-notification-clear-all', { bubbles: true, composed: true })
     );
 
-    this.hidden = true
+    this.hidden = true;
   }
 
-  protected createRenderRoot(): HTMLElement | DocumentFragment {
+  protected override createRenderRoot(): HTMLElement | DocumentFragment {
     return this;
   }
 
-  protected render() {
+  protected override render(): TemplateResult {
     return html`<div><button @click=${() => this.clearAll()} class="btn btn-default">
       <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon> ${lll('button.clearAll') || 'Clear all'}
     </button></div>`;
@@ -204,7 +204,7 @@ export class NotificationMessage extends LitElement {
 
   @state() executingAction: number = -1;
 
-  public async firstUpdated(): Promise<void> {
+  public override async firstUpdated(): Promise<void> {
     document.addEventListener('typo3-notification-clear-all', async () => {
       this.clear();
     });
@@ -231,7 +231,7 @@ export class NotificationMessage extends LitElement {
 
     const dispatchFinishEvent = (): void => {
       this.dispatchEvent(new CustomEvent('typo3-notification-clear-finish'));
-    }
+    };
 
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!prefersReducedMotion && 'animate' in this) {
@@ -251,11 +251,11 @@ export class NotificationMessage extends LitElement {
     }
   }
 
-  protected createRenderRoot(): HTMLElement | DocumentFragment {
+  protected override createRenderRoot(): HTMLElement | DocumentFragment {
     return this;
   }
 
-  protected render() {
+  protected override render(): TemplateResult {
     const className = Severity.getCssClass(this.notificationSeverity);
     let icon = '';
     switch (this.notificationSeverity) {

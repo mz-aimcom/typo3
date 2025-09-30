@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Http;
 
 use Psr\Container\ContainerInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\Exception\InvalidRequestTokenException;
@@ -26,11 +27,13 @@ use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessFactory;
 use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessStorage;
+use TYPO3\CMS\Backend\Security\SudoMode\Event\SudoModeRequiredEvent;
 use TYPO3\CMS\Backend\Security\SudoMode\Exception\VerificationRequiredException;
 use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\Dispatcher;
+use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
 use TYPO3\CMS\Core\Http\Security\ReferrerEnforcer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -41,8 +44,11 @@ class RouteDispatcher extends Dispatcher
 {
     public function __construct(
         protected readonly FormProtectionFactory $formProtectionFactory,
+        protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly AccessFactory $factory,
         protected readonly AccessStorage $storage,
+        protected readonly Features $features,
+        protected readonly ReferrerEnforcer $referrerEnforcer,
         ContainerInterface $container,
     ) {
         parent::__construct($container);
@@ -74,7 +80,11 @@ class RouteDispatcher extends Dispatcher
         $targetIdentifier = $route->getOption('target');
         $target = $this->getCallableFromTarget($targetIdentifier);
         $arguments = [$request];
-        return $target(...$arguments);
+        try {
+            return $target(...$arguments);
+        } catch (MethodNotAllowedException $exception) {
+            return $exception->createResponse();
+        }
     }
 
     /**
@@ -84,19 +94,20 @@ class RouteDispatcher extends Dispatcher
      */
     protected function enforceReferrer(ServerRequestInterface $request, Route $route): ?ResponseInterface
     {
-        $features = GeneralUtility::makeInstance(Features::class);
-        if (!$features->isFeatureEnabled('security.backend.enforceReferrer')) {
+        if (!$this->features->isFeatureEnabled('security.backend.enforceReferrer')) {
             return null;
         }
         $referrerFlags = GeneralUtility::trimExplode(',', $route->getOption('referrer') ?? '', true);
         if (!in_array('required', $referrerFlags, true)) {
             return null;
         }
-        $referrerEnforcer = GeneralUtility::makeInstance(ReferrerEnforcer::class, $request);
-        return $referrerEnforcer->handle([
-            'flags' => $referrerFlags,
-            'subject' => $route->getPath(),
-        ]);
+        return $this->referrerEnforcer->handle(
+            $request,
+            [
+                'flags' => $referrerFlags,
+                'subject' => $route->getPath(),
+            ]
+        );
     }
 
     /**
@@ -153,10 +164,14 @@ class RouteDispatcher extends Dispatcher
         }
         // reuse existing matching claim, or create a new one
         $claim = $this->storage->findClaimBySubject($subject)
-            ?? $this->factory->buildClaimForSubjectRequest($request, $subject);
-        throw (new VerificationRequiredException(
-            'Sudo Mode Confirmation Required',
-            1605812020
-        ))->withClaim($claim);
+            ?? $this->factory->buildClaimForSubjectRequest($request, self::class, $subject);
+
+        $event = $this->eventDispatcher->dispatch(new SudoModeRequiredEvent($claim));
+        if ($event->isVerificationRequired()) {
+            throw (new VerificationRequiredException(
+                'Sudo Mode Confirmation Required',
+                1605812020
+            ))->withClaim($claim);
+        }
     }
 }

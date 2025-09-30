@@ -14,13 +14,21 @@
 import LiveSearchConfigurator from '@typo3/backend/live-search/live-search-configurator';
 import Viewport from '@typo3/backend/viewport';
 import { customElement, property, query } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { lll } from '@typo3/core/lit-helper';
-import './item/item-container';
-import './result-detail-container';
-import { ResultItemInterface } from './item/item';
-import { ItemContainer } from './item/item-container';
-import { ResultDetailContainer } from './result-detail-container';
+import { type ItemContainer } from './item/item-container';
+import { type ResultDetailContainer } from './result-detail-container';
+import type { ResultItemActionInterface, ResultItemInterface } from './item/item';
+import type { ChooseItemEventData } from '@typo3/backend/toolbar/live-search';
+
+export interface InvokeActionEventData {
+  resultItem: ResultItemInterface,
+  action: ResultItemActionInterface|null
+}
+
+export interface RequestActionsEventData {
+  resultItem: ResultItemInterface,
+}
 
 export const componentName = 'typo3-backend-live-search-result-container';
 
@@ -32,28 +40,28 @@ export class ResultContainer extends LitElement {
   @query('typo3-backend-live-search-result-item-container') itemContainer: ItemContainer;
   @query('typo3-backend-live-search-result-item-detail-container') resultDetailContainer: ResultDetailContainer;
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     super.connectedCallback();
 
     this.addEventListener('livesearch:request-actions', this.onActionsRequested);
     this.addEventListener('livesearch:invoke-action', this.onActionInvoked);
   }
 
-  public disconnectedCallback(): void {
+  public override disconnectedCallback(): void {
     this.removeEventListener('livesearch:request-actions', this.onActionsRequested);
     this.removeEventListener('livesearch:invoke-action', this.onActionInvoked);
 
     super.disconnectedCallback();
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
-  protected render(): TemplateResult | symbol {
+  protected override render(): TemplateResult | symbol {
     if (this.loading) {
-      return html`<div class="d-flex flex-fill justify-content-center mt-2"><typo3-backend-spinner size="large"></typo3-backend-spinner></div>`;
+      return html`<div class="d-flex flex-fill align-items-center justify-content-center"><typo3-backend-spinner size="large"></typo3-backend-spinner></div>`;
     }
 
     if (this.results === null) {
@@ -70,11 +78,11 @@ export class ResultContainer extends LitElement {
     `;
   }
 
-  private onActionsRequested(e: CustomEvent): void {
+  private onActionsRequested(e: CustomEvent<RequestActionsEventData>): void {
     this.resultDetailContainer.resultItem = e.detail.resultItem;
   }
 
-  private onActionInvoked(e: CustomEvent): void {
+  private onActionInvoked(e: CustomEvent<InvokeActionEventData>): void {
     const invokeHandlers = LiveSearchConfigurator.getInvokeHandlers();
     const resultItem = e.detail.resultItem;
     const action = e.detail.action;
@@ -89,7 +97,7 @@ export class ResultContainer extends LitElement {
       // Default handler to open the URL
       Viewport.ContentContainer.setUrl(action.url);
     }
-    this.dispatchEvent(new CustomEvent('live-search:item-chosen', {
+    this.dispatchEvent(new CustomEvent<ChooseItemEventData>('live-search:item-chosen', {
       detail: { resultItem }
     }));
   }

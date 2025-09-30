@@ -11,10 +11,10 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, TemplateResult } from 'lit';
-import { Tree, TreeSettings } from '@typo3/backend/tree/tree';
-import { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
+import { html, type TemplateResult } from 'lit';
+import { Tree, type TreeSettings } from '@typo3/backend/tree/tree';
 import { customElement, state } from 'lit/decorators';
+import type { TreeNodeInterface } from '@typo3/backend/tree/tree-node';
 
 interface SelectTreeSettings extends TreeSettings {
   exclusiveNodesIdentifiers: '';
@@ -26,7 +26,7 @@ interface SelectTreeSettings extends TreeSettings {
 @customElement('typo3-backend-form-selecttree')
 export class SelectTree extends Tree
 {
-  @state() settings: SelectTreeSettings = {
+  @state() override settings: SelectTreeSettings = {
     unselectableElements: [],
     exclusiveNodesIdentifiers: '',
     validation: {},
@@ -59,13 +59,18 @@ export class SelectTree extends Tree
    * Node selection logic (triggered by different events) to select multiple
    * nodes (unlike SVG Tree itself).
    */
-  public selectNode(node: TreeNodeInterface, propagate: boolean = true): void {
+  public override selectNode(node: TreeNodeInterface, propagate: boolean = true): void {
     if (!this.isNodeSelectable(node)) {
       return;
     }
 
     const checked = node.checked;
     this.handleExclusiveNodeSelection(node);
+
+    if (!checked && this.settings.validation.maxItems == 1 && this.getSelectedNodes().length > 0) {
+      //  we unselect now, if only one checked node allowed AND a node is already checked,
+      this.getSelectedNodes()[0].checked = false;
+    }
 
     if (this.settings.validation && this.settings.validation.maxItems) {
       if (!checked && this.getSelectedNodes().length >= this.settings.validation.maxItems) {
@@ -77,22 +82,38 @@ export class SelectTree extends Tree
     this.dispatchEvent(new CustomEvent('typo3:tree:node-selected', { detail: { node: node, propagate: propagate } }));
   }
 
-  public filter(searchTerm?: string|null): void {
+  public override filter(searchTerm?: string|null): void {
+    const results: TreeNodeInterface[] = [];
     this.searchTerm = searchTerm;
     if (this.nodes.length) {
-      this.nodes[0].expanded = false;
+      this.nodes[0].__expanded = false;
     }
+    const firstNode = this.nodes[0];
     const regex = new RegExp(searchTerm, 'i');
 
     this.nodes.forEach((node: any) => {
-      if (regex.test(node.name)) {
-        this.showParents(node);
-        node.expanded = true
-        node.__hidden = false;
-      } else {
-        node.expanded = false
-        node.__hidden = true;
+      // skip the root node in searches
+      if (node === firstNode) {
+        return;
       }
+
+      node.__expanded = false;
+      node.__hidden = true;
+
+      if (regex.test(node.name)) {
+        results.push(node);
+      }
+    });
+
+    results.forEach((node) => {
+      node.__hidden = false;
+      this.showParents(node);
+    });
+
+    // filter for children of results and show them
+    const children = this.nodes.filter(node => results.some(result => node.__parents.includes(result.identifier)));
+    children.forEach((child) => {
+      child.__hidden = false;
     });
   }
 
@@ -100,12 +121,12 @@ export class SelectTree extends Tree
    * Finds and show all parents of node
    */
   public showParents(node: any): void {
-    if (node.parents.length === 0) {
+    if (node.__parents.length === 0) {
       return;
     }
-    const parent = this.nodes[node.parents[0]];
+    const parent = this.nodes.find((searchNode) => searchNode.identifier === node.__parents.at(-1));
     parent.__hidden = false;
-    parent.expanded = true;
+    parent.__expanded = true;
     this.showParents(parent);
   }
 
@@ -114,14 +135,14 @@ export class SelectTree extends Tree
    * In some cases (e.g. selecting a parent) it should not be possible to select
    * element (as it's own parent).
    */
-  protected isNodeSelectable(node: TreeNodeInterface): boolean {
+  protected override isNodeSelectable(node: TreeNodeInterface): boolean {
     return !this.settings.readOnlyMode && this.settings.unselectableElements.indexOf(node.identifier) === -1;
   }
 
   /**
    * Add checkbox before the icon
    */
-  protected createNodeContent(node: TreeNodeInterface): TemplateResult {
+  protected override createNodeContent(node: TreeNodeInterface): TemplateResult {
     return html`
       ${this.renderCheckbox(node)}
       ${super.createNodeContent(node)}

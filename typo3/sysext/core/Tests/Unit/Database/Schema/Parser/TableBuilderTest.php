@@ -17,11 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Database\Schema\Parser;
 
-use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\IntegerType;
 use Doctrine\DBAL\Types\SmallIntType;
+use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\TextType;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Schema\Parser\Lexer;
@@ -35,7 +35,7 @@ final class TableBuilderTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected ?Table $table;
+    private Table $table;
 
     protected function setUp(): void
     {
@@ -43,7 +43,6 @@ final class TableBuilderTest extends UnitTestCase
         $sqlFile = file_get_contents(__DIR__ . '/../Fixtures/tablebuilder.sql');
         $sqlReader = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
         $statements = $sqlReader->getCreateTableStatementArray($sqlFile);
-
         $parser = new Parser(new Lexer());
         $this->table = $parser->parse($statements[0])[0];
     }
@@ -184,7 +183,6 @@ final class TableBuilderTest extends UnitTestCase
     public function isExpectedParentKey(): void
     {
         $subject = $this->table->getIndex('parent');
-        self::assertInstanceOf(Index::class, $subject);
         self::assertTrue($subject->isUnique());
         self::assertSame(['`pid`', '`deleted`', '`sorting`'], $subject->getColumns());
     }
@@ -193,7 +191,6 @@ final class TableBuilderTest extends UnitTestCase
     public function isExpectedNoCacheKey(): void
     {
         $subject = $this->table->getIndex('noCache');
-        self::assertInstanceOf(Index::class, $subject);
         self::assertTrue($subject->isSimpleIndex());
         self::assertSame(['`no_cache`'], $subject->getColumns());
     }
@@ -202,7 +199,6 @@ final class TableBuilderTest extends UnitTestCase
     public function isExpectedForeignKey(): void
     {
         $subject = $this->table->getForeignKey('fk_overlay');
-        self::assertInstanceOf(ForeignKeyConstraint::class, $subject);
         self::assertSame(['`pid`'], $subject->getForeignColumns());
         self::assertSame(['`uid`'], $subject->getLocalColumns());
         self::assertSame('any_foreign_table', $subject->getForeignTableName());
@@ -213,5 +209,27 @@ final class TableBuilderTest extends UnitTestCase
     {
         $subject = $this->table->getIndex('substring');
         self::assertSame(['`TSconfig`(80)'], $subject->getColumns());
+    }
+
+    #[Test]
+    public function isExpectedTitle(): void
+    {
+        $subject = $this->table->getColumn('title');
+        self::assertInstanceOf(StringType::class, $subject->getType());
+        self::assertSame(255, $subject->getLength());
+        self::assertSame('', $subject->getDefault());
+        self::assertTrue($subject->getNotnull());
+        self::assertFalse($subject->getFixed());
+    }
+
+    #[Test]
+    public function isExpectedFixedTitle(): void
+    {
+        $subject = $this->table->getColumn('fixed_title');
+        self::assertInstanceOf(StringType::class, $subject->getType());
+        self::assertSame(200, $subject->getLength());
+        self::assertSame('', $subject->getDefault());
+        self::assertTrue($subject->getNotnull());
+        self::assertTrue($subject->getFixed());
     }
 }

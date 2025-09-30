@@ -25,12 +25,14 @@ use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
@@ -42,6 +44,7 @@ use TYPO3\CMS\Redirects\Event\BeforeRedirectMatchDomainEvent;
 use TYPO3\CMS\Redirects\Service\RedirectCacheService;
 use TYPO3\CMS\Redirects\Service\RedirectService;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
+use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequestContext;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class RedirectServiceTest extends FunctionalTestCase
@@ -50,6 +53,8 @@ final class RedirectServiceTest extends FunctionalTestCase
 
     protected const LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
+        'DE' => ['id' => 1, 'title' => 'Deutsch', 'locale' => 'de_DE.UTF8'],
+        'FR' => ['id' => 1, 'title' => 'French', 'locale' => 'fr_FR.UTF8'],
     ];
 
     protected array $coreExtensionsToLoad = ['redirects'];
@@ -73,6 +78,13 @@ final class RedirectServiceTest extends FunctionalTestCase
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
+    }
+
+    protected function tearDown(): void
+    {
+        // Ensure to remove all SiteConfiguration written by test methods to have a clean instance.
+        GeneralUtility::rmdir(Environment::getConfigPath() . '/sites', true);
+        parent::tearDown();
     }
 
     #[Test]
@@ -117,6 +129,7 @@ final class RedirectServiceTest extends FunctionalTestCase
             $this->get(FrontendTypoScriptFactory::class),
             $typoScriptCache,
             $this->get(LogManager::class)->getLogger('Testing'),
+            $this->get(TypoLinkCodecService::class)
         );
 
         // Assert correct redirect is matched
@@ -176,8 +189,6 @@ final class RedirectServiceTest extends FunctionalTestCase
             new InternalRequest($url)
         );
         self::assertEquals($statusCode, $response->getStatusCode());
-        self::assertIsArray($response->getHeader('X-Redirect-By'));
-        self::assertIsArray($response->getHeader('location'));
         self::assertEquals('TYPO3 Redirect ' . $redirectUid, $response->getHeader('X-Redirect-By')[0]);
         self::assertEquals($targetUrl, $response->getHeader('location')[0]);
     }
@@ -267,32 +278,32 @@ final class RedirectServiceTest extends FunctionalTestCase
             'regexp capture group with relative target' => [
                 'https://acme.com/relative-target-page2',
                 301,
-                '/page2',
+                '//acme.com/page2',
                 11,
             ],
             'regexp capture group with relative target - keep query params' => [
                 'https://acme.com/relative-target-keep-page2?param1=value1',
                 301,
-                '/page2?param1=value1',
+                '//acme.com/page2?param1=value1',
                 12,
             ],
             'regexp capture group with relative target - respect query param' => [
                 'https://acme.com/respect-relative-target-page2?param1=subpage',
                 301,
-                '/page2/subpage',
+                '//acme.com/page2/subpage',
                 13,
             ],
             'regexp capture group with relative target - respect query param and keep them' => [
                 'https://acme.com/respect-keep-relative-target-page2?param1=subpage',
                 301,
-                '/page2/subpage?param1=subpage',
+                '//acme.com/page2/subpage?param1=subpage',
                 14,
             ],
             // test for https://forge.typo3.org/issues/89799#note-14
             'regexp relative target redirect with unsafe regexp and without ending $' => [
                 'https://acme.com/other-relative-target-with-unsafe-capture-group-new',
                 301,
-                '/offer-new',
+                '//acme.com/offer-new',
                 15,
             ],
             // test for https://forge.typo3.org/issues/89799#note-14
@@ -325,8 +336,6 @@ final class RedirectServiceTest extends FunctionalTestCase
             false
         );
         self::assertEquals($expectedStatusCode, $response->getStatusCode());
-        self::assertIsArray($response->getHeader('X-Redirect-By'));
-        self::assertIsArray($response->getHeader('location'));
         self::assertEquals('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
         self::assertEquals($expectedRedirectUri, $response->getHeader('location')[0]);
     }
@@ -383,8 +392,6 @@ final class RedirectServiceTest extends FunctionalTestCase
             false
         );
         self::assertSame($expectedStatusCode, $response->getStatusCode());
-        self::assertIsArray($response->getHeader('X-Redirect-By'));
-        self::assertIsArray($response->getHeader('location'));
         self::assertSame('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
         self::assertSame($expectedRedirectUri, $response->getHeader('location')[0]);
     }
@@ -540,8 +547,6 @@ final class RedirectServiceTest extends FunctionalTestCase
         );
         self::assertEquals($expectedStatusCode, $response->getStatusCode());
         if ($expectedRedirectUri) {
-            self::assertIsArray($response->getHeader('X-Redirect-By'));
-            self::assertIsArray($response->getHeader('location'));
             self::assertEquals('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
             self::assertEquals($expectedRedirectUri, $response->getHeader('location')[0]);
         }
@@ -562,7 +567,7 @@ final class RedirectServiceTest extends FunctionalTestCase
                 'https://acme.com/flat-samehost-1?param1=value1&cHash=e0527192caa60a6dac1e30af7cfeaf64',
                 'https://acme.com/',
                 301,
-                '/flat-samehost-1',
+                '//acme.com/flat-samehost-1',
                 1,
             ],
             'flat keep_query_parameters' => [
@@ -591,7 +596,7 @@ final class RedirectServiceTest extends FunctionalTestCase
                 'https://acme.com/flat-samehost-3?param1=value1',
                 'https://acme.com/',
                 301,
-                '/flat-samehost-3',
+                '//acme.com/flat-samehost-3',
                 3,
             ],
             'flat respect_query_parameters and keep_query_parameters' => [
@@ -620,7 +625,7 @@ final class RedirectServiceTest extends FunctionalTestCase
                 'https://acme.com/regexp-samehost-1?param1=value1',
                 'https://acme.com/',
                 301,
-                '/regexp-samehost-1',
+                '//acme.com/regexp-samehost-1',
                 5,
             ],
             'regexp keep_query_parameters' => [
@@ -656,7 +661,7 @@ final class RedirectServiceTest extends FunctionalTestCase
                 'https://acme.com/regexp-samehost-3?param1=value1',
                 'https://acme.com/',
                 301,
-                '/regexp-samehost-3',
+                '//acme.com/regexp-samehost-3',
                 7,
             ],
         ];
@@ -683,8 +688,6 @@ final class RedirectServiceTest extends FunctionalTestCase
         );
         self::assertEquals($expectedStatusCode, $response->getStatusCode());
         if ($expectedRedirectUri) {
-            self::assertIsArray($response->getHeader('X-Redirect-By'));
-            self::assertIsArray($response->getHeader('location'));
             self::assertEquals('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
             self::assertEquals($expectedRedirectUri, $response->getHeader('location')[0]);
         }
@@ -846,8 +849,6 @@ final class RedirectServiceTest extends FunctionalTestCase
         );
         self::assertEquals($expectedStatusCode, $response->getStatusCode());
         if ($expectedRedirectUri) {
-            self::assertIsArray($response->getHeader('X-Redirect-By'));
-            self::assertIsArray($response->getHeader('location'));
             self::assertEquals('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
             self::assertEquals($expectedRedirectUri, $response->getHeader('location')[0]);
         }
@@ -899,6 +900,7 @@ final class RedirectServiceTest extends FunctionalTestCase
             $this->get(FrontendTypoScriptFactory::class),
             $typoScriptCache,
             $this->get(LogManager::class)->getLogger('Testing'),
+            $this->get(TypoLinkCodecService::class)
         );
 
         $redirectMatch = $redirectService->matchRedirect($uri->getHost(), $uri->getPath(), $uri->getQuery());
@@ -964,8 +966,6 @@ final class RedirectServiceTest extends FunctionalTestCase
             new InternalRequest($url)
         );
         self::assertEquals($statusCode, $response->getStatusCode());
-        self::assertIsArray($response->getHeader('X-Redirect-By'));
-        self::assertIsArray($response->getHeader('location'));
         self::assertEquals('TYPO3 Redirect ' . $redirectUid, $response->getHeader('X-Redirect-By')[0]);
         self::assertEquals($targetUrl, $response->getHeader('location')[0]);
     }
@@ -1053,21 +1053,11 @@ final class RedirectServiceTest extends FunctionalTestCase
         if ($useTestBolt === true) {
             $constants = '';
             foreach ($rootPageTypoScriptFiles['constants'] ?? [] as $typoScriptFile) {
-                if (!str_starts_with($typoScriptFile, 'EXT:')) {
-                    // @deprecated will be removed in version 8, use "EXT:" syntax instead
-                    $constants .= '<INCLUDE_TYPOSCRIPT: source="FILE:' . $typoScriptFile . '">' . LF;
-                } else {
-                    $constants .= '@import \'' . $typoScriptFile . '\'' . LF;
-                }
+                $constants .= '@import \'' . $typoScriptFile . '\'' . LF;
             }
             $setup = '';
             foreach ($rootPageTypoScriptFiles['setup'] ?? [] as $typoScriptFile) {
-                if (!str_starts_with($typoScriptFile, 'EXT:')) {
-                    // @deprecated will be removed in version 8, use "EXT:" syntax instead
-                    $setup .= '<INCLUDE_TYPOSCRIPT: source="FILE:' . $typoScriptFile . '">' . LF;
-                } else {
-                    $setup .= '@import \'' . $typoScriptFile . '\'' . LF;
-                }
+                $setup .= '@import \'' . $typoScriptFile . '\'' . LF;
             }
             $this->mergeSiteConfiguration('acme-com', [
                 'test_bolt_enabled' => true,
@@ -1086,9 +1076,202 @@ final class RedirectServiceTest extends FunctionalTestCase
 
         $response = $this->executeFrontendSubRequest($request);
         self::assertEquals($expectedRedirectStatusCode, $response->getStatusCode());
-        self::assertIsArray($response->getHeader('X-Redirect-By'));
-        self::assertIsArray($response->getHeader('location'));
         self::assertEquals('TYPO3 Redirect ' . $expectedRedirectUid, $response->getHeader('X-Redirect-By')[0]);
         self::assertEquals($expectedRedirectLocationUri, $response->getHeader('location')[0]);
+    }
+
+    public static function redirectToTargetPageInOtherSiteRouteWorksAsExpectedDataProvider(): \Generator
+    {
+        // domain based language distinction
+        yield 'site1 matched default language redirects to site2 target on default language for wildcard redirect' => [
+            'baseSiteOne' => 'https://site1.acme.com/',
+            'baseSiteOneDefaultLanguage' => 'https://site1.acme.com/',
+            'baseSiteOneFirstLanguage' => 'https://site1.acme.de/',
+            'baseSiteTwo' => 'https://site2.acme.com/',
+            'baseSiteTwoDefaultLanguage' => 'https://site2.acme.com/',
+            'baseSiteTwoFirstLanguage' => 'https://site2.acme.de/',
+            'baseSiteTwoFirstLanguageIdentifier' => 'DE',
+            'uri' => 'https://site1.acme.com/wildcard-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://site2.acme.com/page-1',
+            'expectedMatchedRedirectRecordUid' => 1,
+        ];
+        // @todo This should be investigated. Do we really want to support this ? Same languageId is not garuanteed to
+        //       be the same language. On the other hand, reusing the same languageId in multiple SiteConfigurations
+        //       is used in some setup, but should this not be considered as an invalid setup/conflict ?
+        yield 'site1 matched first language redirects to site2 target on first language for wildcard redirect when langaugeId is the same' => [
+            'baseSiteOne' => 'https://site1.acme.com/',
+            'baseSiteOneDefaultLanguage' => 'https://site1.acme.com/',
+            'baseSiteOneFirstLanguage' => 'https://site1.acme.de/',
+            'baseSiteTwo' => 'https://site2.acme.com/',
+            'baseSiteTwoDefaultLanguage' => 'https://site2.acme.com/',
+            'baseSiteTwoFirstLanguage' => 'https://site2.acme.fr/',
+            'baseSiteTwoFirstLanguageIdentifier' => 'FR',
+            'uri' => 'https://site1.acme.de/wildcard-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            // @todo Consider if expected redirect uri should not be:
+            //       'https://site2.acme.fr/page-1'
+            'expectedRedirectUri' => 'https://site2.acme.fr/page-1-translated',
+            'expectedMatchedRedirectRecordUid' => 1,
+        ];
+    }
+
+    #[DataProvider('redirectToTargetPageInOtherSiteRouteWorksAsExpectedDataProvider')]
+    #[Test]
+    public function redirectToTargetPageInOtherSiteRouteWorksAsExpected(
+        string $baseSiteOne,
+        string $baseSiteOneDefaultLanguage,
+        string $baseSiteOneFirstLanguage,
+        string $baseSiteTwo,
+        string $baseSiteTwoDefaultLanguage,
+        string $baseSiteTwoFirstLanguage,
+        string $baseSiteTwoFirstLanguageIdentifier,
+        string $uri,
+        int $expectedRedirectStatusCode,
+        string $expectedRedirectUri,
+        int $expectedMatchedRedirectRecordUid,
+    ): void {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/RedirectService_targetPageInDifferentSiteRootWithTranslations.csv');
+        $this->writeSiteConfiguration(
+            'acme-one',
+            $this->buildSiteConfiguration(1, $baseSiteOne),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', $baseSiteOneDefaultLanguage),
+                $this->buildLanguageConfiguration('DE', $baseSiteOneFirstLanguage),
+            ]
+        );
+        $this->writeSiteConfiguration(
+            'acme-two',
+            $this->buildSiteConfiguration(3, $baseSiteTwo),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', $baseSiteTwoDefaultLanguage),
+                $this->buildLanguageConfiguration($baseSiteTwoFirstLanguageIdentifier, $baseSiteTwoFirstLanguage),
+            ]
+        );
+        $this->setUpFrontendRootPage(
+            1,
+            [
+                'constants' => [],
+                'setup' => [
+                    'EXT:redirects/Tests/Functional/Service/Fixtures/Redirects.typoscript',
+                ],
+            ]
+        );
+        $this->setUpFrontendRootPage(
+            3,
+            [
+                'constants' => [],
+                'setup' => [
+                    'EXT:redirects/Tests/Functional/Service/Fixtures/Redirects.typoscript',
+                ],
+            ]
+        );
+        $response = $this->executeFrontendSubRequest(
+            new InternalRequest($uri),
+            new InternalRequestContext(),
+            false,
+        );
+        self::assertSame($expectedRedirectStatusCode, $response->getStatusCode());
+        self::assertSame($expectedRedirectUri, ($response->getHeader('location')[0] ?? ''));
+        self::assertSame('TYPO3 Redirect ' . $expectedMatchedRedirectRecordUid, ($response->getHeader('X-Redirect-By')[0] ?? ''));
+    }
+
+    public static function redirectRespectingMatchedSiteLanguageWhenTargetPageHasSameSiteRootDataProvider(): \Generator
+    {
+        // domain based language distinction
+        yield 'wildcard source domain redirects to target on the matched site language (default language)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.de/',
+            'uri' => 'https://www.acme.com/wildcard-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.com/page-1',
+            'expectedMatchedRedirectRecordUid' => 1,
+        ];
+        yield 'wildcard source domain redirects to target on the matched site language (language 1)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.de/',
+            'uri' => 'https://www.acme.de/wildcard-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.de/page-1-translated',
+            'expectedMatchedRedirectRecordUid' => 1,
+        ];
+        yield 'default language source domain redirects to target on the matched site language (default language)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.de/',
+            'uri' => 'https://www.acme.com/default-language-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.com/page-2',
+            'expectedMatchedRedirectRecordUid' => 2,
+        ];
+        yield 'first language source domain redirects to target on the matched site language (first language)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.de/',
+            'uri' => 'https://www.acme.de/first-language-source-host/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.de/page-3-translated',
+            'expectedMatchedRedirectRecordUid' => 3,
+        ];
+        // language prefixed path language distinction
+        yield 'wildcard source domain with language prefixed path redirects to target on the matched site language (default language)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.com/de/',
+            'uri' => 'https://www.acme.com/language-prefixed-path/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.com/page-1',
+            'expectedMatchedRedirectRecordUid' => 4,
+        ];
+        yield 'wildcard source domain with language prefixed path redirects to target on the matched site language (language 1)' => [
+            'baseSite' => 'https://www.acme.com/',
+            'baseSiteDefaultLanguage' => 'https://www.acme.com/',
+            'baseSiteFirstLanguage' => 'https://www.acme.com/de/',
+            'uri' => 'https://www.acme.com/de/language-prefixed-path/',
+            'expectedRedirectStatusCode' => 302,
+            'expectedRedirectUri' => 'https://www.acme.com/de/page-1-translated',
+            'expectedMatchedRedirectRecordUid' => 5,
+        ];
+    }
+
+    #[DataProvider('redirectRespectingMatchedSiteLanguageWhenTargetPageHasSameSiteRootDataProvider')]
+    #[Test]
+    public function redirectRespectingMatchedSiteLanguageWhenTargetPageHasSameSiteRootReturnsExpectedRedirect(
+        string $baseSite,
+        string $baseSiteDefaultLanguage,
+        string $baseSiteFirstLanguage,
+        string $uri,
+        int $expectedRedirectStatusCode,
+        string $expectedRedirectUri,
+        int $expectedMatchedRedirectRecordUid,
+    ): void {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/RedirectService_targetPageInSameSiteRootWithTranslations.csv');
+        $this->writeSiteConfiguration(
+            'acme',
+            $this->buildSiteConfiguration(1, $baseSite),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', $baseSiteDefaultLanguage),
+                $this->buildLanguageConfiguration('DE', $baseSiteFirstLanguage),
+            ]
+        );
+        $this->setUpFrontendRootPage(
+            1,
+            [
+                'constants' => [],
+                'setup' => [
+                    'EXT:redirects/Tests/Functional/Service/Fixtures/Redirects.typoscript',
+                ],
+            ]
+        );
+        $response = $this->executeFrontendSubRequest(
+            new InternalRequest($uri),
+            new InternalRequestContext(),
+            false,
+        );
+        self::assertSame($expectedRedirectStatusCode, $response->getStatusCode());
+        self::assertSame($expectedRedirectUri, ($response->getHeader('location')[0] ?? ''));
+        self::assertSame('TYPO3 Redirect ' . $expectedMatchedRedirectRecordUid, ($response->getHeader('X-Redirect-By')[0] ?? ''));
     }
 }

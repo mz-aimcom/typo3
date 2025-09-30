@@ -15,7 +15,7 @@ A new PSR-14 event :php:`\TYPO3\CMS\Core\Country\Event\BeforeCountriesEvaluatedE
 has been introduced to modify the list of countries provided by
 :php:`\TYPO3\CMS\Core\Country\CountryProvider`.
 
-This event allows to to add, remove and alter countries from the list used by the
+This event allows to add, remove and alter countries from the list used by the
 provider class itself and ViewHelpers like :html:`<f:form.countrySelect />`.
 
 ..  note::
@@ -76,10 +76,10 @@ An example corresponding event listener class:
     <xliff version="1.0">
         <file source-language="en" datatype="plaintext" date="2024-01-08T18:44:59Z" product-name="my_extension">
             <body>
-                <trans-unit id="XX.name" resname="XX.name" approved="yes">
+                <trans-unit id="XX.name" approved="yes">
                     <source>Magic Kingdom</source>
                 </trans-unit>
-                <trans-unit id="XX.official_name" resname="XX.official_name" approved="yes">
+                <trans-unit id="XX.official_name" approved="yes">
                     <source>Kingdom of Magic and Wonders</source>
                 </trans-unit>
             </body>
@@ -89,7 +89,7 @@ An example corresponding event listener class:
 Impact
 ======
 
-Using the PSR-14 event :php:`BeforeCountriesEvaluatedEvent` allows
-modification of countries provided by :php:`CountryProvider`.
+Using the PSR-14 event :php-short:`\TYPO3\CMS\Core\Country\Event\BeforeCountriesEvaluatedEvent` allows
+modification of countries provided by :php-short:`\TYPO3\CMS\Core\Country\CountryProvider`.
 
 .. index:: PHP-API, ext:core

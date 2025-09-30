@@ -164,15 +164,98 @@ cleanRenderedDocumentationFiles() {
 getPhpImageVersion() {
     case ${1} in
         8.2)
-            echo -n "1.12"
-            ;;
-        8.3)
             echo -n "1.13"
             ;;
+        8.3)
+            echo -n "1.14"
+            ;;
         8.4)
-            echo -n "1.2"
+            echo -n "1.6"
+            ;;
+        8.5)
+            echo -n "1.0"
             ;;
     esac
+}
+
+# @todo: Add support for all available database engines (see -d option)
+# @todo: Add support for classic mode
+runPlaywright() {
+    PREPAREPARAMS="-e TYPO3_DB_DRIVER=sqlite"
+    TESTPARAMS="-e typo3DatabaseDriver=pdo_sqlite"
+
+    if [ "${PLAYWRIGHT_USE_EXISTING_INSTANCE}x" = "x" ]; then
+        rm -rf "${CORE_ROOT}/typo3temp/var/tests/playwright-composer" "${CORE_ROOT}/typo3temp/var/tests/playwright-reports" "${CORE_ROOT}/typo3temp/var/tests/playwright-results"
+        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name playwright-prepare ${XDEBUG_MODE} -e COMPOSER_CACHE_DIR=${CORE_ROOT}/.cache/composer -e COMPOSER_ROOT_VERSION=${COMPOSER_ROOT_VERSION} -e XDEBUG_CONFIG="${XDEBUG_CONFIG}" ${PREPAREPARAMS} ${IMAGE_PHP} "${CORE_ROOT}/Build/Scripts/setupAcceptanceComposer.sh" "typo3temp/var/tests/playwright-composer" sqlite
+        if [[ $? -gt 0 ]]; then
+            kill -SIGINT -$$
+        fi
+    fi
+
+    [[ -e "${CORE_ROOT}/Build/node_modules/.bin/playwright" ]] || ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name playwright-${SUFFIX}-npm-ci \
+        -e HOME=${CORE_ROOT}/.cache \
+        ${IMAGE_NODEJS_CHROME} \
+        npm --prefix=Build ci
+        if [[ $? -gt 0 ]]; then
+            kill -SIGINT -$$
+        fi
+
+    APACHE_OPTIONS="-e APACHE_RUN_USER=#${HOST_UID} -e APACHE_RUN_SERVERNAME=web -e APACHE_RUN_GROUP=#${HOST_PID} -e APACHE_RUN_DOCROOT=${CORE_ROOT}/typo3temp/var/tests/playwright-composer/public -e PHPFPM_HOST=phpfpm -e PHPFPM_PORT=9000"
+    if [[ ${PLAYWRIGHT_PREPARE_ONLY} -eq 1 ]]; then
+        APACHE_OPTIONS="${APACHE_OPTIONS} -p 127.0.0.1::80"
+    fi
+
+    if [ ${CONTAINER_BIN} = "docker" ]; then
+        ${CONTAINER_BIN} run --rm -d --name ac-phpfpm-${SUFFIX} --network ${NETWORK} --network-alias phpfpm --add-host "${CONTAINER_HOST}:host-gateway" ${USERSET} -e PHPFPM_USER=${HOST_UID} -e PHPFPM_GROUP=${HOST_PID} -v ${CORE_ROOT}:${CORE_ROOT} ${IMAGE_PHP} php-fpm ${PHP_FPM_OPTIONS} >/dev/null
+        ${CONTAINER_BIN} run --rm -d --name ac-web-${SUFFIX} --network ${NETWORK} --network-alias web --add-host "${CONTAINER_HOST}:host-gateway" -v ${CORE_ROOT}:${CORE_ROOT} ${APACHE_OPTIONS} ${IMAGE_APACHE} >/dev/null
+    else
+        ${CONTAINER_BIN} run --rm ${CI_PARAMS} -d --name ac-phpfpm-${SUFFIX} --network ${NETWORK} --network-alias phpfpm ${USERSET} -e PHPFPM_USER=0 -e PHPFPM_GROUP=0 -v ${CORE_ROOT}:${CORE_ROOT} ${IMAGE_PHP} php-fpm -R ${PHP_FPM_OPTIONS} >/dev/null
+        ${CONTAINER_BIN} run --rm ${CI_PARAMS} -d --name ac-web-${SUFFIX} --network ${NETWORK} --network-alias web -v ${CORE_ROOT}:${CORE_ROOT} ${APACHE_OPTIONS} ${IMAGE_APACHE} >/dev/null
+    fi
+
+    waitFor web 80
+
+    COMMAND="npm --prefix=${CORE_ROOT}/Build run playwright:run ${PLAYWRIGHT_PROJECT}"
+    COMMAND_UI="npm --prefix=${CORE_ROOT}/Build run playwright:open ${PLAYWRIGHT_PROJECT}"
+    if [[ ${PLAYWRIGHT_PREPARE_ONLY} -eq 0 ]]; then
+        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name accessibility-${SUFFIX} -e CHROME_SANDBOX=false -e CI=1 ${IMAGE_PLAYWRIGHT} ${COMMAND}
+        SUITE_EXIT_CODE=$?
+    else
+        PLAYWRIGHT_BASE_URL="http://$(${CONTAINER_BIN} port ac-web-${SUFFIX} 80/tcp)/"
+        echo
+        echo -en "\033[32m✓\033[0m "
+        echo "Environment prepared. You can now press Enter to run all tests or run playwright locally with one of the following commands."
+        echo
+        echo "  Run with local playwright (headless):"
+        echo -n "    "
+        echo "PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL}typo3/ ${COMMAND}"
+        echo
+        echo "  Open local playwright UI:"
+        echo -n "    "
+        echo "PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL}typo3/ ${COMMAND_UI}"
+        echo
+        echo -e "(Press \033[31mControl-C\033[0m to quit, \033[32mEnter\033[0m to run tests in container)"
+        # maybe use https://stackoverflow.com/a/58508884/4223467
+        while read -r _; do
+            ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name accessibility-${SUFFIX} -e CHROME_SANDBOX=false -e CI=1 ${IMAGE_PLAYWRIGHT} ${COMMAND}
+            SUITE_EXIT_CODE=$?
+            echo
+            echo -e "(Press \033[31mControl-C\033[0m to quit, \033[32mEnter\033[0m to re-run tests in container)"
+        done </dev/tty
+    fi
+}
+
+executeRstRendering() {
+    local systemExtensionName="$1"
+    systemExtensionFolder="typo3/sysext/${systemExtensionName}"
+    if [[ ! -d "${systemExtensionFolder}/Documentation" ]]; then
+        return 1
+    fi
+    echo "Processing RST directory: ${systemExtensionFolder}/Documentation"
+    ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-rst-rendering-${systemExtensionName}-${SUFFIX}  -w /project -v "${CORE_ROOT}/${systemExtensionFolder}:/project" ${IMAGE_RSTRENDERING} --fail-on-log --fail-on-error --no-progress --config=Documentation Documentation
+    local exitCode=$?
+    echo "Render result for ${systemExtensionFolder}: ${exitCode}"
+    return ${exitCode}
 }
 
 loadHelp() {
@@ -190,22 +273,26 @@ Options:
             - acceptance: main application acceptance tests
             - acceptanceComposer: main application acceptance tests
             - acceptanceInstall: installation acceptance tests, only with -d mariadb|postgres|sqlite
-            - buildCss: execute scss to css builder
-            - buildJavascript: execute typescript to javascript builder
+            - build: execute frontend build (TypeScript, Sass, Contrib, Assets)
             - cgl: test and fix all core php files
             - cglGit: test and fix latest committed patch for CGL compliance
             - cglHeader: test and fix file header for all core php files
             - cglHeaderGit: test and fix latest committed patch for CGL file header compliance
             - checkBom: check UTF-8 files do not contain BOM
+            - checkCharsets: Verify "updateCharsetTables.php" does not change anything
             - checkComposer: check composer.json files for version integrity
+            - checkIntegritySetLabels: check labels.xlf file integrity of site sets
             - checkExtensionScannerRst: test all .rst files referenced by extension scanner exist
             - checkFilePathLength: test core file paths do not exceed maximum length
+            - checkFilesAndPathsForSpaces: test paths and files for spaces
             - checkGitSubmodule: test core git has no sub modules defined
             - checkGruntClean: Verify "grunt build" is clean. Warning: Executes git commands! Usually used in CI only.
             - checkIntegrityPhp: check php code for with registered integrity rules
-            - checkIsoDatabase: Verify "updateIsoDatabase.php" does not change anything.
+            - checkIsoDatabase: Verify "updateIsoDatabase.php" does not change anything
             - checkPermissions: test some core files for correct executable bits
             - checkRst: test .rst files for integrity
+            - checkRstRenderingAll: Test all system extension .rst files for rendering errors
+            - checkRstRenderingSingle: Test specified system extension .rst files for rendering errors
             - clean: clean up build, cache and testing related files and folders
             - cleanBuild: clean up build related files and folders
             - cleanCache: clean up cache related files and folders
@@ -226,7 +313,8 @@ Options:
             - lintTypescript: TS linting
             - lintYaml: YAML Linting (excluding Services.yaml)
             - npm: "npm" command dispatcher, to execute various npm commands directly
-            - accessibility: accessibility tests
+            - accessibility: accessibility tests (use accessibility-prepare for manual execution)
+            - e2e: end to end tests (use e2e-prepare for manual execution)
             - phpstan: phpstan tests
             - phpstanGenerateBaseline: regenerate phpstan baseline, handy after phpstan updates
             - unit (default): PHP unit tests
@@ -292,11 +380,12 @@ Options:
         Hack functional or acceptance tests into #numberOfChunks pieces and run tests of #chunk.
         Example -c 3/13
 
-    -p <8.2|8.3|8.4>
+    -p <8.2|8.3|8.4|8.5>
         Specifies the PHP minor version to be used
             - 8.2 (default): use PHP 8.2
             - 8.3: use PHP 8.3
             - 8.4: use PHP 8.4
+            - 8.5: use PHP 8.5
 
     -t sets|systemplate
         Only with -s acceptance|acceptanceComposer
@@ -399,7 +488,7 @@ DATABASE_DRIVER=""
 CHUNKS=0
 THISCHUNK=0
 CONTAINER_BIN=""
-COMPOSER_ROOT_VERSION="13.3.x-dev"
+COMPOSER_ROOT_VERSION="14.0.x-dev"
 PHPSTAN_CONFIG_FILE="phpstan.local.neon"
 CONTAINER_INTERACTIVE="-it --init"
 HOST_UID=$(id -u)
@@ -451,7 +540,7 @@ while getopts ":a:b:s:c:d:i:t:p:xy:nhug" OPT; do
             ;;
         p)
             PHP_VERSION=${OPTARG}
-            if ! [[ ${PHP_VERSION} =~ ^(8.2|8.3|8.4)$ ]]; then
+            if ! [[ ${PHP_VERSION} =~ ^(8.2|8.3|8.4|8.5)$ ]]; then
                 INVALID_OPTIONS+=("${OPTARG}")
             fi
             ;;
@@ -525,25 +614,22 @@ if ! type ${CONTAINER_BIN} >/dev/null 2>&1; then
     exit 1
 fi
 
-IMAGE_APACHE="ghcr.io/typo3/core-testing-apache24:1.5"
+IMAGE_APACHE="ghcr.io/typo3/core-testing-apache24:1.7"
 IMAGE_PHP="ghcr.io/typo3/core-testing-$(echo "php${PHP_VERSION}" | sed -e 's/\.//'):$(getPhpImageVersion $PHP_VERSION)"
 
-IMAGE_NODEJS="ghcr.io/typo3/core-testing-nodejs22:1.1"
-IMAGE_NODEJS_CHROME="ghcr.io/typo3/core-testing-nodejs22-chrome:1.1"
+IMAGE_NODEJS="ghcr.io/typo3/core-testing-nodejs22:1.3"
+IMAGE_NODEJS_CHROME="ghcr.io/typo3/core-testing-nodejs22-chrome:1.3"
 IMAGE_PLAYWRIGHT="mcr.microsoft.com/playwright:v1.45.1-jammy"
 IMAGE_ALPINE="docker.io/alpine:3.8"
-IMAGE_SELENIUM="docker.io/selenium/standalone-chrome:4.20.0-20240505"
+# HEADS UP: We need to pin to <132 for --headless=old support until https://issues.chromium.org/issues/362522328 is resolved
+IMAGE_SELENIUM="docker.io/selenium/standalone-chromium:131.0-20250101"
 IMAGE_REDIS="docker.io/redis:4-alpine"
 IMAGE_MEMCACHED="docker.io/memcached:1.5-alpine"
 IMAGE_MARIADB="docker.io/mariadb:${DBMS_VERSION}"
 IMAGE_MYSQL="docker.io/mysql:${DBMS_VERSION}"
 IMAGE_POSTGRES="docker.io/postgres:${DBMS_VERSION}-alpine"
-
-# Detect arm64 to use seleniarm image.
-ARCH=$(uname -m)
-if [ ${ARCH} = "arm64" ]; then
-    IMAGE_SELENIUM="docker.io/seleniarm/standalone-chromium:4.20.0-20240427"
-fi
+# Not a bug; render-guides has no "1.x" release yet.
+IMAGE_RSTRENDERING="ghcr.io/typo3-documentation/render-guides:0.34"
 
 # Remove handled options and leaving the rest in the line, so it can be passed raw to commands
 shift $((OPTIND - 1))
@@ -561,6 +647,10 @@ else
     # podman
     CONTAINER_HOST="host.containers.internal"
     CONTAINER_COMMON_PARAMS="${CONTAINER_INTERACTIVE} ${CI_PARAMS} --rm --network ${NETWORK} -v ${CORE_ROOT}:${CORE_ROOT} -w ${CORE_ROOT}"
+fi
+
+if [[ "${CI}" == "true" ]]; then
+    CONTAINER_COMMON_PARAMS="${CONTAINER_COMMON_PARAMS} ${CONTAINER_COMMON_PARAMS_CI:-}"
 fi
 
 if [ ${PHP_XDEBUG_ON} -eq 0 ]; then
@@ -790,73 +880,29 @@ case ${TEST_SUITE} in
                 ;;
         esac
         ;;
-    accessibility*)
-        [[ "$TEST_SUITE" = 'accessibility-prepare' ]] && ACCESSIBILITY_PREPARE=1 || ACCESSIBILITY_PREPARE=0
-        PREPAREPARAMS="-e TYPO3_DB_DRIVER=sqlite"
-        TESTPARAMS="-e typo3DatabaseDriver=pdo_sqlite"
-
-        if [ "${ACCESSIBILITY_USE_EXISTING_INSTANCE}x" = "x" ]; then
-            rm -rf "${CORE_ROOT}/typo3temp/var/tests/playwright-composer" "${CORE_ROOT}/typo3temp/var/tests/playwright-reports" "${CORE_ROOT}/typo3temp/var/tests/playwright-results"
-            ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name accessibility-prepare ${XDEBUG_MODE} -e COMPOSER_CACHE_DIR=${CORE_ROOT}/.cache/composer -e COMPOSER_ROOT_VERSION=${COMPOSER_ROOT_VERSION} -e XDEBUG_CONFIG="${XDEBUG_CONFIG}" ${PREPAREPARAMS} ${IMAGE_PHP} "${CORE_ROOT}/Build/Scripts/setupAcceptanceComposer.sh" "typo3temp/var/tests/playwright-composer" sqlite
-            if [[ $? -gt 0 ]]; then
-                kill -SIGINT -$$
-            fi
-        fi
-
-        [[ -e "${CORE_ROOT}/Build/node_modules/.bin/playwright" ]] || ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name playwright-${SUFFIX}-npm-ci \
-            -e HOME=${CORE_ROOT}/.cache \
-            ${IMAGE_NODEJS_CHROME} \
-            npm --prefix=Build ci
-            if [[ $? -gt 0 ]]; then
-                kill -SIGINT -$$
-            fi
-
-        APACHE_OPTIONS="-e APACHE_RUN_USER=#${HOST_UID} -e APACHE_RUN_SERVERNAME=web -e APACHE_RUN_GROUP=#${HOST_PID} -e APACHE_RUN_DOCROOT=${CORE_ROOT}/typo3temp/var/tests/playwright-composer/public -e PHPFPM_HOST=phpfpm -e PHPFPM_PORT=9000"
-        if [[ ${ACCESSIBILITY_PREPARE} -eq 1 ]]; then
-            APACHE_OPTIONS="${APACHE_OPTIONS} -p 127.0.0.1::80"
-        fi
-
-        if [ ${CONTAINER_BIN} = "docker" ]; then
-            ${CONTAINER_BIN} run --rm -d --name ac-phpfpm-${SUFFIX} --network ${NETWORK} --network-alias phpfpm --add-host "${CONTAINER_HOST}:host-gateway" ${USERSET} -e PHPFPM_USER=${HOST_UID} -e PHPFPM_GROUP=${HOST_PID} -v ${CORE_ROOT}:${CORE_ROOT} ${IMAGE_PHP} php-fpm ${PHP_FPM_OPTIONS} >/dev/null
-            ${CONTAINER_BIN} run --rm -d --name ac-web-${SUFFIX} --network ${NETWORK} --network-alias web --add-host "${CONTAINER_HOST}:host-gateway" -v ${CORE_ROOT}:${CORE_ROOT} ${APACHE_OPTIONS} ${IMAGE_APACHE} >/dev/null
-        else
-            ${CONTAINER_BIN} run --rm ${CI_PARAMS} -d --name ac-phpfpm-${SUFFIX} --network ${NETWORK} --network-alias phpfpm ${USERSET} -e PHPFPM_USER=0 -e PHPFPM_GROUP=0 -v ${CORE_ROOT}:${CORE_ROOT} ${IMAGE_PHP} php-fpm -R ${PHP_FPM_OPTIONS} >/dev/null
-            ${CONTAINER_BIN} run --rm ${CI_PARAMS} -d --name ac-web-${SUFFIX} --network ${NETWORK} --network-alias web -v ${CORE_ROOT}:${CORE_ROOT} ${APACHE_OPTIONS} ${IMAGE_APACHE} >/dev/null
-        fi
-
-        waitFor web 80
-
-        COMMAND="npm --prefix=${CORE_ROOT}/Build run playwright:run"
-        if [[ ${ACCESSIBILITY_PREPARE} -eq 0 ]]; then
-            ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name accessibility-${SUFFIX} -e CHROME_SANDBOX=false -e CI=1 ${IMAGE_PLAYWRIGHT} ${COMMAND}
-            SUITE_EXIT_CODE=$?
-        else
-            ACCESSIBILITY_BASE_URL="http://$(${CONTAINER_BIN} port ac-web-${SUFFIX} 80/tcp)/"
-            echo
-            echo -en "\033[32m✓\033[0m "
-            echo "Environment prepared. You can now manually run the following command or press Enter to run all tests."
-            echo
-            echo -n "  "
-            echo "ACCESSIBILITY_BASE_URL=${ACCESSIBILITY_BASE_URL}typo3 ${COMMAND}"
-            echo
-            echo -e "(Press \033[31mControl-C\033[0m to quit, \033[32mEnter\033[0m to run tests)"
-            # maybe use https://stackoverflow.com/a/58508884/4223467
-            while read -r _; do
-                ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name accessibility-${SUFFIX} -e CHROME_SANDBOX=false -e CI=1 ${IMAGE_PLAYWRIGHT} ${COMMAND}
-                SUITE_EXIT_CODE=$?
-                echo
-                echo -e "(Press \033[31mControl-C\033[0m to quit, \033[32mEnter\033[0m to re-run tests)"
-            done </dev/tty
-        fi
+    e2e)
+        PLAYWRIGHT_PROJECT="--project e2e"
+        PLAYWRIGHT_PREPARE_ONLY=0
+        runPlaywright
         ;;
-    buildCss)
-        COMMAND="cd Build; npm ci || exit 1; node_modules/grunt/bin/grunt css"
+    e2e-prepare)
+        PLAYWRIGHT_PROJECT="--project e2e"
+        PLAYWRIGHT_PREPARE_ONLY=1
+        runPlaywright
+        ;;
+    accessibility)
+        PLAYWRIGHT_PROJECT="--project accessibility"
+        PLAYWRIGHT_PREPARE_ONLY=0
+        runPlaywright
+        ;;
+    accessibility-prepare)
+        PLAYWRIGHT_PROJECT="--project accessibility"
+        PLAYWRIGHT_PREPARE_ONLY=1
+        runPlaywright
+        ;;
+    build*)
+        COMMAND="cd Build; npm install && npm run build"
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name build-css-${SUFFIX} -e HOME=${CORE_ROOT}/.cache ${IMAGE_NODEJS} /bin/sh -c "${COMMAND}"
-        SUITE_EXIT_CODE=$?
-        ;;
-    buildJavascript)
-        COMMAND="cd Build/; npm ci || exit 1; node_modules/grunt/bin/grunt scripts"
-        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name build-js-${SUFFIX} -e HOME=${CORE_ROOT}/.cache ${IMAGE_NODEJS} /bin/sh -c "${COMMAND}"
         SUITE_EXIT_CODE=$?
         ;;
     cgl)
@@ -893,6 +939,10 @@ case ${TEST_SUITE} in
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-utf8bom-${SUFFIX} ${IMAGE_PHP} Build/Scripts/checkUtf8Bom.sh
         SUITE_EXIT_CODE=$?
         ;;
+    checkIntegritySetLabels)
+        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-integrity-set-labels-${SUFFIX} ${IMAGE_PHP} php -dxdebug.mode=off Build/Scripts/checkIntegritySetLabels.php
+        SUITE_EXIT_CODE=$?
+        ;;
     checkComposer)
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-composer-${SUFFIX} ${IMAGE_PHP} php -dxdebug.mode=off Build/Scripts/checkIntegrityComposer.php
         SUITE_EXIT_CODE=$?
@@ -903,6 +953,10 @@ case ${TEST_SUITE} in
         ;;
     checkFilePathLength)
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-file-path-length-${SUFFIX} ${IMAGE_PHP} Build/Scripts/maxFilePathLength.sh
+        SUITE_EXIT_CODE=$?
+        ;;
+    checkFilesAndPathsForSpaces)
+        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-file-path-length-${SUFFIX} ${IMAGE_PHP} Build/Scripts/spacesInPathsAndFilenames.sh
         SUITE_EXIT_CODE=$?
         ;;
     checkGitSubmodule)
@@ -920,6 +974,11 @@ case ${TEST_SUITE} in
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-iso-database-${SUFFIX} ${IMAGE_PHP} /bin/sh -c "${COMMAND}"
         SUITE_EXIT_CODE=$?
         ;;
+    checkCharsets)
+        COMMAND="git checkout -- composer.json; git checkout -- composer.lock; php -dxdebug.mode=off Build/Scripts/updateCharsetTables.php; git add *; git status; git status | grep -q \"nothing to commit, working tree clean\""
+        ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-charsets-${SUFFIX} ${IMAGE_PHP} /bin/sh -c "${COMMAND}"
+        SUITE_EXIT_CODE=$?
+        ;;
     checkPermissions)
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-permissions-${SUFFIX} ${IMAGE_PHP} Build/Scripts/checkFilePermissions.sh
         SUITE_EXIT_CODE=$?
@@ -927,6 +986,37 @@ case ${TEST_SUITE} in
     checkRst)
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name check-rst-${SUFFIX} ${IMAGE_PHP} php -dxdebug.mode=off Build/Scripts/validateRstFiles.php
         SUITE_EXIT_CODE=$?
+        ;;
+    checkRstRenderingAll)
+        SUITE_EXIT_CODE=0
+        echo "Scanning typo3/sysext for directories with Documentation..."
+        for systemExtensionFolder in typo3/sysext/*/Documentation; do
+            systemExtensionName="${systemExtensionFolder%/Documentation}"
+            systemExtensionName=$(basename "${systemExtensionName}")
+            executeRstRendering "${systemExtensionName}"
+            TMP_SUITE_EXIT_CODE=$?
+            if [ ${TMP_SUITE_EXIT_CODE} -ne 0 ]; then
+                SUITE_EXIT_CODE=${TMP_SUITE_EXIT_CODE}
+            fi
+        done
+        ;;
+    checkRstRenderingSingle)
+        systemExtensionKey="${1}"
+        if [ -n "${systemExtensionKey}" ]; then
+            if [[ ! -d "typo3/sysext/${systemExtensionKey}" ]]; then
+                echo "Error: Invalid system extension key provided: \"${systemExtensionKey}\""
+                SUITE_EXIT_CODE=1
+            elif [[ ! -d "typo3/sysext/${systemExtensionKey}/Documentation" ]]; then
+                echo "Error: Valid system extension \"${systemExtensionKey}\" does not contain a \"Documentation\" folder"
+                SUITE_EXIT_CODE=1
+            else
+                executeRstRendering "${systemExtensionKey}"
+                SUITE_EXIT_CODE=$?
+            fi
+        else
+            echo "Error: No system extension key provided as first argument"
+            SUITE_EXIT_CODE=1
+        fi
         ;;
     clean)
         cleanBuildFiles
@@ -1050,7 +1140,7 @@ case ${TEST_SUITE} in
         SUITE_EXIT_CODE=$?
         ;;
     lintYaml)
-        EXCLUDE_INVALID_FIXTURE_YAML_FILES="--exclude typo3/sysext/form/Tests/Unit/Mvc/Configuration/Fixtures/Invalid.yaml"
+        EXCLUDE_INVALID_FIXTURE_YAML_FILES="--exclude typo3/sysext/form/Tests/Unit/Mvc/Configuration/Fixtures/Invalid.yaml --exclude typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_sets/Configuration/Sets/InvalidSettings/settings.yaml --exclude typo3/sysext/core/Tests/Functional/Configuration/Loader/Fixtures/InvalidYamlFiles/LoadEmptyYaml.yaml --exclude typo3/sysext/core/Tests/Functional/Configuration/Loader/Fixtures/InvalidYamlFiles/LoadInvalidYaml.yaml"
         COMMAND="php -v | grep '^PHP'; find typo3/ \\( -name '*.yaml' -o -name '*.yml' \\) ! -name 'Services.yaml' | xargs -r php -dxdebug.mode=off bin/yaml-lint --no-parse-tags ${EXCLUDE_INVALID_FIXTURE_YAML_FILES}"
         ${CONTAINER_BIN} run ${CONTAINER_COMMON_PARAMS} --name lint-php-${SUFFIX} ${IMAGE_PHP} /bin/sh -c "${COMMAND}"
         SUITE_EXIT_CODE=$?
@@ -1091,6 +1181,14 @@ case ${TEST_SUITE} in
         # remove "dangling" typo3/core-testing-* images (those tagged as <none>)
         echo "> remove \"dangling\" ghcr.io/typo3/core-testing-* images (those tagged as <none>)"
         ${CONTAINER_BIN} images --filter "reference=ghcr.io/typo3/core-testing-*" --filter "dangling=true" --format "{{.ID}}" | xargs -I {} ${CONTAINER_BIN} rmi -f {}
+        echo ""
+        # pull ghcr.io/typo3-documentation/render-guides versions of those ones that exist locally
+        echo "> pull ghcr.io/typo3-documentation/render-guides versions of those ones that exist locally"
+        ${CONTAINER_BIN} images "ghcr.io/typo3-documentation/render-guides" --format "{{.Repository}}:{{.Tag}}" | xargs -I {} ${CONTAINER_BIN} pull {}
+        echo ""
+        # remove "dangling" ghcr.io/typo3-documentation/render-guides* images (those tagged as <none>)
+        echo "> remove \"dangling\" ghcr.io/typo3-documentation/render-guides images (those tagged as <none>)"
+        ${CONTAINER_BIN} images --filter "reference=ghcr.io/typo3-documentation/render-guides" --filter "dangling=true" --format "{{.ID}}" | xargs -I {} ${CONTAINER_BIN} rmi -f {}
         echo ""
         ;;
     *)

@@ -1,11 +1,11 @@
-.. include:: /Includes.rst.txt
+:navigation-title: Configuration
 
-.. highlight:: typoscript
+..  include:: /Includes.rst.txt
+..  _configuration:
 
-.. _configuration:
-
-Configuration
--------------
+============================================
+Configuration of the Linkvalidator extension
+============================================
 
 You can find the standard configuration in
 :file:`EXT:linkvalidator/Configuration/page.tsconfig`.
@@ -13,479 +13,317 @@ You can find the standard configuration in
 This may serve as an example on how to configure the extension for
 your needs.
 
-.. note::
+..  note::
 
-   When checking for broken links in the TYPO3 backend module or the
-   corresponding Scheduler task, the page TSconfig of the selected start
-   page is also applied to all subpages - when checking recursive.
-   In case subpages should behave differently and therefore contain a
-   different LinkHandler configuration, they must be checked individually.
+    When checking for broken links in the TYPO3 backend module or the
+    corresponding Scheduler task, the page TSconfig of the selected start
+    page is also applied to all subpages - when checking recursive.
+    In case subpages should behave differently and therefore contain a
+    different LinkHandler configuration, they must be checked individually.
+
+..  contents:: Table of contents
+
+..  toctree::
+    :glob:
+    :titlesonly:
+
+    *
+
+..  _configuration-minimal:
 
 Minimal configuration
-^^^^^^^^^^^^^^^^^^^^^
+=====================
 
 It is recommended to at least fill out `httpAgentUrl` and `httpAgentEmail`.
 The latter is only required if :php:`$GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress']`
 is not set.
 
-::
+..  literalinclude:: _minimal.tsconfig
+    :caption: config/sites/my-site/page.tsconfig
 
-    mod.linkvalidator.linktypesConfig.external.httpAgentUrl =
-    mod.linkvalidator.linktypesConfig.external.httpAgentEmail =
+..  _reference:
 
+TSconfig Reference
+==================
 
-.. _reference:
+You can set the following options in the TSconifg of a site, for example in
+file :file:`config/sites/my-site/page.tsconfig` or in the global page TSconfig
+file :file:`packages/my_sitepackage/Configuration/page.tsconfig` of your site
+package.
 
-Reference
-^^^^^^^^^
-
-You can set the following options in the TSconfig for a page (for example the
-root page) and override them in user or groups TSconfig. You must
-prefix them with mod.linkvalidator, for example
+You must prefix them with `mod.linkvalidator`, for example
 :typoscript:`mod.linkvalidator.searchFields.pages = canonical_link`.
 
+..  confval-menu::
 
-.. _searchfields-key:
+..  _searchfields-key:
 
-searchFields.[key]
-""""""""""""""""""
+..  confval:: searchFields.[table]
+    :name: tsconfig-searchfields-key
+    :type: string
+    :Path: mod.linkvalidator.linktypesConfig.searchFields.[table]
+    :Default: See :ref:`Checked Fields <checked-fields>`
 
-.. container:: table-row
+    Comma separated list of table fields in which to check for
+    broken links. LinkValidator only checks fields that have
+    been defined in :typoscript:`searchFields`.
 
-   Property
-         searchFields.[key]
+    LinkValidator ships with sensible defaults that work well
+    for the TYPO3 core, but additional third party extensions
+    are not considered.
 
-   Data type
-         string
+    ..  warning::
 
-   Description
-         Comma separated list of table fields in which to check for
-         broken links. LinkValidator only checks fields that have
-         been defined in :typoscript:`searchFields`.
+        Currently, LinkValidator will only detect links for fields if the
+        TCA configuration meets certain criteria, see
+        :ref:`TCA requirements for link validation <checked-fields-TCA>`.
 
-         LinkValidator ships with sensible defaults that work well
-         for the TYPO3 core, but additional third party extensions
-         are not considered.
+    ..  code-block:: typoscript
+        :caption: config/sites/my-site/page.tsconfig
 
-         .. warning::
+        mod.linkvalidator.linktypesConfig.searchFields {
+            # Usually you want to append fields:
+            tt_content := addToList(mysitepackage_carousel_morelink)
 
-            Currently, LinkValidator will only detect links for fields if the
-            TCA configuration meets one of these criteria:
+            # or you can set specific columns (overwriting defaults):
+            # tt_content = bodytext
 
-            * at least one :ref:`softref <t3tca:columns-input-properties-softref>`
-            * type is set to :ref:`link <t3tca:columns-link>`
-            * type is set to :ref:`email <t3tca:columns-email>`
+            # Do not check canonical URL in pages
+            pages := removeFromList(canonical_link)
+        }
 
-            For this reason, it is currently not possible to check for
-            `pages.media`. This will be fixed in the future.
+..  _linktypes:
 
-            Examples for working fields:
+..  confval:: linktypes
+    :name: tsconfig-linktypes
+    :type: string
+    :Path: mod.linkvalidator.linktypesConfig.linktypes
+    :Default: `db,file`
 
-            * `pages.canonical_link` (:php:`'type' => 'link'`)
-            * `pages.url` (:php:`'softref' => 'url'`)
-            * `sys_file_reference.link` (:php:`'type' => 'link'`)
+    Comma separated list of link types to check.
 
-            Example for not working fields:
+    **Possible values:**
 
-            * `pages.media` (:php:`'type' => 'file'`)
+    db
+        Check links to database records.
 
-   Example
-         ::
+    file
+        Check links to files located in your local TYPO3 installation.
 
-            # Only check for "bodytext" in "tt_content":
-            tt_content = bodytext
+    external
+        Check links to external URLs.
 
-   Default
-         ::
+    This list may be extended by other extensions providing a
+    :ref:`custom linktype implementation <linktype-implementation>`.
 
-            pages = media,url
-            tt_content = bodytext,header_link,records
+    ..  versionchanged:: 13.0
+        The default was changed to exclude "external" link type.
 
+    ..  warning::
+        External links can lead to some :ref:`known issues <usagePitfallsExternalLinks>`.
 
 
-.. _linktypes:
+..  _linktypes-config:
+..  _linktypes-config-external:
 
-linktypes
-"""""""""
+..  confval:: linktypesConfig.external.httpAgentName
+    :name: tsconfig-linktypesconfig-external-httpagentname
+    :type: string
+    :Path: mod.linkvalidator.linktypesConfig.linktypesConfig.external.httpAgentName
+    :Default: `TYPO3 LinkValidator`
 
-.. container:: table-row
+    Add descriptive name to be used as 'User-Agent' header when crawling
+    external URLs.
 
-   Property
-         linktypes
+..  confval:: linktypesConfig.external.httpAgentUrl
+    :name: tsconfig-linktypesconfig-external-httpagenturl
+    :type: string
+    :Path: mod.linkvalidator.linktypesConfig.linktypesConfig.external.httpAgentUrl
+    :Default: (empty string)
 
-   Data type
-         string
+    Add descriptive name to be used as 'User-Agent' header when crawling
+    external URLs.
 
-   Description
-         Comma separated list of link types to check.
+    Add URL to be used in 'User-Agent' header when crawling
+    external URLs.
 
-         **Possible values:**
+..  confval:: linktypesConfig.external.httpAgentEmail
+    :name: tsconfig-linktypesconfig-external-httpagentemail
+    :type: string
+    :Path: mod.linkvalidator.linktypesConfig.linktypesConfig.external.httpAgentEmail
+    :Default: :php:` $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress']`
 
-         db: Check links to database records.
+    Add descriptive email used in 'User-Agent' header when crawling
+    external URLs.
 
-         file: Check links to files located in your local TYPO3 installation.
+..  _checkhidden:
 
-         external: Check links to external URLs.
+..  confval:: checkhidden
+    :name: tsconfig-checkhidden
+    :type: boolean
+    :Path: mod.linkvalidator.checkhidden
+    :Default: `0`
 
-         This list may be extended by other extensions providing a
-         :ref:`custom linktype implementation <linktype-implementation>`.
+    If set, disabled pages and content elements are checked for broken
+    links, too.
 
-         .. versionchanged:: 13.0
-             The default was changed to exclude "external" link type.
+..  confval:: showCheckLinkTab
+    :name: tsconfig-showchecklinktab
+    :type: boolean
+    :Path: mod.linkvalidator.showCheckLinkTab
+    :Default: `1`
 
-         ..  warning::
-             External links can lead to some :ref:`known issues<usagePitfallsExternalLinks>`.
+    If set, the backend module shows a "Check Links" tab, which you can
+    use to perform the checks on demand.
 
-   Default
-         db,file
 
+    ..  figure:: /Images/CheckLinksTabVisible.png
+        :alt: The Check links tab is visible
 
-.. _linktypes-config:
-.. _linktypes-config-external:
+    The Check links tab is visible
 
-linktypesConfig.external.httpAgentName
-""""""""""""""""""""""""""""""""""""""
+    ..  note::
 
-.. container:: table-row
+        Depending on the number of page levels to check and on the
+        number of links in these pages, this check can take some time and need
+        some resources. For large sites it might therefore be advisable to
+        hide the tab.
 
-   Property
-         linktypesConfig.external.httpAgentName
+    ..  note::
 
-   Data type
-         string
+        LinkValidator uses a database table to store information
+        about the broken links, which it found in your website. If
+        showCheckLinkTab is set to 0, you must use the Scheduler task provided
+        by LinkValidator to update this information.
 
-   Description
-         Add descriptive name to be used as 'User-Agent' header when crawling
-         external URLs.
+..  _actionAfterEditRecord:
 
-   Default
-         TYPO3 LinkValidator
+..  confval:: actionAfterEditRecord
+    :name: tsconfig-actionaftereditrecord
+    :type: string
+    :Path: mod.linkvalidator.actionAfterEditRecord
+    :Default: `recheck`
+    :Possible values: `recheck` | `setNeedsRecheck`
 
+    After a record is edited, the list of broken links may no longer be correct,
+    because broken links were changed or removed or new broken links added. Due
+    to this, the list of broken links should be updated.
 
+    Possible values are:
 
+    recheck
+        The field is rechecked. (Warning: an RTE field may contain a number
+        of links, rechecking may lead to delays.)
+    setNeedsRecheck
+        The entries in the list are marked as needing a recheck
 
+..  _mail-fromname:
 
-linktypesConfig.external.httpAgentUrl
-"""""""""""""""""""""""""""""""""""""
+..  confval:: mail.fromname
+    :name: tsconfig-mail-fromname
+    :type: string
+    :Path: mod.linkvalidator.mail.fromname
+    :Default: :php:` $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromName']`
 
-.. container:: table-row
+    Set the from name of the report mail sent by the cron script.
 
-   Property
-         linktypesConfig.external.httpAgentUrl
 
-   Data type
-         string
+..  _mail-fromemail:
 
-   Description
-         Add URL to be used in 'User-Agent' header when crawling
-         external URLs.
+..  confval:: mail.fromemail
+    :name: tsconfig-mail-fromemail
+    :type: string
+    :Path: mod.linkvalidator.mail.fromemail
+    :Default: :php:` $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress']`
 
-   Default
-         (empty string)
+    Set the from email of the report mail sent by the cron script.
 
+..  _mail-replytoname:
 
-linktypesConfig.external.httpAgentEmail
-"""""""""""""""""""""""""""""""""""""""
+..  confval:: mail.replytoname
+    :name: tsconfig-mail-replytoname
+    :type: string
+    :Path: mod.linkvalidator.mail.replytoname
 
-.. container:: table-row
+    Set the replyto name of the report mail sent by the cron script.
 
-   Property
-         linktypesConfig.external.httpAgentEmail
+..  confval:: mail.replytoemail
+    :name: tsconfig-mail-replytoemail
+    :type: string
+    :Path: mod.linkvalidator.mail.replytoemail
 
-   Data type
-         string
+    Set the replyto email of the report mail sent by the cron script.
 
-   Description
-         Add descriptive email used in 'User-Agent' header when crawling
-         external URLs.
 
-   Default
-         $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress']
+..  _mail-subject:
 
+..  confval:: mail.subject
+    :name: tsconfig-mail-subject
+    :type: string
+    :Path: mod.linkvalidator.mail.subject
+    :Default: `TYPO3 LinkValidator report`
 
+    Set the subject of the report mail sent by the cron script.
 
-.. _checkhidden:
+..  confval:: linktypesConfig
+    :name: tsconfig-linktypesConfig
+    :type: array
+    :Path: mod.linkvalidator.linktypesConfig
 
-checkhidden
-"""""""""""
-
-.. container:: table-row
-
-   Property
-         checkhidden
-
-   Data type
-         boolean
-
-   Description
-         If set, disabled pages and content elements are checked for broken
-         links, too.
-
-   Default
-         0
-
-
-
-.. _showchecklinktab:
-
-showCheckLinkTab
-""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         showCheckLinkTab
-
-   Data type
-         boolean
-
-   Description
-         If set, the backend module shows a "Check Links" tab, which you can
-         use to perform the checks on demand.
-
-
-         .. figure:: ../Images/CheckLinksTabVisible.png
-            :alt: The Check links tab is visible
-
-            The Check links tab is visible
-
-         .. note::
-
-            Depending on the number of page levels to check and on the
-            number of links in these pages, this check can take some time and need
-            some resources. For large sites it might therefore be advisable to
-            hide the tab.
-
-         .. note::
-
-            LinkValidator uses a database table to store information
-            about the broken links, which it found in your website. If
-            showCheckLinkTab is set to 0, you must use the Scheduler task provided
-            by LinkValidator to update this information.
-
-   Default
-         1
-
-
-
-.. _actionAfterEditRecord:
-
-actionAfterEditRecord
-"""""""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         actionAfterEditRecord
-
-   Data type
-         string
-
-   Default
-         recheck
-
-   Possible values
-         recheck | setNeedsRecheck
-
-   Description
-         After a record is edited, the list of broken links may no longer be correct,
-         because broken links were changed or removed or new broken links added. Due
-         to this, the list of broken links should be updated.
-
-         Possible values are:
-
-         * **recheck**: The field is rechecked. (Warning: an RTE field may contain a number
-           of links, rechecking may lead to delays.)
-         * **setNeedsRecheck**: The entries in the list are marked as needing a recheck
-
-
-.. _mail-fromname:
-
-mail.fromname
-"""""""""""""
-
-.. container:: table-row
-
-   Property
-         mail.fromname
-
-   Data type
-         string
-
-   Description
-         Set the from name of the report mail sent by the cron script.
-
-   Default
-         Install Tool
-
-         *defaultMailFromName*
-
-
-
-.. _mail-fromemail:
-
-mail.fromemail
-""""""""""""""
-
-.. container:: table-row
-
-   Property
-         mail.fromemail
-
-   Data type
-         string
-
-   Description
-         Set the from email of the report mail sent by the cron script.
-
-   Default
-         Install Tool
-
-         *defaultMailFromAddress*
-
-
-
-.. _mail-replytoname:
-
-mail.replytoname
-""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         mail.replytoname
-
-   Data type
-         string
-
-   Description
-         Set the replyto name of the report mail sent by the cron script.
-
-
-
-.. _mail-replytoemail:
-
-mail.replytoemail
-"""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         mail.replytoemail
-
-   Data type
-         string
-
-   Description
-         Set the replyto email of the report mail sent by the cron script.
-
-
-
-.. _mail-subject:
-
-mail.subject
-""""""""""""
-
-.. container:: table-row
-
-   Property
-         mail.subject
-
-   Data type
-         string
-
-   Description
-         Set the subject of the report mail sent by the cron script.
-
-   Default
-         TYPO3 LinkValidator report
-
-
-
-.. hint::
-
-    The following are advanced settings. In most cases, the defaults
+    All settings within this key are advanced settings. In most cases, the defaults
     should be sufficient.
 
+    ..  confval:: external.headers
+        :name: tsconfig-linktypesConfig-external-headers
+        :type: array
+        :Path: mod.linkvalidator.linktypesConfig.external.headers
+        :Default: (empty array)
 
+        Additional set of HTTP headers to be passed when crawling URLs.
 
-linktypesConfig.external.headers
-""""""""""""""""""""""""""""""""
+    ..  confval:: external.method
+        :name: tsconfig-linktypesConfig-external-method
+        :type: string
+        :Path: mod.linkvalidator.linktypesConfig.external.method
+        :Default: `HEAD`
 
-.. container:: table-row
+        This specified which method is used for crawling URLs. By
+        default, we use HEAD (which falls back to GET if HEAD fails).
 
-   Property
-         linktypesConfig.external.headers
+        You can use GET as an alternative, but keep in mind that HEAD
+        is a lightweight request and should be preferred while GET will
+        fetch the remote web page (within the limits specified by range,
+        see next option).
 
-   Data type
-         array
+        "The HEAD method is identical to GET except that the server MUST
+        NOT return a message-body in the response."
+        (`w3 RFC2616 <https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html>`__).
 
-   Description
-         Additional set of HTTP headers to be passed when crawling URLs.
+    ..  confval:: external.range
+        :name: tsconfig-linktypesConfig-external-range
+        :type: string
+        :Path: mod.linkvalidator.linktypesConfig.external.range
+        :Default: `0-4048`
 
-   Default
-         (empty array)
-
-
-linktypesConfig.external.method
-"""""""""""""""""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         linktypesConfig.external.headers
-
-   Data type
-         array
-
-   Description
-         This specified which method is used for crawling URLs. By
-         default, we use HEAD (which falls back to GET if HEAD fails).
-
-         You can use GET as an alternative, but keep in mind that HEAD
-         is a lightweight request and should be preferred while GET will
-         fetch the remote web page (within the limits specified by range,
-         see next option).
-
-         "The HEAD method is identical to GET except that the server MUST
-         NOT return a message-body in the response."
-         (`w3 RFC2616 <https://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html>`__).
-
-
-   Default
-         HEAD
-
-
-linktypesConfig.external.range
-""""""""""""""""""""""""""""""
-
-.. container:: table-row
-
-   Property
-         linktypesConfig.external.headers
-
-   Data type
-        string
-
-   Description
         Additional HTTP request header 'Range' to be passed when crawling URLs.
         Use a string to specify the range (in bytes).
 
-   Default
-         0-4048
+    ..  confval:: external.allowRedirects
+        :name: tsconfig-linktypesConfig-external-allowredirects
+        :type: boolean
+        :Path: mod.linkvalidator.linktypesConfig.external.allowRedirects
+        :Default: `0`
 
-linktypesConfig.external.timeout
-""""""""""""""""""""""""""""""""
+        ..  versionadded:: 14.0
 
-.. container:: table-row
+        If enabled, HTTP redirects with external links are reported as problems.
 
-   Property
-        linktypesConfig.external.timeout
+    ..  confval:: external.timeout
+        :name: tsconfig-linktypesConfig-external-timeout
+        :type: integer
+        :Path: mod.linkvalidator.linktypesConfig.external.timeout
+        :Default: `20`
 
-   Data type
-        integer
-
-   Description
         HTTP request option. This is the total timeout of the request in
         seconds.
 
@@ -493,45 +331,25 @@ linktypesConfig.external.timeout
         :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']['timeout']`
         which defaults to 0.
 
-        .. important::
+        ..  important::
 
-           A value of 0 means no timeout, which may result in the request
-           not terminating in some edge cases and can also result in Scheduler
-           tasks to run indefinitely. There is an additional
-           :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']['connect_timeout']`
-           which defaults to 10 seconds, but this may not be enough to lead to a request
-           terminating in some edge cases.
+            A value of 0 means no timeout, which may result in the request
+            not terminating in some edge cases and can also result in Scheduler
+            tasks to run indefinitely. There is an additional
+            :php:`$GLOBALS['TYPO3_CONF_VARS']['HTTP']['connect_timeout']`
+            which defaults to 10 seconds, but this may not be enough to lead to a request
+            terminating in some edge cases.
 
-   Default
-         20
+..  _configuration-example:
 
+Linkvalidator configuration example
+===================================
 
+Example configuration that checks the links provided by a custom content element
+in a site package. The TCA definition of the fields must fulfill the
+:ref:`TCA requirements for link validation <checked-fields-TCA>`.
 
-.. _configuration-example:
+..  literalinclude:: _example.tsconfig
+    :caption: config/sites/my-site/page.tsconfig
 
-Example
-^^^^^^^
-
-::
-
-   mod.linkvalidator {
-           searchFields {
-                   pages = url,canonical_link
-                   tt_content = bodytext,header_link,records
-           }
-           linktypes = db,file,external
-           checkhidden = 0
-           mail {
-                   fromname = TYPO3 LinkValidator
-                   fromemail = no_reply@mydomain.com
-                   replytoname =
-                   replytoemail =
-                   subject = TYPO3 LinkValidator report
-           }
-           external {
-                   httpAgentUrl = https://example.com/info.html
-                   httpAgentEmail = info@example.com
-           }
-   }
-
-
+Additionally, email reports and the HTTP agent for external URLS are configured.

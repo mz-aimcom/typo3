@@ -18,11 +18,13 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Persistence\Generic\Storage;
 
 use Doctrine\DBAL\Exception as DBALException;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\CacheTag;
+use TYPO3\CMS\Core\Cache\Event\AddCacheTagEvent;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
-use TYPO3\CMS\Core\Context\WorkspaceAspect;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -30,13 +32,14 @@ use TYPO3\CMS\Core\Database\Query\Restriction\FrontendRestrictionContainer;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\ApplicationType;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 use TYPO3\CMS\Extbase\DomainObject\AbstractDomainObject;
 use TYPO3\CMS\Extbase\DomainObject\AbstractValueObject;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapper;
-use TYPO3\CMS\Extbase\Persistence\Generic\Qom;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\JoinInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SelectorInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SourceInterface;
@@ -47,23 +50,24 @@ use TYPO3\CMS\Extbase\Persistence\Generic\Storage\Exception\SqlErrorException;
 use TYPO3\CMS\Extbase\Persistence\QueryInterface;
 use TYPO3\CMS\Extbase\Reflection\ReflectionService;
 use TYPO3\CMS\Extbase\Service\CacheService;
+use TYPO3\CMS\Frontend\Cache\CacheLifetimeCalculator;
 
 /**
  * A Storage backend
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-class Typo3DbBackend implements BackendInterface, SingletonInterface
+readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
 {
-    protected ConnectionPool $connectionPool;
-    protected ReflectionService $reflectionService;
-    protected CacheService $cacheService;
-
-    public function __construct(CacheService $cacheService, ReflectionService $reflectionService)
-    {
-        $this->cacheService = $cacheService;
-        $this->reflectionService = $reflectionService;
-        $this->connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
-    }
+    public function __construct(
+        protected CacheService $cacheService,
+        protected ConnectionPool $connectionPool,
+        protected ReflectionService $reflectionService,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected CacheLifetimeCalculator $cacheLifetimeCalculator,
+        protected TcaSchemaFactory $tcaSchemaFactory,
+        #[Autowire(expression: 'service("features").isFeatureEnabled("frontend.cache.autoTagging")')]
+        protected bool $autoTagging,
+    ) {}
 
     /**
      * Adds a row to the storage
@@ -83,7 +87,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             $connection = $this->connectionPool->getConnectionForTable($tableName);
             $connection->insert($tableName, $fieldValues);
         } catch (DBALException $e) {
-            throw new SqlErrorException($e->getPrevious()->getMessage(), 1470230766, $e);
+            throw new SqlErrorException($e->getMessage(), 1470230766, $e);
         }
 
         $uid = 0;
@@ -117,7 +121,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             $connection = $this->connectionPool->getConnectionForTable($tableName);
             $connection->update($tableName, $fieldValues, ['uid' => $uid]);
         } catch (DBALException $e) {
-            throw new SqlErrorException($e->getPrevious()->getMessage(), 1470230767, $e);
+            throw new SqlErrorException($e->getMessage(), 1470230767, $e);
         }
 
         if (!$isRelation) {
@@ -160,7 +164,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         try {
             $this->connectionPool->getConnectionForTable($tableName)->update($tableName, $fieldValues, $where);
         } catch (DBALException $e) {
-            throw new SqlErrorException($e->getPrevious()->getMessage(), 1470230768, $e);
+            throw new SqlErrorException($e->getMessage(), 1470230768, $e);
         }
     }
 
@@ -177,7 +181,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         try {
             $this->connectionPool->getConnectionForTable($tableName)->delete($tableName, $where);
         } catch (DBALException $e) {
-            throw new SqlErrorException($e->getPrevious()->getMessage(), 1470230769, $e);
+            throw new SqlErrorException($e->getMessage(), 1470230769, $e);
         }
 
         if (!$isRelation && isset($where['uid'])) {
@@ -193,6 +197,10 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
     public function getObjectDataByQuery(QueryInterface $query): array
     {
         $statement = $query->getStatement();
+        // A custom query is needed for the language, so a custom context is cloned
+        /** @var Context $context */
+        $context = clone GeneralUtility::makeInstance(Context::class);
+        $context->setAspect('language', $query->getQuerySettings()->getLanguageAspect());
         // todo: remove instanceof checks as soon as getStatement() strictly returns Qom\Statement only
         if ($statement instanceof Statement
             && !$statement->getStatement() instanceof QueryBuilder
@@ -216,17 +224,40 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
                 $queryBuilder->setFirstResult($query->getOffset());
             }
             if ($query->getLimit()) {
-                $queryBuilder->setMaxResults($query->getLimit());
+                // Only set the "real" limit in LIVE workspace, as we do not need to make WS overlays here
+                // And can calculate with the direct result from the RDBMS without needing to calculate this in
+                // PHP (see below).
+                // What we do in workspace, is making a "best guess". Why do we do this? If we have content that
+                // is hidden in a workspace, we need to get the "next" record in line, but we cannot do this
+                // with overlays in SQL. So we use the "best guess" by adding twice the limit. Imagine you have
+                // 2000 news records, and we need to manually calculate the first 10 records, we just take 20 records
+                // from SQL and hope that this matches for "most" usecases (Pareto Principle).
+                if ($context->getAspect('workspace')->isLive()) {
+                    $queryBuilder->setMaxResults($query->getLimit());
+                } else {
+                    $queryBuilder->setMaxResults($query->getLimit() * 2);
+                }
             }
             try {
                 $rows = $queryBuilder->executeQuery()->fetchAllAssociative();
             } catch (DBALException $e) {
-                throw new SqlErrorException($e->getPrevious()->getMessage(), 1472074485, $e);
+                throw new SqlErrorException($e->getMessage(), 1472074485, $e);
             }
         }
 
         if (!empty($rows)) {
-            $rows = $this->overlayLanguageAndWorkspace($query->getSource(), $rows, $query);
+            $rows = $this->overlayLanguageAndWorkspace($query->getSource(), $rows, $query, $context);
+            if ($this->autoTagging) {
+                $source = $query->getSource();
+                if ($source instanceof JoinInterface) {
+                    $source = $source->getRight();
+                }
+                if (!$source instanceof SelectorInterface) {
+                    throw new \RuntimeException(get_class($source) . ' must implement SelectorInterface at this point.', 1726753183);
+                }
+                $tableName = $source->getSelectorName();
+                $this->addCacheTagsForRows($tableName, $rows);
+            }
         }
 
         return $rows;
@@ -248,7 +279,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             try {
                 $result = $realStatement->executeQuery();
             } catch (DBALException $e) {
-                throw new SqlErrorException($e->getPrevious()->getMessage(), 1472064721, $e);
+                throw new SqlErrorException($e->getMessage(), 1472064721, $e);
             }
             $rows = $result->fetchAllAssociative();
             // Prepared Doctrine DBAL statement
@@ -259,7 +290,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
                 }
                 $result = $realStatement->executeQuery();
             } catch (DBALException $e) {
-                throw new SqlErrorException($e->getPrevious()->getMessage(), 1481281404, $e);
+                throw new SqlErrorException($e->getMessage(), 1481281404, $e);
             }
             $rows = $result->fetchAllAssociative();
         } else {
@@ -270,7 +301,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
                 $connection = $this->connectionPool->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
                 $statement = $connection->executeQuery($realStatement, $parameters);
             } catch (DBALException $e) {
-                throw new SqlErrorException($e->getPrevious()->getMessage(), 1472064775, $e);
+                throw new SqlErrorException($e->getMessage(), 1472064775, $e);
             }
 
             $rows = $statement->fetchAllAssociative();
@@ -323,7 +354,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             try {
                 $count = $queryBuilder->executeQuery()->fetchOne();
             } catch (DBALException $e) {
-                throw new SqlErrorException($e->getPrevious()->getMessage(), 1472074379, $e);
+                throw new SqlErrorException($e->getMessage(), 1472074379, $e);
             }
             if ($query->getOffset()) {
                 $count -= $query->getOffset();
@@ -348,8 +379,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         /** @var DataMapper $dataMapper */
         $dataMapper = GeneralUtility::makeInstance(DataMapper::class);
         $dataMap = $dataMapper->getDataMap($className);
-        $tableName = $dataMap->getTableName();
-        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($tableName);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($dataMap->tableName);
         if (($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
             && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isFrontend()
         ) {
@@ -363,17 +393,18 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             // @todo We couple the Backend to the Entity implementation (uid, isClone); changes there breaks this method
             if ($dataMap->isPersistableProperty($propertyName) && $propertyName !== AbstractDomainObject::PROPERTY_UID && $propertyName !== AbstractDomainObject::PROPERTY_PID && $propertyName !== 'isClone') {
                 $propertyValue = $object->_getProperty($propertyName);
-                $fieldName = $dataMap->getColumnMap($propertyName)->getColumnName();
+                $columnMap = $dataMap->getColumnMap($propertyName);
+                $fieldName = $columnMap->columnName;
                 if ($propertyValue === null) {
                     $whereClause[] = $queryBuilder->expr()->isNull($fieldName);
                 } else {
-                    $whereClause[] = $queryBuilder->expr()->eq($fieldName, $queryBuilder->createNamedParameter($dataMapper->getPlainValue($propertyValue)));
+                    $whereClause[] = $queryBuilder->expr()->eq($fieldName, $queryBuilder->createNamedParameter($dataMapper->getPlainValue($propertyValue, $columnMap)));
                 }
             }
         }
         $queryBuilder
             ->select('uid')
-            ->from($tableName)
+            ->from($dataMap->tableName)
             ->where(...$whereClause);
 
         try {
@@ -385,43 +416,32 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             }
             return null;
         } catch (DBALException $e) {
-            throw new SqlErrorException($e->getPrevious()->getMessage(), 1470231748, $e);
+            throw new SqlErrorException($e->getMessage(), 1470231748, $e);
         }
     }
 
     /**
      * Performs workspace and language overlay on the given row array. The language and workspace id is automatically
      * detected (depending on FE or BE context). You can also explicitly set the language/workspace id.
-     *
-     * @param Qom\SourceInterface $source The source (selector or join)
-     * @param int|null $workspaceUid
-     * @throws \TYPO3\CMS\Core\Context\Exception\AspectNotFoundException
      */
-    protected function overlayLanguageAndWorkspace(SourceInterface $source, array $rows, QueryInterface $query, ?int $workspaceUid = null): array
+    protected function overlayLanguageAndWorkspace(SourceInterface $source, array $rows, QueryInterface $query, Context $context): array
     {
-        // A custom query is needed for the language, so a custom context is cloned
-        $context = clone GeneralUtility::makeInstance(Context::class);
-        $context->setAspect('language', $query->getQuerySettings()->getLanguageAspect());
-        if ($workspaceUid === null) {
-            $workspaceUid = (int)$context->getPropertyFromAspect('workspace', 'id');
-        } else {
-            $context->setAspect('workspace', GeneralUtility::makeInstance(WorkspaceAspect::class, $workspaceUid));
-        }
+        $workspaceUid = (int)$context->getPropertyFromAspect('workspace', 'id');
 
         $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $context);
         if ($source instanceof SelectorInterface) {
             $tableName = $source->getSelectorName();
             $rows = $this->resolveMovedRecordsInWorkspace($tableName, $rows, $workspaceUid);
-            return $this->overlayLanguageAndWorkspaceForSelect($tableName, $rows, $pageRepository, $query);
+            return $this->overlayLanguageAndWorkspaceForSelect($tableName, $rows, $pageRepository, $query, $context);
         }
         if ($source instanceof JoinInterface) {
             $tableName = $source->getRight()->getSelectorName();
             // Special handling of joined select is only needed when doing workspace overlays, which does not happen
             // in live workspace
             if ($workspaceUid === 0) {
-                return $this->overlayLanguageAndWorkspaceForSelect($tableName, $rows, $pageRepository, $query);
+                return $this->overlayLanguageAndWorkspaceForSelect($tableName, $rows, $pageRepository, $query, $context);
             }
-            return $this->overlayLanguageAndWorkspaceForJoinedSelect($tableName, $rows, $pageRepository, $query);
+            return $this->overlayLanguageAndWorkspaceForJoinedSelect($tableName, $rows, $pageRepository, $query, $context);
         }
         // No proper source, so we do not have a table name here
         // we cannot do an overlay and return the original rows instead.
@@ -433,13 +453,25 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
      *  - overlay workspace
      *  - overlay language of versioned record again
      */
-    protected function overlayLanguageAndWorkspaceForSelect(string $tableName, array $rows, PageRepository $pageRepository, QueryInterface $query): array
+    protected function overlayLanguageAndWorkspaceForSelect(string $tableName, array $rows, PageRepository $pageRepository, QueryInterface $query, Context $context): array
     {
+        $limit = 0;
         $overlaidRows = [];
+        $countOverlaidRows = 0;
+        if ($query->getLimit() && !$context->getAspect('workspace')->isLive()) {
+            $limit = $query->getLimit();
+        }
+
         foreach ($rows as $row) {
             $row = $this->overlayLanguageAndWorkspaceForSingleRecord($tableName, $row, $pageRepository, $query);
             if (is_array($row)) {
                 $overlaidRows[] = $row;
+                $countOverlaidRows++;
+                // We need to calculate the number of overlaid rows manually in PHP
+                // (via the is_array() above), because some overlays do not exist in a Workspace
+                if ($limit === $countOverlaidRows) {
+                    return $overlaidRows;
+                }
             }
         }
         return $overlaidRows;
@@ -452,16 +484,23 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
      * a record (TCA[$tableName][columns] does not contain all needed information), which is then used to compute
      * a separate subset of the row which can be overlaid properly.
      */
-    protected function overlayLanguageAndWorkspaceForJoinedSelect(string $tableName, array $rows, PageRepository $pageRepository, QueryInterface $query): array
+    protected function overlayLanguageAndWorkspaceForJoinedSelect(string $tableName, array $rows, PageRepository $pageRepository, QueryInterface $query, Context $context): array
     {
         // No valid rows, so this is skipped
         if (!isset($rows[0]['uid'])) {
             return $rows;
         }
+
+        $limit = 0;
+        $overlaidRows = [];
+        $countOverlaidRows = 0;
+        if ($query->getLimit() && !$context->getAspect('workspace')->isLive()) {
+            $limit = $query->getLimit();
+        }
+
         // First, find out the fields that belong to the "main" selected table which is defined by TCA, and take the first
         // record to find out all possible fields in this database table
         $fieldsOfMainTable = $pageRepository->getRawRecord($tableName, (int)$rows[0]['uid']);
-        $overlaidRows = [];
         if (is_array($fieldsOfMainTable)) {
             foreach ($rows as $row) {
                 $mainRow = array_intersect_key($row, $fieldsOfMainTable);
@@ -469,6 +508,12 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
                 $mainRow = $this->overlayLanguageAndWorkspaceForSingleRecord($tableName, $mainRow, $pageRepository, $query);
                 if (is_array($mainRow)) {
                     $overlaidRows[] = array_replace($joinRow, $mainRow);
+                    $countOverlaidRows++;
+                    // We need to calculate the number of overlaid rows manually in PHP
+                    // (via the is_array() above), because some overlays do not exist in a Workspace
+                    if ($limit === $countOverlaidRows) {
+                        return $overlaidRows;
+                    }
                 }
             }
         }
@@ -485,12 +530,18 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         $querySettings = $query->getQuerySettings();
         $languageAspect = $querySettings->getLanguageAspect();
         $languageUid = $languageAspect->getContentId();
-        // If current row is a translation select its parent
+        $schema = $this->tcaSchemaFactory->get($tableName);
         $languageOfCurrentRecord = 0;
-        if (($GLOBALS['TCA'][$tableName]['ctrl']['languageField'] ?? null)
-            && ($row[$GLOBALS['TCA'][$tableName]['ctrl']['languageField']] ?? false)
-        ) {
-            $languageOfCurrentRecord = $row[$GLOBALS['TCA'][$tableName]['ctrl']['languageField']];
+        $languageField = null;
+        $translationParentPointerField = null;
+        // If current row is a translation select its parent
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $languageField = $languageCapability->getLanguageField()->getName();
+            $translationParentPointerField = $languageCapability->getTranslationOriginPointerField()->getName();
+        }
+        if ($languageField && ($row[$languageField] ?? false)) {
+            $languageOfCurrentRecord = $row[$languageField];
         }
         // Note #1: In case of ->findByUid([uid-of-translated-record]) the translated record should be fetched at all times
         // Example: you've fetched a translation directly via findByUid(11) which is a translated record, but the
@@ -501,12 +552,11 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         // and do overlays again later-on
         if ($languageOfCurrentRecord > 0
             && $fetchLocalizedRecord
-            && isset($GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField'])
-            && ($row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']] ?? 0) > 0
+            && ($row[$translationParentPointerField] ?? 0) > 0
         ) {
             $row = $pageRepository->getRawRecord(
                 $tableName,
-                (int)$row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']]
+                (int)$row[$translationParentPointerField]
             );
             $languageUid = $languageOfCurrentRecord;
         }
@@ -527,13 +577,13 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
                     // So we must set the language used for overlay to the language of the current record
                     $languageUid = $languageOfCurrentRecord;
                 }
-                if (isset($GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField'])
-                    && ($row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']] ?? 0) > 0
+                if ($translationParentPointerField
+                    && ($row[$translationParentPointerField] ?? 0) > 0
                     && $languageOfCurrentRecord > 0
                 ) {
                     // Force overlay by faking default language record, as getRecordOverlay can only handle default language records
-                    $row['uid'] = $row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']];
-                    $row[$GLOBALS['TCA'][$tableName]['ctrl']['languageField']] = 0;
+                    $row['uid'] = $row[$translationParentPointerField];
+                    $row[$languageField] = 0;
                 }
                 // Currently this needs to return the default record (OVERLAYS_MIXED) if no translation is found
                 //however this is a hack and should actually use the overlay functionality as given in the original LanguageAspect.
@@ -543,12 +593,12 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         } elseif (is_array($row)) {
             // If an already localized record is fetched, the "uid" of the default language is used
             // as the record is re-fetched in the DataMapper
-            if (isset($GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField'])
-                && ($row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']] ?? 0) > 0
+            if ($translationParentPointerField
+                && ($row[$translationParentPointerField] ?? 0) > 0
                 && $languageOfCurrentRecord > 0
             ) {
                 $row['_LOCALIZED_UID'] = (int)$row['uid'];
-                $row['uid'] = $row[$GLOBALS['TCA'][$tableName]['ctrl']['transOrigPointerField']];
+                $row['uid'] = $row[$translationParentPointerField];
             }
         }
         return $row;
@@ -566,7 +616,7 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
         if ($workspaceUid === 0) {
             return $rows;
         }
-        if (!BackendUtility::isTableWorkspaceEnabled($tableName)) {
+        if (!$this->tcaSchemaFactory->has($tableName) || !$this->tcaSchemaFactory->get($tableName)->hasCapability(TcaSchemaCapability::Workspace)) {
             return $rows;
         }
         if (count($rows) !== 1) {
@@ -589,5 +639,17 @@ class Typo3DbBackend implements BackendInterface, SingletonInterface
             $rows = $movedRecords;
         }
         return $rows;
+    }
+
+    protected function addCacheTagsForRows(string $tableName, array $rows): void
+    {
+        foreach ($rows as $row) {
+            $lifetime = $this->cacheLifetimeCalculator->calculateLifetimeForRow($tableName, $row);
+            $this->eventDispatcher->dispatch(
+                new AddCacheTagEvent(
+                    new CacheTag(sprintf('%s_%s', $tableName, ($row['uid'] ?? 0)), $lifetime)
+                )
+            );
+        }
     }
 }

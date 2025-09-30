@@ -17,71 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\View\BackendLayout;
 
-use TYPO3\CMS\Core\SingletonInterface;
-
 /**
  * Context that is forwarded to backend layout data providers.
  */
-class DataProviderContext implements SingletonInterface
+final readonly class DataProviderContext
 {
-    protected int $pageId = 0;
-    protected string $tableName = '';
-    protected string $fieldName = '';
-    protected array $data = [];
-    protected array $pageTsConfig = [];
-
-    public function getPageId(): int
-    {
-        return $this->pageId;
-    }
-
-    public function setPageId(int $pageId): self
-    {
-        $this->pageId = $pageId;
-        return $this;
-    }
-
-    public function getTableName(): string
-    {
-        return $this->tableName;
-    }
-
-    public function setTableName(string $tableName): self
-    {
-        $this->tableName = $tableName;
-        return $this;
-    }
-
-    public function getFieldName(): string
-    {
-        return $this->fieldName;
-    }
-
-    public function setFieldName(string $fieldName): self
-    {
-        $this->fieldName = $fieldName;
-        return $this;
-    }
-
-    public function getData(): array
-    {
-        return $this->data;
-    }
-
-    public function setData(array $data): self
-    {
-        $this->data = $data;
-        return $this;
-    }
-
-    public function getPageTsConfig(): array
-    {
-        return $this->pageTsConfig;
-    }
-
-    public function setPageTsConfig(array $pageTsConfig): self
-    {
-        $this->pageTsConfig = $pageTsConfig;
-        return $this;
-    }
+    public function __construct(
+        public int $pageId,
+        public string $tableName,
+        public string $fieldName,
+        public array $data,
+        public array $pageTsConfig,
+    ) {}
 }

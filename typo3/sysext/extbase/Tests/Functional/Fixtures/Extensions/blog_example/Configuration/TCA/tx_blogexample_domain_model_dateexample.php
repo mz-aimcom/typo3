@@ -36,6 +36,17 @@ return [
             'config' => [
                 'type' => 'datetime',
                 'dbType' => 'datetime',
+                'nullable' => true,
+            ],
+        ],
+        'custom_date' => [
+            'exclude' => true,
+            'label' => 'type=datetime dbType=date',
+            'config' => [
+                'type' => 'datetime',
+                'dbType' => 'date',
+                'format' => 'date',
+                'nullable' => true,
             ],
         ],
     ],

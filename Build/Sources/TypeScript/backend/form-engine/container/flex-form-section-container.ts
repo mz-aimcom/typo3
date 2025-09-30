@@ -14,12 +14,12 @@
 import { Collapse } from 'bootstrap';
 import Sortable from 'sortablejs';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import DocumentService from '@typo3/core/document-service';
 import FlexFormContainerContainer from './flex-form-container-container';
 import FormEngine from '@typo3/backend/form-engine';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { JavaScriptItemProcessor } from '@typo3/core/java-script-item-processor';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 
 enum Selectors {
   toggleAllSelector = '.t3-form-flexsection-toggle',
@@ -27,11 +27,11 @@ enum Selectors {
   actionFieldSelector = '.t3js-flex-control-action',
   sectionContainerSelector = '.t3js-flex-section',
   sectionContentContainerSelector = '.t3js-flex-section-content',
+  sectionContainerLabelSelector = '.t3js-formengine-label',
   sortContainerButtonSelector = '.t3js-sortable-handle',
 }
 
 class FlexFormSectionContainer {
-  private readonly sectionContainerId: string;
   private container: HTMLElement;
   private sectionContainer: HTMLElement;
   private allowRestructure: boolean = false;
@@ -41,8 +41,6 @@ class FlexFormSectionContainer {
    * @param {string} elementId
    */
   constructor(elementId: string) {
-    this.sectionContainerId = elementId;
-
     DocumentService.ready().then((document: Document): void => {
       this.container = <HTMLElement>document.getElementById(elementId);
       this.sectionContainer = this.container.querySelector(this.container.dataset.section) as HTMLElement;
@@ -143,7 +141,6 @@ class FlexFormSectionContainer {
       tableName: dataset.tablename,
       fieldName: dataset.fieldname,
       recordTypeValue: dataset.recordtypevalue,
-      dataStructureIdentifier: JSON.parse(dataset.datastructureidentifier),
       flexFormSheetName: dataset.flexformsheetname,
       flexFormFieldName: dataset.flexformfieldname,
       flexFormContainerName: dataset.flexformcontainername,
@@ -177,7 +174,7 @@ class FlexFormSectionContainer {
       FormEngine.Validation.initializeInputFields();
       FormEngine.Validation.validate(sectionContainer);
 
-      this.container.classList.add('has-change');
+      this.container.querySelector(Selectors.sectionContainerLabelSelector)?.classList.add('has-change');
     });
   }
 

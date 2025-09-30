@@ -27,6 +27,7 @@ use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
@@ -71,6 +72,45 @@ class TreeController
     }
 
     /**
+     * Returns JSON representing page rootline
+     */
+    public function fetchRootlineAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $identifier = (string)($request->getQueryParams()['identifier'] ?? '');
+        if ($identifier === '') {
+            return new JsonResponse(null, 400);
+        }
+
+        try {
+            $folder = $this->resourceFactory->getFolderObjectFromCombinedIdentifier($identifier);
+        } catch (InsufficientFolderAccessPermissionsException) {
+            return new JsonResponse(null, 403);
+        } catch (FolderDoesNotExistException) {
+            return new JsonResponse(null, 404);
+        }
+
+        $rootline = [];
+        while (true) {
+            $identifier = $folder->getCombinedIdentifier();
+            $rootline[] = $identifier;
+            try {
+                $parent = $folder->getParentFolder();
+            } catch (InsufficientFolderAccessPermissionsException) {
+                break;
+            }
+            if ($parent->getCombinedIdentifier() === $identifier) {
+                // parent folder of root folder is the root folder => break
+                break;
+            }
+            $folder = $parent;
+        }
+
+        return new JsonResponse([
+            'rootline' => array_reverse($rootline),
+        ]);
+    }
+
+    /**
      * Used when the search / filter is used.
      *
      * @throws \Exception
@@ -96,6 +136,7 @@ class TreeController
                     $this->treeProvider->prepareFolderInformation($nextFolder),
                     [
                         'expanded' => $isParent,
+                        'loaded' => true,
                     ]
                 );
                 $isParent = true;
@@ -104,7 +145,7 @@ class TreeController
                 } catch (InsufficientFolderAccessPermissionsException) {
                     $nextFolder = null;
                 }
-            } while ($nextFolder instanceof Folder && $nextFolder->getIdentifier() !== '/');
+            } while ($nextFolder?->getIdentifier() !== '/');
             // Add the storage / sys_filemount itself
             $storageData = $this->treeProvider->prepareFolderInformation(
                 $storage->getRootLevelFolder(true),
@@ -158,7 +199,6 @@ class TreeController
                 tooltip: (string)($item['tooltip'] ?? ''),
                 depth: (int)($item['depth'] ?? 0),
                 hasChildren: (bool)($item['hasChildren'] ?? false),
-                expanded: (bool)($item['expanded'] ?? false),
                 loaded: (bool)($item['loaded'] ?? false),
                 icon: $item['icon'],
                 overlayIcon: $item['overlayIcon'],

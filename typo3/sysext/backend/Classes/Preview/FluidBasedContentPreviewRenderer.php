@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Backend\Preview;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\Event\PageContentPreviewRenderingEvent;
+use TYPO3\CMS\Backend\View\PageLayoutContext;
 use TYPO3\CMS\Core\Attribute\AsEventListener;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Core\Environment;
@@ -30,8 +31,7 @@ use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 
 /**
- * Check if a Fluid-based preview template was defined for a given
- * CType and render it via Fluid. Also works for list_type / plugins.
+ * Check if a Fluid-based preview template was defined for a given CType and render it via Fluid.
  *
  * Example in page TSconfig:
  * mod.web_layout.tt_content.preview.textmedia = EXT:site_mysite/Resources/Private/Templates/Preview/Textmedia.html
@@ -53,29 +53,17 @@ final readonly class FluidBasedContentPreviewRenderer
         $previewContent = $this->renderContentElementPreviewFromFluidTemplate(
             $event->getRecord(),
             $event->getTable(),
-            $event->getRecordType()
+            $event->getRecordType(),
+            $event->getPageLayoutContext()
         );
         if ($previewContent !== null) {
             $event->setPreviewContent($previewContent);
         }
     }
 
-    private function renderContentElementPreviewFromFluidTemplate(array $row, string $table, string $recordType): ?string
+    private function renderContentElementPreviewFromFluidTemplate(array $row, string $table, string $recordType, PageLayoutContext $context): ?string
     {
-        $tsConfig = BackendUtility::getPagesTSconfig($row['pid'])['mod.']['web_layout.'][$table . '.']['preview.'] ?? [];
-        $fluidTemplateFile = '';
-
-        if (
-            $table === 'tt_content'
-            && $recordType === 'list'
-            && !empty($row['list_type'])
-            && !empty($tsConfig['list.'][$row['list_type']])
-        ) {
-            $fluidTemplateFile = $tsConfig['list.'][$row['list_type']];
-        } elseif (!empty($tsConfig[$recordType])) {
-            $fluidTemplateFile = $tsConfig[$recordType];
-        }
-
+        $fluidTemplateFile = BackendUtility::getPagesTSconfig($row['pid'])['mod.']['web_layout.'][$table . '.']['preview.'][$recordType] ?? '';
         if ($fluidTemplateFile === '') {
             return null;
         }
@@ -87,13 +75,14 @@ final readonly class FluidBasedContentPreviewRenderer
         try {
             $viewFactoryData = new ViewFactoryData(
                 templatePathAndFilename: $fluidTemplateFileAbsolutePath,
+                request: $context->getCurrentRequest(),
             );
             $view = $this->viewFactory->create($viewFactoryData);
             $view->assignMultiple($row);
             if ($table === 'tt_content' && !empty($row['pi_flexform'])) {
                 $view->assign('pi_flexform_transformed', $this->flexFormService->convertFlexFormContentToArray($row['pi_flexform']));
             }
-            $view->assign('record', $this->recordFactory->createResolvedRecordFromDatabaseRow($table, $row));
+            $view->assign('record', $this->recordFactory->createResolvedRecordFromDatabaseRow($table, $row, null, $context->getRecordIdentityMap()));
             return $view->render();
         } catch (\Exception $e) {
             $this->logger->warning('The backend preview for content element {uid} can not be rendered using the Fluid template file "{file}"', [

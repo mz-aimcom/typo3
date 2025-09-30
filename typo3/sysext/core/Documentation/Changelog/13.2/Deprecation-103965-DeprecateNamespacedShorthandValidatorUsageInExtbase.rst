@@ -3,7 +3,7 @@
 .. _deprecation-103965-1717335369:
 
 ================================================================================
-Deprecation: #103965 - Deprecate namespaced shorthand validator usage in extbase
+Deprecation: #103965 - Deprecate namespaced shorthand validator usage in Extbase
 ================================================================================
 
 See :issue:`103965`
@@ -11,35 +11,35 @@ See :issue:`103965`
 Description
 ===========
 
-It is possible to use the undocumented namespaced shorthand notation in extbase
-to add validators for properties or arguments. As an example,
+It is possible to use undocumented namespaced shorthand notation in Extbase
+to add validators to properties or arguments. For example,
 :php:`TYPO3.CMS.Extbase:NotEmpty` will be resolved as
-:php:`TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator` or
+:php:`TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator` and
 :php:`Vendor.Extension:Custom` will be resolved as
 :php:`\Vendor\MyExtension\Validation\Validator\CustomValidator`.
 
-The namespaced shorthand notation for extbase validators has been marked as
+The namespaced shorthand notation for Extbase validators has been marked as
 deprecated and will be removed in TYPO3 v14.
 
 
 Impact
 ======
 
-Using namespaced shorthand notation in extbase will trigger a PHP deprecation
+Using namespaced shorthand notation in Extbase will trigger a PHP deprecation
 warning.
 
 
 Affected installations
 ======================
 
-All installations using namespaced shorthand notation in extbase are affected.
+All installations using namespaced shorthand notation in Extbase.
 
 
 Migration
 =========
 
 Extensions using the namespaced shorthand notation must use the FQCN of the
-validator instead. In case of extbase core validators, the well known
+validator instead. For Extbase core validators, the well known
 shorthand validator name can be used.
 
 Before

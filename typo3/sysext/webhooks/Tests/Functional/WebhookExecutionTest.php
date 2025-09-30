@@ -17,12 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Webhooks\Tests\Functional;
 
+use Doctrine\DBAL\Types\JsonType;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\SecurityAspect;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Http\ResponseFactory;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Http\StreamFactory;
@@ -30,6 +34,7 @@ use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Security\RequestToken;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\ActionService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -43,11 +48,11 @@ final class WebhookExecutionTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected array $coreExtensionsToLoad = ['webhooks'];
-
     private const LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
+
+    protected array $coreExtensionsToLoad = ['webhooks'];
 
     protected function setUp(): void
     {
@@ -145,5 +150,99 @@ final class WebhookExecutionTest extends FunctionalTestCase
         // Catch any requests, evaluate their payload
         (new ActionService())->modifyRecord('pages', 10, ['title' => 'Dummy Modified']);
         self::assertEquals(0, $numberOfRequestsFired);
+    }
+
+    public static function verifyRecordWithJsonDataCanBeAddedDataSets(): \Generator
+    {
+        // https://forge.typo3.org/issues/105004
+        yield 'simple record creation' => [
+            'record' => [
+                'pid' => 0,
+                'name' => 'test-001',
+                'secret' => 'some-secret-hash',
+                'webhook_type' => 'typo3/file-added',
+                'verify_ssl' => 1,
+                'additional_headers' => [],
+                'url' => 'http://127.0.0.1/',
+            ],
+            'expectedRow' => [
+                'pid' => 0,
+                'name' => 'test-001',
+                'secret' => 'some-secret-hash',
+                'webhook_type' => 'typo3/file-added',
+                'verify_ssl' => 1,
+                'additional_headers' => '[]',
+                'url' => 'http://127.0.0.1/',
+            ],
+        ];
+        // https://forge.typo3.org/issues/105004
+        yield 'with additional_headers data' => [
+            'record' => [
+                'pid' => 0,
+                'name' => 'test-001',
+                'secret' => 'some-secret-hash',
+                'webhook_type' => 'typo3/file-added',
+                'verify_ssl' => 1,
+                'additional_headers' => [
+                    'x-api-key' => 'some-value',
+                ],
+                'url' => 'http://127.0.0.1/',
+            ],
+            'expectedRow' => [
+                'pid' => 0,
+                'name' => 'test-001',
+                'secret' => 'some-secret-hash',
+                'webhook_type' => 'typo3/file-added',
+                'verify_ssl' => 1,
+                'additional_headers' => '{"x-api-key": "some-value"}',
+                'url' => 'http://127.0.0.1/',
+            ],
+        ];
+    }
+
+    #[DataProvider('verifyRecordWithJsonDataCanBeAddedDataSets')]
+    #[Test]
+    public function verifyRecordWithJsonDataCanBeAdded(array $record, array $expectedRow): void
+    {
+        $newRecordIdentifier = StringUtility::getUniqueId('NEW');
+        $data = [];
+        $data['sys_webhook'][$newRecordIdentifier] = $record;
+        $dataHandler = $this->get(DataHandler::class);
+        $dataHandler->enableLogging = true;
+        $dataHandler->start($data, []);
+        $dataHandler->process_datamap();
+        self::assertSame([], $dataHandler->errorLog);
+        self::assertArrayHasKey($newRecordIdentifier, $dataHandler->substNEWwithIDs);
+        $recordId = $dataHandler->substNEWwithIDs[$newRecordIdentifier];
+        self::assertIsInt($recordId);
+        self::assertGreaterThan(0, $recordId);
+
+        $connection = (new ConnectionPool())->getConnectionForTable('sys_webhook');
+        $row = $connection
+            ->select(
+                array_keys($expectedRow),
+                'sys_webhook',
+                [
+                    'uid' => $recordId,
+                ]
+            )->fetchAssociative();
+        $row = $this->prepareRowField($connection, $row, ['additional_headers']);
+        $expectedRow = $this->prepareRowField($connection, $expectedRow, ['additional_headers']);
+        self::assertSame($expectedRow, $row);
+    }
+
+    private function prepareRowField(Connection $connection, array $row, array $fields): array
+    {
+        $type = new JsonType();
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $row)) {
+                continue;
+            }
+            $row[$field] = $type->convertToDatabaseValue(
+                $type->convertToPHPValue($row[$field], $connection->getDatabasePlatform()),
+                $connection->getDatabasePlatform()
+            );
+        }
+        return $row;
     }
 }

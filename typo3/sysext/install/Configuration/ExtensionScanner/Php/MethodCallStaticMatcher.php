@@ -161,6 +161,14 @@ return [
             'Deprecation-80491-BackendControllerInclusionHooks.rst',
         ],
     ],
+    'TYPO3\CMS\Core\Utility\ExtensionManagementUtility::addPItoST43' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 5,
+        'restFiles' => [
+            'Deprecation-102821-ExtensionManagementUtilityaddPItoST43.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
     'TYPO3\CMS\Core\Utility\ExtensionManagementUtility::appendToTypoConfVars' => [
         'numberOfMandatoryArguments' => 3,
         'maximumNumberOfArguments' => 3,
@@ -1560,6 +1568,7 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-101175-VersionState.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Page\JavaScriptModuleInstruction::forRequireJS' => [
@@ -1576,6 +1585,7 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-101799-ExtensionManagementUtilityaddPageTSConfig.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Utility\ExtensionManagementUtility::addUserTSConfig' => [
@@ -1583,6 +1593,7 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-101807-ExtensionManagementUtilityaddUserTSConfig.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Imaging\GraphicalFunctions::gifCompress' => [
@@ -1604,6 +1615,7 @@ return [
         'maximumNumberOfArguments' => 2,
         'restFiles' => [
             'Deprecation-102895-ExtensionManagementUtilitygetExtensionIcon.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Utility\GeneralUtility::hmac' => [
@@ -1611,6 +1623,7 @@ return [
         'maximumNumberOfArguments' => 2,
         'restFiles' => [
             'Deprecation-102762-GeneralUtilityhmac.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Utility\MathUtility::convertToPositiveInteger' => [
@@ -1618,6 +1631,7 @@ return [
         'maximumNumberOfArguments' => 1,
         'restFiles' => [
             'Deprecation-103785-DeprecateMathUtilityConvertToPositiveInteger.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Backend\Utility\BackendUtility::getTcaFieldConfiguration' => [
@@ -1625,6 +1639,7 @@ return [
         'maximumNumberOfArguments' => 2,
         'restFiles' => [
             'Deprecation-104304-BackendUtilitygetTcaFieldConfiguration.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Authentication\BackendUserAuthentication::returnWebmount' => [
@@ -1632,6 +1647,92 @@ return [
         'maximumNumberOfArguments' => 0,
         'restFiles' => [
             'Deprecation-104607-BackendUserAuthenticationReturnWebmounts.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::thumbCode' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 10,
+        'restFiles' => [
+            'Deprecation-104662-BackendUtilityThumbCode.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::isWebMountRestrictionIgnored' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Utility\GeneralUtility::resolveBackPath' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-106618-GeneralUtilityresolveBackPath.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::getCommonSelectFields' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::isTableLocalizable' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::isTableWorkspaceEnabled' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::isRootLevelRestrictionIgnored' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Utility\BackendUtility::getItemLabel' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Deprecation-106393-VariousMethodsInBackendUtility.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Utility\ExtensionManagementUtility::addPiFlexFormValue' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Deprecation-107047-ExtensionManagementUtilityAddPiFlexFormValue.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Utility\PathUtility::getRelativePathTo' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-107413-PathUtilityGetRelativePathMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Utility\PathUtility::getRelativePath' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Deprecation-107413-PathUtilityGetRelativePathMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Core\Environment::getComposerRootPath' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107482-EnvironmentGetComposerRootPathMethodsRemoved.rst',
         ],
     ],
 ];

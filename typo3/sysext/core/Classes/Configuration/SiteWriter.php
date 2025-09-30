@@ -19,7 +19,6 @@ namespace TYPO3\CMS\Core\Configuration;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Yaml\Yaml;
-use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\Event\SiteConfigurationBeforeWriteEvent;
 use TYPO3\CMS\Core\Configuration\Event\SiteConfigurationChangedEvent;
 use TYPO3\CMS\Core\Configuration\Exception\SiteConfigurationWriteException;
@@ -39,31 +38,18 @@ class SiteWriter
 {
     /**
      * Config yaml file name.
-     *
-     * @internal
      */
-    protected string $configFileName = 'config.yaml';
+    private const CONFIG_FILE_NAME = 'config.yaml';
 
     /**
      * YAML file name with all settings.
-     *
-     * @internal
-     * @todo remove, move usages to SiteSettingsFactory
      */
-    protected string $settingsFileName = 'settings.yaml';
-
-    /**
-     * Identifier to store all configuration data in the core cache.
-     *
-     * @internal
-     */
-    protected string $cacheIdentifier = 'sites-configuration';
+    private const SETTINGS_FILE_NAME = 'settings.yaml';
 
     public function __construct(
-        protected string $configPath,
-        protected EventDispatcherInterface $eventDispatcher,
-        protected PhpFrontend $cache,
-        private YamlFileLoader $yamlFileLoader,
+        protected readonly string $configPath,
+        protected readonly EventDispatcherInterface $eventDispatcher,
+        private readonly YamlFileLoader $yamlFileLoader,
     ) {}
 
     /**
@@ -95,10 +81,17 @@ class SiteWriter
 
     public function writeSettings(string $siteIdentifier, array $settings): void
     {
-        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . $this->settingsFileName;
-        $yamlFileContents = Yaml::dump($settings, 99, 2);
-        if (!GeneralUtility::writeFile($fileName, $yamlFileContents)) {
-            throw new SiteConfigurationWriteException('Unable to write site settings in sites/' . $siteIdentifier . '/' . $this->configFileName, 1590487411);
+        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . self::SETTINGS_FILE_NAME;
+        if ($settings === []) {
+            if (!is_file($fileName)) {
+                return;
+            }
+            $yamlFileContents = '# No site specific settings defined';
+        } else {
+            $yamlFileContents = Yaml::dump($settings, 99, 2, Yaml::DUMP_EMPTY_ARRAY_AS_SEQUENCE | Yaml::DUMP_OBJECT_AS_MAP);
+        }
+        if (!GeneralUtility::writeFile($fileName, $yamlFileContents, true)) {
+            throw new SiteConfigurationWriteException('Unable to write site settings in sites/' . $siteIdentifier . '/' . self::SETTINGS_FILE_NAME, 1590487411);
         }
     }
 
@@ -112,7 +105,7 @@ class SiteWriter
     public function write(string $siteIdentifier, array $configuration, bool $protectPlaceholders = false): void
     {
         $folder = $this->configPath . '/' . $siteIdentifier;
-        $fileName = $folder . '/' . $this->configFileName;
+        $fileName = $folder . '/' . self::CONFIG_FILE_NAME;
         $newConfiguration = $configuration;
         if (!file_exists($folder)) {
             GeneralUtility::mkdir_deep($folder);
@@ -122,8 +115,10 @@ class SiteWriter
         } elseif (file_exists($fileName)) {
             // load without any processing to have the unprocessed base to modify
             $newConfiguration = $this->yamlFileLoader->load(GeneralUtility::fixWindowsFilePath($fileName), 0);
-            // load the processed configuration to diff changed values
-            $processed = $this->yamlFileLoader->load(GeneralUtility::fixWindowsFilePath($fileName));
+            // load the processed configuration to diff changed values,
+            // but don't process placeholders, because all properties that
+            // were modified via GUI are unprocessed values as well
+            $processed = $this->yamlFileLoader->load(GeneralUtility::fixWindowsFilePath($fileName), YamlFileLoader::PROCESS_IMPORTS);
             // find properties that were modified via GUI
             $newModified = array_replace_recursive(
                 self::findRemoved($processed, $configuration),
@@ -138,10 +133,9 @@ class SiteWriter
         $event = $this->eventDispatcher->dispatch(new SiteConfigurationBeforeWriteEvent($siteIdentifier, $newConfiguration));
         $newConfiguration = $this->sortConfiguration($event->getConfiguration());
         $yamlFileContents = Yaml::dump($newConfiguration, 99, 2);
-        if (!GeneralUtility::writeFile($fileName, $yamlFileContents)) {
-            throw new SiteConfigurationWriteException('Unable to write site configuration in sites/' . $siteIdentifier . '/' . $this->configFileName, 1590487011);
+        if (!GeneralUtility::writeFile($fileName, $yamlFileContents, true)) {
+            throw new SiteConfigurationWriteException('Unable to write site configuration in sites/' . $siteIdentifier . '/' . self::CONFIG_FILE_NAME, 1590487011);
         }
-        $this->cache->remove($this->cacheIdentifier);
         $this->eventDispatcher->dispatch(new SiteConfigurationChangedEvent($siteIdentifier));
     }
 
@@ -155,7 +149,6 @@ class SiteWriter
         if (!rename($this->configPath . '/' . $currentIdentifier, $this->configPath . '/' . $newIdentifier)) {
             throw new SiteConfigurationWriteException('Unable to rename folder sites/' . $currentIdentifier, 1522491300);
         }
-        $this->cache->remove($this->cacheIdentifier);
         $this->eventDispatcher->dispatch(new SiteConfigurationChangedEvent($newIdentifier));
     }
 
@@ -167,14 +160,13 @@ class SiteWriter
      */
     public function delete(string $siteIdentifier): void
     {
-        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . $this->configFileName;
+        $fileName = $this->configPath . '/' . $siteIdentifier . '/' . self::CONFIG_FILE_NAME;
         if (!file_exists($fileName)) {
-            throw new SiteNotFoundException('Site configuration file ' . $this->configFileName . ' within the site ' . $siteIdentifier . ' not found.', 1522866184);
+            throw new SiteNotFoundException('Site configuration file ' . self::CONFIG_FILE_NAME . ' within the site ' . $siteIdentifier . ' not found.', 1522866184);
         }
         if (!unlink($fileName)) {
             throw new SiteConfigurationWriteException('Unable to delete folder sites/' . $siteIdentifier, 1596462020);
         }
-        $this->cache->remove($this->cacheIdentifier);
         $this->eventDispatcher->dispatch(new SiteConfigurationChangedEvent($siteIdentifier));
     }
 
@@ -212,14 +204,14 @@ class SiteWriter
     {
         $differences = [];
         foreach ($newConfiguration as $key => $value) {
-            if (!isset($currentConfiguration[$key]) || $currentConfiguration[$key] !== $newConfiguration[$key]) {
-                if (!isset($newConfiguration[$key]) && isset($currentConfiguration[$key])) {
+            if (!isset($currentConfiguration[$key]) || $currentConfiguration[$key] !== $value) {
+                if (!isset($value) && isset($currentConfiguration[$key])) {
                     $differences[$key] = '__UNSET';
                 } elseif (isset($currentConfiguration[$key])
-                    && is_array($newConfiguration[$key])
+                    && is_array($value)
                     && is_array($currentConfiguration[$key])
                 ) {
-                    $differences[$key] = self::findModified($currentConfiguration[$key], $newConfiguration[$key]);
+                    $differences[$key] = self::findModified($currentConfiguration[$key], $value);
                 } else {
                     $differences[$key] = $value;
                 }
@@ -234,8 +226,8 @@ class SiteWriter
         foreach ($currentConfiguration as $key => $value) {
             if (!isset($newConfiguration[$key])) {
                 $removed[$key] = '__UNSET';
-            } elseif (isset($currentConfiguration[$key]) && is_array($currentConfiguration[$key]) && is_array($newConfiguration[$key])) {
-                $removedInRecursion = self::findRemoved($currentConfiguration[$key], $newConfiguration[$key]);
+            } elseif (isset($value) && is_array($value) && is_array($newConfiguration[$key])) {
+                $removedInRecursion = self::findRemoved($value, $newConfiguration[$key]);
                 if (!empty($removedInRecursion)) {
                     $removed[$key] = $removedInRecursion;
                 }

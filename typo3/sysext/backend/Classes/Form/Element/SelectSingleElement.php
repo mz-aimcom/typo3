@@ -88,12 +88,11 @@ class SelectSingleElement extends AbstractFormElement
         $classList = ['form-select', 'form-control-adapt'];
 
         // Check against inline uniqueness
-        $this->inlineStackProcessor->initializeByGivenStructure($this->data['inlineStructure']);
         $uniqueIds = [];
         if (($this->data['isInlineChild'] ?? false) && ($this->data['inlineParentUid'] ?? false)) {
             // If config[foreign_unique] is set for the parent inline field, all
             // already used unique ids must be excluded from the select items.
-            $inlineObjectName = $this->inlineStackProcessor->getCurrentStructureDomObjectIdPrefix($this->data['inlineFirstPid']);
+            $inlineObjectName = $this->inlineStackProcessor->getDomObjectIdPrefixFromStructure($this->data['inlineStructure'], $this->data['inlineFirstPid']);
             if (($this->data['inlineParentConfig']['foreign_table'] ?? false) === $table
                 && ($this->data['inlineParentConfig']['foreign_unique'] ?? false) === $field
             ) {
@@ -114,7 +113,7 @@ class SelectSingleElement extends AbstractFormElement
 
         // Initialization:
         $selectId = StringUtility::getUniqueId('tceforms-select-');
-        $selectedIcon = '';
+        $selectedItem = null;
         $size = (int)($config['size'] ?? 0);
 
         // Style set on <select/>
@@ -153,25 +152,18 @@ class SelectSingleElement extends AbstractFormElement
                 ];
             } elseif ($selected || !in_array((int)$item['value'], $uniqueIds, true)) {
                 $icon = !empty($item['icon']) ? FormEngineUtility::getIconHtml($item['icon'], $item['label'], $item['label']) : '';
-
-                if ($selected) {
-                    $selectedIcon = $icon;
-                }
-
-                $selectItemGroups[$selectItemGroupCount]['items'][] = [
+                $enhancedItem = [
                     'title' => $this->appendValueToLabelInDebugMode($item['label'], $item['value']),
                     'value' => $item['value'],
                     'icon' => $icon,
                     'selected' => $selected,
                 ];
+                if ($selected) {
+                    $selectedItem = $enhancedItem;
+                }
+                $selectItemGroups[$selectItemGroupCount]['items'][] = $enhancedItem;
                 $selectItemCounter++;
             }
-        }
-
-        // Fallback icon
-        // @todo: assign a special icon for non matching values?
-        if (!$selectedIcon && !empty($selectItemGroups[0]['items'][0]['icon'])) {
-            $selectedIcon = $selectItemGroups[0]['items'][0]['icon'];
         }
 
         // Process groups
@@ -188,12 +180,24 @@ class SelectSingleElement extends AbstractFormElement
                 foreach ($selectItemGroup['items'] as $item) {
                     $options .= '<option value="' . htmlspecialchars($item['value']) . '" data-icon="' .
                         htmlspecialchars($item['icon']) . '"'
-                        . ($item['selected'] ? ' selected="selected"' : '') . '>' . htmlspecialchars((string)($item['title'] ?? ''), ENT_COMPAT, 'UTF-8', false) . '</option>';
-                }
-                $hasIcons = !empty($item['icon']);
-            }
+                        . ($item['selected'] ? ' selected="selected"' : '') . '>' . htmlspecialchars($item['title'], ENT_COMPAT, 'UTF-8', false) . '</option>';
 
+                    // At least one select item with icon found.
+                    if (!empty($item['icon'])) {
+                        $hasIcons = true;
+                    }
+                }
+            }
             $options .= ($optionGroup ? '</optgroup>' : '');
+        }
+
+        // No item selected. Use first item of first group as selected item, which is display
+        // in the form to render icon of that item icon as selected icon when item has one.
+        if ($hasIcons
+            && $selectedItem === null
+            && isset($selectItemGroups[0]['items'][0])
+        ) {
+            $selectedItem = $selectItemGroups[0]['items'][0];
         }
 
         $selectAttributes = [
@@ -231,7 +235,9 @@ class SelectSingleElement extends AbstractFormElement
         if ($hasIcons) {
             $html[] =           '<div class="input-group">';
             $html[] =               '<span class="input-group-text input-group-icon">';
-            $html[] =                   $selectedIcon;
+            if ($selectedItem !== null) {
+                $html[] =              $selectedItem['icon'];
+            }
             $html[] =               '</span>';
         }
         $html[] =                   '<select ' . GeneralUtility::implodeAttributes($selectAttributes, true) . '>';

@@ -103,10 +103,8 @@ class ListSysLogCommand extends Command
                     'error',
                     'tstamp',
                     'type',
-                    'details_nr',
                     'IP',
                     'event_pid',
-                    'NEWid',
                     'workspace',
                 ]);
             }
@@ -129,7 +127,7 @@ class ListSysLogCommand extends Command
         $str = '';
         foreach ($arr as $key => $value) {
             if (in_array($key, $valueList, true)) {
-                $str .= (string)$key . trim(': ' . GeneralUtility::fixed_lgd_cs(str_replace(LF, '|', (string)$value), 20)) . LF;
+                $str .= $key . trim(': ' . GeneralUtility::fixed_lgd_cs(str_replace(LF, '|', (string)$value), 20)) . LF;
             }
         }
         return $str;

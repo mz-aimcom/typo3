@@ -499,7 +499,7 @@ class Indexer
             if ((string)$content !== '') {
                 // Create temporary file:
                 $tmpFile = GeneralUtility::tempnam('EXTERNAL_URL');
-                GeneralUtility::writeFile($tmpFile, $content);
+                GeneralUtility::writeFile($tmpFile, $content, true);
                 // Index that file:
                 $this->indexRegularDocument($externalUrl, true, $tmpFile, 'html');
                 // Using "TRUE" for second parameter to force indexing of external URLs (mtime doesn't make sense, does it?)
@@ -571,8 +571,7 @@ class Indexer
     }
 
     /**
-     * Attempts to create a local file path by matching absRefPrefix. This
-     * requires TSFE. If TSFE is missing, this function does nothing.
+     * Attempts to create a local file path by matching absRefPrefix.
      */
     protected function createLocalPathUsingAbsRefPrefix(string $sourcePath): string
     {
@@ -638,7 +637,6 @@ class Indexer
      */
     protected static function isAllowedLocalFile(string $filePath): bool
     {
-        $filePath = GeneralUtility::resolveBackPath($filePath);
         $insideWebPath = str_starts_with($filePath, Environment::getPublicPath());
         $isFile = is_file($filePath);
         return $insideWebPath && $isFile;
@@ -775,18 +773,6 @@ class Indexer
         // Consult relevant external document parser
         if (is_object($this->external_parsers[$fileExtension])) {
             $indexingDataDto = $this->external_parsers[$fileExtension]->readFileContent($fileExtension, $absoluteFileName, $sectionPointer);
-        }
-
-        if (is_array($indexingDataDto)) {
-            trigger_error(
-                sprintf(
-                    'The method %s returns an array, which is deprecated and will stop working in TYPO3 v14.0. Return an instance of %s instead.',
-                    get_class($this->external_parsers[$fileExtension]) . '::readFileContent()',
-                    IndexingDataAsString::class
-                ),
-                E_USER_DEPRECATED
-            );
-            $indexingDataDto = IndexingDataAsString::fromArray($indexingDataDto);
         }
 
         if ($indexingDataDto instanceof IndexingDataAsString) {

@@ -11,9 +11,12 @@
  * The TYPO3 project - inspiring people to share!
  */
 
+import DocumentService from '@typo3/core/document-service';
 import RegularEvent from '@typo3/core/event/regular-event';
 import FormEngineValidation from '@typo3/backend/form-engine-validation';
 import { selector } from '@typo3/core/literals';
+import '@typo3/backend/color-picker';
+import FormEngine from '@typo3/backend/form-engine';
 
 /**
  * Module: @typo3/backend/form-engine/element/color-element
@@ -31,27 +34,24 @@ import { selector } from '@typo3/core/literals';
 class ColorElement extends HTMLElement {
   private element: HTMLInputElement = null;
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
+    if (this.element !== null) {
+      // Element is already initialized, which means the component has been rendered before. Nothing to do here.
+      return;
+    }
+
     const recordFieldId = this.getAttribute('recordFieldId');
     if (recordFieldId === null) {
       return;
     }
 
+    await DocumentService.ready();
     this.element = this.querySelector<HTMLInputElement>(selector`#${recordFieldId}`);
     if (!this.element) {
       return;
     }
 
     this.registerEventHandler();
-
-    const swatches = this.hasAttribute('colorPalette') ? this.getAttribute('colorPalette').split(';') : [];
-    const opacity = this.hasAttribute('opacity');
-    import('@typo3/backend/color-picker').then(({ default: ColorPicker }): void => {
-      ColorPicker.initialize(this.element, {
-        swatches: swatches,
-        opacity: opacity
-      });
-    });
   }
 
   private registerEventHandler(): void {
@@ -59,17 +59,23 @@ class ColorElement extends HTMLElement {
 
     new RegularEvent('blur', (e: Event): void => {
       hiddenElement.value = (e.target as HTMLInputElement).value;
+      this.handleEvent(e);
     }).bindTo(this.element);
 
-    new RegularEvent('formengine.cp.change', (e: CustomEvent): void => {
-      FormEngineValidation.validateField(e.target as HTMLInputElement);
-      FormEngineValidation.markFieldAsChanged(e.target as HTMLInputElement);
-
-      document.querySelectorAll('.module-docheader-bar .btn').forEach((btn: HTMLButtonElement): void => {
-        btn.classList.remove('disabled');
-        btn.disabled = false;
-      });
+    new RegularEvent('formengine.cp.change', (e: Event): void => {
+      this.handleEvent(e);
     }).bindTo(this.element);
+  }
+
+
+  private handleEvent(e: Event): void {
+    FormEngineValidation.validateField(e.target as HTMLInputElement);
+    FormEngine.markFieldAsChanged(e.target as HTMLInputElement);
+
+    document.querySelectorAll('.module-docheader-bar .btn').forEach((btn: HTMLButtonElement): void => {
+      btn.classList.remove('disabled');
+      btn.disabled = false;
+    });
   }
 }
 

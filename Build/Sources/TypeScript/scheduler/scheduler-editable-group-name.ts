@@ -11,24 +11,32 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, LitElement, TemplateResult, nothing } from 'lit';
+import { html, css, LitElement, type TemplateResult, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators';
 import '@typo3/backend/element/icon-element';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import ResponseInterface from '@typo3/backend/ajax-data-handler/response-interface';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type ResponseInterface from '@typo3/backend/ajax-data-handler/response-interface';
 import Notification from '@typo3/backend/notification';
 
 @customElement('typo3-scheduler-editable-group-name')
 export class EditableGroupName extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       display: block;
-      --border-color: #bebebe;
-      --hover-bg: #cacaca;
-      --hover-border-color: #bebebe;
-      --focus-bg: #cacaca;
-      --focus-border-color: #bebebe;
+      --input-border-color: #bebebe;
+      --input-hover-border-color: #bebebe;
+      --input-focus-border-color: #bebebe;
+      --button-border-radius: 2px;
+      --button-color: inherit;
+      --button-bg: transparent;
+      --button-border-color: transparent;
+      --button-hover-color: inherit;
+      --button-hover-bg: #cacaca;
+      --button-hover-border-color: #bebebe;
+      --button-focus-color: inherit;
+      --button-focus-bg: #cacaca;
+      --button-focus-border-color: #bebebe;
     }
 
     .label {
@@ -54,17 +62,22 @@ export class EditableGroupName extends LitElement {
       padding: .16rem 0;
       border: 0;
       border-top: 1px solid transparent;
-      border-bottom: 1px dashed var(--border-color);
+      border-bottom: 1px dashed var(--input-border-color);
       margin: 0;
       width: 100%;
+      outline-offset: 0;
     }
 
     input:hover {
-      border-bottom: 1px dashed var(--hover-border-color);
+      --input-border-color: var(--input-hover-border-color);
     }
 
     input:focus {
-      border-bottom: 1px dashed var(--focus-border-color);
+      --input-border-color: var(--input-focus-border-color);
+    }
+
+    input:focus-visible {
+      outline: .25rem solid color-mix(in srgb, var(--input-border-color), transparent 25%);
     }
 
     .wrapper {
@@ -93,25 +106,33 @@ export class EditableGroupName extends LitElement {
       width: 2em;
       position: absolute;
       top: 0;
-      border-radius: 2px;
+      border-radius: var(--button-border-radius);
       overflow: hidden;
       outline: none;
-      border: 1px solid transparent;
-      background: transparent;
+      color: var(--button-color);
+      background: var(--button-bg);
+      border: 1px solid var(--button-border-color);
       opacity: .3;
+      outline-offset: 0;
       transition: all .2s ease-in-out;
     }
 
     button:hover {
       opacity: 1;
-      background: var(--hover-bg);
-      border-color: var(--hover-border-color);
+      --button-color: var(--button-hover-color);
+      --button-bg: var(--button-hover-bg);
+      --button-border-color: var(--button-hover-border-color);
     }
 
     button:focus {
       opacity: 1;
-      background: var(--focus-bg);
-      border-color: var(--focus-border-color);
+      --button-color: var(--button-focus-color);
+      --button-bg: var(--button-focus-bg);
+      --button-border-color: var(--button-focus-border-color);
+    }
+
+    button:focus-visible {
+      outline: .25rem solid color-mix(in srgb, var(--button-border-color), transparent 25%);
     }
 
     button[data-action="edit"] {
@@ -149,7 +170,7 @@ export class EditableGroupName extends LitElement {
     edit: TYPO3?.lang?.['editableGroupName.button.edit.label'] || 'Edit',
     save: TYPO3?.lang?.['editableGroupName.button.save.label'] || 'Save',
     cancel: TYPO3?.lang?.['editableGroupName.button.cancel.label'] || 'Cancel',
-  }
+  };
 
   async startEditing(): Promise<void> {
     if (this.isEditable()) {
@@ -159,7 +180,7 @@ export class EditableGroupName extends LitElement {
     }
   }
 
-  protected render(): TemplateResult | symbol {
+  protected override render(): TemplateResult | symbol {
     if (this.groupName === '') {
       return nothing;
     }

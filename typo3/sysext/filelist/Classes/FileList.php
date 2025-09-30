@@ -19,7 +19,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Clipboard\Clipboard;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
-use TYPO3\CMS\Backend\ElementBrowser\Event\IsFileSelectableEvent;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
@@ -47,6 +46,9 @@ use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceInterface;
 use TYPO3\CMS\Core\Resource\Search\FileSearchDemand;
 use TYPO3\CMS\Core\Resource\StorageRepository;
+use TYPO3\CMS\Core\Schema\Capability\LanguageAwareSchemaCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -63,6 +65,7 @@ use TYPO3\CMS\Filelist\Matcher\ResourceFolderTypeMatcher;
 use TYPO3\CMS\Filelist\Pagination\ResourceCollectionPaginator;
 use TYPO3\CMS\Filelist\Type\Mode;
 use TYPO3\CMS\Filelist\Type\NavigationDirection;
+use TYPO3\CMS\Filelist\Type\SortDirection;
 use TYPO3\CMS\Filelist\Type\ViewMode;
 
 /**
@@ -98,12 +101,9 @@ class FileList
     /**
      * The field to sort by
      */
-    public string $sort = '';
+    public string $sortField = '';
 
-    /**
-     * Reverse sorting flag
-     */
-    public bool $sortRev = true;
+    public SortDirection $sortDirection = SortDirection::DESCENDING;
 
     /**
      * Thumbnails on records containing files (pictures)
@@ -159,6 +159,7 @@ class FileList
     protected UriBuilder $uriBuilder;
     protected TranslationConfigurationProvider $translateTools;
     protected OnlineMediaHelperRegistry $onlineMediaHelperRegistry;
+    protected TcaSchemaFactory $tcaSchemaFactory;
 
     public function __construct(ServerRequestInterface $request)
     {
@@ -169,6 +170,7 @@ class FileList
         $this->iconFactory = GeneralUtility::makeInstance(IconFactory::class);
         $this->eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
         $this->translateTools = GeneralUtility::makeInstance(TranslationConfigurationProvider::class);
+        $this->tcaSchemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
         $this->itemsPerPage = MathUtility::forceIntegerInRange(
             $this->getBackendUser()->getTSConfig()['options.']['file_list.']['filesPerPage'] ?? $this->itemsPerPage,
             1
@@ -228,16 +230,24 @@ class FileList
      *
      * @param Folder $folderObject The folder to work on
      * @param int $currentPage The current page to render
-     * @param string $sort Sorting column
-     * @param bool $sortRev Sorting direction
+     * @param string $sortField Sorting column
+     * @param bool|SortDirection $sortDirection Sorting direction
      * @param Mode $mode Mode of the file list
      */
-    public function start(Folder $folderObject, int $currentPage, string $sort, bool $sortRev, Mode $mode = Mode::MANAGE)
+    public function start(Folder $folderObject, int $currentPage, string $sortField, bool|SortDirection $sortDirection, Mode $mode = Mode::MANAGE)
     {
         $this->folderObject = $folderObject;
         $this->currentPage = MathUtility::forceIntegerInRange($currentPage, 1, 100000);
-        $this->sort = $sort;
-        $this->sortRev = $sortRev;
+        $this->sortField = $sortField;
+        if (is_bool($sortDirection)) {
+            trigger_error(
+                'Passing the sort direction as boolean is deprecated and will be removed in future versions of TYPO3. Pass a ' . SortDirection::class . ' enum instead.',
+                E_USER_DEPRECATED
+            );
+            $this->sortDirection = $sortDirection ? SortDirection::DESCENDING : SortDirection::ASCENDING;
+        } else {
+            $this->sortDirection = $sortDirection;
+        }
         $this->totalbytes = 0;
         $this->resourceDownloadMatcher = null;
         $this->resourceDisplayMatcher = null;
@@ -332,8 +342,8 @@ class FileList
         $this->totalbytes = $resourceCollection->getTotalBytes();
 
         // Sort the files before sending it to the renderer
-        if (trim($this->sort) !== '') {
-            $resourceCollection->setResources($this->sortResources($resourceCollection->getResources(), $this->sort));
+        if (trim($this->sortField) !== '') {
+            $resourceCollection->setResources($this->sortResources($resourceCollection->getResources(), $this->sortField));
         }
 
         $paginator = new ResourceCollectionPaginator($resourceCollection, $this->currentPage, $this->itemsPerPage);
@@ -350,13 +360,9 @@ class FileList
             $resourceView->moduleUri = $this->createModuleUriForResource($resource);
             $resourceView->editDataUri = $this->createEditDataUriForResource($resource);
             $resourceView->editContentUri = $this->createEditContentUriForResource($resource);
-            $resourceView->replaceUri = $this->createReplaceUriForResource($resource);
 
             $resourceView->isDownloadable = $this->resourceDownloadMatcher !== null && $this->resourceDownloadMatcher->match($resource);
             $resourceView->isSelectable = $this->resourceSelectableMatcher !== null && $this->resourceSelectableMatcher->match($resource);
-            if ($this->mode === Mode::BROWSE && $resource instanceof File) {
-                $resourceView->isSelectable = $this->eventDispatcher->dispatch(new IsFileSelectableEvent($resource))->isFileSelectable();
-            }
             $resourceView->isSelected = $this->resourceSelectedMatcher !== null && $this->resourceSelectedMatcher->match($resource);
 
             $resourceViews[] = $resourceView;
@@ -423,55 +429,83 @@ class FileList
         );
     }
 
+    /**
+     * @return array<string>
+     */
+    public function getSortableFields(): array
+    {
+        return array_filter($this->fieldArray, $this->isFieldSortable(...));
+    }
+
     protected function renderListTableHeader(): string
     {
         $data = [];
         foreach ($this->fieldArray as $field) {
-            switch ($field) {
-                case 'icon':
-                    $data[$field] = '';
-                    break;
-                case '_SELECTOR_':
-                    $data[$field] = $this->renderCheckboxActions();
-                    break;
-                default:
-                    $data[$field] = $this->renderListTableFieldHeader($field);
-                    break;
-            }
+            $data[$field] = match ($field) {
+                'icon' => '',
+                '_SELECTOR_' => $this->renderCheckboxActions(),
+                default => $this->renderListTableFieldHeader($field),
+            };
         }
 
         return $this->addElement($data, [], true);
     }
 
+    protected function isFieldSortable(string $field): bool
+    {
+        return !in_array($field, ['icon', 'rw', '_SELECTOR_', '_CONTROL_', '_PATH_'], true);
+    }
+
     protected function renderListTableFieldHeader(string $field): string
     {
         $label = $this->getFieldLabel($field);
-        if (in_array($field, ['_SELECTOR_', '_CONTROL_', '_PATH_'])) {
+        if (!$this->isFieldSortable($field)) {
             return $label;
         }
 
-        $params = ['sort' => $field, 'currentPage' => 0];
-        if ($this->sort === $field) {
-            // Check reverse sorting
-            $params['reverse'] = ($this->sortRev ? '0' : '1');
-        } else {
-            $params['reverse'] = 0;
-        }
+        $params = ['sortField' => $field, 'currentPage' => 0];
+        $paramsAsc = $params;
+        $paramsAsc['sortDirection'] = SortDirection::ASCENDING->value;
+        $paramsDesc = $params;
+        $paramsDesc['sortDirection'] = SortDirection::DESCENDING->value;
 
-        $icon = $this->sort === $field
-            ? $this->iconFactory->getIcon('actions-sort-amount-' . ($this->sortRev ? 'down' : 'up'), IconSize::SMALL)->render()
-            : $this->iconFactory->getIcon('actions-sort-amount', IconSize::SMALL)->render();
+        $icon = $this->sortField === $field
+            ? $this->iconFactory->getIcon($this->sortDirection->getIconIdentifier(), IconSize::SMALL)->render()
+            : $this->iconFactory->getIcon('empty-empty', IconSize::SMALL)->render();
 
-        $attributes = [
-            'class' => 'table-sorting-button ' . ($this->sort === $field ? 'table-sorting-button-active' : ''),
-            'href' => $this->createModuleUri($params),
-        ];
-
-        return '<a ' . GeneralUtility::implodeAttributes($attributes, true) . '>
-            <span class="table-sorting-label">' . htmlspecialchars($label) . '</span>
-            <span class="table-sorting-icon">' . $icon . '</span>
-            </a>';
-
+        return '
+            <div class="dropdown dropdown-static">
+                <button class="dropdown-toggle dropdown-toggle-link" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    ' . htmlspecialchars($label) . ' <div class="' . ($this->sortField === $field ? 'text-primary' : '') . '">' . $icon . '</div>
+                </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <a href="' . $this->createModuleUri($paramsAsc) . '" class="dropdown-item">
+                            <span class="dropdown-item-columns">
+                                <span class="dropdown-item-column dropdown-item-column-icon text-primary">
+                                    ' . ($this->sortField === $field && $this->sortDirection === SortDirection::ASCENDING ? $this->iconFactory->getIcon('actions-dot', IconSize::SMALL)->render() : '') . '
+                                </span>
+                                <span class="dropdown-item-column dropdown-item-column-title">
+                                    ' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.asc') . '
+                                </span>
+                            </span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="' . $this->createModuleUri($paramsDesc) . '" class="dropdown-item">
+                            <span class="dropdown-item-columns">
+                                <span class="dropdown-item-column dropdown-item-column-icon text-primary">
+                                    ' . ($this->sortField === $field && $this->sortDirection === SortDirection::DESCENDING ? $this->iconFactory->getIcon('actions-dot', IconSize::SMALL)->render() : '') . '
+                                </span>
+                                <span class="dropdown-item-column dropdown-item-column-title">
+                                    ' . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.desc') . '
+                                </span>
+                            </span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        ';
     }
 
     /**
@@ -489,9 +523,10 @@ class FileList
                 'data-filelist-identifier' => $resourceView->getIdentifier(),
                 'data-filelist-name' => htmlspecialchars($resourceView->getName()),
                 'data-filelist-icon' => $resourceView->getIconIdentifier(),
-                'data-filelist-thumbnail' => $resourceView->getThumbnailUri(),
+                'data-filelist-preview' => $resourceView->getPreview() !== null ? 'true' : 'false',
                 'data-filelist-uid' => $resourceView->getUid(),
                 'data-filelist-meta-uid' => $resourceView->getMetaDataUid(),
+                'data-filelist-url' => $resourceView->getPublicUrl(),
                 'data-filelist-selectable' => $resourceView->isSelectable ? 'true' : 'false',
                 'data-filelist-selected' => $resourceView->isSelected ? 'true' : 'false',
                 'data-multi-record-selection-element' => 'true',
@@ -578,10 +613,14 @@ class FileList
      * @param array $metaDataRecord
      * @return array<int, array<string, mixed>> keys are the site language ids, values are the $rows
      */
-    protected function getTranslationsForMetaData($metaDataRecord)
+    protected function getTranslationsForMetaData(array $metaDataRecord): array
     {
-        $languageField = $GLOBALS['TCA']['sys_file_metadata']['ctrl']['languageField'] ?? '';
-        $languageParentField = $GLOBALS['TCA']['sys_file_metadata']['ctrl']['transOrigPointerField'] ?? '';
+        $schema = $this->tcaSchemaFactory->get('sys_file_metadata');
+        if (!$schema->isLanguageAware()) {
+            return [];
+        }
+        /** @var LanguageAwareSchemaCapability $languageCapability */
+        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
 
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_metadata');
         $queryBuilder->getRestrictions()->removeAll();
@@ -589,11 +628,11 @@ class FileList
             ->from('sys_file_metadata')
             ->where(
                 $queryBuilder->expr()->eq(
-                    $languageParentField,
+                    $languageCapability->getTranslationOriginPointerField()->getName(),
                     $queryBuilder->createNamedParameter($metaDataRecord['uid'] ?? 0, Connection::PARAM_INT)
                 ),
                 $queryBuilder->expr()->gt(
-                    $languageField,
+                    $languageCapability->getLanguageField()->getName(),
                     $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 )
             )
@@ -602,7 +641,7 @@ class FileList
 
         $translations = [];
         foreach ($translationRecords as $record) {
-            $languageId = $record[$languageField];
+            $languageId = $record[$languageCapability->getLanguageField()->getName()];
             $translations[$languageId] = $record;
         }
         return $translations;
@@ -632,7 +671,7 @@ class FileList
         $attributes = [];
         $attributes['title'] = $resourceView->getName();
         $attributes['type'] = 'button';
-        $attributes['class'] = 'btn btn-link p-0';
+        $attributes['class'] = 'btn btn-link';
         $attributes['data-filelist-action'] = 'primary';
 
         $output = '<button ' . GeneralUtility::implodeAttributes($attributes, true) . '>' . $resourceName . '</button>';
@@ -657,10 +696,10 @@ class FileList
         }
 
         $processedFile = $resourceView->getPreview()->process(
-            ProcessedFile::CONTEXT_IMAGEPREVIEW,
+            ProcessedFile::CONTEXT_IMAGECROPSCALEMASK,
             [
-                'width' => (int)($this->getBackendUser()->getTSConfig()['options.']['file_list.']['thumbnail.']['width'] ?? 64),
-                'height' => (int)($this->getBackendUser()->getTSConfig()['options.']['file_list.']['thumbnail.']['height'] ?? 64),
+                'maxWidth' => (int)($this->getBackendUser()->getTSConfig()['options.']['file_list.']['thumbnail.']['width'] ?? 64),
+                'maxHeight' => (int)($this->getBackendUser()->getTSConfig()['options.']['file_list.']['thumbnail.']['height'] ?? 64),
             ]
         );
 
@@ -669,8 +708,11 @@ class FileList
             return '';
         }
 
-        if (PathUtility::isAbsolutePath($thumbnailUrl)) {
-            $thumbnailUrl .= '?' . filemtime($processedFile->getForLocalProcessing(false));
+        // We cannot use GeneralUtility::createVersionNumberedFilename() here, because we do not
+        // know if the file is on a Local storage or if the publicURL has been generated by a
+        // custom Event Listener
+        if (!str_contains($thumbnailUrl, '?') && !PathUtility::hasProtocolAndScheme($thumbnailUrl)) {
+            $thumbnailUrl .= '?' . $processedFile->getModificationTime();
         }
 
         return '<br><img src="' . htmlspecialchars($thumbnailUrl) . '" ' .
@@ -775,13 +817,17 @@ class FileList
                     return htmlspecialchars($storage->getName());
                 }
             } else {
+                $metaData = $resourceView->resource->getMetaData()->get();
                 return htmlspecialchars(
                     (string)BackendUtility::getProcessedValueExtra(
                         $this->getConcreteTableName($field),
                         $field,
                         $resourceView->resource->getProperty($field),
                         $this->maxTitleLength,
-                        $resourceView->resource->getMetaData()->offsetGet('uid')
+                        $metaData['uid'],
+                        false,
+                        0,
+                        $metaData,
                     )
                 );
             }
@@ -1046,13 +1092,13 @@ class FileList
 
     protected function createControlReplace(ResourceView $resourceView): ?ButtonInterface
     {
-        if (!$resourceView->replaceUri) {
+        if (!$resourceView->canReplace()) {
             return null;
         }
 
-        $button = GeneralUtility::makeInstance(LinkButton::class);
-        $button->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.replace'));
-        $button->setHref($resourceView->replaceUri);
+        $button = GeneralUtility::makeInstance(GenericButton::class);
+        $button->setLabel($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.replace'));
+        $button->setAttributes(['type' => 'button', 'data-filelist-action' => 'replace']);
         $button->setIcon($this->iconFactory->getIcon('actions-edit-replace', IconSize::SMALL));
 
         return $button;
@@ -1162,6 +1208,7 @@ class FileList
             'data-filelist-delete-url' => $this->uriBuilder->buildUriFromRoute('tce_file'),
             'data-filelist-delete-type' => $deleteType,
             'data-filelist-delete-check' => $this->getBackendUser()->jsConfirmation(JsConfirmation::DELETE) ? '1' : '0',
+            'data-redirect-url' => $this->createModuleUri(),
         ]);
 
         return $button;
@@ -1188,7 +1235,7 @@ class FileList
         );
 
         if ($systemLanguages === []
-            || !($GLOBALS['TCA']['sys_file_metadata']['ctrl']['languageField'] ?? false)
+            || !$this->tcaSchemaFactory->get('sys_file_metadata')->isLanguageAware()
             || !$resourceView->resource->isIndexed()
             || !$resourceView->resource->checkActionPermission('editMeta')
             || !$backendUser->check('tables_modify', 'sys_file_metadata')
@@ -1320,8 +1367,7 @@ class FileList
             return null;
         }
 
-        $elementsToConfirm = [];
-        foreach ($elementFromTable as $key => $element) {
+        foreach ($elementFromTable as $element) {
             $clipBoardElement = $this->resourceFactory->retrieveFileOrFolderObject($element);
             if ($clipBoardElement instanceof Folder
                 && $clipBoardElement->getStorage()->isWithinFolder($clipBoardElement, $resourceView->resource)
@@ -1329,7 +1375,6 @@ class FileList
                 // In case folder is already present in the target folder, return actions without paste button
                 return null;
             }
-            $elementsToConfirm[$key] = $clipBoardElement->getName();
         }
 
         $pasteTitle = $this->getLanguageService()->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:clip_pasteInto');
@@ -1338,7 +1383,7 @@ class FileList
         $button->setHref($this->clipObj->pasteUrl('_FILE', $resourceView->getIdentifier()));
         $button->setDataAttributes([
             'title' => $pasteTitle,
-            'bs-content' => $this->clipObj->confirmMsgText('_FILE', $resourceView->getName(), 'into', $elementsToConfirm),
+            'bs-content' => $this->clipObj->confirmMsgText('_FILE', $resourceView->getName(), 'into'),
         ]);
         $button->setIcon($this->iconFactory->getIcon('actions-document-paste-into', IconSize::SMALL));
 
@@ -1392,7 +1437,7 @@ class FileList
 
         $dropdownItems['checkAll'] = '
             <li>
-                <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-all" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')) . '">
+                <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')) . '">
                     <span class="dropdown-item-columns">
                         <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                             ' . $this->iconFactory->getIcon('actions-selection-elements-all', IconSize::SMALL)->render() . '
@@ -1406,7 +1451,7 @@ class FileList
 
         $dropdownItems['checkNone'] = '
             <li>
-                <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-none" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')) . '">
+                <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')) . '">
                     <span class="dropdown-item-columns">
                         <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                             ' . $this->iconFactory->getIcon('actions-selection-elements-none', IconSize::SMALL)->render() . '
@@ -1449,7 +1494,10 @@ class FileList
      */
     protected function getConcreteTableName(string $fieldName): string
     {
-        return ($GLOBALS['TCA']['sys_file']['columns'][$fieldName] ?? false) ? 'sys_file' : 'sys_file_metadata';
+        if ($this->tcaSchemaFactory->get('sys_file')->hasField($fieldName)) {
+            return 'sys_file';
+        }
+        return 'sys_file_metadata';
     }
 
     protected function getPaginationLinkForDirection(ResourceCollectionPaginator $paginator, NavigationDirection $direction): ?PaginationLink
@@ -1596,51 +1644,32 @@ class FileList
         return null;
     }
 
-    protected function createReplaceUriForResource(ResourceInterface $resource): ?string
-    {
-        if ($resource instanceof File
-            && $resource->checkActionPermission('replace')
-        ) {
-            $parameter = [
-                'target' => $resource->getCombinedIdentifier(),
-                'uid' => $resource->getUid(),
-                'returnUrl' => $this->createModuleUri(),
-            ];
-            return (string)$this->uriBuilder->buildUriFromRoute('file_replace', $parameter);
-        }
-        return null;
-    }
-
     /**
      * @return ResourceInterface[]
      */
     protected function sortResources(array $resources, string $sortField): array
     {
         $collator = new \Collator((string)($this->getLanguageService()->getLocale() ?? 'en'));
-        if ($sortField === 'size') {
-            $collator->setAttribute(\Collator::NUMERIC_COLLATION, \Collator::ON);
-        }
-        uksort($resources, function (int $index1, int $index2) use ($sortField, $resources, $collator) {
+        $collator->setAttribute(\Collator::NUMERIC_COLLATION, \Collator::ON);
+
+        $sortMultiplier = $this->sortDirection === SortDirection::DESCENDING ? -1 : 1;
+        uksort($resources, function (int $index1, int $index2) use ($sortField, $sortMultiplier, $resources, $collator) {
             $resource1 = $resources[$index1];
             $resource2 = $resources[$index2];
 
             // Folders are always prioritized above files
             if ($resource1 instanceof File && $resource2 instanceof Folder) {
-                return 1;
+                return 1 * $sortMultiplier;
             }
             if ($resource1 instanceof Folder && $resource2 instanceof File) {
-                return -1;
+                return -1 * $sortMultiplier;
             }
 
-            return (int)$collator->compare(
+            return (int)($collator->compare(
                 $this->getSortingValue($resource1, $sortField) . $index1,
                 $this->getSortingValue($resource2, $sortField) . $index2
-            );
+            )) * $sortMultiplier;
         });
-
-        if ($this->sortRev) {
-            $resources = array_reverse($resources);
-        }
 
         return $resources;
     }
@@ -1673,6 +1702,8 @@ class FileList
                 return $resource->getModificationTime() . 't';
             case 'crdate':
                 return $resource->getCreationTime() . 'c';
+            case 'file':
+                return $resource->getName();
             default:
                 return $resource->hasProperty($sortField) ? (string)$resource->getProperty($sortField) : '';
         }
@@ -1702,7 +1733,7 @@ class FileList
         }
     }
 
-    protected function getFieldLabel(string $field): string
+    public function getFieldLabel(string $field): string
     {
         $lang = $this->getLanguageService();
 
@@ -1714,7 +1745,8 @@ class FileList
         }
 
         $concreteTableName = $this->getConcreteTableName($field);
-        $label = BackendUtility::getItemLabel($concreteTableName, $field);
+        $schema = $this->tcaSchemaFactory->has($concreteTableName) ? $this->tcaSchemaFactory->get($concreteTableName) : null;
+        $label = $schema?->hasField($field) ? $schema->getField($field)->getLabel() : null;
 
         // In case global TSconfig exists we have to check if the label is overridden there
         $tsConfig = BackendUtility::getPagesTSconfig(0);

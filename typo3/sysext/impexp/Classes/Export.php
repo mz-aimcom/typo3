@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Impexp;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Result;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\Connection;
@@ -36,7 +37,10 @@ use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderWritePermissionsException;
 use TYPO3\CMS\Core\Resource\File;
-use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Resource\ResourceInstructionTrait;
+use TYPO3\CMS\Core\Schema\Capability\LanguageAwareSchemaCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Serializer\Typo3XmlParserOptions;
 use TYPO3\CMS\Core\Serializer\Typo3XmlSerializer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -48,8 +52,11 @@ use TYPO3\CMS\Impexp\View\ExportPageTreeView;
  *
  * @internal This class is not considered part of the public TYPO3 API.
  */
+#[Autoconfigure(public: true, shared: false)]
 class Export extends ImportExport
 {
+    use ResourceInstructionTrait;
+
     public const LEVELS_RECORDS_ON_THIS_PAGE = -2;
     public const LEVELS_INFINITE = 999;
 
@@ -74,11 +81,6 @@ class Export extends ImportExport
     protected string $treeHTML = '';
 
     /**
-     * If set, HTML file resources are included.
-     */
-    protected bool $includeExtFileResources = true;
-
-    /**
      * The key is the record type (e.g. 'be_users'),
      * the value is an array of fields to be included in the export.
      *
@@ -94,22 +96,18 @@ class Export extends ImportExport
     protected string $exportFileName = '';
     protected string $exportFileType = self::FILETYPE_XML;
     protected array $supportedFileTypes = [];
-    protected bool $compressionAvailable = false;
 
     /**
      * Cache for checks if page is in user web mounts.
      */
     protected array $pageInWebMountCache = [];
 
-    public function __construct()
-    {
-        parent::__construct();
-        $this->compressionAvailable = function_exists('gzcompress');
-    }
-
-    /**************************
-     * Export / Init + Meta Data
-     *************************/
+    public function __construct(
+        protected readonly ConnectionPool $connectionPool,
+        protected readonly Locales $locales,
+        protected readonly Typo3Version $typo3Version,
+        protected readonly ReferenceIndex $referenceIndex,
+    ) {}
 
     /**
      * Process configuration
@@ -151,6 +149,7 @@ class Export extends ImportExport
             if ($this->levels === self::LEVELS_RECORDS_ON_THIS_PAGE) {
                 $this->addRecordsForPid($this->pid, $this->tables);
             } else {
+                /** @var ExportPageTreeView $pageTreeView */
                 $pageTreeView = GeneralUtility::makeInstance(ExportPageTreeView::class);
                 $initClause = $this->getExcludePagesClause();
                 if ($this->excludeDisabledRecords) {
@@ -168,11 +167,20 @@ class Export extends ImportExport
                 $this->removeExcludedPagesFromPageTree($pageTree);
                 $this->setPageTree($pageTree);
                 $this->flatInversePageTree($pageTree, $pageList);
+                $pagesSchema = $this->tcaSchemaFactory->get('pages');
+                $transOrigPointerFieldName = null;
+                $languageFieldName = null;
+                $languageCapability = null;
+                if ($pagesSchema->isLanguageAware()) {
+                    $languageCapability = $pagesSchema->getCapability(TcaSchemaCapability::Language);
+                    $transOrigPointerFieldName = $languageCapability->getTranslationOriginPointerField()->getName();
+                    $languageFieldName = $languageCapability->getLanguageField()->getName();
+                }
                 foreach ($pageList as $pageUid => $_) {
                     $record = BackendUtility::getRecord('pages', $pageUid);
                     if (is_array($record)) {
                         $this->exportAddRecord('pages', $record);
-                        foreach ($this->getTranslationForPage((int)$record['uid'], $this->excludeDisabledRecords) as $pageTranslation) {
+                        foreach ($this->getTranslationForPage($languageCapability, (int)$record['uid'], $this->excludeDisabledRecords) as $pageTranslation) {
                             // Export l10n translations
                             // All exported records need to be considered within "insidePageTree", not "outsidePageTree",
                             // because they actually ARE part of the page tree. To achieve this, their UID index is
@@ -188,13 +196,11 @@ class Export extends ImportExport
                         // records are bound to the default page UID, those records would be missing.
                         // So we use the page ID of the default language, and then attach all records
                         // for that page ID, which also match the selected page's language.
-                        if (($record[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] ?? null] ?? 0) > 0
-                            && !empty($GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? '')
-                        ) {
+                        if (($record[$transOrigPointerFieldName] ?? 0) > 0) {
                             $this->addRecordsForPid(
-                                (int)$record[$GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField']],
+                                (int)$record[$transOrigPointerFieldName],
                                 $this->tables,
-                                [$record[$GLOBALS['TCA']['pages']['ctrl']['languageField']]]
+                                [$record[$languageFieldName]]
                             );
                         }
                     }
@@ -220,16 +226,15 @@ class Export extends ImportExport
      * Add page translations to list of pages
      */
     protected function getTranslationForPage(
+        ?LanguageAwareSchemaCapability $languageCapability,
         int $defaultLanguagePageUid,
         bool $considerHiddenPages,
         array $limitToLanguageIds = []
     ): array {
-        if (empty($GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] ?? '')
-            || empty($GLOBALS['TCA']['pages']['ctrl']['languageField'] ?? '')
-        ) {
+        if ($languageCapability === null) {
             return [];
         }
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class))
@@ -239,19 +244,19 @@ class Export extends ImportExport
         }
         $constraints = [
             $queryBuilder->expr()->eq(
-                $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'],
+                $languageCapability->getTranslationOriginPointerField()->getName(),
                 $queryBuilder->createNamedParameter($defaultLanguagePageUid, Connection::PARAM_INT)
             ),
         ];
         if (!empty($limitToLanguageIds)) {
             $constraints[] = $queryBuilder->expr()->in(
-                $GLOBALS['TCA']['pages']['ctrl']['languageField'],
+                $languageCapability->getLanguageField()->getName(),
                 $queryBuilder->createNamedParameter($limitToLanguageIds, ArrayParameterType::INTEGER)
             );
         } else {
             // Ensure consistency by only fetching pages where not only l10n_parent matches, but also a
             // sys_language_uid > 0 exists.
-            $constraints[] = $queryBuilder->expr()->gt($GLOBALS['TCA']['pages']['ctrl']['languageField'], 0);
+            $constraints[] = $queryBuilder->expr()->gt($languageCapability->getLanguageField()->getName(), 0);
         }
         return $queryBuilder
             ->select('*')
@@ -273,9 +278,6 @@ class Export extends ImportExport
         ];
     }
 
-    /**
-     * Set header basics
-     */
     protected function setHeaderBasics(): void
     {
         // Initializing:
@@ -300,14 +302,11 @@ class Export extends ImportExport
         $this->dat['header']['charset'] = 'utf-8';
     }
 
-    /**
-     * Sets meta data
-     */
     protected function setMetaData(): void
     {
         $user = $this->getBackendUser();
         if ($user->user['lang'] ?? false) {
-            $locale = GeneralUtility::makeInstance(Locales::class)->createLocale($user->user['lang']);
+            $locale = $this->locales->createLocale($user->user['lang']);
         } else {
             $locale = new Locale();
         }
@@ -318,14 +317,10 @@ class Export extends ImportExport
             'packager_username' => $this->getBackendUser()->user['username'],
             'packager_name' => $this->getBackendUser()->user['realName'],
             'packager_email' => $this->getBackendUser()->user['email'],
-            'TYPO3_version' => (string)GeneralUtility::makeInstance(Typo3Version::class),
+            'TYPO3_version' => (string)$this->typo3Version,
             'created' => (new DateFormatter())->format($GLOBALS['EXEC_TIME'], 'EEE d. MMMM y', $locale),
         ];
     }
-
-    /**************************
-     * Export / Init Page tree
-     *************************/
 
     /**
      * Sets the page-tree array in the export header
@@ -352,10 +347,6 @@ class Export extends ImportExport
             }
         }
     }
-
-    /**************************
-     * Export
-     *************************/
 
     /**
      * Sets the fields of record types to be included in the export.
@@ -419,23 +410,31 @@ class Export extends ImportExport
     protected function addRecordsForPid(int $pid, array $tables, array $restrictToLanguageIds = []): void
     {
         $isRestrictToLanguageIds = $restrictToLanguageIds !== [];
-        foreach ($GLOBALS['TCA'] as $table => $value) {
-            if ($table !== 'pages'
-                && (in_array($table, $tables, true) || in_array('_ALL', $tables, true))
-                && $this->getBackendUser()->check('tables_select', $table)
-                && !($GLOBALS['TCA'][$table]['ctrl']['is_static'] ?? false)
-            ) {
-                $languageField = $GLOBALS['TCA'][$table]['ctrl']['languageField'] ?? null;
-                $statement = $this->execListQueryPid($pid, $table);
-                while ($record = $statement->fetchAssociative()) {
-                    if (is_array($record)) {
-                        // Skip the record, when languageId restrictions are enabled, and the record's language is not requested
-                        if ($isRestrictToLanguageIds && $languageField && isset($record[$languageField]) && !in_array($record[$languageField], $restrictToLanguageIds, true)) {
-                            continue;
-                        }
-                        $this->exportAddRecord($table, $record);
-                    }
+        /**
+         * @var string $table
+         * @var TcaSchema $schema
+         */
+        foreach ($this->tcaSchemaFactory->all() as $table => $schema) {
+            if ($table === 'pages') {
+                continue;
+            }
+            if (!$this->getBackendUser()->check('tables_select', $table)) {
+                continue;
+            }
+            if (!in_array($table, $tables, true) && !in_array('_ALL', $tables, true)) {
+                continue;
+            }
+            $languageField = null;
+            if ($schema->isLanguageAware()) {
+                $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+            }
+            $statement = $this->execListQueryPid($pid, $table);
+            while ($record = $statement->fetchAssociative()) {
+                // Skip the record, when languageId restrictions are enabled, and the record's language is not requested
+                if ($isRestrictToLanguageIds && $schema->isLanguageAware() && isset($record[$languageField]) && !in_array($record[$languageField], $restrictToLanguageIds, true)) {
+                    continue;
                 }
+                $this->exportAddRecord($table, $record);
             }
         }
     }
@@ -449,9 +448,15 @@ class Export extends ImportExport
      */
     protected function execListQueryPid(int $pid, string $table): Result
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
+        $schema = $this->tcaSchemaFactory->get($table);
 
-        $orderBy = $GLOBALS['TCA'][$table]['ctrl']['sortby'] ?? $GLOBALS['TCA'][$table]['ctrl']['default_sortby'] ?? '';
+        $orderBy = '';
+        if ($schema->hasCapability(TcaSchemaCapability::SortByField)) {
+            $orderBy = $schema->getCapability(TcaSchemaCapability::SortByField)->getFieldName();
+        } elseif ($schema->hasCapability(TcaSchemaCapability::DefaultSorting)) {
+            $orderBy = $schema->getCapability(TcaSchemaCapability::DefaultSorting)->getValue();
+        }
 
         if ($this->excludeDisabledRecords === false) {
             $queryBuilder->getRestrictions()
@@ -518,8 +523,6 @@ class Export extends ImportExport
                 $this->dat['header']['records'][$table][$row['uid']] = $headerInfo;
                 // Create entry in the PID lookup:
                 $this->dat['header']['pid_lookup'][$row['pid']][$table][$row['uid']] = 1;
-                // Initialize reference index object:
-                $refIndexObj = GeneralUtility::makeInstance(ReferenceIndex::class);
                 // @todo: Using getRelations() from Refindex for this operation is a misuse, the method should
                 //        be protected. It would be better to use softref parser and RelationHandler here directly,
                 //        or fetch the relations using a sys_refindex query. Note with recent changes, 'itemArray'
@@ -529,7 +532,7 @@ class Export extends ImportExport
                 //        to two different fields in a target table (e.g. 'pages'), that field indicates to which
                 //        of those a relation is bound. This is currently most likely not handled during import and
                 //        should have more test coverage.
-                $relations = $refIndexObj->getRelations($table, $row, 0);
+                $relations = $this->referenceIndex->getRelations($table, $row, 0);
                 $relations = $this->removeRedundantSoftRefsInRelations($relations);
                 // Data:
                 $this->dat['records'][$table . ':' . $row['uid']] = [];
@@ -538,11 +541,16 @@ class Export extends ImportExport
                 // There are no refindex entries for l10n_source of pages and tt_content, so we have to add them here manually for now.
                 // @todo can be removed, when this can come from ReferenceIndex.
                 if (($table === 'pages' || $table === 'tt_content')) {
-                    $fieldNameTranslationSource = ($GLOBALS['TCA'][$table]['ctrl']['translationSource'] ?? '');
-                    if (!empty($fieldNameTranslationSource) && ((int)($row[$fieldNameTranslationSource] ?? 0)) > 0) {
-                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$fieldNameTranslationSource]['type'] = 'db';
-                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$fieldNameTranslationSource]['itemArray'][0] = [
-                            'id' => $row[$fieldNameTranslationSource],
+                    $schema = $this->tcaSchemaFactory->get($table);
+                    $translationSourceFieldName = null;
+                    if ($schema->isLanguageAware()) {
+                        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+                        $translationSourceFieldName = $languageCapability->getTranslationSourceField()?->getName();
+                    }
+                    if ($translationSourceFieldName && ((int)($row[$translationSourceFieldName] ?? 0)) > 0) {
+                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$translationSourceFieldName]['type'] = 'db';
+                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$translationSourceFieldName]['itemArray'][0] = [
+                            'id' => $row[$translationSourceFieldName],
                             'table' => $table,
                         ];
                     }
@@ -617,7 +625,7 @@ class Export extends ImportExport
                         if (isset($relation['softrefs']['keys']['typolink'])) {
                             foreach ($relation['softrefs']['keys']['typolink'] as $tokenID => $softref) {
                                 if ($softref['subst']['type'] === 'file') {
-                                    $file = GeneralUtility::makeInstance(ResourceFactory::class)->retrieveFileOrFolderObject($softref['subst']['relFileName']);
+                                    $file = $this->resourceFactory->retrieveFileOrFolderObject($softref['subst']['relFileName']);
                                     if ($file instanceof File) {
                                         if ($file->getUid() == $dbRelationData['id']) {
                                             unset($relation['softrefs']['keys']['typolink'][$tokenID]);
@@ -724,7 +732,6 @@ class Export extends ImportExport
      *
      * @param int $relationLevel Recursion level
      * @return int number of records from relations found and added
-     * @see exportAddFilesFromRelations()
      */
     protected function exportAddRecordsFromRelations(int $relationLevel = 0): int
     {
@@ -827,14 +834,13 @@ class Export extends ImportExport
      * @param array $recordData Record of relation with table/id key to add to $addRecords
      * @param array $addRecords Records of relations which are already marked as to be added to the export
      * @param string $tokenID Soft reference token ID, if applicable.
-     * @see exportAddRecordsFromRelations()
      */
     protected function exportAddRecordsFromRelationsPushRelation(array $recordData, array &$addRecords, string $tokenID = ''): void
     {
         // @todo: Remove by-reference and return final array
         $recordRef = $recordData['table'] . ':' . $recordData['id'];
         if (
-            isset($GLOBALS['TCA'][$recordData['table']]) && !$this->isTableStatic($recordData['table'])
+            $this->tcaSchemaFactory->has($recordData['table']) && !$this->isTableStatic($recordData['table'])
             && !$this->isRecordExcluded($recordData['table'], (int)$recordData['id'])
             && (!$tokenID || $this->isSoftRefIncluded($tokenID)) && $this->inclRelation($recordData['table'])
             && !isset($this->dat['records'][$recordRef])
@@ -851,7 +857,7 @@ class Export extends ImportExport
      */
     protected function inclRelation(string $table): bool
     {
-        return is_array($GLOBALS['TCA'][$table] ?? null)
+        return $this->tcaSchemaFactory->has($table)
             && (in_array($table, $this->relOnlyTables, true) || in_array('_ALL', $this->relOnlyTables, true))
             && $this->getBackendUser()->check('tables_select', $table);
     }
@@ -859,8 +865,6 @@ class Export extends ImportExport
     /**
      * This adds all files in relations.
      * Call this method AFTER adding all records including relations.
-     *
-     * @see exportAddRecordsFromRelations()
      */
     protected function exportAddFilesFromRelations(): void
     {
@@ -987,7 +991,7 @@ class Export extends ImportExport
     protected function exportAddSysFile(array $fileData): void
     {
         try {
-            $file = GeneralUtility::makeInstance(ResourceFactory::class)->createFileObject($fileData);
+            $file = $this->resourceFactory->createFileObject($fileData);
             $file->checkActionPermission('read');
         } catch (\Exception $e) {
             $this->addError('Error when trying to add file ' . $fileData['title'] . ': ' . $e->getMessage());
@@ -1024,10 +1028,6 @@ class Export extends ImportExport
         $fileInfo['content_sha1'] = $fileSha1;
         $this->dat['files_fal'][$fileId] = $fileInfo;
     }
-
-    /**************************
-     * File Output
-     *************************/
 
     /**
      * This compiles and returns the data content for an exported file
@@ -1186,13 +1186,15 @@ class Export extends ImportExport
         }
 
         $temporaryFileName = GeneralUtility::tempnam('export');
-        GeneralUtility::writeFile($temporaryFileName, $fileContent);
+        GeneralUtility::writeFile($temporaryFileName, $fileContent, true);
+        $this->skipResourceConsistencyCheckForCommands($saveFolder->getStorage(), $temporaryFileName, $fileName);
         $file = $saveFolder->addFile($temporaryFileName, $fileName, DuplicationBehavior::REPLACE);
 
         if ($this->saveFilesOutsideExportFile) {
             $filesFolder = $saveFolder->createFolder($filesFolderName);
             $temporaryFilesForExport = GeneralUtility::getFilesInDir($this->getOrCreateTemporaryFolderName(), '', true);
             foreach ($temporaryFilesForExport as $temporaryFileForExport) {
+                $this->skipResourceConsistencyCheckForCommands($filesFolder->getStorage(), $temporaryFileForExport);
                 $filesFolder->addFile($temporaryFileForExport);
             }
             $this->removeTemporaryFolderName();
@@ -1272,7 +1274,7 @@ class Export extends ImportExport
             $supportedFileTypes = [];
             $supportedFileTypes[] = self::FILETYPE_XML;
             $supportedFileTypes[] = self::FILETYPE_T3D;
-            if ($this->compressionAvailable) {
+            if (function_exists('gzcompress')) {
                 $supportedFileTypes[] = self::FILETYPE_T3DZ;
             }
             $this->supportedFileTypes = $supportedFileTypes;
@@ -1307,11 +1309,6 @@ class Export extends ImportExport
     public function setDescription(string $description): void
     {
         $this->description = $description;
-    }
-
-    public function getNotes(): string
-    {
-        return $this->notes;
     }
 
     public function setNotes(string $notes): void
@@ -1349,19 +1346,9 @@ class Export extends ImportExport
         $this->levels = $levels;
     }
 
-    public function getTables(): array
-    {
-        return $this->tables;
-    }
-
     public function setTables(array $tables): void
     {
         $this->tables = $tables;
-    }
-
-    public function getRelOnlyTables(): array
-    {
-        return $this->relOnlyTables;
     }
 
     public function setRelOnlyTables(array $relOnlyTables): void
@@ -1374,29 +1361,12 @@ class Export extends ImportExport
         return $this->treeHTML;
     }
 
-    public function isIncludeExtFileResources(): bool
-    {
-        return $this->includeExtFileResources;
-    }
-
-    public function setIncludeExtFileResources(bool $includeExtFileResources): void
-    {
-        $this->includeExtFileResources = $includeExtFileResources;
-    }
-
     /**
      * Option to enable having the files not included in the export file.
      * The files are saved to a temporary folder instead.
-     *
-     * @see ImportExport::getOrCreateTemporaryFolderName()
      */
     public function setSaveFilesOutsideExportFile(bool $saveFilesOutsideExportFile): void
     {
         $this->saveFilesOutsideExportFile = $saveFilesOutsideExportFile;
-    }
-
-    public function isSaveFilesOutsideExportFile(): bool
-    {
-        return $this->saveFilesOutsideExportFile;
     }
 }

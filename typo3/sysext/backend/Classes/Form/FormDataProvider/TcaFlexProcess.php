@@ -18,6 +18,7 @@ namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 use TYPO3\CMS\Backend\Form\FormDataCompiler;
 use TYPO3\CMS\Backend\Form\FormDataGroup\FlexFormSegment;
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
+use TYPO3\CMS\Backend\Form\Utility\FormEngineUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -52,6 +53,7 @@ class TcaFlexProcess implements FormDataProviderInterface
             $pageTsConfigOfFlex = $this->getPageTsOfFlex($result, $fieldName, $simpleDataStructureIdentifier);
             $result = $this->modifyOuterDataStructure($result, $fieldName, $pageTsConfigOfFlex);
             $result = $this->removeExcludeFieldsFromDataStructure($result, $fieldName, $simpleDataStructureIdentifier);
+            $result = $this->mergeFieldDefinitionWithPageTsConfig($result, $fieldName, $pageTsConfigOfFlex);
             $result = $this->removeDisabledFieldsFromDataStructure($result, $fieldName, $pageTsConfigOfFlex);
             // A "normal" call opening a record: Process data structure and field values
             // This is called for "new" container ajax request too, since display conditions from section container
@@ -72,11 +74,9 @@ class TcaFlexProcess implements FormDataProviderInterface
      * If the data structure identifier is not type=tca based and if dataStructureKey is not as expected, fallback is "default"
      *
      * Example pi_flexform with ext:news in tt_content:
-     * * TCA config of pi_flexform ds_pointerfield is set to "list_type,CType"
-     * * list_type in databaseRow is "news_pi1"
-     * * CType in databaseRow is "list"
+     * * CType in databaseRow is "news_pi1"
      * * The resulting dataStructureIdentifier calculated by FlexFormTools is then:
-     *   {"type":"tca","tableName":"tt_content","fieldName":"pi_flexform","dataStructureKey":"news_pi1,list"}
+     *   {"type":"tca","tableName":"tt_content","fieldName":"pi_flexform","dataStructureKey":"news_pi1"}
      * * The resulting simpleDataStructureIdentifier is "news_pi1"
      * * The pageTsConfig base path used for flex field overrides is "TCEFORM.tt_content.pi_flexform.news_pi1", a full
      *   example path disabling a field: "TCEFORM.tt_content.pi_flexform.news_pi1.sDEF.settings\.orderBy.disabled = 1"
@@ -97,16 +97,22 @@ class TcaFlexProcess implements FormDataProviderInterface
      * more comments on this.
      * Another limitation is that the current syntax in both pageTsConfig and exclude fields does not
      * consider flex form section containers at all.
+     *
+     * @deprecated will be removed in TYPO3 v15
      */
     protected function getSimplifiedDataStructureIdentifier(string $dataStructureIdentifier): string
     {
         $identifierArray = json_decode($dataStructureIdentifier, true);
         $simpleDataStructureIdentifier = 'default';
-        if (isset($identifierArray['type']) && $identifierArray['type'] === 'tca' && isset($identifierArray['dataStructureKey'])) {
+        if (isset($identifierArray['type'], $identifierArray['dataStructureKey']) && $identifierArray['type'] === 'tca') {
             $explodedKey = explode(',', $identifierArray['dataStructureKey']);
-            if (!empty($explodedKey[1]) && $explodedKey[1] !== 'list' && $explodedKey[1] !== '*') {
+            if (!empty($explodedKey[1])) {
                 $simpleDataStructureIdentifier = $explodedKey[1];
-            } elseif (!empty($explodedKey[0]) && $explodedKey[0] !== 'list' && $explodedKey[0] !== '*') {
+                trigger_error(
+                    'Resolving the comma-separated dataStructureKey \'' . $identifierArray['dataStructureKey'] . '\' has been deprecated and will be removed in TYPO3 v15.',
+                    E_USER_DEPRECATED
+                );
+            } elseif (!empty($explodedKey[0])) {
                 $simpleDataStructureIdentifier = $explodedKey[0];
             }
         }
@@ -206,6 +212,32 @@ class TcaFlexProcess implements FormDataProviderInterface
             }
         }
 
+        return $result;
+    }
+
+    /**
+     * Merge fields of FlexForm TCA with config of pageTSConfig
+     *
+     * @param array $result Result array
+     * @param string $fieldName Current handle field name
+     * @param array $pageTsConfig Given pageTsConfig of this flex form
+     * @return array Modified item array
+     */
+    protected function mergeFieldDefinitionWithPageTsConfig(array $result, $fieldName, $pageTsConfig)
+    {
+        $dataStructure = $result['processedTca']['columns'][$fieldName]['config']['ds'];
+        foreach ($dataStructure['sheets'] ?? [] as $sheetName => $sheetDefinition) {
+            if (!isset($pageTsConfig[$sheetName . '.'])) {
+                continue;
+            }
+            foreach ($sheetDefinition['ROOT']['el'] ?? [] as $flexFieldName => $fieldDefinition) {
+                if (!isset($pageTsConfig[$sheetName . '.'][$flexFieldName . '.'])) {
+                    continue;
+                }
+                // Override fieldConf by fieldTSconfig:
+                $result['processedTca']['columns'][$fieldName]['config']['ds']['sheets'][$sheetName]['ROOT']['el'][$flexFieldName]['config'] = FormEngineUtility::overrideFieldConf($fieldDefinition['config'], $pageTsConfig[$sheetName . '.'][$flexFieldName . '.'] ?? []);
+            }
+        }
         return $result;
     }
 

@@ -11,9 +11,9 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, TemplateResult } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { customElement, state } from 'lit/decorators';
-import Modal, { ModalElement, Styles, Sizes } from '@typo3/backend/modal';
+import Modal, { type ModalElement, Styles, Sizes } from '@typo3/backend/modal';
 import { SeverityEnum } from './enum/severity';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Notification from '@typo3/backend/notification';
@@ -117,7 +117,7 @@ class LoginRefresh {
     this.timeoutModal.addEventListener('typo3-modal-hidden', () => this.timeoutModal = null);
     this.timeoutModal.addEventListener('show-login-form', () => {
       this.timeoutModal.hideModal();
-      this.showLoginForm()
+      this.showLoginForm();
     });
   }
 
@@ -383,7 +383,7 @@ class LoginRefresh {
       Notification.error(TYPO3.lang['mess.refresh_login_failed'], TYPO3.lang['mess.refresh_login_failed_message']);
       passwordField.focus();
     }
-  }
+  };
 
   /**
    * Periodically called task that checks if
@@ -449,7 +449,7 @@ export class SelfFillingProgressBarElement extends LitElement {
   private readonly max = 100;
   private intervalId: number;
 
-  public connectedCallback() {
+  public override connectedCallback(): void {
     super.connectedCallback();
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -457,7 +457,7 @@ export class SelfFillingProgressBarElement extends LitElement {
     this.intervalId = setInterval(this.advanceProgressBar, 300);
   }
 
-  public disconnectedCallback() {
+  public override disconnectedCallback(): void {
     super.disconnectedCallback();
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -465,14 +465,14 @@ export class SelfFillingProgressBarElement extends LitElement {
     }
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <typo3-backend-progress-bar value=${100 - this.current} max="100"></typo3-backend-progress-bar>
-    `
+    `;
   }
 
   private readonly advanceProgressBar = () => {
@@ -481,7 +481,7 @@ export class SelfFillingProgressBarElement extends LitElement {
     if (isOverdue) {
       this.dispatchEvent(new Event('progress-bar-overdue'));
     }
-  }
+  };
 }
 
 let loginRefreshObject;

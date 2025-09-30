@@ -3,13 +3,20 @@ import { expect } from '@open-wc/testing';
 
 interface FormEngineConfig {
   [x: string]: any;
+  field: string;
 }
 
 interface FormatValueData {
   description: string,
   type: string,
-  value: number|string,
+  value: string,
   result: string
+}
+
+interface FormatInvalidValueData {
+  description: string,
+  type: string,
+  value: number|string,
 }
 
 interface ProcessValueData {
@@ -59,103 +66,113 @@ function using(values: (() => Values)|Values, func: (...args: unknown[]) => void
 describe('TYPO3/CMS/Backend/FormEngineValidationTest:', () => {
   const formatValueDataProvider: Array<FormatValueData> = [
     {
-      'description': 'returns empty string with string 0',
-      'type': 'date',
-      'value': '0',
-      'result': ''
-    },
-    {
-      'description': 'returns date with int 0',
-      'type': 'date',
-      'value': 0,
-      'result': '1970-01-01T00:00:00Z'
-    },
-    {
-      'description': 'works for type date with timestamp',
-      'type': 'date',
-      'value': 10000000,
-      'result': '1970-04-26T17:46:40Z'
-    },
-    {
       'description': 'works for type date with iso date',
       'type': 'date',
-      'value': '2016-12-02T11:16:06Z',
-      'result': '2016-12-02T11:16:06Z'
+      'value': '2016-12-02T11:16:06',
+      'result': '2016-12-02T11:16:06'
     },
     {
       'description': 'works for type date with iso date with milliseconds',
       'type': 'date',
-      'value': '2016-12-02T11:16:06.000Z',
-      'result': '2016-12-02T11:16:06Z'
+      'value': '2016-12-02T11:16:06.000',
+      'result': '2016-12-02T11:16:06'
     },
     {
-      'description': 'returns empty string with non-iso date',
+      'description': 'works for type date with empty value',
       'type': 'date',
-      'value': 'foo',
+      'value': '',
       'result': ''
-    },
-    {
-      'description': 'works for type datetime',
-      'type': 'datetime',
-      'value': '0',
-      'result': ''
-    },
-    {
-      'description': 'works for type datetime with timestamp',
-      'type': 'datetime',
-      'value': 10000000,
-      'result': '1970-04-26T17:46:40Z'
     },
     {
       'description': 'works for type datetime with iso date',
       'type': 'datetime',
-      'value': '2016-12-02T11:16:06Z',
-      'result': '2016-12-02T11:16:06Z'
+      'value': '2016-12-02T11:16:06',
+      'result': '2016-12-02T11:16:06'
     },
     {
       'description': 'works for type datetime with iso date with milliseconds',
       'type': 'datetime',
-      'value': '2016-12-02T11:16:06.000Z',
-      'result': '2016-12-02T11:16:06Z'
+      'value': '2016-12-02T11:16:06.000',
+      'result': '2016-12-02T11:16:06'
     },
     {
-      'description': 'resolves to empty result for zero value',
+      'description': 'works for type datetime with empty value',
       'type': 'datetime',
-      'value': '0',
+      'value': '',
       'result': ''
-    },
-    {
-      'description': 'resolves to empty result for invalid value',
-      'type': 'datetime',
-      'value': 'invalid',
-      'result': ''
-    },
-    {
-      'description': 'works for type time',
-      'type': 'time',
-      'value': 0,
-      'result': '1970-01-01T00:00:00Z'
-    },
-    {
-      'description': 'works for type time with timestamp',
-      'type': 'time',
-      'value': 10000000,
-      'result': '1970-04-26T17:46:40Z'
     },
     {
       'description': 'works for type time with iso date',
       'type': 'time',
-      'value': '2016-12-02T11:16:06.000Z',
-      'result': '2016-12-02T11:16:06Z'
-    }
+      'value': '2016-12-02T11:16:06',
+      'result': '2016-12-02T11:16:06'
+    },
+    {
+      'description': 'works for type time with empty value',
+      'type': 'time',
+      'value': '',
+      'result': ''
+    },
+    {
+      'description': 'works for type timesec with iso date',
+      'type': 'timesec',
+      'value': '2016-12-02T11:16:06',
+      'result': '2016-12-02T11:16:06'
+    },
+    {
+      'description': 'works for type timesec with empty value',
+      'type': 'timesec',
+      'value': '',
+      'result': ''
+    },
   ];
 
   describe('tests for formatValue', () => {
     using(formatValueDataProvider, function(testCase: FormatValueData) {
       it(testCase.description, () => {
-        FormEngineValidation.initialize(document.createElement('form'));
         const result = FormEngineValidation.formatValue(testCase.type, testCase.value);
         expect(result).to.equal(testCase.result);
+      });
+    });
+  });
+
+  const formatInvalidValueDataProvider: Array<FormatInvalidValueData> = [
+    {
+      'description': 'throws error with int 0',
+      'type': 'date',
+      'value': 0,
+    },
+    {
+      'description': 'throws error for type date with timestamp',
+      'type': 'date',
+      'value': 10000000,
+    },
+    {
+      'description': 'throws error with non-iso date',
+      'type': 'date',
+      'value': 'foo',
+    },
+    {
+      'description': 'throws error for type datetime with timestamp',
+      'type': 'datetime',
+      'value': 10000000,
+    },
+    {
+      'description': 'throws error for invalid value',
+      'type': 'datetime',
+      'value': 'invalid',
+    },
+    {
+      'description': 'throws error for type time with timestamp',
+      'type': 'time',
+      'value': 10000000,
+    },
+  ];
+
+  describe('tests for invalid value to formatValue', () => {
+    using(formatInvalidValueDataProvider, function(testCase: FormatInvalidValueData) {
+      it(testCase.description, () => {
+        expect(() => FormEngineValidation.formatValue(testCase.type, testCase.value)).to.throw();
       });
     });
   });
@@ -165,29 +182,36 @@ describe('TYPO3/CMS/Backend/FormEngineValidationTest:', () => {
       'description': 'works for command alpha with numeric value',
       'command': 'alpha',
       'value': '1234',
-      'config': {},
+      'config': { 'field': 'foo' },
       'result': ''
     },
     {
       'description': 'works for command alpha with string value',
       'command': 'alpha',
       'value': 'abc',
-      'config': {},
+      'config': { 'field': 'foo' },
       'result': 'abc'
     },
     {
       'description': 'works for command alpha with alphanum input',
       'command': 'alpha',
       'value': 'abc123',
-      'config': {},
+      'config': { 'field': 'foo' },
       'result': 'abc'
     },
     {
       'description': 'works for command alpha with alphanum input',
       'command': 'alpha',
       'value': '123abc123',
-      'config': {},
+      'config': { 'field': 'foo' },
       'result': 'abc'
+    },
+    {
+      'description': 'works for command integer with numeric value',
+      'command': 'integer',
+      'value': '1234',
+      'config': { 'field': 'foo' },
+      'result': '1234'
     }
   ];
 

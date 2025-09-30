@@ -150,13 +150,13 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
             'processedTca' => [
                 'columns' => [
                     'field_1' => [
-                        'displayCond' => 'FIELD:fieldName:foo',
+                        'displayCond' => 'FIELD:fieldName:foo:bar',
                     ],
                 ],
             ],
         ];
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionCode(1481386239);
+        $this->expectExceptionCode(1745918372);
         (new EvaluateDisplayConditions())->addData($input);
     }
 
@@ -3794,7 +3794,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
 
         $backendUserMock = $this->createMock(BackendUserAuthentication::class);
         $GLOBALS['BE_USER'] = $backendUserMock;
-        $backendUserMock->expects(self::atLeastOnce())->method('isAdmin')->willReturn(true);
+        $backendUserMock->expects($this->atLeastOnce())->method('isAdmin')->willReturn(true);
 
         $expected = $input;
         unset($expected['processedTca']['columns']['aField']['displayCond']);
@@ -3821,7 +3821,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
 
         $backendUserMock = $this->createMock(BackendUserAuthentication::class);
         $GLOBALS['BE_USER'] = $backendUserMock;
-        $backendUserMock->expects(self::atLeastOnce())->method('isAdmin')->willReturn(false);
+        $backendUserMock->expects($this->atLeastOnce())->method('isAdmin')->willReturn(false);
 
         $expected = $input;
         unset($expected['processedTca']['columns']['aField']);

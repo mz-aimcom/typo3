@@ -17,42 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\ViewHelpers\Format;
 
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic;
-
 /**
- * Applies :php:`html_entity_decode()` to a value.
- * See https://www.php.net/html_entity_decode.
+ * ViewHelper to apply `html_entity_decode()` to a value,
+ * transforming HTML entity representations back into HTML special characters
+ * (like `&quot;` to `"`).
  *
- * Examples
- * ========
+ * ```
+ *   <f:format.htmlentitiesDecode>{textWithEntities}</f:format.htmlentitiesDecode>
+ * ```
  *
- * Default notation
- * ----------------
- *
- * ::
- *
- *    <f:format.htmlentitiesDecode>{text}</f:format.htmlentitiesDecode>
- *
- * Text containing the following escaped signs: ``&amp;`` ``&quot;`` ``&#039;`` ``&lt;`` ``&gt;``, will be processed by :php:`html_entity_decode()`.
- * These will result in: ``&`` ``"`` ``'`` ``<`` ``>``.
- *
- * Inline notation
- * ---------------
- *
- * ::
- *
- *    {text -> f:format.htmlentitiesDecode(encoding: 'ISO-8859-1')}
- *
- * Text containing the following escaped signs: ``&amp;`` ``&quot;`` ``&#039;`` ``&lt;`` ``&gt;``, will be processed by :php:`html_entity_decode()`.
- * These will result in: ``&`` ``"`` ``'`` ``<`` ``>``.
- *
- * But encoded as ISO-8859-1.
+ * @see https://www.php.net/html_entity_decode
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-format-htmlentitiesdecode
  */
 final class HtmlentitiesDecodeViewHelper extends AbstractEncodingViewHelper
 {
-    use CompileWithContentArgumentAndRenderStatic;
-
     /**
      * We accept value and children interchangeably, thus we must disable children escaping.
      *
@@ -79,14 +57,12 @@ final class HtmlentitiesDecodeViewHelper extends AbstractEncodingViewHelper
      * Converts all HTML entities to their applicable characters as needed using PHPs html_entity_decode() function.
      *
      * @see https://www.php.net/html_entity_decode
-     * @return mixed
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext)
+    public function render(): mixed
     {
-        $value = $renderChildrenClosure();
-        $encoding = $arguments['encoding'];
-        $keepQuotes = $arguments['keepQuotes'];
-
+        $value = $this->renderChildren();
+        $encoding = $this->arguments['encoding'];
+        $keepQuotes = $this->arguments['keepQuotes'];
         if (!is_string($value) && !(is_object($value) && method_exists($value, '__toString'))) {
             return $value;
         }
@@ -100,7 +76,7 @@ final class HtmlentitiesDecodeViewHelper extends AbstractEncodingViewHelper
     /**
      * Explicitly set argument name to be used as content.
      */
-    public function resolveContentArgumentName(): string
+    public function getContentArgumentName(): string
     {
         return 'value';
     }

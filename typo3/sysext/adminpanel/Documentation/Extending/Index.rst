@@ -1,6 +1,6 @@
 .. include:: /Includes.rst.txt
 
-.. _extending:
+..  _extending:
 
 =========================
 Extending the Admin Panel
@@ -8,6 +8,8 @@ Extending the Admin Panel
 
 Extension authors can write their own modules or add submodules to existing
 modules.
+
+..  _extending-modules:
 
 Creating additional modules
 ===========================
@@ -21,6 +23,8 @@ An admin panel module commonly has:
 *  Settings that influence page rendering or page display
 *  Methods to provide custom CSS and JavaScript files
 *  Submodules
+
+..  _extending-panel-module:
 
 To create your own Admin Panel module
 =====================================
@@ -58,8 +62,12 @@ editing the page) but do not provide further content.
 If you want to display additional content in the Admin Panel (like rendering
 times or backtraces), you have to add a submodule to your main module.
 
+..  _extending-settings:
+
 Adding settings
 ===============
+
+..  _extending-page-settings:
 
 Page settings
 -------------
@@ -69,12 +77,16 @@ Page settings, like "Preview" or "Cache", are accessible via the "Settings" sect
 To provide custom page settings, your main module needs to implement the `\TYPO3\CMS\Adminpanel\ModuleApi\PageSettingsProviderInterface` interface.
 The corresponding method `getPageSettings()` returns rendered HTML form elements (but without the form tag).
 
+..  _extending-page-settings-example:
+
 Examples
 ~~~~~~~~
 
 * `\TYPO3\CMS\Adminpanel\Modules\CacheModule`
 * `\TYPO3\CMS\Adminpanel\Modules\PreviewModule`
 
+
+..  _extending-module-settings:
 
 Module settings
 ---------------
@@ -84,6 +96,8 @@ Module settings are accessible via the cogwheel-button in the opened module.
 To provide settings, your submodule needs to implement the `\TYPO3\CMS\Adminpanel\ModuleApi\ModuleSettingsProviderInterface` interface.
 The respective method `getSettings()` returns rendered HTML form elements (but without the form tag).
 
+..  _extending-module-settings-examples:
+
 Examples
 ~~~~~~~~
 
@@ -91,6 +105,7 @@ Examples
 * `\TYPO3\CMS\Adminpanel\Modules\TsDebug\TypoScriptWaterfall`
 
 
+..  _extending-submodule-settings:
 
 Adding a sub-module
 ===================
@@ -136,6 +151,8 @@ add your submodule, and `submodulename` is the identifier of your sub module.
 This way, you can also register new custom sub modules to existing main
 modules.
 
+..  _extending-examples:
+
 Examples
 ========
 
@@ -145,5 +162,5 @@ Admin Panel extension. Short ones for a quick look are:
 *  `adminpanel/Classes/Modules/Info/PhpInformation.php` (Submodule)
 *  `adminpanel/Classes/Modules/InfoModule.php` (Main module, serves as
    submodule wrapper only)
-*  `adminpanel/Classes/Modules/EditModule.php` (Main module, custom rendering
+*  `adminpanel/Classes/Modules/CacheModule.php` (Main module, custom rendering
    settings)

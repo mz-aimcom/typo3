@@ -76,6 +76,46 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
+    public function modifyContentWithTranslations(): void
+    {
+        parent::modifyContentWithTranslations();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThird);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyContentWithTranslations.csv');
+    }
+
+    #[Test]
+    public function modifySoftDeletedContent(): void
+    {
+        parent::modifySoftDeletedContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdSecond);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifySoftDeletedContent.csv');
+    }
+
+    #[Test]
+    public function modifyTranslatedContent(): void
+    {
+        parent::modifyTranslatedContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThirdLocalized);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContent.csv');
+    }
+
+    #[Test]
+    public function modifyTranslatedContentThenModifyDefaultLanguageContent(): void
+    {
+        parent::modifyTranslatedContentThenModifyDefaultLanguageContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThirdLocalized);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContentThenModifyDefaultLanguageContent.csv');
+    }
+
+    #[Test]
+    public function modifyTranslatedContentThenMoveDefaultLanguageContent(): void
+    {
+        parent::modifyTranslatedContentThenMoveDefaultLanguageContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThirdLocalized);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedContentThenMoveDefaultLanguageContent.csv');
+    }
+
+    #[Test]
     public function hideContent(): void
     {
         parent::hideContent();
@@ -89,22 +129,6 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         parent::hideContentAndMoveToDifferentPage();
         $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdSecond);
         $this->assertCSVDataSet(__DIR__ . '/DataSet/hideContentAndMoveToDifferentPage.csv');
-    }
-
-    #[Test]
-    public function deleteContent(): void
-    {
-        parent::deleteContent();
-        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdSecond);
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContent.csv');
-    }
-
-    #[Test]
-    public function deleteLocalizedContentAndDeleteContent(): void
-    {
-        parent::deleteLocalizedContentAndDeleteContent();
-        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThird);
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteLocalizedContentNDeleteContent.csv');
     }
 
     #[Test]
@@ -172,6 +196,16 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
+    public function localizeContentWithLocalizationExclude(): void
+    {
+        parent::localizeContentWithLocalizationExclude();
+        // @todo: currently two records are created, and need to be discarded separately
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, $this->recordIds['localizedContentId']);
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, $this->recordIds['localizedContentId'] + 1);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeContentWExclude.csv');
+    }
+
+    #[Test]
     public function localizeContentFromNonDefaultLanguage(): void
     {
         parent::localizeContentFromNonDefaultLanguage();
@@ -196,16 +230,6 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
-    public function changeContentSortingAndDeleteMovedRecord(): void
-    {
-        parent::changeContentSortingAndDeleteMovedRecord();
-        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdFirst);
-        // Note the deleted=1 records are NOT discarded. This is ok since deleted=1 means "not seen in backend",
-        // so it is also ignored by the discard operation.
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/changeContentSortingNDeleteMovedRecord.csv');
-    }
-
-    #[Test]
     public function changeContentSortingAndDeleteLiveRecord(): void
     {
         parent::changeContentSortingAndDeleteLiveRecord();
@@ -221,6 +245,96 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         parent::moveContentToDifferentPage();
         $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdSecond);
         $this->assertCSVDataSet(__DIR__ . '/DataSet/moveContentToDifferentPage.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeFallback(): void
+    {
+        // Inherit site configuration from setUp(): DA fallback to EN
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeFallback.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeFree(): void
+    {
+        // Set up "danish" to not have overlays: "free" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/', [], 'free'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeFree.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageIntoSiteModeStrict(): void
+    {
+        // Set up "danish" to "strict" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageInto();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageIntoSiteModeStrict.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeFallback(): void
+    {
+        // Inherit site configuration from setUp(): DA fallback to EN
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeFallback.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeFree(): void
+    {
+        // Set up "danish" to not have overlays: "free" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/', [], 'free'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeFree.csv');
+    }
+
+    #[Test]
+    public function moveLanguageAllContentToDifferentPageAfterSiteModeStrict(): void
+    {
+        // Set up "danish" to "strict" mode
+        $this->writeSiteConfiguration(
+            'test',
+            $this->buildSiteConfiguration(1, '/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', '/'),
+                $this->buildLanguageConfiguration('DA', '/da/'),
+                $this->buildLanguageConfiguration('DE', '/de/', ['DA', 'EN']),
+            ]
+        );
+        parent::moveLanguageAllContentToDifferentPageAfter();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentLanguageAll);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/moveLanguageAllContentToDifferentPageAfterSiteModeStrict.csv');
     }
 
     #[Test]
@@ -309,19 +423,19 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
     }
 
     #[Test]
-    public function deletePage(): void
+    public function modifyTranslatedPage(): void
     {
-        parent::deletePage();
-        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, self::VALUE_PageId);
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePage.csv');
+        parent::modifyTranslatedPage();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, 91);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedPage.csv');
     }
 
     #[Test]
-    public function deleteContentAndPage(): void
+    public function modifyTranslatedPageThenModifyPage(): void
     {
-        parent::deleteContentAndPage();
-        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, self::VALUE_PageId);
-        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentAndPage.csv');
+        parent::modifyTranslatedPageThenModifyPage();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, 91);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyTranslatedPageThenModifyPage.csv');
     }
 
     #[Test]
@@ -330,6 +444,16 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         parent::copyPage();
         $this->actionService->clearWorkspaceRecord(self::TABLE_Page, $this->recordIds['newPageId']);
         $this->assertCSVDataSet(__DIR__ . '/DataSet/copyPage.csv');
+    }
+
+    #[Test]
+    public function copyPageRecursively(): void
+    {
+        parent::copyPageRecursively();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, $this->recordIds['newPageId']);
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, $this->recordIds['localizedPageId1']);
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, $this->recordIds['localizedPageId2']);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/copyPageRecursively.csv');
     }
 
     #[Test]
@@ -479,5 +603,53 @@ final class ActionTest extends AbstractActionWorkspacesTestCase
         $this->setWorkspaceId(self::VALUE_WorkspaceId);
 
         $this->assertCSVDataSet(__DIR__ . '/DataSet/deletingDefaultLanguageElementDiscardsConnectedLocalizedElementChain.csv');
+    }
+
+    #[Test]
+    public function deleteContent(): void
+    {
+        parent::deleteContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdSecond);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContent.csv');
+    }
+
+    #[Test]
+    public function deleteLocalizedContentAndDeleteContent(): void
+    {
+        parent::deleteLocalizedContentAndDeleteContent();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdThird);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteLocalizedContentNDeleteContent.csv');
+    }
+
+    #[Test]
+    public function deleteContentAndPage(): void
+    {
+        parent::deleteContentAndPage();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, self::VALUE_PageId);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteContentAndPage.csv');
+    }
+
+    #[Test]
+    public function deletePage(): void
+    {
+        parent::deletePage();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Page, self::VALUE_PageId);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePage.csv');
+    }
+
+    #[Test]
+    public function deleteMovedContentByLiveUid(): void
+    {
+        parent::deleteMovedContentByLiveUid();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdFirst);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteMovedContentByLiveUid.csv');
+    }
+
+    #[Test]
+    public function deleteMovedContentByDraftUid(): void
+    {
+        parent::deleteMovedContentByDraftUid();
+        $this->actionService->clearWorkspaceRecord(self::TABLE_Content, self::VALUE_ContentIdFirst);
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteMovedContentByDraftUid.csv');
     }
 }

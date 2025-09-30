@@ -14,5 +14,5 @@ ExtensionUtility::configurePlugin(
     // non-cacheable actions
     [
         MainController::class => ['list'],
-    ]
+    ],
 );

@@ -17,14 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\ViewHelpers;
 
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Error\Error;
 use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
 use TYPO3\CMS\Form\Service\TranslationService;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
  * Translate form element properties.
@@ -33,7 +30,9 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
  */
 final class TranslateElementErrorViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
+    public function __construct(
+        private readonly TranslationService $translationService
+    ) {}
 
     public function initializeArguments(): void
     {
@@ -41,17 +40,15 @@ final class TranslateElementErrorViewHelper extends AbstractViewHelper
         $this->registerArgument('error', Error::class, 'Error', true);
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $element = $arguments['element'];
-        $error = $arguments['error'];
-
+        $element = $this->arguments['element'];
+        $error = $this->arguments['error'];
         /** @var FormRuntime $formRuntime */
-        $formRuntime = $renderingContext
+        $formRuntime = $this->renderingContext
             ->getViewHelperVariableContainer()
             ->get(RenderRenderableViewHelper::class, 'formRuntime');
-
-        return GeneralUtility::makeInstance(TranslationService::class)->translateFormElementError(
+        return $this->translationService->translateFormElementError(
             $element,
             $error->getCode(),
             $error->getArguments(),

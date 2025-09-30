@@ -16,10 +16,6 @@ return [
                 'EXT:backend/Resources/Public/JavaScript/Contrib/',
             ],
         ],
-        '@typo3/t3editor/' => [
-            // @deprecated since TYPO3 v13, will be removed in TYPO3 v14
-            'path' => 'EXT:backend/Resources/Public/JavaScript/code-editor/',
-        ],
         'crelt' => 'EXT:backend/Resources/Public/JavaScript/Contrib/crelt.js',
         'style-mod' => 'EXT:backend/Resources/Public/JavaScript/Contrib/style-mod.js',
         'w3c-keyname' => 'EXT:backend/Resources/Public/JavaScript/Contrib/w3c-keyname.js',
@@ -59,7 +55,9 @@ return [
         '@codemirror/tooltip' => 'EXT:backend/Resources/Public/JavaScript/Contrib/@codemirror/tooltip.js',
         '@codemirror/theme-one-dark' => 'EXT:backend/Resources/Public/JavaScript/Contrib/@codemirror/theme-one-dark.js',
         '@codemirror/view' => 'EXT:backend/Resources/Public/JavaScript/Contrib/@codemirror/view.js',
-        '@typo3/backend/contrib/mark.js' => 'EXT:backend/Resources/Public/JavaScript/Contrib/mark.js',
+        'mark.js' => 'EXT:backend/Resources/Public/JavaScript/Contrib/markjs.js',
+        // legacy, please use "mark.js" instead
+        '@typo3/backend/contrib/mark.js' => 'EXT:backend/Resources/Public/JavaScript/Contrib/markjs.js',
         'alwan' => 'EXT:backend/Resources/Public/JavaScript/Contrib/alwan.js',
         'lodash-es' => 'EXT:backend/Resources/Public/JavaScript/Contrib/lodash-es.js',
         'select-pure' => 'EXT:backend/Resources/Public/JavaScript/Contrib/select-pure.js',

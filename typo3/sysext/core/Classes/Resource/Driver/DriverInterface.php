@@ -73,11 +73,9 @@ interface DriverInterface
      * Cleans a fileName from not allowed characters
      *
      * @param non-empty-string $fileName
-     * @param string $charset Charset of the a fileName
-     *                        (defaults to current charset; depending on context)
      * @return non-empty-string the sanitized filename
      */
-    public function sanitizeFileName(string $fileName, string $charset = ''): string;
+    public function sanitizeFileName(string $fileName): string;
 
     /**
      * Hashes a file identifier, taking the case sensitivity of the file system
@@ -340,7 +338,7 @@ interface DriverInterface
      *
      * Hint: this also needs to return TRUE if the given identifier
      * matches the container identifier to allow access to the root
-     * folder of a filemount.
+     * folder of a file mount.
      *
      * @param non-empty-string $folderIdentifier
      * @param non-empty-string $identifier identifier to be checked against $folderIdentifier

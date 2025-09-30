@@ -38,6 +38,8 @@ use TYPO3\CMS\Core\Database\Platform\PlatformHelper;
 use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\DateFormatter;
@@ -47,6 +49,11 @@ use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageRendererResolver;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\Capability\LabelCapability;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\CsvUtility;
@@ -225,6 +232,9 @@ class DatabaseIntegrityController
         protected readonly UriBuilder $uriBuilder,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly PlatformHelper $platformHelper,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly FlashMessageRendererResolver $flashMessageRendererResolver,
+        protected readonly PageDoktypeRegistry $pageDoktypeRegistry,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -243,9 +253,6 @@ class DatabaseIntegrityController
             case 'records':
                 $moduleTemplate->setTitle($title, $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:recordStatistics'));
                 return $this->recordStatisticsAction($moduleTemplate, $request);
-            case 'relations':
-                $moduleTemplate->setTitle($title, $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:databaseRelations'));
-                return $this->relationsAction($moduleTemplate);
             default:
                 $moduleTemplate->setTitle($title, $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:manageRefIndex'));
                 return $this->referenceIndexAction($moduleTemplate, $request);
@@ -267,14 +274,13 @@ class DatabaseIntegrityController
         // Values NOT in this array will not be saved in the settings-array for the module.
         $this->MOD_MENU = [
             'function' => [
-                'refindex' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:manageRefIndex')),
-                'records' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:recordStatistics')),
-                'relations' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:databaseRelations')),
-                'search' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch')),
+                'refindex' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:manageRefIndex'),
+                'records' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:recordStatistics'),
+                'search' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch'),
             ],
             'search' => [
-                'raw' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:rawSearch')),
-                'query' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:advancedQuery')),
+                'raw' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:rawSearch'),
+                'query' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:advancedQuery'),
             ],
             'search_query_smallparts' => '',
             'search_result_labels' => '',
@@ -304,10 +310,10 @@ class DatabaseIntegrityController
             'storeQueryConfigs' => '',
             // Used to store the available Query configs in memory
             'search_query_makeQuery' => [
-                'all' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:selectRecords')),
-                'count' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:countResults')),
-                'explain' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:explainQuery')),
-                'csv' => htmlspecialchars($lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:csvExport')),
+                'all' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:selectRecords'),
+                'count' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:countResults'),
+                'explain' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:explainQuery'),
+                'csv' => $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:csvExport'),
             ],
             'sword' => '',
         ];
@@ -446,7 +452,7 @@ class DatabaseIntegrityController
             $queryOptions .= '<div class="form-row">';
             $queryOptions .=   '<div class="form-group">';
             $queryOptions .=     '<fieldset>';
-            $queryOptions .=       '<legend class="form-legend">' . $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.section.queryOptions') . '</legend>';
+            $queryOptions .=       '<legend class="form-label">' . $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.section.queryOptions') . '</legend>';
             $queryOptions .=       '<div class="form-check form-switch form-check-size-input">' . $this->getFuncCheck('SET[search_query_smallparts]', $this->MOD_SETTINGS['search_query_smallparts'] ?? '', $request, 'id="checkSearch_query_smallparts"')
                 . '<label class="form-check-label" for="checkSearch_query_smallparts">' . $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:showSQL') . '</label></div>';
             $queryOptions .=       '<div class="form-check form-switch form-check-size-input">' . $this->getFuncCheck('SET[search_result_labels]', $this->MOD_SETTINGS['search_result_labels'] ?? '', $request, 'id="checkSearch_result_labels"')
@@ -503,15 +509,13 @@ class DatabaseIntegrityController
         $this->init('queryConfig', $this->MOD_SETTINGS['queryTable'] ?? '', '', $this->MOD_SETTINGS);
 
         $output .=  '<h2>' . $lang->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.section.querySettings') . '</h2>';
-        $output .= '<div class="task-form">';
         $output .=   '<fieldset class="form-section">';
         $output .=     $this->makeSelectorTable($this->MOD_SETTINGS, $request);
         $output .=   '</fieldset>';
-        $output .= '</div>';
         $mQ = $this->MOD_SETTINGS['search_query_makeQuery'] ?? '';
 
         // Make form elements:
-        if ($this->table && is_array($GLOBALS['TCA'][$this->table])) {
+        if ($this->table && $this->tcaSchemaFactory->has($this->table)) {
             if ($mQ) {
                 // Show query
                 $this->enablePrefix = true;
@@ -586,7 +590,11 @@ class DatabaseIntegrityController
         if (empty($this->MOD_SETTINGS['show_deleted'])) {
             $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
         }
-        $deleteField = $GLOBALS['TCA'][$this->table]['ctrl']['delete'] ?? '';
+        $deleteField = '';
+        $schema = $this->tcaSchemaFactory->get($this->table);
+        if ($schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+            $deleteField = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
+        }
         $fieldList = GeneralUtility::trimExplode(
             ',',
             $this->extFieldLists['queryFields']
@@ -723,12 +731,12 @@ class DatabaseIntegrityController
                 $rowArr = [];
                 $dataRow = null;
                 foreach ($dataRows as $dataRow) {
-                    $rowArr[] = $this->resultRowDisplay($dataRow, $GLOBALS['TCA'][$table], $table, $request);
+                    $rowArr[] = $this->resultRowDisplay($dataRow, $table, $request);
                 }
                 if (!empty($rowArr)) {
                     $out .= '<div class="table-fit">';
                     $out .= '<table class="table table-striped table-hover">';
-                    $out .= $this->resultRowTitles((array)$dataRow, $GLOBALS['TCA'][$table]) . implode(LF, $rowArr);
+                    $out .= $this->resultRowTitles((array)$dataRow, $table) . implode(LF, $rowArr);
                     $out .= '</table>';
                     $out .= '</div>';
                 } else {
@@ -746,7 +754,7 @@ class DatabaseIntegrityController
                         $rowArr[] = $this->csvValues(array_keys($dataRow));
                         $first = 0;
                     }
-                    $rowArr[] = $this->csvValues($dataRow, ',', '"', $GLOBALS['TCA'][$table], $table);
+                    $rowArr[] = $this->csvValues($dataRow, $table);
                 }
                 if (!empty($rowArr)) {
                     $out .= '<div class="form-group">';
@@ -787,28 +795,29 @@ class DatabaseIntegrityController
         return $cPR;
     }
 
-    protected function csvValues(array $row, string $delim = ',', string $quote = '"', array $conf = [], string $table = ''): string
+    protected function csvValues(array $row, string $table = ''): string
     {
         $valueArray = $row;
         if (($this->MOD_SETTINGS['search_result_labels'] ?? false) && $table) {
             foreach ($valueArray as $key => $val) {
-                $valueArray[$key] = $this->getProcessedValueExtra($table, $key, (string)$val, $conf, ';');
+                $valueArray[$key] = $this->getProcessedValueExtra($table, $key, (string)$val, ';');
             }
         }
 
-        return CsvUtility::csvValues($valueArray, $delim, $quote);
+        return CsvUtility::csvValues($valueArray);
     }
 
     /**
      * @param array|null $row Table columns
      */
-    protected function resultRowTitles(?array $row, array $conf): string
+    protected function resultRowTitles(?array $row, string $table): string
     {
         $languageService = $this->getLanguageService();
         $tableHeader = [];
         // Start header row
         $tableHeader[] = '<thead><tr>';
         // Iterate over given columns
+        $schema = $this->tcaSchemaFactory->get($table);
         foreach ($row ?? [] as $fieldName => $fieldValue) {
             if (GeneralUtility::inList($this->MOD_SETTINGS['queryFields'] ?? '', $fieldName)
                 || !($this->MOD_SETTINGS['queryFields'] ?? false)
@@ -816,7 +825,13 @@ class DatabaseIntegrityController
                 && $fieldName !== 'deleted'
             ) {
                 if ($this->MOD_SETTINGS['search_result_labels'] ?? false) {
-                    $title = $languageService->sL(($conf['columns'][$fieldName]['label'] ?? false) ?: $fieldName);
+                    $title  = null;
+                    // Note: "uid" is not part of the regular schema definition. In this case we fallback to the $fieldName.
+                    if ($schema->hasField($fieldName)) {
+                        $title = $schema->getField($fieldName)->getLabel();
+                        $title = $languageService->sL($title);
+                    }
+                    $title = $title ?: $fieldName;
                 } else {
                     $title = $languageService->sL($fieldName);
                 }
@@ -831,7 +846,7 @@ class DatabaseIntegrityController
         return implode(LF, $tableHeader);
     }
 
-    protected function resultRowDisplay(array $row, array $conf, string $table, ServerRequestInterface $request): string
+    protected function resultRowDisplay(array $row, string $table, ServerRequestInterface $request): string
     {
         $languageService = $this->getLanguageService();
         $out = '<tr>';
@@ -842,7 +857,7 @@ class DatabaseIntegrityController
                 && $fieldName !== 'deleted'
             ) {
                 if ($this->MOD_SETTINGS['search_result_labels'] ?? false) {
-                    $fVnew = $this->getProcessedValueExtra($table, $fieldName, (string)$fieldValue, $conf, '<br>');
+                    $fVnew = $this->getProcessedValueExtra($table, $fieldName, (string)$fieldValue, '<br>');
                 } else {
                     $fVnew = htmlspecialchars((string)$fieldValue);
                 }
@@ -866,7 +881,6 @@ class DatabaseIntegrityController
                 . ' title="' . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:edit')) . '">'
                 . $this->iconFactory->getIcon('actions-open', IconSize::SMALL)->render()
                 . '</a>';
-            $out .= '<div class="btn-group" role="group">' . $editAction . '</div>';
 
             // "Info"
             $infoActionTitle = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:showInfo'));
@@ -876,7 +890,8 @@ class DatabaseIntegrityController
                 htmlspecialchars($table . ',' . $row['uid']),
                 $this->iconFactory->getIcon('actions-document-info', IconSize::SMALL)->render()
             );
-            $out .= '<div class="btn-group" role="group">' . $infoAction . '</div>';
+
+            $out .= '<div class="btn-group" role="group">' . $editAction . $infoAction . '</div>';
         } else {
             $undeleteActionUrl = (string)$this->uriBuilder->buildUriFromRoute('tce_db', [
                 'cmd' => [
@@ -899,7 +914,7 @@ class DatabaseIntegrityController
         return $out;
     }
 
-    protected function getProcessedValueExtra(string $table, string $fieldName, string $fieldValue, array $conf, string $splitString): string
+    protected function getProcessedValueExtra(string $table, string $fieldName, string $fieldValue, string $splitString): string
     {
         $out = '';
         $fields = [];
@@ -910,19 +925,29 @@ class DatabaseIntegrityController
             $locale = new Locale();
         }
         // Analysing the fields in the table.
-        if (is_array($GLOBALS['TCA'][$table] ?? null)) {
-            $fC = $GLOBALS['TCA'][$table]['columns'][$fieldName] ?? null;
-            $fields = $fC['config'] ?? [];
-            $fields['exclude'] = $fC['exclude'] ?? '';
-            if (is_array($fC) && ($fC['label'] ?? false)) {
-                $fields['label'] = preg_replace('/:$/', '', trim($this->getLanguageService()->sL($fC['label'])));
+        if ($this->tcaSchemaFactory->has($table)) {
+            $schema = $this->tcaSchemaFactory->get($table);
+
+            if (!$schema->hasField($fieldName)) {
+                // happens for "uid", "pid", ... fields
+                // We can shortcut this for these fields and jump
+                // straight to the fallback case of an undefined fieldLabel.
+                // @todo: Again, this is so wrong.
+                $fieldLabel = null;
+            } else {
+                $fieldType = $schema->getField($fieldName);
+                $fieldLabel = $fieldType->getLabel();
+                $fields = $fieldType->getConfiguration();
+                $fields['exclude'] = $fields['exclude'] ?? false;
+                if ($fieldLabel) {
+                    $fields['label'] = preg_replace('/:$/', '', trim($this->getLanguageService()->sL($fieldType->getLabel())));
+                }
+            }
+
+            if ($fieldLabel) {
                 switch ($fields['type']) {
                     case 'input':
-                        if (GeneralUtility::inList($fields['eval'] ?? '', 'year')) {
-                            $fields['type'] = 'number';
-                        } else {
-                            $fields['type'] = 'text';
-                        }
+                        $fields['type'] = 'text';
                         break;
                     case 'number':
                         // Empty on purpose, we have to keep the type "number".
@@ -971,6 +996,7 @@ class DatabaseIntegrityController
                     case 'color':
                     case 'json':
                     case 'uuid':
+                    case 'country':
                     default:
                         $fields['type'] = 'text';
                 }
@@ -1098,8 +1124,8 @@ class DatabaseIntegrityController
                 $from_table_Arr[0] = $fieldSetup['foreign_table'];
             }
             $counter = 0;
-            $useSelectLabels = 0;
-            $useAltSelectLabels = 0;
+            $useSelectLabels = false;
+            $useAltSelectLabels = false;
             $tablePrefix = '';
             $labelFieldSelect = [];
             foreach ($from_table_Arr as $from_table) {
@@ -1107,101 +1133,114 @@ class DatabaseIntegrityController
                     $tablePrefix = $from_table . '_';
                 }
                 $counter = 1;
-                if (is_array($GLOBALS['TCA'][$from_table] ?? null)) {
-                    $labelField = $GLOBALS['TCA'][$from_table]['ctrl']['label'] ?? '';
-                    $altLabelField = $GLOBALS['TCA'][$from_table]['ctrl']['label_alt'] ?? '';
-                    if (is_array($GLOBALS['TCA'][$from_table]['columns'][$labelField]['config']['items'] ?? false)) {
-                        $items = $GLOBALS['TCA'][$from_table]['columns'][$labelField]['config']['items'];
-                        foreach ($items as $labelArray) {
-                            $labelFieldSelect[$labelArray['value']] = $languageService->sL($labelArray['label']);
-                        }
-                        $useSelectLabels = 1;
-                    }
-                    $altLabelFieldSelect = [];
-                    if (is_array($GLOBALS['TCA'][$from_table]['columns'][$altLabelField]['config']['items'] ?? false)) {
-                        $items = $GLOBALS['TCA'][$from_table]['columns'][$altLabelField]['config']['items'];
-                        foreach ($items as $altLabelArray) {
-                            $altLabelFieldSelect[$altLabelArray['value']] = $languageService->sL($altLabelArray['label']);
-                        }
-                        $useAltSelectLabels = 1;
-                    }
+                if (!$this->tcaSchemaFactory->has($from_table)) {
+                    continue;
+                }
+                $selectFields = ['uid'];
+                $schema = $this->tcaSchemaFactory->get($from_table);
+                $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+                $labelFieldName = null;
+                $altLabelFieldName = null;
 
-                    if (empty($this->tableArray[$from_table])) {
-                        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($from_table);
-                        $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-                        $selectFields = ['uid', $labelField];
-                        if ($altLabelField) {
-                            $selectFields = array_merge($selectFields, GeneralUtility::trimExplode(',', $altLabelField, true));
-                        }
-                        $queryBuilder->select(...$selectFields)
-                            ->from($from_table)
-                            ->orderBy('uid');
-                        if (!$backendUserAuthentication->isAdmin()) {
-                            $webMounts = $backendUserAuthentication->getWebmounts();
-                            $perms_clause = $backendUserAuthentication->getPagePermsClause(Permission::PAGE_SHOW);
-                            $webMountPageTree = '';
-                            $webMountPageTreePrefix = '';
-                            foreach ($webMounts as $webMount) {
-                                if ($webMountPageTree) {
-                                    $webMountPageTreePrefix = ',';
-                                }
-                                $webMountPageTree .= $webMountPageTreePrefix
-                                    . $this->getTreeList($webMount, 999, 0, $perms_clause);
+                if ($labelCapability->hasPrimaryField()) {
+                    $labelFieldName = $labelCapability->getPrimaryFieldName();
+                    $selectFields[] = $labelFieldName;
+                    $labelField = $schema->hasField($labelFieldName) ? $schema->getField($labelFieldName) : null;
+                    if ($labelField && $labelField->isType(TableColumnType::SELECT)) {
+                        foreach ($labelField->getConfiguration()['items'] ?? [] as $item) {
+                            $item = SelectItem::fromTcaItemArray($item);
+                            if ($item->isDivider()) {
+                                continue;
                             }
-                            if ($from_table === 'pages') {
-                                $queryBuilder->where(
-                                    QueryHelper::stripLogicalOperatorPrefix($perms_clause),
-                                    $queryBuilder->expr()->in(
-                                        'uid',
-                                        $queryBuilder->createNamedParameter(
-                                            GeneralUtility::intExplode(',', $webMountPageTree),
-                                            Connection::PARAM_INT_ARRAY
-                                        )
-                                    )
-                                );
-                            } else {
-                                $queryBuilder->where(
-                                    $queryBuilder->expr()->in(
-                                        'pid',
-                                        $queryBuilder->createNamedParameter(
-                                            GeneralUtility::intExplode(',', $webMountPageTree),
-                                            Connection::PARAM_INT_ARRAY
-                                        )
-                                    )
-                                );
-                            }
+                            $labelFieldSelect[$item->getValue()] = $languageService->sL($item->getLabel());
                         }
-                        $statement = $queryBuilder->executeQuery();
-                        $this->tableArray[$from_table] = [];
-                        while ($row = $statement->fetchAssociative()) {
-                            $this->tableArray[$from_table][] = $row;
+                        $useSelectLabels = true;
+                    }
+                }
+                $altLabelFieldSelect = [];
+                foreach ($labelCapability->getAdditionalFieldNames() as $additionalFieldName) {
+                    $selectFields[] = $additionalFieldName;
+                    $additionalField = $schema->hasField($additionalFieldName) ? $schema->getField($additionalFieldName) : null;
+                    if ($additionalField && $additionalField->isType(TableColumnType::SELECT)) {
+                        foreach ($additionalField->getConfiguration()['items'] ?? [] as $item) {
+                            $item = SelectItem::fromTcaItemArray($item);
+                            if ($item->isDivider()) {
+                                continue;
+                            }
+                            $altLabelFieldSelect[$item->getValue()] = $languageService->sL($item->getLabel());
+                        }
+                        $altLabelFieldName = $additionalField->getName();
+                        // We only take the first alt-label field
+                        $useAltSelectLabels = true;
+                        break;
+                    }
+                }
+
+                if (empty($this->tableArray[$from_table])) {
+                    $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($from_table);
+                    $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+                    $queryBuilder->select(...$selectFields)
+                        ->from($from_table)
+                        ->orderBy('uid');
+                    if (!$backendUserAuthentication->isAdmin()) {
+                        $webMounts = $backendUserAuthentication->getWebmounts();
+                        $perms_clause = $backendUserAuthentication->getPagePermsClause(Permission::PAGE_SHOW);
+                        $webMountPageTree = '';
+                        $webMountPageTreePrefix = '';
+                        foreach ($webMounts as $webMount) {
+                            if ($webMountPageTree) {
+                                $webMountPageTreePrefix = ',';
+                            }
+                            $webMountPageTree .= $webMountPageTreePrefix
+                                . $this->getTreeList($webMount, 999, 0, $perms_clause);
+                        }
+                        if ($from_table === 'pages') {
+                            $queryBuilder->where(
+                                QueryHelper::stripLogicalOperatorPrefix($perms_clause),
+                                $queryBuilder->expr()->in(
+                                    'uid',
+                                    $queryBuilder->createNamedParameter(
+                                        GeneralUtility::intExplode(',', $webMountPageTree),
+                                        Connection::PARAM_INT_ARRAY
+                                    )
+                                )
+                            );
+                        } else {
+                            $queryBuilder->where(
+                                $queryBuilder->expr()->in(
+                                    'pid',
+                                    $queryBuilder->createNamedParameter(
+                                        GeneralUtility::intExplode(',', $webMountPageTree),
+                                        Connection::PARAM_INT_ARRAY
+                                    )
+                                )
+                            );
                         }
                     }
+                    $statement = $queryBuilder->executeQuery();
+                    $this->tableArray[$from_table] = [];
+                    while ($row = $statement->fetchAssociative()) {
+                        $this->tableArray[$from_table][] = $row;
+                    }
+                }
 
-                    foreach ($this->tableArray[$from_table] as $val) {
-                        $this->MOD_SETTINGS['labels_noprefix'] =
-                            ($this->MOD_SETTINGS['labels_noprefix'] ?? '') == 1
-                                ? 'on'
-                                : $this->MOD_SETTINGS['labels_noprefix'];
-                        $prefixString =
-                            $this->MOD_SETTINGS['labels_noprefix'] === 'on'
-                                ? ''
-                                : ' [' . $tablePrefix . $val['uid'] . '] ';
+                foreach ($this->tableArray[$from_table] as $val) {
+                    $this->MOD_SETTINGS['labels_noprefix'] =
+                        ($this->MOD_SETTINGS['labels_noprefix'] ?? '') == 1
+                            ? 'on'
+                            : $this->MOD_SETTINGS['labels_noprefix'] ?? '';
+                    $prefixString =
+                        $this->MOD_SETTINGS['labels_noprefix'] === 'on'
+                            ? ''
+                            : ' [' . $tablePrefix . $val['uid'] . '] ';
+                    if (GeneralUtility::inList($fieldValue, $tablePrefix . $val['uid'])
+                        || $fieldValue == $tablePrefix . $val['uid']) {
+                        // Multiple matching records are separated by a newline inside the same HTML cell
                         if ($out !== '') {
                             $out .= $splitString;
                         }
-                        if (GeneralUtility::inList($fieldValue, $tablePrefix . $val['uid'])
-                            || $fieldValue == $tablePrefix . $val['uid']) {
-                            if ($useSelectLabels) {
-                                $out .= htmlspecialchars($prefixString . $labelFieldSelect[$val[$labelField]]);
-                            } elseif ($val[$labelField]) {
-                                $out .= htmlspecialchars($prefixString . $val[$labelField]);
-                            } elseif ($useAltSelectLabels) {
-                                $out .= htmlspecialchars($prefixString . $altLabelFieldSelect[$val[$altLabelField]]);
-                            } else {
-                                $out .= htmlspecialchars($prefixString . $val[$altLabelField]);
-                            }
-                        }
+
+                        $out .= $this->evaluateRelationDisplayWithLabels($useSelectLabels, $useAltSelectLabels, $labelCapability, $altLabelFieldName, $val, $labelFieldSelect, $altLabelFieldSelect, $labelFieldName);
                     }
                 }
             }
@@ -1210,10 +1249,6 @@ class DatabaseIntegrityController
         return $out;
     }
 
-    /**
-     * @throws \InvalidArgumentException
-     * @throws \TYPO3\CMS\Core\Exception
-     */
     private function renderNoResultsFoundMessage(): void
     {
         $languageService = $this->getLanguageService();
@@ -1298,10 +1333,7 @@ class DatabaseIntegrityController
         return $qs;
     }
 
-    /**
-     * @return mixed
-     */
-    protected function cleanInputVal(array $conf, string $suffix = '')
+    protected function cleanInputVal(array $conf, string $suffix = ''): mixed
     {
         $comparison = (int)($conf['comparison'] ?? 0);
         $var = $conf['inputValue' . $suffix] ?? '';
@@ -1358,22 +1390,24 @@ class DatabaseIntegrityController
         return $formattedDate && $formattedDate->format($format) === $date;
     }
 
-    protected function makeSelectorTable(array $modSettings, ServerRequestInterface $request, string $enableList = 'table,fields,query,group,order,limit'): string
+    protected function makeSelectorTable(array $modSettings, ServerRequestInterface $request): string
     {
         $languageService = $this->getLanguageService();
         $out = [];
-        $enableArr = explode(',', $enableList);
+        $enableArr = ['table', 'fields', 'query', 'group', 'order', 'limit'];
         $userTsConfig = $this->getBackendUserAuthentication()->getTSConfig();
 
         // Make output
+
+        // Open form row
+        $out[] = '<div class="row">';
         if (in_array('table', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableSelectATable'] ?? false)) {
-            $out[] = '<div class="row">';
-            $out[] =   '<div class="form-group">';
-            $out[] =     '<label class="form-label" for="select-table">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.queryTable.label') . '</label>';
-            $out[] =     $this->mkTableSelect('SET[queryTable]', $this->table);
-            $out[] =   '</div>';
+            $out[] = '<div class="form-group">';
+            $out[] =   '<label class="form-label" for="select-table">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.queryTable.label') . '</label>';
+            $out[] =   $this->mkTableSelect('SET[queryTable]', $this->table);
             $out[] = '</div>';
         }
+
         if ($this->table) {
             // Init fields:
             $this->setAndCleanUpExternalLists('queryFields', $modSettings['queryFields'] ?? '', 'uid,' . $this->getLabelCol());
@@ -1408,33 +1442,29 @@ class DatabaseIntegrityController
             $this->enableQueryParts = (bool)($modSettings['search_query_smallparts'] ?? false);
             $codeArr = $this->getFormElements();
             $queryCode = $this->printCodeArray($codeArr);
+
             if (in_array('fields', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableSelectFields'] ?? false)) {
-                $out[] = '<div class="row">';
-                $out[] =   '<div class="form-group">';
-                $out[] =     '<label class="form-label" for="select-queryFields">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.queryFields.label') . '</label>';
-                $out[] =      $this->mkFieldToInputSelect('SET[queryFields]', $this->extFieldLists['queryFields']);
-                $out[] =   '</div>';
+                $out[] = '<div class="form-group">';
+                $out[] =   '<label class="form-label" for="select-queryFields">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.queryFields.label') . '</label>';
+                $out[] =    $this->mkFieldToInputSelect('SET[queryFields]', $this->extFieldLists['queryFields']);
                 $out[] = '</div>';
             }
             if (in_array('query', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableMakeQuery'] ?? false)) {
-                $out[] = '<div class="row">';
-                $out[] =   '<div class="form-group">';
-                $out[] =     '<label class="form-label">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.query.label') . '</label>';
-                $out[] =      $queryCode;
-                $out[] =   '</div>';
+                $out[] = '<div class="form-group">';
+                $out[] =   '<label class="form-label">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.query.label') . '</label>';
+                $out[] =    $queryCode;
                 $out[] = '</div>';
             }
 
-            // 'Order by' and 'Group by':
-            if (in_array('group', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableGroupBy'] ?? false) && in_array('order', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableOrderBy'] ?? false)) {
-                $out[] = '<div class="row">';
-            }
+            // 'Group by'
             if (in_array('group', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableGroupBy'] ?? false)) {
                 $out[] = '<div class="form-group col-sm-6">';
                 $out[] =   '<label class="form-label" for="SET[queryGroup]">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.groupBy.label') . '</label>';
                 $out[] =   $this->mkTypeSelect('SET[queryGroup]', $this->extFieldLists['queryGroup'], '');
                 $out[] = '</div>';
             }
+
+            // 'Order by'
             if (in_array('order', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableOrderBy'] ?? false)) {
                 $orderByArr = explode(',', $this->extFieldLists['queryOrder']);
                 $orderBy = [];
@@ -1469,10 +1499,8 @@ class DatabaseIntegrityController
                 $out[] =   implode(LF, $orderBy);
                 $out[] = '</div>';
             }
-            if (in_array('group', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableGroupBy'] ?? false) && in_array('order', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableOrderBy'] ?? false)) {
-                $out[] = '</div>';
-            }
 
+            // 'Limit'
             if (in_array('limit', $enableArr) && !($userTsConfig['mod.']['dbint.']['disableLimit'] ?? false)) {
                 $limit = [];
                 $limit[] = '<div class="input-group">';
@@ -1499,7 +1527,6 @@ class DatabaseIntegrityController
                     $nextButton = '<input type="button" class="btn btn-default" value="next ' . htmlspecialchars((string)$limitLength) . '" data-value="' . htmlspecialchars($nextLimit . ',' . $limitLength) . '">';
                 }
 
-                $out[] = '<div class="row">';
                 $out[] = '  <div class="form-group">';
                 $out[] = '    <label for="queryLimit" class="form-label">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.limit.label') . '</label>';
                 $out[] = '    <div class="form-row">';
@@ -1522,9 +1549,9 @@ class DatabaseIntegrityController
                 $out[] = '      </div>';
                 $out[] = '    </div>';
                 $out[] = '  </div>';
-                $out[] = '</div>';
             }
         }
+        $out[] = '</div>';
 
         return implode(LF, $out);
     }
@@ -1678,7 +1705,7 @@ class DatabaseIntegrityController
                 case 'relation':
                     $lineHTML[] = '<div class="form-row">';
                     $lineHTML[] = $this->makeComparisonSelector($subscript, $fieldName, $conf);
-                    $lineHTML[] = '<div class="form-group">';
+                    $lineHTML[] =   '<div class="form-group col col-sm-4">';
                     if ($conf['comparison'] === 68 || $conf['comparison'] === 69 || $conf['comparison'] === 162 || $conf['comparison'] === 163) {
                         $lineHTML[] = '<select class="form-select" name="' . $fieldPrefix . '[inputValue][]" multiple="multiple">';
                     } elseif ($conf['comparison'] === 66 || $conf['comparison'] === 67) {
@@ -1695,16 +1722,16 @@ class DatabaseIntegrityController
                         $lineHTML[] = '<select class="form-select t3js-submit-change" name="' . $fieldPrefix . '[inputValue]">';
                     }
                     if ($conf['comparison'] != 66 && $conf['comparison'] != 67) {
-                        $lineHTML[] = $this->makeOptionList($fieldName, $conf, $this->table);
+                        $lineHTML[] =   $this->makeOptionList($fieldName, $conf, $this->table);
                         $lineHTML[] = '</select>';
                     }
-                    $lineHTML[] = '</div>';
+                    $lineHTML[] =   '</div>';
                     $lineHTML[] = '</div>';
                     break;
                 case 'boolean':
                     $lineHTML[] = '<div class="form-row">';
-                    $lineHTML[] = $this->makeComparisonSelector($subscript, $fieldName, $conf);
-                    $lineHTML[] = '<input type="hidden" value="1" name="' . $fieldPrefix . '[inputValue]">';
+                    $lineHTML[] =   $this->makeComparisonSelector($subscript, $fieldName, $conf);
+                    $lineHTML[] =   '<input type="hidden" value="1" name="' . $fieldPrefix . '[inputValue]">';
                     $lineHTML[] = '</div>';
                     break;
                 default:
@@ -1712,18 +1739,18 @@ class DatabaseIntegrityController
                     $lineHTML[] = $this->makeComparisonSelector($subscript, $fieldName, $conf);
                     if ($conf['comparison'] === 37 || $conf['comparison'] === 36) {
                         // between:
-                        $lineHTML[] = '<div class="form-group">';
-                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars($conf['inputValue'] ?? '') . '" name="' . $fieldPrefix . '[inputValue]">';
+                        $lineHTML[] = '<div class="form-group col col-sm-2">';
+                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars((string)($conf['inputValue'] ?? '')) . '" name="' . $fieldPrefix . '[inputValue]">';
                         $lineHTML[] = '</div>';
-                        $lineHTML[] = '<div class="form-group">';
-                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars($conf['inputValue1'] ?? '') . '" name="' . $fieldPrefix . '[inputValue1]">';
+                        $lineHTML[] = '<div class="form-group col col-sm-2">';
+                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars((string)($conf['inputValue1'] ?? '')) . '" name="' . $fieldPrefix . '[inputValue1]">';
                         $lineHTML[] = '</div>';
                     } else {
                         if (is_array($conf['inputValue'] ?? null)) {
                             $conf['inputValue'] = '';
                         }
-                        $lineHTML[] = '<div class="form-group">';
-                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars($conf['inputValue']) . '" name="' . $fieldPrefix . '[inputValue]">';
+                        $lineHTML[] = '<div class="form-group col col-sm-4">';
+                        $lineHTML[] = '  <input class="form-control form-control-clearable t3js-clearable" type="text" value="' . htmlspecialchars((string)$conf['inputValue']) . '" name="' . $fieldPrefix . '[inputValue]">';
                         $lineHTML[] = '</div>';
                     }
                     $lineHTML[] = '</div>';
@@ -1886,21 +1913,45 @@ class DatabaseIntegrityController
                     $tablePrefix = $from_table . '_';
                 }
                 $counter = 1;
-                if (is_array($GLOBALS['TCA'][$from_table])) {
-                    $labelField = $GLOBALS['TCA'][$from_table]['ctrl']['label'] ?? '';
-                    $altLabelField = $GLOBALS['TCA'][$from_table]['ctrl']['label_alt'] ?? '';
-                    if ($GLOBALS['TCA'][$from_table]['columns'][$labelField]['config']['items'] ?? false) {
-                        foreach ($GLOBALS['TCA'][$from_table]['columns'][$labelField]['config']['items'] as $labelArray) {
-                            $labelFieldSelect[$labelArray[1]] = $languageService->sL($labelArray[0]);
+                if ($this->tcaSchemaFactory->has($from_table)) {
+                    $schema = $this->tcaSchemaFactory->get($from_table);
+                    $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
+                    $labelFieldName = null;
+                    $altLabelFieldName = null;
+                    $selectFields = ['uid'];
+
+                    if ($labelCapability->hasPrimaryField()) {
+                        $labelFieldName = $labelCapability->getPrimaryFieldName();
+                        $selectFields[] = $labelFieldName;
+                        $labelField = $schema->hasField($labelFieldName) ? $schema->getField($labelFieldName) : null;
+                        if ($labelField && $labelField->isType(TableColumnType::SELECT)) {
+                            foreach ($labelField->getConfiguration()['items'] ?? [] as $item) {
+                                $item = SelectItem::fromTcaItemArray($item);
+                                if ($item->isDivider()) {
+                                    continue;
+                                }
+                                $labelFieldSelect[$item->getValue()] = $languageService->sL($item->getLabel());
+                            }
+                            $useSelectLabels = true;
                         }
-                        $useSelectLabels = true;
                     }
                     $altLabelFieldSelect = [];
-                    if ($GLOBALS['TCA'][$from_table]['columns'][$altLabelField]['config']['items'] ?? false) {
-                        foreach ($GLOBALS['TCA'][$from_table]['columns'][$altLabelField]['config']['items'] as $altLabelArray) {
-                            $altLabelFieldSelect[$altLabelArray[1]] = $languageService->sL($altLabelArray[0]);
+                    foreach ($labelCapability->getAdditionalFieldNames() as $additionalFieldName) {
+                        $selectFields[] = $additionalFieldName;
+                        $additionalField = $schema->hasField($additionalFieldName) ? $schema->getField($additionalFieldName) : null;
+                        if ($additionalField && $additionalField->isType(TableColumnType::SELECT)) {
+                            foreach ($additionalField->getConfiguration()['items'] ?? [] as $item) {
+                                $item = SelectItem::fromTcaItemArray($item);
+                                if ($item->isDivider()) {
+                                    continue;
+                                }
+                                $altLabelFieldSelect[$item->getValue()] = $languageService->sL($item->getLabel());
+                            }
+                            $altLabelFieldName = $additionalField->getName();
+                            // We only take the first alt-label field
+                            $useAltSelectLabels = true;
+                            break;
                         }
-                        $useAltSelectLabels = true;
                     }
 
                     if (!($this->tableArray[$from_table] ?? false)) {
@@ -1908,10 +1959,6 @@ class DatabaseIntegrityController
                         $queryBuilder->getRestrictions()->removeAll();
                         if (empty($this->MOD_SETTINGS['show_deleted'])) {
                             $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-                        }
-                        $selectFields = ['uid', $labelField];
-                        if ($altLabelField) {
-                            $selectFields = array_merge($selectFields, GeneralUtility::trimExplode(',', $altLabelField, true));
                         }
                         $queryBuilder->select(...$selectFields)
                             ->from($from_table)
@@ -1956,15 +2003,7 @@ class DatabaseIntegrityController
                     }
 
                     foreach (($this->tableArray[$from_table] ?? []) as $val) {
-                        if ($useSelectLabels) {
-                            $outArray[$tablePrefix . $val['uid']] = htmlspecialchars($labelFieldSelect[$val[$labelField]]);
-                        } elseif ($val[$labelField]) {
-                            $outArray[$tablePrefix . $val['uid']] = htmlspecialchars($val[$labelField]);
-                        } elseif ($useAltSelectLabels) {
-                            $outArray[$tablePrefix . $val['uid']] = htmlspecialchars($altLabelFieldSelect[$val[$altLabelField]]);
-                        } else {
-                            $outArray[$tablePrefix . $val['uid']] = htmlspecialchars($val[$altLabelField]);
-                        }
+                        $outArray[$tablePrefix . $val['uid']] = $this->evaluateRelationDisplayWithLabels($useSelectLabels, $useAltSelectLabels, $labelCapability, $altLabelFieldName, $val, $labelFieldSelect, $altLabelFieldSelect, $labelFieldName);
                     }
                     if (isset($this->MOD_SETTINGS['options_sortlabel']) && $this->MOD_SETTINGS['options_sortlabel'] && is_array($outArray)) {
                         natcasesort($outArray);
@@ -1983,6 +2022,58 @@ class DatabaseIntegrityController
         }
 
         return implode(LF, $out);
+    }
+
+    /**
+     * Helper method to evaluate a specific field configuration and decide which label to return.
+     * This is used for both the dropdown when choosing a WHERE condition, but also for the record list itself,
+     * when inline relations are resolved in case the option "[search_result_labels]" is set.
+     * @param bool $useSelectLabels - Whether foreign resolving of a primary TCA 'label' field is required
+     * @param bool $useAltSelectLabels - Whether foreign resolving of the FIRST TCA 'label_alt' relation field is required
+     * @param LabelCapability $labelCapability - Schema capability information, used here for the table's label/label_alt evaluation
+     * @param string|null $altLabelFieldName - The name of the matched first TCA 'label_alt' relation field
+     * @param array $val - The DB SQL result row array
+     * @param array $labelFieldSelect - An array holding the possible select values of a 'label' relation
+     * @param array $altLabelFieldSelect - An array holding the possible select values of a 'label_alt' relation
+     * @param string|null $labelFieldName - The name of the primary TCA column used for the label
+     * @return string
+     * @todo Please refactor me.
+     */
+    protected function evaluateRelationDisplayWithLabels(bool $useSelectLabels, bool $useAltSelectLabels, LabelCapability $labelCapability, ?string $altLabelFieldName, array $val, array $labelFieldSelect, array $altLabelFieldSelect, ?string $labelFieldName): string
+    {
+        // Several checks here to decide whether:
+        // 1. the primary label field contains resolved selectable values,
+        // 2. or a straight field value (no relation) for the primary label field is set,
+        // 3. or a fallback to the FIRST label_alt relation exists (guaranteed that ONE select relation exists!)
+        // 4. or a label_alt configuration is used where NO relations exist (final fallback)
+        // (this piece of code is similar (but not identical) in makeOptionList() AND makeValueList()!
+        if ($useSelectLabels) {
+            return htmlspecialchars($labelFieldSelect[$val[$labelFieldName]]);
+        }
+        if ($val[$labelFieldName] ?? false) {
+            return htmlspecialchars($val[$labelFieldName]);
+        }
+        if ($useAltSelectLabels) {
+            if (isset($altLabelFieldSelect[$val[$altLabelFieldName]])) {
+                // For example, altLabelFieldName=CType (for tt_content) and the row's CType is set to "text", this would return a string like "Regular Text element"
+                // Resolved labels are already html-encoded.
+                return $altLabelFieldSelect[$val[$altLabelFieldName]];
+            }
+
+            // For old/invalid item associations (like CType=list), display the hardcoded value here instead the resolved item
+            return '[' . htmlspecialchars($val[$altLabelFieldName]) . ']';
+        }
+        // This case happens when NO relations exist. Iterate existing label_alt configuration and
+        // take the first non-empty value.
+        foreach ($labelCapability->getAdditionalFieldNames() as $additionalFieldName) {
+            if ($val[$additionalFieldName]) {
+                // First altLabelField that matches concludes the output.
+                return htmlspecialchars($val[$additionalFieldName]);
+            }
+        }
+        // This happens when NONE of the label_alt fields contained an entry. We still need to be able to
+        // match this field, so we put in a special empty indicator ('').
+        return '';
     }
 
     protected function mkOperatorSelect(string $name, string $op, bool $draw, bool $submit): string
@@ -2004,17 +2095,19 @@ class DatabaseIntegrityController
 
     protected function makeComparisonSelector(string $subscript, string $fieldName, array $conf): string
     {
+        $languageService = $this->getLanguageService();
         $fieldPrefix = $this->name . $subscript;
         $lineHTML = [];
-        $lineHTML[] = '<div class="form-group">';
+        $lineHTML[] = '<div class="form-group col col-sm-4">';
         $lineHTML[] =    $this->mkTypeSelect($fieldPrefix . '[type]', $fieldName);
         $lineHTML[] = '</div>';
-        $lineHTML[] = '<div class="form-group">';
+        $lineHTML[] = '<div class="form-group col">';
         $lineHTML[] = '  <div class="input-group">';
         $lineHTML[] =      $this->mkCompSelect($fieldPrefix . '[comparison]', (int)$conf['comparison'], ($conf['negate'] ?? null) ? 1 : 0);
         $lineHTML[] = '    <span class="input-group-text">';
         $lineHTML[] = '      <div class="form-check form-check-type-toggle">';
-        $lineHTML[] = '        <input type="checkbox" class="form-check-input t3js-submit-click"' . (($conf['negate'] ?? null) ? ' checked' : '') . ' name="' . htmlspecialchars($fieldPrefix) . '[negate]">';
+        $lineHTML[] = '        <input type="checkbox" id="negateComparison" class="form-check-input t3js-submit-click"' . (($conf['negate'] ?? null) ? ' checked' : '') . ' name="' . htmlspecialchars($fieldPrefix) . '[negate]">';
+        $lineHTML[] = '        <label class="form-check-label" for="negateComparison">' . $languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fullSearch.form.field.queryConfig.comparison.negate') . '</label>';
         $lineHTML[] = '      </div>';
         $lineHTML[] = '    </span>';
         $lineHTML[] = '  </div>';
@@ -2041,7 +2134,7 @@ class DatabaseIntegrityController
     protected function printCodeArray(array $codeArr, int $recursionLevel = 0): string
     {
         $out = [];
-        foreach (array_values($codeArr) as $queryComponent) {
+        foreach ($codeArr as $queryComponent) {
             $out[] = '<div class="card">';
             $out[] =     '<div class="card-body">';
             $out[] =         $queryComponent['html'];
@@ -2070,7 +2163,7 @@ class DatabaseIntegrityController
         $out[] = '</div>';
         $out[] = '<select class="form-select t3js-addfield" name="_fieldListDummy" size="5" data-field="' . htmlspecialchars($name) . '">';
         foreach ($this->fields as $key => $value) {
-            if (!$value['exclude'] || $this->getBackendUserAuthentication()->check('non_exclude_fields', $this->table . ':' . $key)) {
+            if (!($value['exclude'] ?? false) || $this->getBackendUserAuthentication()->check('non_exclude_fields', $this->table . ':' . $key)) {
                 $label = $this->fields[$key]['label'];
                 if ($this->showFieldAndTableNames) {
                     $label .= ' [' . $key . ']';
@@ -2205,7 +2298,11 @@ class DatabaseIntegrityController
 
     protected function getLabelCol(): string
     {
-        return $GLOBALS['TCA'][$this->table]['ctrl']['label'];
+        $schema = $this->tcaSchemaFactory->get($this->table);
+        if ($schema->hasCapability(TcaSchemaCapability::Label) && $schema->getCapability(TcaSchemaCapability::Label)->hasPrimaryField()) {
+            return $schema->getCapability(TcaSchemaCapability::Label)->getPrimaryFieldName();
+        }
+        return '';
     }
 
     protected function mkTypeSelect(string $name, string $fieldName, string $prepend = 'FIELD_'): string
@@ -2247,8 +2344,9 @@ class DatabaseIntegrityController
     protected function mkTableSelect(string $name, string $cur): string
     {
         $tables = [];
-        foreach ($GLOBALS['TCA'] as $tableName => $value) {
-            $tableTitle = $this->getLanguageService()->sL($GLOBALS['TCA'][$tableName]['ctrl']['title'] ?? '');
+        /** @var TcaSchema $schema */
+        foreach ($this->tcaSchemaFactory->all() as $tableName => $schema) {
+            $tableTitle = $schema->getTitle($this->getLanguageService()->sL(...));
             if (!$tableTitle || $this->showFieldAndTableNames) {
                 $tableTitle .= ' [' . $tableName . ']';
             }
@@ -2275,105 +2373,103 @@ class DatabaseIntegrityController
     protected function init(string $name, string $table, string $fieldList = '', array $settings = []): void
     {
         // Analysing the fields in the table.
-        if (is_array($GLOBALS['TCA'][$table] ?? false)) {
+        if ($this->tcaSchemaFactory->has($table)) {
             $this->name = $name;
             $this->table = $table;
             $this->fieldList = $fieldList ?: $this->makeFieldList();
             $this->MOD_SETTINGS = $settings;
+            $schema = $this->tcaSchemaFactory->get($this->table);
             $fieldArr = GeneralUtility::trimExplode(',', $this->fieldList, true);
             foreach ($fieldArr as $fieldName) {
-                $fieldConfig = $GLOBALS['TCA'][$this->table]['columns'][$fieldName] ?? [];
-                $this->fields[$fieldName] = $fieldConfig['config'] ?? [];
-                $this->fields[$fieldName]['exclude'] = $fieldConfig['exclude'] ?? '';
-                if (((($this->fields[$fieldName]['type'] ?? '') === 'user') && (!isset($this->fields[$fieldName]['renderType'])))
-                    || ($this->fields[$fieldName]['type'] ?? '') === 'none'
-                ) {
-                    // Do not list type=none "virtual" fields or query them from db,
-                    // and if type=user without defined renderType
-                    unset($this->fields[$fieldName]);
-                    continue;
-                }
-                if (is_array($fieldConfig) && ($fieldConfig['label'] ?? false)) {
-                    $this->fields[$fieldName]['label'] = rtrim(trim($this->getLanguageService()->sL($fieldConfig['label'])), ':');
-                    switch ($this->fields[$fieldName]['type']) {
-                        case 'input':
-                            if (preg_match('/int|year/i', ($this->fields[$fieldName]['eval'] ?? ''))) {
-                                $this->fields[$fieldName]['type'] = 'number';
-                            } else {
-                                $this->fields[$fieldName]['type'] = 'text';
-                            }
-                            break;
-                        case 'number':
-                            // Empty on purpose, we have to keep the type "number".
-                            // Falling back to the "default" case would set the type to "text"
-                            break;
-                        case 'datetime':
-                            if (!in_array($this->fields[$fieldName]['dbType'] ?? '', QueryHelper::getDateTimeTypes(), true)) {
-                                $this->fields[$fieldName]['type'] = 'number';
-                            } elseif ($this->fields[$fieldName]['dbType'] === 'time') {
-                                $this->fields[$fieldName]['type'] = 'time';
-                            } else {
-                                $this->fields[$fieldName]['type'] = 'date';
-                            }
-                            break;
-                        case 'check':
-                            if (count($this->fields[$fieldName]['items'] ?? []) <= 1) {
-                                $this->fields[$fieldName]['type'] = 'boolean';
-                            } else {
-                                $this->fields[$fieldName]['type'] = 'binary';
-                            }
-                            break;
-                        case 'radio':
-                            $this->fields[$fieldName]['type'] = 'multiple';
-                            break;
-                        case 'select':
-                        case 'category':
-                            $this->fields[$fieldName]['type'] = 'multiple';
-                            if ($this->fields[$fieldName]['foreign_table'] ?? false) {
-                                $this->fields[$fieldName]['type'] = 'relation';
-                            }
-                            if ($this->fields[$fieldName]['special'] ?? false) {
-                                $this->fields[$fieldName]['type'] = 'text';
-                            }
-                            break;
-                        case 'group':
-                            $this->fields[$fieldName]['type'] = 'relation';
-                            break;
-                        case 'user':
-                        case 'flex':
-                        case 'passthrough':
-                        case 'none':
-                        case 'text':
-                        case 'email':
-                        case 'link':
-                        case 'password':
-                        case 'color':
-                        case 'json':
-                        case 'uuid':
-                        default:
-                            $this->fields[$fieldName]['type'] = 'text';
-                    }
-                } else {
+                if (!$schema->hasField($fieldName)) {
                     $this->fields[$fieldName]['label'] = '[FIELD: ' . $fieldName . ']';
                     switch ($fieldName) {
                         case 'pid':
                             $this->fields[$fieldName]['type'] = 'relation';
                             $this->fields[$fieldName]['allowed'] = 'pages';
                             break;
+                            // @todo: this is so wrong
                         case 'tstamp':
+                            // @todo: this is so wrong
                         case 'crdate':
                             $this->fields[$fieldName]['type'] = 'time';
                             break;
+                            // @todo: this is so wrong
                         case 'deleted':
                             $this->fields[$fieldName]['type'] = 'boolean';
                             break;
                         default:
+                            // @todo: this is so wrong
                             $this->fields[$fieldName]['type'] = 'number';
                     }
+                    continue;
                 }
-
-                uasort($this->fields, static fn($fieldA, $fieldB) => strcmp($fieldA['label'], $fieldB['label']));
+                $fieldType = $schema->getField($fieldName);
+                // Do not list type=none "virtual" fields or query them from db,
+                // and if type=user without defined renderType
+                if ($fieldType->isType(TableColumnType::NONE)) {
+                    continue;
+                }
+                if ($fieldType->isType(TableColumnType::USER) && !isset($fieldType->getConfiguration()['renderType'])) {
+                    continue;
+                }
+                // @todo: catch this in SchemaFactory / TcaMigration all the time.
+                if ($fieldType->getLabel() === '') {
+                    continue;
+                }
+                $this->fields[$fieldName] = $fieldType->getConfiguration();
+                $this->fields[$fieldName]['exclude'] = $fieldType->supportsAccessControl();
+                $this->fields[$fieldName]['label'] = rtrim(trim($this->getLanguageService()->sL($fieldType->getLabel())), ':');
+                switch ($fieldType->getType()) {
+                    case 'input':
+                        if (preg_match('/int|year/i', ($this->fields[$fieldName]['eval'] ?? ''))) {
+                            $this->fields[$fieldName]['type'] = 'number';
+                        } else {
+                            $this->fields[$fieldName]['type'] = 'text';
+                        }
+                        break;
+                    case 'number':
+                        // Empty on purpose, we have to keep the type "number".
+                        // Falling back to the "default" case would set the type to "text"
+                        break;
+                    case 'datetime':
+                        if (!in_array($this->fields[$fieldName]['dbType'] ?? '', QueryHelper::getDateTimeTypes(), true)) {
+                            $this->fields[$fieldName]['type'] = 'number';
+                        } elseif ($this->fields[$fieldName]['dbType'] === 'time') {
+                            $this->fields[$fieldName]['type'] = 'time';
+                        } else {
+                            $this->fields[$fieldName]['type'] = 'date';
+                        }
+                        break;
+                    case 'check':
+                        if (count($this->fields[$fieldName]['items'] ?? []) <= 1) {
+                            $this->fields[$fieldName]['type'] = 'boolean';
+                        } else {
+                            $this->fields[$fieldName]['type'] = 'binary';
+                        }
+                        break;
+                    case 'radio':
+                        $this->fields[$fieldName]['type'] = 'multiple';
+                        break;
+                    case 'select':
+                    case 'category':
+                        $this->fields[$fieldName]['type'] = 'multiple';
+                        if ($this->fields[$fieldName]['foreign_table'] ?? false) {
+                            $this->fields[$fieldName]['type'] = 'relation';
+                        }
+                        if ($this->fields[$fieldName]['special'] ?? false) {
+                            $this->fields[$fieldName]['type'] = 'text';
+                        }
+                        break;
+                    case 'group':
+                        $this->fields[$fieldName]['type'] = 'relation';
+                        break;
+                    default:
+                        // includes other field types like: user, flex, passthrough, none, text, email, link, password, color, json, uuid, country
+                        $this->fields[$fieldName]['type'] = 'text';
+                }
             }
+            uasort($this->fields, static fn($fieldA, $fieldB) => strcmp($fieldA['label'], $fieldB['label']));
         }
         /*	// EXAMPLE:
         $this->queryConfig = array(
@@ -2415,19 +2511,23 @@ class DatabaseIntegrityController
     protected function makeFieldList(): string
     {
         $fieldListArr = [];
-        if (is_array($GLOBALS['TCA'][$this->table])) {
-            $fieldListArr = array_keys($GLOBALS['TCA'][$this->table]['columns'] ?? []);
+        if ($this->tcaSchemaFactory->has($this->table)) {
+            $schema = $this->tcaSchemaFactory->get($this->table);
+            foreach ($schema->getFields() as $field) {
+                $fieldListArr[] = $field->getName();
+            }
             $fieldListArr[] = 'uid';
             $fieldListArr[] = 'pid';
+            // @todo: this should never be hard-coded (note by benni in 2025)
             $fieldListArr[] = 'deleted';
-            if ($GLOBALS['TCA'][$this->table]['ctrl']['tstamp'] ?? false) {
-                $fieldListArr[] = $GLOBALS['TCA'][$this->table]['ctrl']['tstamp'];
+            if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
+                $fieldListArr[] = $schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName();
             }
-            if ($GLOBALS['TCA'][$this->table]['ctrl']['crdate'] ?? false) {
-                $fieldListArr[] = $GLOBALS['TCA'][$this->table]['ctrl']['crdate'];
+            if ($schema->hasCapability(TcaSchemaCapability::CreatedAt)) {
+                $fieldListArr[] = $schema->getCapability(TcaSchemaCapability::CreatedAt)->getFieldName();
             }
-            if ($GLOBALS['TCA'][$this->table]['ctrl']['sortby'] ?? false) {
-                $fieldListArr[] = $GLOBALS['TCA'][$this->table]['ctrl']['sortby'];
+            if ($schema->hasCapability(TcaSchemaCapability::SortByField)) {
+                $fieldListArr[] = $schema->getCapability(TcaSchemaCapability::SortByField)->getFieldName();
             }
         }
 
@@ -2526,7 +2626,7 @@ class DatabaseIntegrityController
                 }
             }
             if (!empty($flashMessage)) {
-                $msg = GeneralUtility::makeInstance(FlashMessageRendererResolver::class)
+                $msg = $this->flashMessageRendererResolver
                     ->resolve()
                     ->render([$flashMessage]);
             }
@@ -2550,14 +2650,11 @@ class DatabaseIntegrityController
 
     protected function cleanStoreQueryConfigs(array $storeQueryConfigs, array $storeArray): array
     {
-        if (is_array($storeQueryConfigs)) {
-            foreach ($storeQueryConfigs as $k => $v) {
-                if (!isset($storeArray[$k])) {
-                    unset($storeQueryConfigs[$k]);
-                }
+        foreach ($storeQueryConfigs as $k => $v) {
+            if (!isset($storeArray[$k])) {
+                unset($storeQueryConfigs[$k]);
             }
         }
-
         return $storeQueryConfigs;
     }
 
@@ -2601,38 +2698,75 @@ class DatabaseIntegrityController
     protected function search(ServerRequestInterface $request): string
     {
         $swords = $this->MOD_SETTINGS['sword'] ?? '';
+        if ($swords === '') {
+            return '';
+        }
         $out = '';
-        if ($swords) {
-            foreach ($GLOBALS['TCA'] as $table => $value) {
-                // Get fields list
-                $conf = $GLOBALS['TCA'][$table];
-                // Avoid querying tables with no columns
-                if (empty($conf['columns'])) {
+        /** @var TcaSchema $schema */
+        foreach ($this->tcaSchemaFactory->all() as $table => $schema) {
+            // Avoid querying tables with no columns
+            if ($schema->getFields()->count() === 0) {
+                continue;
+            }
+            // Get fields list
+            $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($table);
+            $identifierQuoteCharacter = $this->platformHelper->getIdentifierQuoteCharacter($connection->getDatabasePlatform());
+            $tableColumns = $connection->createSchemaManager()->listTableColumns($table);
+            $normalizedTableColumns = [];
+            $fields = [];
+            foreach ($tableColumns as $column) {
+                if (!$schema->hasField($column->getName())) {
                     continue;
                 }
-                $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($table);
-                $identifierQuoteCharacter = $this->platformHelper->getIdentifierQuoteCharacter($connection->getDatabasePlatform());
-                $tableColumns = $connection->createSchemaManager()->listTableColumns($table);
-                $normalizedTableColumns = [];
-                $fieldsInDatabase = [];
-                foreach ($tableColumns as $column) {
-                    $fieldsInDatabase[] = $column->getName();
-                    $normalizedTableColumns[trim($column->getName(), $identifierQuoteCharacter)] = $column;
+                $fields[] = $column->getName();
+                $normalizedTableColumns[trim($column->getName(), $identifierQuoteCharacter)] = $column;
+            }
+            $queryBuilder = $connection->createQueryBuilder();
+            $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            $queryBuilder->count('*')->from($table);
+            $likes = [];
+            $escapedLikeString = '%' . $queryBuilder->escapeLikeWildcards($swords) . '%';
+            foreach ($fields as $field) {
+                $field = trim($field, $identifierQuoteCharacter);
+                $quotedField = $queryBuilder->quoteIdentifier($field);
+                $column = $normalizedTableColumns[$field] ?? $normalizedTableColumns[$quotedField] ?? null;
+                if ($column !== null
+                    && $connection->getDatabasePlatform() instanceof DoctrinePostgreSQLPlatform
+                    && !in_array(Type::getTypeRegistry()->lookupName($column->getType()), [Types::STRING, Types::ASCII_STRING], true)
+                ) {
+                    if (Type::getTypeRegistry()->lookupName($column->getType()) === Types::SMALLINT) {
+                        // we need to cast smallint to int first, otherwise text case below won't work
+                        $quotedField .= '::int';
+                    }
+                    $quotedField .= '::text';
                 }
-                $fields = array_intersect(array_keys($conf['columns']), $fieldsInDatabase);
+                $likes[] = $queryBuilder->expr()->comparison(
+                    $quotedField,
+                    'LIKE',
+                    $queryBuilder->createNamedParameter($escapedLikeString)
+                );
+            }
+            $queryBuilder->orWhere(...$likes);
+            $count = $queryBuilder->executeQuery()->fetchOne();
 
+            if ($count > 0) {
                 $queryBuilder = $connection->createQueryBuilder();
                 $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-                $queryBuilder->count('*')->from($table);
+                $queryBuilder
+                    ->select('uid')
+                    ->from($table)
+                    ->setMaxResults(200);
+                if ($schema->hasCapability(TcaSchemaCapability::Label) && $schema->getCapability(TcaSchemaCapability::Label)->hasPrimaryField()) {
+                    $queryBuilder->addSelect($schema->getCapability(TcaSchemaCapability::Label)->getPrimaryFieldName());
+                }
                 $likes = [];
-                $escapedLikeString = '%' . $queryBuilder->escapeLikeWildcards($swords) . '%';
                 foreach ($fields as $field) {
                     $field = trim($field, $identifierQuoteCharacter);
                     $quotedField = $queryBuilder->quoteIdentifier($field);
                     $column = $normalizedTableColumns[$field] ?? $normalizedTableColumns[$quotedField] ?? null;
                     if ($column !== null
                         && $connection->getDatabasePlatform() instanceof DoctrinePostgreSQLPlatform
-                        && !in_array(Type::getTypeRegistry()->lookupName($column->getType()), [Types::STRING, Types::ASCII_STRING, Types::JSON], true)
+                        && !in_array(Type::getTypeRegistry()->lookupName($column->getType()), [Types::STRING, Types::ASCII_STRING], true)
                     ) {
                         if (Type::getTypeRegistry()->lookupName($column->getType()) === Types::SMALLINT) {
                             // we need to cast smallint to int first, otherwise text case below won't work
@@ -2646,61 +2780,29 @@ class DatabaseIntegrityController
                         $queryBuilder->createNamedParameter($escapedLikeString)
                     );
                 }
-                $queryBuilder->orWhere(...$likes);
-                $count = $queryBuilder->executeQuery()->fetchOne();
-
-                if ($count > 0) {
-                    $queryBuilder = $connection->createQueryBuilder();
-                    $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-                    $queryBuilder->select('uid', $conf['ctrl']['label'])
-                        ->from($table)
-                        ->setMaxResults(200);
-                    $likes = [];
-                    foreach ($fields as $field) {
-                        $field = trim($field, $identifierQuoteCharacter);
-                        $quotedField = $queryBuilder->quoteIdentifier($field);
-                        $column = $normalizedTableColumns[$field] ?? $normalizedTableColumns[$quotedField] ?? null;
-                        if ($column !== null
-                            && $connection->getDatabasePlatform() instanceof DoctrinePostgreSQLPlatform
-                            && !in_array(Type::getTypeRegistry()->lookupName($column->getType()), [Types::STRING, Types::ASCII_STRING, Types::JSON], true)
-                        ) {
-                            if (Type::getTypeRegistry()->lookupName($column->getType()) === Types::SMALLINT) {
-                                // we need to cast smallint to int first, otherwise text case below won't work
-                                $quotedField .= '::int';
-                            }
-                            $quotedField .= '::text';
-                        }
-                        $likes[] = $queryBuilder->expr()->comparison(
-                            $quotedField,
-                            'LIKE',
-                            $queryBuilder->createNamedParameter($escapedLikeString)
-                        );
-                    }
-                    $statement = $queryBuilder->orWhere(...$likes)->executeQuery();
-                    $lastRow = null;
-                    $rowArr = [];
-                    while ($row = $statement->fetchAssociative()) {
-                        $rowArr[] = $this->resultRowDisplay($row, $conf, $table, $request);
-                        $lastRow = $row;
-                    }
-                    $markup = [];
-                    $markup[] = '<div class="panel panel-default">';
-                    $markup[] = '  <div class="panel-heading">';
-                    $markup[] = htmlspecialchars($this->getLanguageService()->sL($conf['ctrl']['title'])) . ' (' . $count . ')';
-                    $markup[] = '  </div>';
-                    $markup[] = '  <div class="table-fit">';
-                    $markup[] = '    <table class="table table-striped table-hover">';
-                    $markup[] = $this->resultRowTitles((array)$lastRow, $conf);
-                    $markup[] = implode(LF, $rowArr);
-                    $markup[] = '    </table>';
-                    $markup[] = '  </div>';
-                    $markup[] = '</div>';
-
-                    $out .= implode(LF, $markup);
+                $statement = $queryBuilder->orWhere(...$likes)->executeQuery();
+                $lastRow = null;
+                $rowArr = [];
+                while ($row = $statement->fetchAssociative()) {
+                    $rowArr[] = $this->resultRowDisplay($row, $table, $request);
+                    $lastRow = $row;
                 }
+                $markup = [];
+                $markup[] = '<div class="panel panel-default">';
+                $markup[] = '  <div class="panel-heading">';
+                $markup[] = htmlspecialchars($schema->getTitle($this->getLanguageService()->sL(...))) . ' (' . $count . ')';
+                $markup[] = '  </div>';
+                $markup[] = '  <div class="table-fit">';
+                $markup[] = '    <table class="table table-striped table-hover">';
+                $markup[] = $this->resultRowTitles((array)$lastRow, $table);
+                $markup[] = implode(LF, $rowArr);
+                $markup[] = '    </table>';
+                $markup[] = '  </div>';
+                $markup[] = '</div>';
+
+                $out .= implode(LF, $markup);
             }
         }
-
         return $out;
     }
 
@@ -2735,22 +2837,19 @@ class DatabaseIntegrityController
 
         // doktypes stats
         $doktypes = [];
-        $doktype = $GLOBALS['TCA']['pages']['columns']['doktype']['config']['items'];
-        if (is_array($doktype)) {
-            foreach ($doktype as $setup) {
-                if ($setup['value'] !== '--div--') {
-                    $doktypes[] = [
-                        'icon' => $this->iconFactory->getIconForRecord('pages', ['doktype' => $setup['value']], IconSize::SMALL)->render(),
-                        'title' => $languageService->sL($setup['label']) . ' (' . $setup['value'] . ')',
-                        'count' => (int)($databaseIntegrityCheck->getRecStats()['doktype'][$setup['value']] ?? 0),
-                    ];
-                }
+        foreach ($this->pageDoktypeRegistry->getAllDoktypes() as $doktype) {
+            if ($doktype->isDivider()) {
+                continue;
             }
+            $doktypes[] = [
+                'icon' => $this->iconFactory->getIconForRecord('pages', ['doktype' => $doktype->getValue()], IconSize::SMALL)->render(),
+                'title' => $languageService->sL($doktype->getLabel()) . ' (' . $doktype->getValue() . ')',
+                'count' => (int)($databaseIntegrityCheck->getRecStats()['doktype'][$doktype->getValue()] ?? 0),
+            ];
         }
 
         // Tables and lost records
-        $id_list = '-1,0,' . implode(',', array_keys($databaseIntegrityCheck->getPageIdArray()));
-        $id_list = rtrim($id_list, ',');
+        $id_list = implode(',', array_merge([0], array_keys($databaseIntegrityCheck->getPageIdArray())));
         $databaseIntegrityCheck->lostRecords($id_list);
 
         // Fix a lost record if requested
@@ -2761,56 +2860,52 @@ class DatabaseIntegrityController
         ) {
             $databaseIntegrityCheck = GeneralUtility::makeInstance(DatabaseIntegrityCheck::class);
             $databaseIntegrityCheck->genTree(0);
-            $id_list = '-1,0,' . implode(',', array_keys($databaseIntegrityCheck->getPageIdArray()));
-            $id_list = rtrim($id_list, ',');
+            $id_list = implode(',', array_merge([0], array_keys($databaseIntegrityCheck->getPageIdArray())));
             $databaseIntegrityCheck->lostRecords($id_list);
         }
 
         $tableStatistic = [];
         $countArr = $databaseIntegrityCheck->countRecords($id_list);
-        if (is_array($GLOBALS['TCA'])) {
-            foreach ($GLOBALS['TCA'] as $t => $value) {
-                if ($GLOBALS['TCA'][$t]['ctrl']['hideTable'] ?? false) {
-                    continue;
-                }
-                if ($t === 'pages' && $databaseIntegrityCheck->getLostPagesList() !== '') {
-                    $lostRecordCount = count(explode(',', $databaseIntegrityCheck->getLostPagesList()));
-                } else {
-                    $lostRecordCount = isset($databaseIntegrityCheck->getLRecords()[$t]) ? count($databaseIntegrityCheck->getLRecords()[$t]) : 0;
-                }
-                $recordCount = 0;
-                if ($countArr['all'][$t] ?? false) {
-                    $recordCount = (int)($countArr['non_deleted'][$t] ?? 0) . '/' . $lostRecordCount;
-                }
-                $lostRecordList = [];
-                if (is_array($databaseIntegrityCheck->getLRecords()[$t] ?? false)) {
-                    foreach ($databaseIntegrityCheck->getLRecords()[$t] as $data) {
-                        if (!GeneralUtility::inList($databaseIntegrityCheck->getLostPagesList(), $data['pid'])) {
-                            $fixLink = (string)$this->uriBuilder->buildUriFromRoute(
-                                $this->moduleName,
-                                ['SET' => ['function' => 'records'], 'fixLostRecords_table' => $t, 'fixLostRecords_uid' => $data['uid']]
-                            );
-                            $lostRecordList[] =
-                                '<div class="record">' .
-                                    '<a href="' . htmlspecialchars($fixLink) . '" title="' . htmlspecialchars($languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fixLostRecord')) . '">' .
-                                        $this->iconFactory->getIcon('status-dialog-error', IconSize::SMALL)->render() .
-                                    '</a>uid:' . $data['uid'] . ', pid:' . $data['pid'] . ', ' . htmlspecialchars(GeneralUtility::fixed_lgd_cs(strip_tags($data['title']), 20)) .
-                                '</div>';
-                        } else {
-                            $lostRecordList[] =
-                                '<div class="record-noicon">' .
-                                    'uid:' . $data['uid'] . ', pid:' . $data['pid'] . ', ' . htmlspecialchars(GeneralUtility::fixed_lgd_cs(strip_tags($data['title']), 20)) .
-                                '</div>';
-                        }
-                    }
-                }
-                $tableStatistic[$t] = [
-                    'icon' => $this->iconFactory->getIconForRecord($t, [], IconSize::SMALL)->render(),
-                    'title' => $languageService->sL($GLOBALS['TCA'][$t]['ctrl']['title']),
-                    'count' => $recordCount,
-                    'lostRecords' => implode(LF, $lostRecordList),
-                ];
+        /** @var TcaSchema $schema */
+        foreach ($this->tcaSchemaFactory->all() as $table => $schema) {
+            if ($schema->hasCapability(TcaSchemaCapability::HideInUi)) {
+                continue;
             }
+            if ($table === 'pages' && $databaseIntegrityCheck->getLostPagesList() !== '') {
+                $lostRecordCount = count(explode(',', $databaseIntegrityCheck->getLostPagesList()));
+            } else {
+                $lostRecordCount = isset($databaseIntegrityCheck->getLRecords()[$table]) ? count($databaseIntegrityCheck->getLRecords()[$table]) : 0;
+            }
+            $recordCount = 0;
+            if ($countArr['all'][$table] ?? false) {
+                $recordCount = (int)($countArr['non_deleted'][$table] ?? 0) . '/' . $lostRecordCount;
+            }
+            $lostRecordList = [];
+            foreach ($databaseIntegrityCheck->getLRecords()[$table] ?? [] as $data) {
+                if (!GeneralUtility::inList($databaseIntegrityCheck->getLostPagesList(), $data['pid'])) {
+                    $fixLink = (string)$this->uriBuilder->buildUriFromRoute(
+                        $this->moduleName,
+                        ['SET' => ['function' => 'records'], 'fixLostRecords_table' => $table, 'fixLostRecords_uid' => $data['uid']]
+                    );
+                    $lostRecordList[] =
+                        '<div class="record">' .
+                            '<a href="' . htmlspecialchars($fixLink) . '" title="' . htmlspecialchars($languageService->sL('LLL:EXT:lowlevel/Resources/Private/Language/locallang.xlf:fixLostRecord')) . '">' .
+                                $this->iconFactory->getIcon('status-dialog-error', IconSize::SMALL)->render() .
+                            '</a>uid:' . $data['uid'] . ', pid:' . $data['pid'] . ', ' . htmlspecialchars(GeneralUtility::fixed_lgd_cs(strip_tags($data['title']), 20)) .
+                        '</div>';
+                } else {
+                    $lostRecordList[] =
+                        '<div class="record-noicon">' .
+                            'uid:' . $data['uid'] . ', pid:' . $data['pid'] . ', ' . htmlspecialchars(GeneralUtility::fixed_lgd_cs(strip_tags($data['title']), 20)) .
+                        '</div>';
+                }
+            }
+            $tableStatistic[$table] = [
+                'icon' => $this->iconFactory->getIconForRecord($table, [], IconSize::SMALL)->render(),
+                'title' => $schema->getTitle($languageService->sL(...)),
+                'count' => $recordCount,
+                'lostRecords' => implode(LF, $lostRecordList),
+            ];
         }
 
         $view->assignMultiple([
@@ -2820,21 +2915,6 @@ class DatabaseIntegrityController
         ]);
 
         return $view->renderResponse('RecordStatistics');
-    }
-
-    /**
-     * Show reference list
-     */
-    protected function relationsAction(ModuleTemplate $view): ResponseInterface
-    {
-        $databaseIntegrityCheck = GeneralUtility::makeInstance(DatabaseIntegrityCheck::class);
-        $databaseIntegrityCheck->selectNonEmptyRecordsWithFkeys();
-        $view->assignMultiple([
-            'select_db' => $databaseIntegrityCheck->testDBRefs($databaseIntegrityCheck->getCheckSelectDBRefs()),
-            'group_db' => $databaseIntegrityCheck->testDBRefs($databaseIntegrityCheck->getCheckGroupDBRefs()),
-        ]);
-
-        return $view->renderResponse('Relations');
     }
 
     protected function getBackendUserAuthentication(): BackendUserAuthentication
@@ -2865,7 +2945,7 @@ class DatabaseIntegrityController
         string|int $currentValue,
         mixed $menuItems,
         ServerRequestInterface $request
-    ) {
+    ): string {
         if (!is_array($menuItems) || count($menuItems) <= 1) {
             return '';
         }
@@ -2910,7 +2990,7 @@ class DatabaseIntegrityController
         string|bool|int $currentValue,
         ServerRequestInterface $request,
         string $tagParams = ''
-    ) {
+    ): string {
         // relies on module 'TYPO3/CMS/Backend/ActionDispatcher'
         $scriptUrl = $this->uriBuilder->buildUriFromRequest($request);
         $attributes = GeneralUtility::implodeAttributes([

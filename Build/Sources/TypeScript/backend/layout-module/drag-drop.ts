@@ -18,12 +18,13 @@
 import DocumentService from '@typo3/core/document-service';
 import DataHandler from '../ajax-data-handler';
 import Icons from '../icons';
-import ResponseInterface from '../ajax-data-handler/response-interface';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
-import type { DragDropThumbnail, DragTooltipMetadata } from '@typo3/backend/drag-tooltip';
 import BroadcastService from '@typo3/backend/broadcast-service';
 import { BroadcastMessage } from '@typo3/backend/broadcast-message';
+import type ResponseInterface from '../ajax-data-handler/response-interface';
+import type { DragDropThumbnail, DragTooltipMetadata } from '@typo3/backend/drag-tooltip';
+import DragDropUtility from '@typo3/backend/utility/drag-drop-utility';
 
 interface Parameters {
   cmd?: { [key: string]: { [key: string]: any } };
@@ -31,17 +32,17 @@ interface Parameters {
   CB?: { paste: string, update: { colPos: number | boolean, sys_language_uid: number } };
 }
 
-type ContentElementDragDropData = {
+export type ContentElementDragDropData = {
   pid: number;
   uid: number;
   language: number;
   content: string;
-}
+  moveElementUrl: string;
+};
 
 enum Identifiers {
   content = '.t3js-page-ce',
-  draggableContent = '.t3js-page-ce-sortable',
-  draggableContentHandle = '.t3js-page-ce-draghandle',
+  draggableContentHandle = '.t3js-page-ce-header[draggable="true"]',
   dropZone = '.t3js-page-ce-dropzone-available',
   column = '.t3js-page-column',
   addContent = '.t3js-page-new-ce',
@@ -69,9 +70,6 @@ class DragDrop {
         // Do not enable drag&drop when event is triggered on an anchor element
         return;
       }
-
-      const content = (target.closest(Identifiers.content) as HTMLElement);
-      (content.querySelector(Identifiers.draggableContentHandle) as HTMLElement).draggable = true;
     }).delegateTo(document, Identifiers.draggableContentHandle);
 
     new RegularEvent(
@@ -91,14 +89,12 @@ class DragDrop {
 
     new RegularEvent('dragenter', (event: DragEvent, target: HTMLElement): void => {
       target.classList.add(Classes.dropPossibleHoverClass);
-
-      event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+      DragDropUtility.updateEventAndTooltipToReflectCopyMoveIntention(event);
     }).delegateTo(document, Identifiers.dropZone);
 
     new RegularEvent('dragover', (event: DragEvent): void => {
       event.preventDefault();
-
-      event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
+      DragDropUtility.updateEventAndTooltipToReflectCopyMoveIntention(event);
     }).delegateTo(document, Identifiers.dropZone);
 
     new RegularEvent('dragleave', (event: DragEvent, target: HTMLElement): void => {
@@ -113,8 +109,7 @@ class DragDrop {
 
   protected onDragEnter(event: DragEvent): void {
     event.preventDefault();
-    event.dataTransfer.dropEffect = event.ctrlKey ? 'copy' : 'move';
-
+    DragDropUtility.updateEventAndTooltipToReflectCopyMoveIntention(event);
     this.showDropZones();
   }
 
@@ -126,33 +121,18 @@ class DragDrop {
       uid: parseInt(content.dataset.uid, 10),
       language: parseInt(content.dataset.languageUid, 10),
       content: content.outerHTML,
+      moveElementUrl: content.dataset.moveElementUrl,
     } as ContentElementDragDropData));
 
     const metadata: DragTooltipMetadata = this.getDragTooltipMetadataFromContentElement(content);
     event.dataTransfer.setData(DataTransferTypes.dragTooltip, JSON.stringify(metadata));
     event.dataTransfer.effectAllowed = 'copyMove';
-    event.dataTransfer.dropEffect = 'copy';
-
-    // Hack to render "Press CTRL to copy" in original element only, but not in drag image clone
-    window.setTimeout((): void => {
-      const copyMessage = document.createElement('span');
-      copyMessage.classList.add('t3js-draggable-copy-message', 'badge', 'badge-secondary');
-      copyMessage.textContent = TYPO3.lang['dragdrop.copy.message'];
-      content.append(copyMessage);
-    }, 0);
+    DragDropUtility.updateEventAndTooltipToReflectCopyMoveIntention(event);
 
     (content.querySelector(Identifiers.dropZone) as HTMLElement).hidden = true;
   }
 
-  protected onDragEnd(event: DragEvent, target: HTMLElement): void {
-    const content = target.closest(Identifiers.content) as HTMLElement;
-    // Disable "draggable" attribute again, see `mousedown` event handler
-    content.draggable = false;
-
-    // Show create new element button
-    (content.querySelector(Identifiers.dropZone) as HTMLElement).hidden = false;
-    content.querySelector('.t3js-draggable-copy-message').remove();
-
+  protected onDragEnd(): void {
     this.hideDropZones();
   }
 
@@ -205,7 +185,7 @@ class DragDrop {
       if (targetPid !== 0) {
         colPos = newColumn;
       }
-      const isCopyAction = (event.ctrlKey || dropContainer.classList.contains('t3js-paste-copy'));
+      const isCopyAction = (DragDropUtility.isCopyModifierFromEvent(event) || dropContainer.classList.contains('t3js-paste-copy'));
       const datahandlerCommand = isCopyAction ? 'copy' : 'move';
       parameters.cmd = {
         tt_content: {
@@ -286,7 +266,7 @@ class DragDrop {
         throw result.messages;
       }
 
-      if (isCopyAction || (gridContainer?.dataset.defaultLanguageBinding === '1')) {
+      if (isCopyAction || (gridContainer?.dataset.multiLanguages === '1')) {
         self.location.reload();
       }
     });
@@ -333,10 +313,11 @@ class DragDrop {
           height: image.height,
           width: image.width,
         });
-      })
+      });
     }
 
     return {
+      statusIconIdentifier: 'actions-move',
       tooltipIconIdentifier: iconIdentifier,
       tooltipLabel: title,
       tooltipDescription: description,
@@ -354,6 +335,7 @@ class DragDrop {
 
   protected showDropZones(): void {
     document.querySelectorAll(Identifiers.dropZone).forEach((element: HTMLElement): void => {
+      element.hidden = false;
       const addContentButton = element.parentElement.querySelector(Identifiers.addContent) as HTMLElement;
       if (addContentButton !== null) {
         addContentButton.hidden = true;
@@ -363,7 +345,8 @@ class DragDrop {
   }
 
   protected hideDropZones(): void {
-    document.querySelectorAll(`${Identifiers.dropZone}.${Classes.validDropZoneClass}`).forEach((element: HTMLElement): void => {
+    document.querySelectorAll(Identifiers.dropZone).forEach((element: HTMLElement): void => {
+      element.hidden = true;
       const addContentButton = element.parentElement.querySelector(Identifiers.addContent) as HTMLElement;
       if (addContentButton !== null) {
         addContentButton.hidden = false;

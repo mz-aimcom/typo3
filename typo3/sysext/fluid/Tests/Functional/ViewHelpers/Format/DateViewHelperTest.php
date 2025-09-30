@@ -104,6 +104,14 @@ final class DateViewHelperTest extends FunctionalTestCase
         self::assertSame('Saturday, 8. Feb 14', (new TemplateView($context))->render());
     }
 
+    #[Test]
+    public function viewHelperCanUseIntegersAsTagContent(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:for each="{1391876733:\'1391876734\'}" as="i" iteration="iterator" key="k"><f:format.date>{k}</f:format.date></f:for>');
+        self::assertSame('2014-02-08', (new TemplateView($context))->render());
+    }
+
     /**
      * No deprecation notice using PHP 8.1+ should be thrown when format is null
      */
@@ -191,6 +199,16 @@ final class DateViewHelperTest extends FunctionalTestCase
         self::assertEquals($expected, (new TemplateView($context))->render());
     }
 
+    #[DataProvider('viewHelperRespectsDefaultTimezoneForIntegerTimestampDataProvider')]
+    #[Test]
+    public function viewHelperRespectGivenTimezoneForIntegerTimestamp(string $timezone, string $expected): void
+    {
+        $date = 1359891658; // 2013-02-03 11:40 UTC
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:format.date timezone="' . $timezone . '" date="' . $date . '" format="Y-m-d H:i"/>');
+        self::assertEquals($expected, (new TemplateView($context))->render());
+    }
+
     public static function viewHelperRespectsDefaultTimezoneForStringTimestampDataProvider(): array
     {
         return [
@@ -224,6 +242,15 @@ final class DateViewHelperTest extends FunctionalTestCase
         date_default_timezone_set($timeZone);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="' . $date . '" format="Y-m-d H:i"/>');
+        self::assertEquals($expected, (new TemplateView($context))->render());
+    }
+
+    #[DataProvider('viewHelperRespectsDefaultTimezoneForStringTimestampDataProvider')]
+    #[Test]
+    public function viewHelperRespectsGivenTimezoneForStringTimestamp(string $timeZone, string $date, string $expected): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:format.date timezone="' . $timeZone . '" date="' . $date . '" format="Y-m-d H:i"/>');
         self::assertEquals($expected, (new TemplateView($context))->render());
     }
 

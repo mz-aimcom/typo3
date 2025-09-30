@@ -17,33 +17,60 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class DateTimeFieldType extends AbstractFieldType implements FieldTypeInterface
+use TYPO3\CMS\Core\Database\Query\QueryHelper;
+
+final readonly class DateTimeFieldType extends AbstractFieldType
 {
     public function getType(): string
     {
         return 'datetime';
     }
 
+    /**
+     * native datetime fields are nullable by default, and
+     * are only not-nullable if `nullable` is explicitly set to false.
+     */
+    public function isNullable(): bool
+    {
+        if ($this->getPersistenceType() !== null) {
+            return $this->configuration['nullable'] ?? true;
+        }
+        return parent::isNullable();
+    }
+
     public function getFormat(): string
     {
-        return $this->configuration['format'];
+        $format = $this->configuration['format'] ?? null;
+        $persistenceType = $this->getPersistenceType();
+        // A native time field must not be formatted as date
+        if (($format === 'datetime' || $format === 'date') && $persistenceType === 'time') {
+            return 'timesec';
+        }
+        // A native date field must not be formatted as time
+        if (($format === 'time' || $format === 'timesec') && $persistenceType === 'date') {
+            return 'date';
+        }
+        if (in_array($format, ['datetime', 'date', 'time', 'timesec'], true)) {
+            return $format;
+        }
+        if ($persistenceType !== null) {
+            return $persistenceType === 'time' ? 'timesec' : $persistenceType;
+        }
+        return 'datetime';
+    }
+
+    public function isSearchable(): bool
+    {
+        return $this->getPersistenceType() === null && ($this->configuration['searchable'] ?? true);
     }
 
     public function getPersistenceType(): ?string
     {
-        return $this->configuration['dbtype'] ?? null;
+        return in_array($this->configuration['dbType'] ?? null, QueryHelper::getDateTimeTypes(), true) ? $this->configuration['dbType'] : null;
     }
 
-    public function isNullable(): bool
+    public function getSoftReferenceKeys(): false
     {
-        return (bool)($this->configuration['nullable'] ?? false);
-    }
-
-    public static function __set_state(array $state): self
-    {
-        return new self(...$state);
+        return false;
     }
 }

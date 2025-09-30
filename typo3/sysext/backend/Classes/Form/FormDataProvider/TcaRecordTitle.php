@@ -17,7 +17,8 @@ namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3\CMS\Core\Database\Query\QueryHelper;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -180,6 +181,9 @@ class TcaRecordTitle implements FormDataProviderInterface
             case 'uuid':
                 $recordTitle = $rawValue ?? '';
                 break;
+            case 'country':
+                $recordTitle = $this->getRecordTitleForCountryType($rawValue, $result, $fieldName);
+                break;
             case 'text':
             case 'email':
             case 'link':
@@ -268,6 +272,37 @@ class TcaRecordTitle implements FormDataProviderInterface
     }
 
     /**
+     * Return the record title for database records of type "country"
+     *
+     * @param mixed $value Current database value of this field
+     * @param array $result Incoming result array
+     * @param string $fieldName Field to handle
+     * @return string
+     */
+    protected function getRecordTitleForCountryType($value, $result, $fieldName)
+    {
+        // @todo - There probably is a better way to get all valid items
+        //         for TcaCountry?!
+        $tcaCountry = GeneralUtility::makeInstance(TcaCountry::class);
+        $processedResult = $tcaCountry->addData($result);
+        $countries = $processedResult['processedTca']['columns'][$fieldName]['config']['items'] ?? [];
+
+        // Iterate all possible countries. Fetch the one that matches our $value.
+        // Note that the 'label' option already resolved to the proper
+        // possible keys (name, localizedName, officialName, localizedOfficialName, iso2, iso3)
+        // due to the specifications store in [config] within $result.
+        foreach ($countries as $country) {
+            if ($country['value'] === $value) {
+                return $country['label'];
+            }
+        }
+
+        // Fallback if no country was resolved.
+        // @todo - Should this better return an empty value instead?
+        return $value;
+    }
+
+    /**
      * Return the record title for database records
      *
      * @param mixed $value Current database value of this field
@@ -338,64 +373,37 @@ class TcaRecordTitle implements FormDataProviderInterface
 
     protected function getRecordTitleForDatetimeType(mixed $value, array $fieldConfig): string
     {
-        if (!isset($value)) {
-            return '';
+        try {
+            $datetime = DateTimeFactory::createFomDatabaseValueAndTCAConfig($value, $fieldConfig);
+            if ($datetime === null) {
+                return '';
+            }
+        } catch (\InvalidArgumentException) {
+            return (string)$value;
         }
-        $title = $value;
-        $format = (string)($fieldConfig['format'] ?? 'datetime');
-        $dateTimeFormats = QueryHelper::getDateTimeFormats();
+        $format = DateTimeFactory::getFormatFromTCAConfig($fieldConfig);
         if ($format === 'date') {
-            // Handle native date field
-            if (($fieldConfig['dbType'] ?? '') === 'date') {
-                $value = $value === $dateTimeFormats['date']['empty'] ? 0 : (int)strtotime($value);
-            } else {
-                $value = (int)$value;
+            $ageSuffix = '';
+            // Generate age suffix as long as not explicitly suppressed
+            if (!($fieldConfig['disableAgeDisplay'] ?? false)) {
+                $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
+                $ageSuffix = sprintf(' (%s)', (new DateFormatter())->formatDateInterval(
+                    $now->diff($datetime),
+                    $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
+                ));
             }
-            if (!empty($value)) {
-                $ageSuffix = '';
-                // Generate age suffix as long as not explicitly suppressed
-                if (!($fieldConfig['disableAgeDisplay'] ?? false)) {
-                    $ageDelta = $GLOBALS['EXEC_TIME'] - $value;
-                    $calculatedAge = BackendUtility::calcAge(
-                        (int)abs($ageDelta),
-                        $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
-                    );
-                    $ageSuffix = ' (' . ($ageDelta > 0 ? '-' : '') . $calculatedAge . ')';
-                }
-                $title = BackendUtility::date($value) . $ageSuffix;
-            }
-        } elseif ($format === 'time') {
-            // Handle native time field
-            if (($fieldConfig['dbType'] ?? '') === 'time') {
-                $value = $value === $dateTimeFormats['time']['empty'] ? 0 : (int)strtotime('1970-01-01 ' . $value . ' UTC');
-            } else {
-                $value = (int)$value;
-            }
-            if (!empty($value)) {
-                $title = gmdate('H:i', $value);
-            }
-        } elseif ($format === 'timesec') {
-            // Handle native time field
-            if (($fieldConfig['dbType'] ?? '') === 'time') {
-                $value = $value === $dateTimeFormats['time']['empty'] ? 0 : (int)strtotime('1970-01-01 ' . $value . ' UTC');
-            } else {
-                $value = (int)$value;
-            }
-            if (!empty($value)) {
-                $title = gmdate('H:i:s', $value);
-            }
-        } elseif ($format === 'datetime') {
-            // Handle native datetime field
-            if (($fieldConfig['dbType'] ?? '') === 'datetime') {
-                $value = $value === $dateTimeFormats['datetime']['empty'] ? 0 : (int)strtotime($value);
-            } else {
-                $value = (int)$value;
-            }
-            if (!empty($value)) {
-                $title = BackendUtility::datetime($value);
-            }
+            return BackendUtility::date($datetime->getTimestamp()) . $ageSuffix;
         }
-        return $title;
+        if ($format === 'time') {
+            return $datetime->format('H:i');
+        }
+        if ($format === 'timesec') {
+            return $datetime->format('H:i:s');
+        }
+        if ($format === 'datetime') {
+            return BackendUtility::datetime($datetime->getTimestamp());
+        }
+        return (string)$value;
     }
 
     /**

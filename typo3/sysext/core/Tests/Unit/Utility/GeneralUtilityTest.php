@@ -18,9 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Utility;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
-use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Environment;
@@ -599,6 +599,46 @@ final class GeneralUtilityTest extends UnitTestCase
     public static function intExplodeDataProvider(): array
     {
         return [
+            'empty string' => [
+                '',
+                false,
+                [0],
+            ],
+            'empty string, remove empty' => [
+                '',
+                true,
+                [],
+            ],
+            'single comma' => [
+                ',',
+                false,
+                [0, 0],
+            ],
+            'single comma, remove empty' => [
+                ',',
+                true,
+                [],
+            ],
+            'multi comma' => [
+                ',,',
+                false,
+                [0, 0, 0],
+            ],
+            'multi comma, remove empty' => [
+                ',,',
+                true,
+                [],
+            ],
+            'zero' => [
+                '0',
+                false,
+                [0],
+            ],
+            'zero, remove empty' => [
+                '0',
+                true,
+                [0],
+            ],
             'convertStringToInteger' => [
                 '1,foo,2',
                 false,
@@ -805,6 +845,13 @@ final class GeneralUtilityTest extends UnitTestCase
                 true,
                 0,
                 ['a', 'b', 'c', 'd', 'e', 'f'],
+            ],
+            'duplicate values are kept' => [
+                ',',
+                'a,b,a',
+                true,
+                0,
+                ['a', 'b', 'a'],
             ],
             'keeps remaining results with empty items after reaching limit with positive parameter' => [
                 ',',
@@ -1269,6 +1316,7 @@ final class GeneralUtilityTest extends UnitTestCase
 
     #[DataProvider('sanitizeLocalUrlValidPathsDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function sanitizeLocalUrlAcceptsNotEncodedValidPaths(string $path): void
     {
         Environment::initialize(
@@ -1290,6 +1338,7 @@ final class GeneralUtilityTest extends UnitTestCase
 
     #[DataProvider('sanitizeLocalUrlValidPathsDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function sanitizeLocalUrlAcceptsEncodedValidPaths(string $path): void
     {
         Environment::initialize(
@@ -1337,11 +1386,27 @@ final class GeneralUtilityTest extends UnitTestCase
                 'localhost',
                 '/cms/',
             ],
+            '/cms/typo3/alt_intro.php&param=oneparam' => [
+                '/cms/typo3/alt_intro.php&param=oneparam',
+                'localhost',
+                '/cms/',
+            ],
+            '/cms/typo3/alt_intro.php&param=oneparam with spaces' => [
+                '/cms/typo3/alt_intro.php&param=oneparam with spaces',
+                'localhost',
+                '/cms/',
+            ],
+            '/cms/typo3/alt_intro.php&param=oneparam with spaces&normalparam=2' => [
+                '/cms/typo3/alt_intro.php&param=oneparam with spaces',
+                'localhost',
+                '/cms/',
+            ],
         ];
     }
 
     #[DataProvider('sanitizeLocalUrlValidUrlsDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function sanitizeLocalUrlAcceptsNotEncodedValidUrls(string $url, string $host, string $subDirectory): void
     {
         Environment::initialize(
@@ -1362,6 +1427,7 @@ final class GeneralUtilityTest extends UnitTestCase
 
     #[DataProvider('sanitizeLocalUrlValidUrlsDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function sanitizeLocalUrlAcceptsEncodedValidUrls(string $url, string $host, string $subDirectory): void
     {
         Environment::initialize(
@@ -1396,6 +1462,11 @@ final class GeneralUtilityTest extends UnitTestCase
             'invalid URL, UNC path' => ['\\\\foo\\bar\\'],
             'invalid URL, HTML break out attempt' => ['" >blabuubb'],
             'base64 encoded string' => ['data:%20text/html;base64,PHNjcmlwdD5hbGVydCgnWFNTJyk8L3NjcmlwdD4='],
+            'relative URL with location header injection via leading space' => [' //evil.site/'],
+            'relative URL with location header injection via leading horizontal tab' => ["\t" . '//evil.site/'],
+            'relative URL with location header injection attempt (not known to work) via vertical white space' => ["\v" . '//evil.site/'],
+            'HTTP header smuggling attempt' => ["/\r\nX-Injected: evil", true],
+            'null-byte break out attempt' => ["http\x00://www.google.de"],
         ];
     }
 
@@ -1421,7 +1492,7 @@ final class GeneralUtilityTest extends UnitTestCase
 
     #[DataProvider('sanitizeLocalUrlInvalidDataProvider')]
     #[Test]
-    public function sanitizeLocalUrlDeniesPlainInvalidUrlsInFrontendContext(string $url): void
+    public function sanitizeLocalUrlDeniesPlainInvalidUrlsInFrontendContext(string $url, bool $skipExplicitEncodeTest = false): void
     {
         Environment::initialize(
             Environment::getContext(),
@@ -1441,8 +1512,11 @@ final class GeneralUtilityTest extends UnitTestCase
 
     #[DataProvider('sanitizeLocalUrlInvalidDataProvider')]
     #[Test]
-    public function sanitizeLocalUrlDeniesEncodedInvalidUrls(string $url): void
+    public function sanitizeLocalUrlDeniesEncodedInvalidUrls(string $url, bool $skipExplicitEncodeTest = false): void
     {
+        if ($skipExplicitEncodeTest) {
+            self::markTestSkipped('Explicit rawurlencoding skipped because the contents are considered allowed payload if encoded');
+        }
         self::assertEquals('', GeneralUtility::sanitizeLocalUrl(rawurlencode($url)));
     }
 
@@ -2374,8 +2448,8 @@ final class GeneralUtilityTest extends UnitTestCase
         file_put_contents($path . '/subDirectory/other.php', 'milk');
         file_put_contents($path . '/subDirectory/stuff.csv', 'honey');
         mkdir($path . '/beStylesheet');
-        file_put_contents($path . '/beStylesheet/backend.css', '.topbar-header-site { color: red; }');
-        file_put_contents($path . '/beStylesheet/backend.scss', '.topbar-header-site { color: green; }');
+        file_put_contents($path . '/beStylesheet/backend.css', '.topbar-site { color: red; }');
+        file_put_contents($path . '/beStylesheet/backend.scss', '.topbar-site { color: green; }');
         file_put_contents($path . '/excludeMe.txt', 'cocoa nibs');
         file_put_contents($path . '/double.setup.typoscript', 'cool TS');
         file_put_contents($path . '/testB.txt', 'olive oil');
@@ -2549,7 +2623,6 @@ final class GeneralUtilityTest extends UnitTestCase
         $directoryCreated = is_dir($directory);
         rmdir($directory);
         self::assertTrue($directoryCreated);
-        self::assertIsArray($fileInfo);
         self::assertEquals($directoryPath, $fileInfo['path']);
         self::assertEquals($directoryName, $fileInfo['file']);
         self::assertEquals($directoryName, $fileInfo['filebody']);
@@ -2562,7 +2635,6 @@ final class GeneralUtilityTest extends UnitTestCase
     {
         $testFile = 'fileadmin/media/someFile.png';
         $fileInfo = GeneralUtility::split_fileref($testFile);
-        self::assertIsArray($fileInfo);
         self::assertEquals('fileadmin/media/', $fileInfo['path']);
         self::assertEquals('someFile.png', $fileInfo['file']);
         self::assertEquals('someFile', $fileInfo['filebody']);
@@ -2646,6 +2718,7 @@ final class GeneralUtilityTest extends UnitTestCase
      */
     #[DataProvider('resolveBackPathDataProvider')]
     #[Test]
+    #[IgnoreDeprecations]
     public function resolveBackPathWithDataProvider(string $input, string $expectedValue): void
     {
         self::assertEquals($expectedValue, GeneralUtility::resolveBackPath($input));
@@ -2674,9 +2747,10 @@ final class GeneralUtilityTest extends UnitTestCase
     }
 
     #[Test]
-    public function makeInstanceReturnsClassInstance(): void
+    #[DoesNotPerformAssertions]
+    public function makeInstanceCanInstantiateStdClass(): void
     {
-        self::assertInstanceOf(\stdClass::class, GeneralUtility::makeInstance(\stdClass::class));
+        GeneralUtility::makeInstance(\stdClass::class);
     }
 
     #[Test]
@@ -2728,10 +2802,11 @@ final class GeneralUtilityTest extends UnitTestCase
     }
 
     #[Test]
+    #[DoesNotPerformAssertions]
     public function makeInstanceInjectsLogger(): void
     {
         $instance = GeneralUtility::makeInstance(GeneralUtilityMakeInstanceInjectLoggerFixture::class);
-        self::assertInstanceOf(LoggerInterface::class, $instance->getLogger());
+        $instance->getLogger();
     }
 
     #[Test]
@@ -3170,8 +3245,8 @@ final class GeneralUtilityTest extends UnitTestCase
     {
         $cacheMock = $this->createMock(FrontendInterface::class);
         $cacheMock->method('getIdentifier')->willReturn('runtime');
-        $cacheMock->expects(self::atLeastOnce())->method('get')->with('generalUtilityXml2Array')->willReturn(false);
-        $cacheMock->expects(self::atLeastOnce())->method('set')->with('generalUtilityXml2Array', self::anything());
+        $cacheMock->expects($this->atLeastOnce())->method('get')->with('generalUtilityXml2Array')->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('set')->with('generalUtilityXml2Array', self::anything());
         $cacheManager = new CacheManager();
         $cacheManager->registerCache($cacheMock);
         GeneralUtility::setSingletonInstance(CacheManager::class, $cacheManager);
@@ -3545,7 +3620,7 @@ final class GeneralUtilityTest extends UnitTestCase
     }
 
     #[Test]
-    public function createVersionNumberedFilenameDoesNotResolveBackpathForAbsolutePath(): void
+    public function createVersionNumberedFilenameDoesNotResolveBackpathForAbsolutePathInBackend(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['BE']['versionNumberInFilename'] = true;
 
@@ -3559,6 +3634,37 @@ final class GeneralUtilityTest extends UnitTestCase
         $versionedFilename = GeneralUtility::createVersionNumberedFilename($testFilepath);
 
         self::assertMatchesRegularExpression('/^.*\/tests\/' . $uniqueFilename . '\.[0-9]+\.css/', $versionedFilename);
+    }
+
+    #[Test]
+    public function createVersionNumberedFilenameDoesNotResolveBackpathForAbsolutePath(): void
+    {
+        Environment::initialize(
+            Environment::getContext(),
+            true,
+            false,
+            Environment::getProjectPath(),
+            Environment::getPublicPath(),
+            Environment::getVarPath(),
+            Environment::getConfigPath(),
+            Environment::getPublicPath() . '/index.php',
+            Environment::isWindows() ? 'WINDOWS' : 'UNIX'
+        );
+        $request = new ServerRequest('https://www.example.com', 'GET');
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
+
+        $GLOBALS['TYPO3_CONF_VARS']['FE']['versionNumberInFilename'] = false;
+
+        $uniqueFilename = StringUtility::getUniqueId() . 'frontend';
+        $testFileDirectory = Environment::getVarPath() . '/tests/';
+        $testFilepath = $testFileDirectory . $uniqueFilename . '.css';
+        $this->testFilesToDelete[] = $testFilepath;
+        GeneralUtility::mkdir_deep($testFileDirectory);
+        touch($testFilepath);
+
+        $versionedFilename = GeneralUtility::createVersionNumberedFilename($testFilepath);
+
+        self::assertMatchesRegularExpression('/^.*\/tests\/' . $uniqueFilename . '\.css\?[0-9]+/', $versionedFilename);
     }
 
     #[Test]
@@ -3598,39 +3704,45 @@ final class GeneralUtilityTest extends UnitTestCase
     }
 
     #[Test]
+    public function createVersionNumberedFilenameResolvesAlreadyGivenAbsolutePathInBackend(): void
+    {
+        Environment::initialize(
+            Environment::getContext(),
+            true,
+            false,
+            Environment::getProjectPath(),
+            Environment::getPublicPath(),
+            Environment::getVarPath(),
+            Environment::getConfigPath(),
+            Environment::getPublicPath() . '/index.php',
+            Environment::isWindows() ? 'WINDOWS' : 'UNIX'
+        );
+        $request = new ServerRequest('https://www.example.com', 'GET');
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $uniqueFilename = StringUtility::getUniqueId('main_');
+        $testFileDirectory = Environment::getPublicPath() . '/static/';
+        $testFilepath = $testFileDirectory . $uniqueFilename . '.css';
+        GeneralUtility::mkdir_deep($testFileDirectory);
+        touch($testFilepath);
+
+        $GLOBALS['TYPO3_CONF_VARS']['BE']['versionNumberInFilename'] = false;
+        $incomingFileName = '/' . PathUtility::stripPathSitePrefix($testFilepath);
+        $versionedFilename = GeneralUtility::createVersionNumberedFilename($incomingFileName);
+        self::assertStringContainsString('.css?', $versionedFilename);
+        self::assertStringStartsWith('/static/main_', $versionedFilename);
+
+        $incomingFileName = PathUtility::stripPathSitePrefix($testFilepath);
+        $versionedFilename = GeneralUtility::createVersionNumberedFilename($incomingFileName);
+        self::assertStringContainsString('.css?', $versionedFilename);
+        self::assertStringStartsWith('static/main_', $versionedFilename);
+
+        GeneralUtility::rmdir($testFileDirectory, true);
+    }
+
+    #[Test]
     public function getMaxUploadFileSizeReturnsPositiveInt(): void
     {
         $result = GeneralUtility::getMaxUploadFileSize();
         self::assertGreaterThan(0, $result);
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function hmacReturnsHashOfProperLength(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = '';
-        $hmac = GeneralUtility::hmac('message');
-        self::assertTrue(!empty($hmac) && is_string($hmac));
-        self::assertEquals(strlen($hmac), 40);
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function hmacReturnsEqualHashesForEqualInput(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = '';
-        $msg0 = 'message';
-        $msg1 = 'message';
-        self::assertEquals(GeneralUtility::hmac($msg0), GeneralUtility::hmac($msg1));
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function hmacReturnsNoEqualHashesForNonEqualInput(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = '';
-        $msg0 = 'message0';
-        $msg1 = 'message1';
-        self::assertNotEquals(GeneralUtility::hmac($msg0), GeneralUtility::hmac($msg1));
     }
 }

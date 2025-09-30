@@ -12,9 +12,10 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import { repeat } from 'lit/directives/repeat';
 import { unsafeHTML } from 'lit/directives/unsafe-html';
+import { nl2br } from '@typo3/core/directive/nl2br';
 
 type Comment = {
   user_comment: string;
@@ -23,19 +24,19 @@ type Comment = {
   tstamp: number;
   user_username: string;
   user_avatar: string
-}
+};
 
 @customElement('typo3-workspaces-comment-view')
 export class CommentViewElement extends LitElement {
   @property({ type: Array })
   public comments: Comment[] = [];
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div>
         ${repeat(this.comments, (comment) => comment.tstamp, (comment) => this.renderComment(comment))}
@@ -55,12 +56,12 @@ export class CommentViewElement extends LitElement {
         <div class="panel panel-default">
           ${comment.user_comment ? html`
           <div class="panel-body">
-            ${comment.user_comment}
+            ${nl2br(comment.user_comment)}
           </div>
         ` : nothing}
           <div class="panel-footer">
             <span class="badge badge-success me-2">
-              ${comment.previous_stage_title} > ${comment.stage_title}
+              ${comment.previous_stage_title} ⇾ ${comment.stage_title}
             </span>
             <span class="badge badge-info">
               ${comment.tstamp}

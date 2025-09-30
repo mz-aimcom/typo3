@@ -17,18 +17,25 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Schema\Field;
 
-/**
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
- */
-final readonly class JsonFieldType extends AbstractFieldType implements FieldTypeInterface
+final readonly class JsonFieldType extends AbstractFieldType
 {
     public function getType(): string
     {
         return 'json';
     }
 
-    public static function __set_state(array $state): self
+    public function isSearchable(): bool
     {
-        return new self(...$state);
+        return (bool)($this->configuration['searchable'] ?? true);
+    }
+
+    public function isNullable(): false
+    {
+        return false;
+    }
+
+    public function getSoftReferenceKeys(): false
+    {
+        return false;
     }
 }

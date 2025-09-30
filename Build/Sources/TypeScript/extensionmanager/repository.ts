@@ -17,7 +17,7 @@ import Notification from '@typo3/backend/notification';
 import Severity from '@typo3/backend/severity';
 import SortableTable from '@typo3/backend/sortable-table';
 import '@typo3/backend/input/clearable';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import RegularEvent from '@typo3/core/event/regular-event';
 
@@ -36,8 +36,6 @@ interface ExtensionInstallResult {
 }
 
 class Repository {
-  public downloadPath: string = '';
-
   public initDom(): void {
     NProgress.configure({ parent: '.module-loading-indicator', showSpinner: false });
 
@@ -61,7 +59,6 @@ class Repository {
 
       const form = target.closest('form');
       const url = form.dataset.href;
-      this.downloadPath = (form.querySelector('input.downloadPath:checked') as HTMLInputElement).value;
       NProgress.start();
       new AjaxRequest(url).get().then(this.getDependencies);
     }).delegateTo(document, '.downloadFromTer form.download button[type=submit]');
@@ -86,8 +83,7 @@ class Repository {
           text: TYPO3.lang['button.resolveDependencies'],
           btnClass: 'btn-primary',
           trigger: (): void => {
-            this.getResolveDependenciesAndInstallResult(data.url
-              + '&downloadPath=' + this.downloadPath);
+            this.getResolveDependenciesAndInstallResult(data.url);
             Modal.dismiss();
           },
         },
@@ -96,15 +92,14 @@ class Repository {
       if (data.hasErrors) {
         Notification.error(data.title, data.message, 15);
       } else {
-        this.getResolveDependenciesAndInstallResult(data.url
-          + '&downloadPath=' + this.downloadPath);
+        this.getResolveDependenciesAndInstallResult(data.url);
       }
     }
   };
 
   private getResolveDependenciesAndInstallResult(url: string): void {
     NProgress.start();
-    new AjaxRequest(url).get().then(async (response: AjaxResponse): Promise<void> => {
+    new AjaxRequest(url).post({}).then(async (response: AjaxResponse): Promise<void> => {
       try {
         // FIXME: As of now, the endpoint doesn't set proper headers, thus we have to parse the response text
         // https://review.typo3.org/c/Packages/TYPO3.CMS/+/63438
@@ -170,6 +165,11 @@ class Repository {
           TYPO3.lang['extensionList.dependenciesResolveInstallError.message'] || 'Your installation failed while resolving dependencies.'
         );
       }
+    }, (): void => {
+      Notification.error(
+        TYPO3.lang['extensionList.dependenciesResolveInstallError.title'] || 'Install error',
+        TYPO3.lang['extensionList.dependenciesResolveInstallError.message'] || 'Your installation failed while resolving dependencies.'
+      );
     }).finally((): void => {
       NProgress.done();
     });

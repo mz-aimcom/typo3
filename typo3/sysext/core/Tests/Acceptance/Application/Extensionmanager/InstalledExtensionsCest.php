@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Acceptance\Application\Extensionmanager;
 
 use Codeception\Attribute\Env;
+use Codeception\Exception\MalformedLocatorException;
 use TYPO3\CMS\Core\Tests\Acceptance\Support\ApplicationTester;
 
 /**
@@ -30,13 +31,19 @@ final class InstalledExtensionsCest
         $I->useExistingSession('admin');
 
         $I->click('Extensions', '#modulemenu');
-        $I->switchToContentFrame();
 
-        if ($I->tryToSeeElement('#sudo-mode-verification')) {
+        $I->switchToMainFrame();
+        try {
+            $needsStepUp = count($I->grabMultiple('.modal-sudo-mode-verification')) > 0;
+        } catch (MalformedLocatorException) {
+            $needsStepUp = false;
+        }
+        if ($needsStepUp) {
             $I->see('Verify with user password');
             $I->fillField('//input[@name="password"]', 'password');
-            $I->click('//button[@type="submit"]');
+            $I->click('//button[@name="verify"]');
         }
+        $I->switchToContentFrame();
 
         $I->waitForElementVisible('#typo3-extension-list');
     }
@@ -79,7 +86,7 @@ final class InstalledExtensionsCest
 
         $I->switchToContentFrame();
         $I->waitForElementVisible('//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
-        $I->click('a[title="Deactivate"]', '//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
+        $I->click('button[title="Deactivate"]', '//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
 
         $I->switchToMainFrame();
         $I->waitForElementNotVisible('[data-modulemenu-identifier="system_log"]');
@@ -88,7 +95,7 @@ final class InstalledExtensionsCest
         $I->amGoingTo('install extension belog');
         $I->switchToContentFrame();
         $I->waitForElementVisible('//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
-        $I->click('a[title="Activate"]', '//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
+        $I->click('button[title="Activate"]', '//*[@id="typo3-extension-list"]/tbody/tr[@id="belog"]');
 
         $I->switchToMainFrame();
         $I->waitForElementVisible('[data-modulemenu-identifier="system_log"]');

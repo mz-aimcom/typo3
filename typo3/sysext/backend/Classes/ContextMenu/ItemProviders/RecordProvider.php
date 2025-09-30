@@ -21,7 +21,9 @@ use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\JsConfirmation;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
@@ -145,6 +147,13 @@ class RecordProvider extends AbstractProvider
         ],
     ];
 
+    public function __construct(
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly UriBuilder $uriBuilder
+    ) {
+        parent::__construct();
+    }
+
     /**
      * Whether this provider should kick in
      */
@@ -153,7 +162,7 @@ class RecordProvider extends AbstractProvider
         if (in_array($this->table, ['sys_file', 'pages'], true)) {
             return false;
         }
-        return isset($GLOBALS['TCA'][$this->table]);
+        return $this->tcaSchemaFactory->has($this->table);
     }
 
     /**
@@ -283,8 +292,7 @@ class RecordProvider extends AbstractProvider
                 'colPos' => $this->record['colPos'],
                 'uid_pid' => -$this->record['uid'],
             ];
-            $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-            $url = (string)$uriBuilder->buildUriFromRoute('new_content_element_wizard', $urlParameters);
+            $url = (string)$this->uriBuilder->buildUriFromRoute('new_content_element_wizard', $urlParameters);
             $attributes += [
                 'data-new-wizard-url' => $url,
                 'data-title' => $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:newContentElement'),
@@ -319,8 +327,12 @@ class RecordProvider extends AbstractProvider
      */
     protected function getEnableDisableAdditionalAttributes(): array
     {
+        $hiddenFieldName = '';
+        if (($schema = $this->getSchema())?->hasCapability(TcaSchemaCapability::RestrictionDisabledField)) {
+            $hiddenFieldName = $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getFieldName();
+        }
         return [
-            'data-disable-field' => $GLOBALS['TCA'][$this->table]['ctrl']['enablecolumns']['disabled'] ?? '',
+            'data-disable-field' => $hiddenFieldName,
         ];
     }
 
@@ -407,17 +419,11 @@ class RecordProvider extends AbstractProvider
      */
     protected function getViewLink(): string
     {
-        $anchorSection = '';
-        $language = 0;
-        if ($this->table === 'tt_content') {
-            $anchorSection = '#c' . $this->record['uid'];
-            $language = (int)($this->record[$GLOBALS['TCA']['tt_content']['ctrl']['languageField'] ?? null] ?? 0);
-        }
-
-        return (string)PreviewUriBuilder::create($this->getPreviewPid())
-            ->withSection($anchorSection)
-            ->withLanguage($language)
-            ->buildUri();
+        return (string)PreviewUriBuilder::createForRecordPreview(
+            $this->table,
+            $this->record,
+            $this->pageRecord['uid'] ?? 0
+        )->buildUri();
     }
 
     /**
@@ -442,9 +448,7 @@ class RecordProvider extends AbstractProvider
      */
     protected function canBeViewed(): bool
     {
-        return $this->table === 'tt_content'
-            && $this->parentPageCanBeViewed()
-            && $this->previewLinkCanBeBuild();
+        return $this->previewLinkCanBeBuild();
     }
 
     /**
@@ -452,13 +456,13 @@ class RecordProvider extends AbstractProvider
      */
     protected function canBeEdited(): bool
     {
-        if (isset($GLOBALS['TCA'][$this->table]['ctrl']['readOnly']) && $GLOBALS['TCA'][$this->table]['ctrl']['readOnly']) {
+        if ($this->getSchema()?->hasCapability(TcaSchemaCapability::AccessReadOnly)) {
             return false;
         }
         if ($this->backendUser->isAdmin()) {
             return true;
         }
-        if (isset($GLOBALS['TCA'][$this->table]['ctrl']['adminOnly']) && $GLOBALS['TCA'][$this->table]['ctrl']['adminOnly']) {
+        if ($this->getSchema()?->hasCapability(TcaSchemaCapability::AccessAdminOnly)) {
             return false;
         }
 
@@ -556,17 +560,12 @@ class RecordProvider extends AbstractProvider
      */
     protected function hasDisableColumnWithValue(int $value): bool
     {
-        if (isset($GLOBALS['TCA'][$this->table]['ctrl']['enablecolumns']['disabled'])) {
-            $hiddenFieldName = $GLOBALS['TCA'][$this->table]['ctrl']['enablecolumns']['disabled'];
-            if (
-                $hiddenFieldName !== '' && !empty($GLOBALS['TCA'][$this->table]['columns'][$hiddenFieldName])
-                && (
-                    empty($GLOBALS['TCA'][$this->table]['columns'][$hiddenFieldName]['exclude'])
-                    || $this->backendUser->check('non_exclude_fields', $this->table . ':' . $hiddenFieldName)
-                )
-            ) {
-                return (int)($this->record[$hiddenFieldName] ?? 0) === (int)$value;
-            }
+        if (!$this->getSchema()?->hasCapability(TcaSchemaCapability::RestrictionDisabledField)) {
+            return false;
+        }
+        $hiddenField = $this->getSchema()->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getField();
+        if (!$hiddenField->supportsAccessControl() || $this->backendUser->check('non_exclude_fields', $this->table . ':' . $hiddenField->getName())) {
+            return (int)($this->record[$hiddenField->getName()] ?? 0) === $value;
         }
         return false;
     }
@@ -576,9 +575,15 @@ class RecordProvider extends AbstractProvider
      */
     protected function isRecordLocked(): bool
     {
-        return (int)$this->pageRecord['editlock'] === 1
-            || isset($GLOBALS['TCA'][$this->table]['ctrl']['editlock'])
-            && (int)$this->record[$GLOBALS['TCA'][$this->table]['ctrl']['editlock']] === 1;
+        if (($pageSchema = $this->tcaSchemaFactory->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
+            && ($this->pageRecord[$pageSchema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
+        ) {
+            return true;
+        }
+        if (!$this->getSchema()?->hasCapability(TcaSchemaCapability::EditLock)) {
+            return false;
+        }
+        return (bool)$this->record[$this->getSchema()->getCapability(TcaSchemaCapability::EditLock)->getFieldName()];
     }
 
     /**
@@ -608,7 +613,10 @@ class RecordProvider extends AbstractProvider
      */
     protected function isRecordATranslation(): bool
     {
-        return BackendUtility::isTableLocalizable($this->table) && (int)$this->record[$GLOBALS['TCA'][$this->table]['ctrl']['transOrigPointerField']] !== 0;
+        if (!$this->getSchema()?->isLanguageAware()) {
+            return false;
+        }
+        return (int)$this->record[$this->getSchema()->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName()] !== 0;
     }
 
     /**
@@ -619,30 +627,13 @@ class RecordProvider extends AbstractProvider
         return $this->table === 'be_users' && (int)($this->record['uid'] ?? 0) === $this->backendUser->getUserId();
     }
 
-    /**
-     * Check whether the elements' parent page can be viewed
-     */
-    protected function parentPageCanBeViewed(): bool
-    {
-        if (!isset($this->pageRecord['uid']) || !($this->pageRecord['doktype'] ?? false)) {
-            // In case parent page record is invalid, the element can not be viewed
-            return false;
-        }
-
-        // Finally, we check whether the parent page has a "no view doktype" assigned
-        return !in_array((int)$this->pageRecord['doktype'], [
-            PageRepository::DOKTYPE_SPACER,
-            PageRepository::DOKTYPE_SYSFOLDER,
-        ], true);
-    }
-
     protected function getIdentifier(): string
     {
         return $this->record['uid'];
     }
 
     /**
-     * Returns true if a view link can be build for the record
+     * Returns true if a view link can be built for the record
      */
     protected function previewLinkCanBeBuild(): bool
     {
@@ -654,6 +645,17 @@ class RecordProvider extends AbstractProvider
      */
     protected function getLanguageField(): string
     {
-        return $GLOBALS['TCA'][$this->table]['ctrl']['languageField'] ?? '';
+        if (!$this->getSchema()?->isLanguageAware()) {
+            return '';
+        }
+        return $this->getSchema()->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+    }
+
+    protected function getSchema(): ?TcaSchema
+    {
+        if ($this->tcaSchemaFactory->has($this->table)) {
+            return $this->tcaSchemaFactory->get($this->table);
+        }
+        return null;
     }
 }

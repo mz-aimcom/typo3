@@ -25,68 +25,23 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Reflection\ObjectAccess;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithContentArgumentAndRenderStatic;
 
 /**
- * This ViewHelper renders CObjects from the global TypoScript configuration.
+ * ViewHelper to render CObjects (objects containing rendering definitions for records/elements),
+ * using the global TypoScript configuration.
  *
- * .. note::
- *    You have to ensure proper escaping (htmlspecialchars/intval/etc.) on your own!
+ * ```
+ *   <f:cObject typoscriptObjectPath="lib.someLibObject" />
+ * ```
  *
- * Examples
- * ========
+ * **Note:** You have to ensure proper escaping (`htmlspecialchars`/`intval`/etc.) on your own!
  *
- * Render lib object
- * -----------------
- *
- * ::
- *
- *    <f:cObject typoscriptObjectPath="lib.someLibObject" />
- *
- * Rendered :typoscript:`lib.someLibObject`.
- *
- * Specify cObject data & current value
- * ------------------------------------
- *
- * ::
- *
- *    <f:cObject typoscriptObjectPath="lib.customHeader" data="{article}" currentValueKey="title" />
- *
- * Rendered :typoscript:`lib.customHeader`. Data and current value will be available in TypoScript.
- *
- * Inline notation
- * ---------------
- *
- * ::
- *
- *    {article -> f:cObject(typoscriptObjectPath: 'lib.customHeader')}
- *
- * Rendered :typoscript:`lib.customHeader`. Data will be available in TypoScript.
- *
- * Accessing the data in TypoScript
- * --------------------------------
- *
- * .. code-block:: typoscript
- *
- *    lib.customHeader = COA
- *    lib.customHeader {
- *        10 = TEXT
- *        10.field = author
- *        20 = TEXT
- *        20.current = 1
- *    }
- *
- * When passing an object with ``{data}``, the properties of the object are accessible with :typoscript:`.field` in
- * TypoScript. If only a single value is passed or the ``currentValueKey`` is specified, :typoscript:`.current = 1`
- * can be used in the TypoScript.
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-cobject
  */
 final class CObjectViewHelper extends AbstractViewHelper
 {
-    use CompileWithContentArgumentAndRenderStatic;
-
     /**
      * Disable escaping of child nodes' output
      *
@@ -114,16 +69,16 @@ final class CObjectViewHelper extends AbstractViewHelper
      *
      * @throws Exception
      */
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $data = $renderChildrenClosure() ?? [];
-        $typoscriptObjectPath = (string)$arguments['typoscriptObjectPath'];
-        $currentValueKey = $arguments['currentValueKey'];
-        $table = $arguments['table'];
-        if (!$renderingContext->hasAttribute(ServerRequestInterface::class)) {
+        $data = $this->renderChildren() ?? [];
+        $typoscriptObjectPath = (string)$this->arguments['typoscriptObjectPath'];
+        $currentValueKey = $this->arguments['currentValueKey'];
+        $table = $this->arguments['table'];
+        if (!$this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
             throw new \RuntimeException('Required request not found in RenderingContext', 1724243608);
         }
-        $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
         $contentObjectRenderer = self::getContentObjectRenderer($request);
         $contentObjectRenderer->setRequest($request);
         $tsfeBackup = null;
@@ -132,7 +87,7 @@ final class CObjectViewHelper extends AbstractViewHelper
         }
         $currentValue = null;
         if (is_object($data)) {
-            $data = $data instanceof RecordInterface ? $data->toArray() : ObjectAccess::getGettableProperties($data);
+            $data = $data instanceof RecordInterface ? ($data->getRawRecord()?->toArray(true) ?? $data->toArray()) : ObjectAccess::getGettableProperties($data);
         } elseif (is_string($data) || is_numeric($data)) {
             $currentValue = (string)$data;
             $data = [$data];
@@ -171,7 +126,7 @@ final class CObjectViewHelper extends AbstractViewHelper
     /**
      * Renders single content object and increases time tracker stack pointer
      */
-    protected static function renderContentObject(ContentObjectRenderer $contentObjectRenderer, array $setup, string $typoscriptObjectPath, string $lastSegment): string
+    private static function renderContentObject(ContentObjectRenderer $contentObjectRenderer, array $setup, string $typoscriptObjectPath, string $lastSegment): string
     {
         $timeTracker = GeneralUtility::makeInstance(TimeTracker::class);
         if ($timeTracker->LR) {
@@ -186,20 +141,19 @@ final class CObjectViewHelper extends AbstractViewHelper
         return $content;
     }
 
-    protected static function getConfigurationManager(): ConfigurationManagerInterface
+    private static function getConfigurationManager(): ConfigurationManagerInterface
     {
         // @todo: this should be replaced by DI once Fluid can handle DI properly
         return GeneralUtility::getContainer()->get(ConfigurationManagerInterface::class);
     }
 
-    protected static function getContentObjectRenderer(ServerRequestInterface $request): ContentObjectRenderer
+    private static function getContentObjectRenderer(ServerRequestInterface $request): ContentObjectRenderer
     {
         if (($GLOBALS['TSFE'] ?? null) instanceof TypoScriptFrontendController) {
             $tsfe = $GLOBALS['TSFE'];
         } else {
             $tsfe = GeneralUtility::makeInstance(TypoScriptFrontendController::class);
             $tsfe->initializePageRenderer($request);
-            $tsfe->initializeLanguageService($request);
         }
         $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class, $tsfe);
         $parent = $request->getAttribute('currentContentObject');
@@ -212,7 +166,7 @@ final class CObjectViewHelper extends AbstractViewHelper
     /**
      * \TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->cObjGetSingle() relies on $GLOBALS['TSFE']
      */
-    protected static function simulateFrontendEnvironment(): ?TypoScriptFrontendController
+    private static function simulateFrontendEnvironment(): ?TypoScriptFrontendController
     {
         $tsfeBackup = $GLOBALS['TSFE'] ?? null;
         $GLOBALS['TSFE'] = new \stdClass();
@@ -223,7 +177,7 @@ final class CObjectViewHelper extends AbstractViewHelper
     /**
      * Resets $GLOBALS['TSFE'] if it was previously changed by simulateFrontendEnvironment()
      */
-    protected static function resetFrontendEnvironment(?TypoScriptFrontendController $tsfeBackup): void
+    private static function resetFrontendEnvironment(?TypoScriptFrontendController $tsfeBackup): void
     {
         $GLOBALS['TSFE'] = $tsfeBackup;
     }
@@ -231,7 +185,7 @@ final class CObjectViewHelper extends AbstractViewHelper
     /**
      * Explicitly set argument name to be used as content.
      */
-    public function resolveContentArgumentName(): string
+    public function getContentArgumentName(): string
     {
         return 'data';
     }

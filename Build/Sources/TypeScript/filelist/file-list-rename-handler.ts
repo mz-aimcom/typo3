@@ -12,12 +12,12 @@
  */
 
 import RegularEvent from '@typo3/core/event/regular-event';
-import { html, TemplateResult } from 'lit';
-import { ResourceInterface } from '@typo3/backend/resource/resource';
-import { FileListActionEvent, FileListActionDetail } from '@typo3/filelist/file-list-actions';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import { html, type TemplateResult } from 'lit';
+import type { ResourceInterface } from '@typo3/backend/resource/resource';
+import { FileListActionEvent, type FileListActionDetail } from '@typo3/filelist/file-list-actions';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import Notification from '@typo3/backend/notification';
 import Viewport from '@typo3/backend/viewport';
 
@@ -63,11 +63,10 @@ class FileListRenameHandler {
             const formData = new FormData(event.target as HTMLFormElement);
             const submittedData = Object.fromEntries(formData);
             const resourceName = submittedData.name.toString();
-            if (detail.resources[0].name !== resourceName) {
-
+            if (resource.name !== resourceName) {
               const request = new AjaxRequest(TYPO3.settings.ajaxUrls.resource_rename);
               request.post({
-                identifier: detail.resources[0].identifier,
+                identifier: resource.identifier,
                 resourceName: resourceName,
               }).then(async (success: AjaxResponse): Promise<void> => {
 
@@ -102,7 +101,11 @@ class FileListRenameHandler {
           });
 
           modal.addEventListener('typo3-modal-shown', (): void => {
-            form.querySelector('input')?.focus();
+            const renameInput = form.querySelector('input');
+            if (renameInput !== null) {
+              renameInput.focus();
+              renameInput.setSelectionRange(0, resource.name.lastIndexOf('.'));
+            }
           });
         }
       });
@@ -111,10 +114,13 @@ class FileListRenameHandler {
   }
 
   private composeEditForm(resource: ResourceInterface): TemplateResult {
+    const label = resource?.type === 'folder' ?
+      TYPO3.lang['folder_rename.label'] ?? 'New folder name' :
+      TYPO3.lang['file_rename.label'] ?? 'New filename';
     return html`
       <form>
         <label class="form-label" for="rename_target">
-          ${TYPO3.lang['file_rename.label'] ?? 'New filename'}
+          ${label}
         </label>
         <input id="rename_target" name="name" class="form-control" value="${resource.name}" required>
       </form>

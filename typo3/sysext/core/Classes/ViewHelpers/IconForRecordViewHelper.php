@@ -19,33 +19,19 @@ namespace TYPO3\CMS\Core\ViewHelpers;
 
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Displays icon for record.
+ * ViewHelper to display an icon for a record.
  *
- * Examples
- * ========
- *
- * Default::
- *
+ * ```
  *    <core:iconForRecord table="tt_content" row="{record}" />
+ * ```
  *
- * Output::
- *
- *     <span class="t3js-icon icon icon-size-small icon-state-default icon-mimetypes-x-content-text" data-identifier="mimetypes-x-content-text" aria-hidden="true">
- *         <span class="icon-markup">
- *             <img src="/typo3/sysext/core/Resources/Public/Icons/T3Icons/mimetypes/mimetypes-x-content-text.svg" width="16" height="16">
- *         </span>
- *     </span>
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-core-iconforrecord
  */
 final class IconForRecordViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * ViewHelper returns HTML, thus we need to disable output escaping
      *
@@ -53,21 +39,24 @@ final class IconForRecordViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly IconFactory $iconFactory
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('table', 'string', 'the table for the record icon', true);
         $this->registerArgument('row', 'array', 'the record row', true);
-        $this->registerArgument('size', 'string', 'the icon size', false, IconSize::SMALL);
+        $this->registerArgument('size', 'string', 'the icon size', false, IconSize::SMALL->value);
         $this->registerArgument('alternativeMarkupIdentifier', 'string', 'alternative markup identifier');
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $table = $arguments['table'];
-        $size = $arguments['size'];
-        $row = $arguments['row'];
-        $alternativeMarkupIdentifier = $arguments['alternativeMarkupIdentifier'];
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-        return $iconFactory->getIconForRecord($table, $row, $size)->render($alternativeMarkupIdentifier);
+        $table = $this->arguments['table'];
+        $size = IconSize::from($this->arguments['size']);
+        $row = $this->arguments['row'];
+        $alternativeMarkupIdentifier = $this->arguments['alternativeMarkupIdentifier'];
+        return $this->iconFactory->getIconForRecord($table, $row, $size)->render($alternativeMarkupIdentifier);
     }
 }

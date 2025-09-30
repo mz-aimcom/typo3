@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use TYPO3\CMS\Backend\Backend\ColorScheme;
 use TYPO3\CMS\Setup\Controller\SetupModuleController;
 
 defined('TYPO3') or die();
@@ -32,11 +33,6 @@ $GLOBALS['TYPO3_USER_SETTINGS'] = [
         'password2' => [
             'type' => 'password',
             'label' => 'LLL:EXT:setup/Resources/Private/Language/locallang.xlf:newPasswordAgain',
-            'table' => 'be_users',
-        ],
-        'passwordCurrent' => [
-            'type' => 'password',
-            'label' => 'LLL:EXT:setup/Resources/Private/Language/locallang.xlf:passwordCurrent',
             'table' => 'be_users',
         ],
         'avatar' => [
@@ -94,10 +90,23 @@ $GLOBALS['TYPO3_USER_SETTINGS'] = [
                 'sitenameFirst' => 'LLL:EXT:setup/Resources/Private/Language/locallang.xlf:backendTitleFormat.sitenameFirst',
             ],
         ],
+        'colorScheme' => [
+            'type' => 'select',
+            'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:colorScheme',
+            'items' => ColorScheme::getAvailableItemsForSelection(),
+        ],
+        'theme' => [
+            'type' => 'select',
+            'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:theme',
+            'items' => [
+                'modern' => 'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:theme.modern',
+                'classic' => 'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:theme.classic',
+            ],
+        ],
     ],
     'showitem' => '--div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:personal_data,realName,email,emailMeAtLogin,avatar,lang,
-            --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:accountSecurity,passwordCurrent,password,password2,mfaProviders,
-            --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:opening,startModule,backendTitleFormat,
+            --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:accountSecurity,password,password2,mfaProviders,
+            --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:opening,colorScheme,theme,startModule,backendTitleFormat,
             --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:editFunctionsTab,titleLen,edit_docModuleUpload,showHiddenFilesAndFolders,copyLevels,
             --div--;LLL:EXT:setup/Resources/Private/Language/locallang.xlf:resetTab,resetConfiguration',
 ];

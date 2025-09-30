@@ -17,13 +17,17 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture;
 
+use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Extbase\Annotation\IgnoreValidation;
+use TYPO3\CMS\Extbase\Mvc\Controller\ControllerInterface;
+use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 
 /**
  * Dummy controller with @TYPO3\CMS\Extbase\Annotation\IgnoreValidation annotation
  * Note: This class is excluded from phpstan analysing, because of errors which are test-purpose related.
  */
-class DummyControllerWithIgnoreValidationDoctrineAnnotation
+class DummyControllerWithIgnoreValidationDoctrineAnnotation implements ControllerInterface
 {
     /**
      * @param $foo
@@ -32,4 +36,9 @@ class DummyControllerWithIgnoreValidationDoctrineAnnotation
      * @IgnoreValidation("bar")
      */
     public function someAction($foo, $bar): void {}
+
+    public function processRequest(RequestInterface $request): ResponseInterface
+    {
+        return new Response();
+    }
 }

@@ -17,19 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\ViewHelpers;
 
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * Utility ViewHelper for phpinfo()
+ * ViewHelper to show phpinfo() output.
+ *
+ * ```
+ *   <i:phpinfo />
+ * ```
  *
  * @internal
  */
 final class PhpInfoViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     /**
      * @var bool
      */
@@ -40,7 +40,7 @@ final class PhpInfoViewHelper extends AbstractViewHelper
      */
     protected $escapeChildren = false;
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
         return self::removeAllHtmlOutsideBody(self::changeHtmlToHtml5(self::getPhpInfo()));
     }
@@ -48,7 +48,7 @@ final class PhpInfoViewHelper extends AbstractViewHelper
     /**
      * Get information about PHP's configuration as HTML string
      */
-    protected static function getPhpInfo(): string
+    private static function getPhpInfo(): string
     {
         ob_start();
         phpinfo();
@@ -58,7 +58,7 @@ final class PhpInfoViewHelper extends AbstractViewHelper
     /**
      * Remove all HTML outside the body tag from HTML string.
      */
-    protected static function removeAllHtmlOutsideBody(string $html): string
+    private static function removeAllHtmlOutsideBody(string $html): string
     {
         // Delete anything outside the body tag and the body tag itself
         $html = (string)preg_replace('/^.*?<body.*?>/is', '', $html);
@@ -70,7 +70,7 @@ final class PhpInfoViewHelper extends AbstractViewHelper
      *
      * @param string $html HTML markup to be cleaned
      */
-    protected static function changeHtmlToHtml5(string $html): string
+    private static function changeHtmlToHtml5(string $html): string
     {
         // Delete obsolete attributes
         $html = (string)preg_replace('#\s(cellpadding|border|width)="[^"]+"#', '', $html);

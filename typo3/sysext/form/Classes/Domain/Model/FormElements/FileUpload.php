@@ -33,6 +33,5 @@ class FileUpload extends AbstractFormElement
     public function initializeFormElement()
     {
         $this->setDataType(FileReference::class);
-        parent::initializeFormElement();
     }
 }

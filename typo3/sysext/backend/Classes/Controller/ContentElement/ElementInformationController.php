@@ -20,8 +20,6 @@ namespace TYPO3\CMS\Backend\Controller\ContentElement;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Form\FormDataCompiler;
-use TYPO3\CMS\Backend\Form\FormDataGroup\TcaDatabaseRecord;
 use TYPO3\CMS\Backend\History\RecordHistory;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
@@ -40,6 +38,11 @@ use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\Index\MetaDataRepository;
 use TYPO3\CMS\Core\Resource\Rendering\RendererRegistry;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\SearchableSchemaFieldsCollector;
+use TYPO3\CMS\Core\Schema\TcaSchema;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\VisibleSchemaFieldsCollector;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -66,7 +69,9 @@ class ElementInformationController
         protected readonly UriBuilder $uriBuilder,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly ResourceFactory $resourceFactory,
-        private readonly FormDataCompiler $formDataCompiler,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly VisibleSchemaFieldsCollector $visibleSchemaFieldsCollector,
+        private readonly SearchableSchemaFieldsCollector $searchableSchemaFieldsCollector,
     ) {}
 
     /**
@@ -84,7 +89,7 @@ class ElementInformationController
         $permsClause = $backendUser->getPagePermsClause(Permission::PAGE_SHOW);
         // Determines if table/uid point to database record or file and if user has access to view information
         $accessAllowed = false;
-        if (isset($GLOBALS['TCA'][$this->table])) {
+        if ($this->tcaSchemaFactory->has($this->table)) {
             $uid = (int)$uid;
             // Check permissions and uid value:
             if ($uid && $backendUser->check('tables_select', $this->table)) {
@@ -99,7 +104,8 @@ class ElementInformationController
                             $uid = (int)$this->row['_ORIG_uid'];
                         }
                         $pageInfo = BackendUtility::readPageAccess((int)$this->row['pid'], $permsClause) ?: [];
-                        $accessAllowed = $pageInfo !== [];
+                        $accessAllowed = $pageInfo !== []
+                            || ((int)$this->row['pid'] === 0 && $this->tcaSchemaFactory->get($this->table)->getCapability(TcaSchemaCapability::RestrictionRootLevel)->shallIgnoreRootLevelRestriction());
                     }
                 }
             }
@@ -140,7 +146,7 @@ class ElementInformationController
         $view->setTitle($pageTitle['table'] . ': ' . $pageTitle['title']);
         $view->assignMultiple($pageTitle);
         $view->assignMultiple($this->getPreview($request));
-        $view->assignMultiple($this->getPropertiesForTable($request));
+        $view->assignMultiple($this->getPropertiesForTable());
         $view->assignMultiple($this->getReferences($request, $uid));
         $view->assign('returnUrl', GeneralUtility::sanitizeLocalUrl($request->getQueryParams()['returnUrl'] ?? ''));
         $view->assign('maxTitleLength', $this->getBackendUser()->uc['titleLen'] ?? 20);
@@ -161,10 +167,12 @@ class ElementInformationController
             $pageTitle['table'] = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:folder');
             $pageTitle['icon'] = $this->iconFactory->getIconForResource($this->folderObject, IconSize::SMALL)->render();
         } elseif ($this->type === 'file') {
-            $pageTitle['table'] = $this->getLanguageService()->sL($GLOBALS['TCA'][$this->table]['ctrl']['title']);
+            $schema = $this->tcaSchemaFactory->get($this->table);
+            $pageTitle['table'] = $schema->getTitle($this->getLanguageService()->sL(...));
             $pageTitle['icon'] = $this->iconFactory->getIconForResource($this->fileObject, IconSize::SMALL)->render();
         } else {
-            $pageTitle['table'] = $this->getLanguageService()->sL($GLOBALS['TCA'][$this->table]['ctrl']['title']);
+            $schema = $this->tcaSchemaFactory->get($this->table);
+            $pageTitle['table'] = $schema->getTitle($this->getLanguageService()->sL(...));
             $pageTitle['icon'] = $this->iconFactory->getIconForRecord($this->table, $this->row, IconSize::SMALL);
         }
         return $pageTitle;
@@ -226,20 +234,21 @@ class ElementInformationController
     /**
      * Get property array for html table
      */
-    protected function getPropertiesForTable(ServerRequestInterface $request): array
+    protected function getPropertiesForTable(): array
     {
         $lang = $this->getLanguageService();
         $propertiesForTable = [];
         $propertiesForTable['extraFields'] = $this->getExtraFields();
 
         // Traverse the list of fields to display for the record:
-        $fieldList = $this->getFieldList($request, $this->table, (int)($this->row['uid'] ?? 0));
+        $fieldList = $this->getFieldList($this->table, $this->row);
+        $schema = $this->tcaSchemaFactory->has($this->table) ? $this->tcaSchemaFactory->get($this->table) : null;
 
         foreach ($fieldList as $name) {
             $name = trim($name);
             $uid = $this->row['uid'] ?? 0;
 
-            if (!isset($GLOBALS['TCA'][$this->table]['columns'][$name])) {
+            if (!$schema?->hasField($name)) {
                 continue;
             }
 
@@ -258,15 +267,11 @@ class ElementInformationController
                 continue;
             }
 
-            $isExcluded = !(!($GLOBALS['TCA'][$this->table]['columns'][$name]['exclude'] ?? false) || $this->getBackendUser()->check('non_exclude_fields', $this->table . ':' . $name));
-            if ($isExcluded) {
-                continue;
-            }
-            $label = $lang->sL(BackendUtility::getItemLabel($this->table, $name));
+            $label = $lang->sL($schema->getField($name)->getLabel());
             $label = $label ?: $name;
 
             $propertiesForTable['fields'][] = [
-                'fieldValue' => BackendUtility::getProcessedValue($this->table, $name, $this->row[$name], 0, false, false, $uid),
+                'fieldValue' => BackendUtility::getProcessedValue($this->table, $name, $this->row[$name], 0, false, false, $uid, true, 0, $this->row),
                 'fieldLabel' => htmlspecialchars($label),
             ];
         }
@@ -285,7 +290,7 @@ class ElementInformationController
             $resourceObject = $this->fileObject ?: $this->folderObject;
             $parentFolder = $resourceObject->getParentFolder();
             $propertiesForTable['fields']['folder'] = [
-                'fieldValue' => $parentFolder instanceof Folder ? $parentFolder->getReadablePath() : '',
+                'fieldValue' => $parentFolder->getReadablePath(),
                 'fieldLabel' => htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:folder')),
             ];
 
@@ -305,38 +310,33 @@ class ElementInformationController
                 // file size
                 $propertiesForTable['fields']['size'] = [
                     'fieldValue' => GeneralUtility::formatSize((int)$this->fileObject->getProperty('size'), htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:byteSizeUnits'))),
-                    'fieldLabel' => $lang->sL(BackendUtility::getItemLabel($this->table, 'size')),
+                    'fieldLabel' => $lang->sL($schema?->hasField('size') ? $schema->getField('size')->getLabel() : ''),
                 ];
 
                 // show the metadata of a file as well
-                $table = 'sys_file_metadata';
                 $metaDataRepository = GeneralUtility::makeInstance(MetaDataRepository::class);
-                /** @var array<string, string> $metaData */
                 $metaData = $metaDataRepository->findByFileUid($this->row['uid'] ?? 0);
 
                 // If there is no metadata record, skip it
                 if ($metaData !== []) {
-                    $allowedFields = $this->getFieldList($request, $table, (int)$metaData['uid']);
+                    $fileMetadataSchema = $this->tcaSchemaFactory->get('sys_file_metadata');
+                    $allowedFields = $this->getFieldList('sys_file_metadata', $metaData);
 
                     foreach ($metaData as $name => $value) {
-                        if (in_array($name, $allowedFields, true)) {
-                            if (!isset($GLOBALS['TCA'][$table]['columns'][$name])) {
-                                continue;
-                            }
-
-                            $isExcluded = !(!($GLOBALS['TCA'][$table]['columns'][$name]['exclude'] ?? false) || $this->getBackendUser()->check('non_exclude_fields', $table . ':' . $name));
-                            if ($isExcluded) {
-                                continue;
-                            }
-
-                            $label = $lang->sL(BackendUtility::getItemLabel($table, $name));
-                            $label = $label ?: $name;
-
-                            $propertiesForTable['fields'][] = [
-                                'fieldValue' => BackendUtility::getProcessedValue($table, $name, $metaData[$name], 0, false, false, (int)$metaData['uid']),
-                                'fieldLabel' => htmlspecialchars($label),
-                            ];
+                        if (!in_array($name, $allowedFields, true)) {
+                            continue;
                         }
+                        if (!$fileMetadataSchema->hasField($name)) {
+                            continue;
+                        }
+
+                        $label = $lang->sL($fileMetadataSchema->getField($name)->getLabel());
+                        $label = $label ?: $name;
+
+                        $propertiesForTable['fields'][] = [
+                            'fieldValue' => BackendUtility::getProcessedValue('sys_file_metadata', $name, $value, 0, false, false, (int)$metaData['uid'], true, 0, $metaData),
+                            'fieldLabel' => htmlspecialchars($label),
+                        ];
                     }
                 }
             }
@@ -348,31 +348,28 @@ class ElementInformationController
     /**
      * Get the list of fields that should be shown for the given table
      */
-    protected function getFieldList(ServerRequestInterface $request, string $table, int $uid): array
+    protected function getFieldList(string $table, array $row): array
     {
-        $formDataCompilerInput = [
-            'request' => $request,
-            'command' => 'edit',
-            'tableName' => $table,
-            'vanillaUid' => $uid,
-        ];
-        try {
-            $result = $this->formDataCompiler->compile($formDataCompilerInput, GeneralUtility::makeInstance(TcaDatabaseRecord::class));
-            $fieldList = array_unique(array_values($result['columnsToProcess']));
-
-            $ctrlKeysOfUnneededFields = ['origUid', 'transOrigPointerField', 'transOrigDiffSourceField'];
-            foreach ($ctrlKeysOfUnneededFields as $field) {
-                if (isset($GLOBALS['TCA'][$table]['ctrl'][$field]) && ($key = array_search($GLOBALS['TCA'][$table]['ctrl'][$field], $fieldList, true)) !== false) {
-                    unset($fieldList[$key]);
+        $fieldNamesToExclude = [];
+        if ($this->tcaSchemaFactory->has($table)) {
+            $schema = $this->tcaSchemaFactory->get($table);
+            if ($schema->hasCapability(TcaSchemaCapability::AncestorReferenceField)) {
+                $fieldNamesToExclude[] = $schema->getCapability(TcaSchemaCapability::AncestorReferenceField)->getFieldName();
+            }
+            if ($schema->isLanguageAware()) {
+                $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+                $fieldNamesToExclude[] = $languageCapability->getTranslationOriginPointerField()->getName();
+                if ($languageCapability->hasDiffSourceField()) {
+                    $fieldNamesToExclude[] = $languageCapability->getDiffSourceField()?->getName();
                 }
             }
-        } catch (\Exception $exception) {
-            $fieldList = [];
         }
 
-        $searchFields = GeneralUtility::trimExplode(',', ($GLOBALS['TCA'][$table]['ctrl']['searchFields'] ?? ''));
-
-        return array_unique(array_merge($fieldList, $searchFields));
+        return $this->searchableSchemaFieldsCollector->getUniqueFieldList(
+            $table,
+            $this->visibleSchemaFieldsCollector->getFieldNames($table, $row, $fieldNamesToExclude),
+            false
+        );
     }
 
     /**
@@ -397,20 +394,32 @@ class ElementInformationController
                     'fieldLabel' => htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.timestamp')),
                     'isDatetime' => true,
                 ];
+            } else {
+                $keyLabelPair['uid'] = [
+                    'value' => $this->folderObject->getCombinedIdentifier(),
+                ];
             }
         } else {
             $keyLabelPair['uid'] = [
                 'value' => BackendUtility::getProcessedValueExtra($this->table, 'uid', $this->row['uid']),
                 'fieldLabel' => rtrim(htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:show_item.php.uid')), ':'),
             ];
-            foreach (['crdate' => 'creationDate', 'tstamp' => 'timestamp'] as $field => $label) {
-                if (isset($GLOBALS['TCA'][$this->table]['ctrl'][$field])) {
-                    $keyLabelPair[$field] = [
-                        'value' => BackendUtility::datetime($this->row[$GLOBALS['TCA'][$this->table]['ctrl'][$field]]),
-                        'fieldLabel' => rtrim(htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.' . $label)), ':'),
-                        'isDatetime' => true,
-                    ];
-                }
+            $schema = $this->tcaSchemaFactory->get($this->table);
+            if ($schema->hasCapability(TcaSchemaCapability::CreatedAt)) {
+                $field = $schema->getCapability(TcaSchemaCapability::CreatedAt)->getFieldName();
+                $keyLabelPair[$field] = [
+                    'value' => BackendUtility::datetime($this->row[$field]),
+                    'fieldLabel' => rtrim(htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.creationDate')), ':'),
+                    'isDatetime' => true,
+                ];
+            }
+            if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
+                $field = $schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName();
+                $keyLabelPair[$field] = [
+                    'value' => BackendUtility::datetime($this->row[$field]),
+                    'fieldLabel' => rtrim(htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.timestamp')), ':'),
+                    'isDatetime' => true,
+                ];
             }
             // Show the user who created the record
             $recordHistory = GeneralUtility::makeInstance(RecordHistory::class);
@@ -454,14 +463,13 @@ class ElementInformationController
     /**
      * Get field name for specified table/column name
      *
-     * @param string $tableName Table name
      * @param string $fieldName Column name
-     * @return string label
      */
-    protected function getLabelForTableColumn($tableName, $fieldName): string
+    protected function getLabelForTableColumn(TcaSchema $schema, string $fieldName): string
     {
-        if (($GLOBALS['TCA'][$tableName]['columns'][$fieldName]['label'] ?? null) !== null) {
-            $field = $this->getLanguageService()->sL($GLOBALS['TCA'][$tableName]['columns'][$fieldName]['label']);
+        if ($schema->hasField($fieldName)) {
+            $field = $schema->getField($fieldName);
+            $field = $field->getLabel() ? $this->getLanguageService()->sL($field->getLabel()) : $fieldName;
             if (trim($field) === '') {
                 $field = $fieldName;
             }
@@ -474,13 +482,12 @@ class ElementInformationController
     /**
      * Returns the record actions
      *
-     * @param string $table
      * @param int $uid
      * @throws RouteNotFoundException
      */
-    protected function getRecordActions($table, $uid, ServerRequestInterface $request): array
+    protected function getRecordActions(TcaSchema $schema, $uid, ServerRequestInterface $request): array
     {
-        if ($table === '' || $uid < 0) {
+        if ($uid < 0) {
             return [];
         }
 
@@ -488,7 +495,7 @@ class ElementInformationController
         // Edit button
         $urlParameters = [
             'edit' => [
-                $table => [
+                $schema->getName() => [
                     $uid => 'edit',
                 ],
             ],
@@ -498,17 +505,20 @@ class ElementInformationController
 
         // History button
         $urlParameters = [
-            'element' => $table . ':' . $uid,
+            'element' => $schema->getName() . ':' . $uid,
             'returnUrl' => $request->getAttribute('normalizedParams')->getRequestUri(),
         ];
         $actions['recordHistoryUrl'] = (string)$this->uriBuilder->buildUriFromRoute('record_history', $urlParameters);
 
-        if ($table === 'pages') {
+        if ($schema->getName() === 'pages') {
             // Recordlist button
             $actions['webListUrl'] = (string)$this->uriBuilder->buildUriFromRoute('web_list', ['id' => $uid, 'returnUrl' => $request->getAttribute('normalizedParams')->getRequestUri()]);
 
-            $previewUriBuilder = PreviewUriBuilder::create((int)$uid)
+            // retrieve record to get page language
+            $record = BackendUtility::getRecord($schema->getName(), $uid);
+            $previewUriBuilder = PreviewUriBuilder::create($record)
                 ->withRootLine(BackendUtility::BEgetRootLine($uid));
+
             // View page button
             $actions['previewUrlAttributes'] = $previewUriBuilder->serializeDispatcherAttributes();
         }
@@ -523,7 +533,7 @@ class ElementInformationController
      * @param int|File $ref Filename or uid
      * @throws RouteNotFoundException
      */
-    protected function makeRef($table, $ref, ServerRequestInterface $request): array
+    protected function makeRef(string $table, $ref, ServerRequestInterface $request): array
     {
         $refLines = [];
         $lang = $this->getLanguageService();
@@ -570,14 +580,18 @@ class ElementInformationController
             if ($row['tablename'] === 'sys_file_reference') {
                 $row = $this->transformFileReferenceToRecordReference($row);
                 if ($row === null) {
-                    return [];
+                    continue;
                 }
             }
-
+            if (!$this->tcaSchemaFactory->has($row['tablename'])) {
+                continue;
+            }
+            $schema = $this->tcaSchemaFactory->get($row['tablename']);
             $line = [];
+
             $record = BackendUtility::getRecordWSOL($row['tablename'], $row['recuid']);
             if ($record) {
-                if (!$this->canAccessPage($row['tablename'], $record)) {
+                if (!$this->canAccessPage($schema, $record)) {
                     continue;
                 }
                 $parentRecord = BackendUtility::getRecord('pages', $record['pid']);
@@ -597,17 +611,17 @@ class ElementInformationController
                 $line['icon'] = $this->iconFactory->getIconForRecord($row['tablename'], $record, IconSize::SMALL)->render();
                 $line['row'] = $row;
                 $line['record'] = $record;
-                $line['recordTitle'] = BackendUtility::getRecordTitle($row['tablename'], $record, false, true);
+                $line['recordTitle'] = BackendUtility::getRecordTitle($row['tablename'], $record);
                 $line['parentRecord'] = $parentRecord;
                 $line['parentRecordTitle'] = $parentRecordTitle;
-                $line['title'] = $lang->sL($GLOBALS['TCA'][$row['tablename']]['ctrl']['title']);
-                $line['labelForTableColumn'] = $this->getLabelForTableColumn($row['tablename'], $row['field']);
+                $line['title'] = $schema->getTitle($lang->sL(...)) ?: $row['tablename'];
+                $line['labelForTableColumn'] = $this->getLabelForTableColumn($schema, $row['field']);
                 $line['path'] = BackendUtility::getRecordPath($record['pid'], '', 0, 0);
-                $line['actions'] = $this->getRecordActions($row['tablename'], $row['recuid'], $request);
+                $line['actions'] = $this->getRecordActions($schema, $row['recuid'], $request);
             } else {
                 $line['row'] = $row;
-                $line['title'] = $lang->sL($GLOBALS['TCA'][$row['tablename']]['ctrl']['title'] ?? '') ?: $row['tablename'];
-                $line['labelForTableColumn'] = $this->getLabelForTableColumn($row['tablename'], $row['field']);
+                $line['title'] = $schema->getTitle($lang->sL(...)) ?: $row['tablename'];
+                $line['labelForTableColumn'] = $this->getLabelForTableColumn($schema, $row['field']);
             }
             $refLines[] = $line;
         }
@@ -659,8 +673,12 @@ class ElementInformationController
         foreach ($rows as $row) {
             $line = [];
             $record = BackendUtility::getRecordWSOL($row['ref_table'], $row['ref_uid']);
+            if (!$this->tcaSchemaFactory->has($row['ref_table'])) {
+                continue;
+            }
+            $schema = $this->tcaSchemaFactory->get($row['ref_table']);
             if ($record) {
-                if (!$this->canAccessPage($row['ref_table'], $record)) {
+                if (!$this->canAccessPage($schema, $record)) {
                     continue;
                 }
                 $urlParameters = [
@@ -676,15 +694,15 @@ class ElementInformationController
                 $line['icon'] = $this->iconFactory->getIconForRecord($row['ref_table'], $record, IconSize::SMALL)->render();
                 $line['row'] = $row;
                 $line['record'] = $record;
-                $line['recordTitle'] = BackendUtility::getRecordTitle($row['ref_table'], $record, false, true);
-                $line['title'] = $lang->sL($GLOBALS['TCA'][$row['ref_table']]['ctrl']['title'] ?? '');
-                $line['labelForTableColumn'] = $this->getLabelForTableColumn($table, $row['field']);
-                $line['path'] = BackendUtility::getRecordPath($record['pid'], '', 0, 0);
-                $line['actions'] = $this->getRecordActions($row['ref_table'], $row['ref_uid'], $request);
+                $line['recordTitle'] = BackendUtility::getRecordTitle($row['ref_table'], $record);
+                $line['title'] = $schema->getTitle($lang->sL(...));
+                $line['labelForTableColumn'] = $this->getLabelForTableColumn($schema, $row['field']);
+                $line['path'] = BackendUtility::getRecordPath($record['pid'], '', 0);
+                $line['actions'] = $this->getRecordActions($schema, $row['ref_uid'], $request);
             } else {
                 $line['row'] = $row;
-                $line['title'] = $lang->sL($GLOBALS['TCA'][$row['ref_table']]['ctrl']['title'] ?? '');
-                $line['labelForTableColumn'] = $this->getLabelForTableColumn($table, $row['field']);
+                $line['title'] = $schema->getTitle($lang->sL(...));
+                $line['labelForTableColumn'] = $this->getLabelForTableColumn($schema, $row['field']);
             }
             $refFromLines[] = $line;
         }
@@ -722,14 +740,13 @@ class ElementInformationController
     }
 
     /**
-     * @param string $tableName Name of the table
      * @param array $record Record to be checked (ensure pid is resolved for workspaces)
      */
-    protected function canAccessPage(string $tableName, array $record): bool
+    protected function canAccessPage(TcaSchema $schema, array $record): bool
     {
-        $recordPid = (int)($tableName === 'pages' ? $record['uid'] : $record['pid']);
-        return $this->getBackendUser()->isInWebMount($tableName === 'pages' ? $record : $record['pid'])
-            || $recordPid === 0 && !empty($GLOBALS['TCA'][$tableName]['ctrl']['security']['ignoreRootLevelRestriction']);
+        $recordPid = (int)($schema->getName() === 'pages' ? $record['uid'] : $record['pid']);
+        $isInWebMount = (bool)$this->getBackendUser()->isInWebMount($schema->getName() === 'pages' ? $record : $record['pid']);
+        return $isInWebMount || ($recordPid === 0 && $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel)->shallIgnoreRootLevelRestriction());
     }
 
     protected function getLanguageService(): LanguageService

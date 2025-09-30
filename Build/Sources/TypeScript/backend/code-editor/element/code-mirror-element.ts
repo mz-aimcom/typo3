@@ -11,23 +11,23 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators';
 import {
   EditorView,
-  ViewUpdate,
   lineNumbers,
   highlightSpecialChars,
   drawSelection,
   keymap,
-  KeyBinding,
-  placeholder
+  placeholder,
+  type ViewUpdate,
+  type KeyBinding
 } from '@codemirror/view';
-import { Extension, EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, type Extension } from '@codemirror/state';
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { executeJavaScriptModuleInstruction, loadModule, resolveSubjectRef, JavaScriptItemPayload } from '@typo3/core/java-script-item-processor';
+import { executeJavaScriptModuleInstruction, loadModule, resolveSubjectRef, type JavaScriptItemPayload } from '@typo3/core/java-script-item-processor';
 import '@typo3/backend/element/spinner-element';
 
 /**
@@ -36,7 +36,7 @@ import '@typo3/backend/element/spinner-element';
  */
 @customElement('typo3-t3editor-codemirror')
 export class CodeMirrorElement extends LitElement {
-  static styles = css`
+  static override styles = css`
     :host {
       position: relative;
       display: block;
@@ -101,7 +101,7 @@ export class CodeMirrorElement extends LitElement {
 
     .cm-scroller {
       min-height: 100%;
-      max-height: calc(100vh - 10rem);
+      max-height: calc(100dvh - 10rem);
     }
   `;
 
@@ -121,37 +121,6 @@ export class CodeMirrorElement extends LitElement {
 
   @state() editorTheme: Compartment = null;
   @state() editorView: EditorView = null;
-
-  render() {
-    return html`
-      ${this.label && this.panel === 'top' ? html`<div class="codemirror-label codemirror-label-top">${this.label}</div>` : ''}
-      <div id="codemirror-parent" @keydown=${(e: KeyboardEvent) => this.onKeydown(e)}></div>
-      ${this.label && this.panel === 'bottom' ? html`<div class="codemirror-label codemirror-label-bottom">${this.label}</div>` : ''}
-      ${this.editorView === null ? html`<typo3-backend-spinner size="large"></typo3-backend-spinner>` : ''}
-    `;
-  }
-
-  firstUpdated(): void {
-    if (this.nolazyload) {
-      this.initializeEditor(<HTMLTextAreaElement>this.firstElementChild);
-      return;
-    }
-    const observerOptions = {
-      root: document.body
-    };
-    const observer = new IntersectionObserver((entries: IntersectionObserverEntry[]): void => {
-      entries.forEach((entry: IntersectionObserverEntry): void => {
-        if (entry.intersectionRatio > 0) {
-          observer.unobserve(entry.target);
-          if (this.firstElementChild && this.firstElementChild.nodeName.toLowerCase() === 'textarea') {
-            this.initializeEditor(<HTMLTextAreaElement>this.firstElementChild);
-          }
-        }
-      });
-    }, observerOptions);
-
-    observer.observe(this);
-  }
 
   /**
    * @internal
@@ -173,6 +142,37 @@ export class CodeMirrorElement extends LitElement {
    */
   public getContent(): string {
     return this.editorView.state.doc.toString();
+  }
+
+  protected override render(): TemplateResult {
+    return html`
+      ${this.label && this.panel === 'top' ? html`<div class="codemirror-label codemirror-label-top">${this.label}</div>` : ''}
+      <div id="codemirror-parent" @keydown=${(e: KeyboardEvent) => this.onKeydown(e)}></div>
+      ${this.label && this.panel === 'bottom' ? html`<div class="codemirror-label codemirror-label-bottom">${this.label}</div>` : ''}
+      ${this.editorView === null ? html`<typo3-backend-spinner size="large"></typo3-backend-spinner>` : ''}
+    `;
+  }
+
+  protected override firstUpdated(): void {
+    if (this.nolazyload) {
+      this.initializeEditor(<HTMLTextAreaElement>this.firstElementChild);
+      return;
+    }
+    const observerOptions = {
+      root: document.body
+    };
+    const observer = new IntersectionObserver((entries: IntersectionObserverEntry[]): void => {
+      entries.forEach((entry: IntersectionObserverEntry): void => {
+        if (entry.intersectionRatio > 0) {
+          observer.unobserve(entry.target);
+          if (this.firstElementChild && this.firstElementChild.nodeName.toLowerCase() === 'textarea') {
+            this.initializeEditor(<HTMLTextAreaElement>this.firstElementChild);
+          }
+        }
+      });
+    }, observerOptions);
+
+    observer.observe(this);
   }
 
   private onKeydown(event: KeyboardEvent): void {

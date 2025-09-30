@@ -24,7 +24,10 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\Container;
+use TYPO3\CMS\Core\Cache\CacheDataCollector;
+use TYPO3\CMS\Core\Cache\CacheDataCollectorInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface as CacheFrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
 use TYPO3\CMS\Core\Configuration\Features;
@@ -136,7 +139,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $this->frontendControllerMock =
             $this->getAccessibleMock(
                 TypoScriptFrontendController::class,
-                ['sL'],
+                [],
                 [],
                 '',
                 false
@@ -185,8 +188,8 @@ final class ContentObjectRendererTest extends UnitTestCase
      */
     private function handleCharset(string &$subject, string &$expected): void
     {
-        $subject = mb_convert_encoding($subject, 'utf-8', 'iso-8859-1');
-        $expected = mb_convert_encoding($expected, 'utf-8', 'iso-8859-1');
+        $subject = mb_convert_encoding($subject, 'utf-8', 'iso-8859-1') ?: throw new \RuntimeException('Failed to convert string "' . $subject . '" from iso-8859-1 to utf-8.', 1747289647);
+        $expected = mb_convert_encoding($expected, 'utf-8', 'iso-8859-1') ?: throw new \RuntimeException('Failed to convert string "' . $expected . '" from iso-8859-1 to utf-8.', 1747289650);
     }
 
     private static function getLibParseFunc_RTE(): array
@@ -990,7 +993,7 @@ final class ContentObjectRendererTest extends UnitTestCase
                 ' min| hrs| days| yrs| min| hour| day| year',
             ],
             'years' => [
-                '45 yrs',
+                '44 yrs',
                 1417997800,
                 ' min| hrs| days| yrs',
             ],
@@ -1024,6 +1027,8 @@ final class ContentObjectRendererTest extends UnitTestCase
     #[Test]
     public function calcAge(string $expect, int $timestamp, string $labels): void
     {
+        // Set exec_time to a hard timestamp, since age calculation depends on current date
+        $GLOBALS['EXEC_TIME'] = 1417392000;
         self::assertSame(
             $expect,
             $this->subject->calcAge($timestamp, $labels)
@@ -1087,7 +1092,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getAccessibleMock(ContentObjectRenderer::class, ['stdWrap_ifEmpty']);
         $request = new ServerRequest();
         $subject->setRequest($request);
-        $subject->expects(self::exactly(($ifEmptyShouldBeCalled ? 1 : 0)))
+        $subject->expects($this->exactly(($ifEmptyShouldBeCalled ? 1 : 0)))
             ->method('stdWrap_ifEmpty');
 
         $subject->stdWrap($content, $conf);
@@ -1192,7 +1197,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $request = new ServerRequest('https://example.com');
         $request = $request->withAttribute('frontend.page.information', $pageInformation);
         $this->subject->setRequest($request);
-        $this->subject->expects(self::once())->method('getEnvironmentVariable')
+        $this->subject->expects($this->once())->method('getEnvironmentVariable')
             ->with(self::equalTo('SCRIPT_FILENAME'))->willReturn('dummyPath');
         self::assertEquals('dummyPath', $this->subject->getData('getindpenv:SCRIPT_FILENAME'));
     }
@@ -1250,9 +1255,9 @@ final class ContentObjectRendererTest extends UnitTestCase
         $request = new ServerRequest('https://example.com');
         $request = $request->withAttribute('frontend.page.information', $pageInformation);
         $this->subject->setRequest($request);
-        $uid = StringUtility::getUniqueId();
+        $uid = rand(10, 100);
         $file = $this->createMock(File::class);
-        $file->expects(self::once())->method('getUid')->willReturn($uid);
+        $file->expects($this->once())->method('getUid')->willReturn($uid);
         $this->subject->setCurrentFile($file);
         self::assertEquals($uid, $this->subject->getData($typoScriptPath));
     }
@@ -1301,7 +1306,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $frontendUser = $this->getMockBuilder(FrontendUserAuthentication::class)
             ->onlyMethods(['getSessionData'])
             ->getMock();
-        $frontendUser->expects(self::once())->method('getSessionData')->with('myext')->willReturn([
+        $frontendUser->expects($this->once())->method('getSessionData')->with('myext')->willReturn([
             'mydata' => [
                 'someValue' => 42,
             ],
@@ -1499,7 +1504,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $dummyRecord = ['uid' => 5, 'title' => 'someTitle'];
         $pageRepository = $this->createMock(PageRepository::class);
         GeneralUtility::addInstance(PageRepository::class, $pageRepository);
-        $pageRepository->expects(self::once())->method('getRawRecord')->with('tt_content', '106')->willReturn($dummyRecord);
+        $pageRepository->expects($this->once())->method('getRawRecord')->with('tt_content', '106')->willReturn($dummyRecord);
         self::assertSame('someTitle', $this->subject->getData('db:tt_content:106:title'));
     }
 
@@ -1560,7 +1565,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $dummyRecord = ['uid' => 5, 'title' => 'someTitle'];
         $pageRepository = $this->createMock(PageRepository::class);
         GeneralUtility::addInstance(PageRepository::class, $pageRepository);
-        $pageRepository->expects(self::once())->method('getRawRecord')->with('tt_content', '106')->willReturn($dummyRecord);
+        $pageRepository->expects($this->once())->method('getRawRecord')->with('tt_content', '106')->willReturn($dummyRecord);
         self::assertSame('', $this->subject->getData($identifier));
     }
 
@@ -1578,9 +1583,9 @@ final class ContentObjectRendererTest extends UnitTestCase
         $value = StringUtility::getUniqueId('someValue');
         $languageServiceFactory = $this->createMock(LanguageServiceFactory::class);
         $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceFactory->expects(self::once())->method('createFromSiteLanguage')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactory->expects($this->once())->method('createFromSiteLanguage')->with(self::anything())->willReturn($languageServiceMock);
         GeneralUtility::addInstance(LanguageServiceFactory::class, $languageServiceFactory);
-        $languageServiceMock->expects(self::once())->method('sL')->with('LLL:' . $key)->willReturn($value);
+        $languageServiceMock->expects($this->once())->method('sL')->with('LLL:' . $key)->willReturn($value);
         self::assertEquals($value, $this->subject->getData('lll:' . $key));
     }
 
@@ -2016,7 +2021,7 @@ final class ContentObjectRendererTest extends UnitTestCase
     private function createContentObjectThrowingExceptionFixture(ContentObjectRenderer $subject, bool $addProductionExceptionHandlerInstance = true): AbstractContentObject&MockObject
     {
         $contentObjectFixture = $this->getMockBuilder(AbstractContentObject::class)->getMock();
-        $contentObjectFixture->expects(self::once())
+        $contentObjectFixture->expects($this->once())
             ->method('render')
             ->willReturnCallback(static function (array $conf = []): string {
                 throw new \LogicException('Exception during rendering', 1414513947);
@@ -2140,6 +2145,7 @@ final class ContentObjectRendererTest extends UnitTestCase
                 [
                     'parseFunc' => '1',
                     'parseFunc.' => [
+                        // This inherits allowTags=* and htmlSanitize=1
                         'somethingElse' => '',
                     ],
                 ],
@@ -2458,6 +2464,89 @@ final class ContentObjectRendererTest extends UnitTestCase
         $request = (new ServerRequest())->withAttribute('frontend.typoscript', $typoScript);
         $this->subject->setRequest($request);
         self::assertEquals($expectedResult, $this->subject->stdWrap_parseFunc($value, $configuration));
+    }
+
+    public static function _parseFuncCanHandleTagsAcrossMultipleLinesDataProvider(): iterable
+    {
+        $configuration = [
+            'parseFunc' => '',
+            'parseFunc.' => [
+                'allowTags' => 'div,meta',
+            ],
+        ];
+        yield 'classic tag in one line' => [
+            'input' => '<div id="very-important-div">Hello, world!</div>',
+            'configuration' => $configuration,
+            'expected' => '<div id="very-important-div">Hello, world!</div>',
+        ];
+        yield 'classic tag in multiple lines' => [
+            'input' => '<div
+        id="very-important-div"
+    >Hello, world!</div>',
+            'configuration' => $configuration,
+            'expected' => '<div id="very-important-div">Hello, world!</div>',
+        ];
+        yield 'classic tag in multiple lines with other special chars' => [
+            'input' => '<div
+
+
+        id  =  "very-important-div"
+
+        ' . "\t\t\f\f" . ' class="nothing"
+    >Hello, world!</div>',
+            'configuration' => $configuration,
+            'expected' => '<div id="very-important-div" class="nothing">Hello, world!</div>',
+        ];
+
+        yield 'self-closing tag in one line' => [
+            'input' => '<meta id="author" content="benni" />',
+            'configuration' => $configuration,
+            'expected' => '<meta id="author" content="benni">',
+        ];
+        yield 'self-closing tag in multiple lines' => [
+            'input' => '<meta
+        id="author"
+        content="benni"
+/>',
+            'configuration' => $configuration,
+            'expected' => '<meta id="author" content="benni">',
+        ];
+        yield 'self-closing tag in multiple lines with other special chars' => [
+            'input' => '<meta
+
+        ' . "\t\t\f\f" . '
+        id  =  "author"
+        ' . "\t\t\f\f" . '
+
+        content = "benni"
+/>',
+            'configuration' => $configuration,
+            'expected' => '<meta id="author" content="benni">',
+        ];
+        yield 'html5-style tag in one line' => [
+            'input' => '<meta id="author" content="benni" />',
+            'configuration' => $configuration,
+            'expected' => '<meta id="author" content="benni">',
+        ];
+        yield 'html5-style tag in multiple lines' => [
+            'input' => '<meta
+id="author"
+content="benni">',
+            'configuration' => $configuration,
+            'expected' => '<meta id="author" content="benni">',
+        ];
+    }
+
+    #[DataProvider('_parseFuncCanHandleTagsAcrossMultipleLinesDataProvider')]
+    #[Test]
+    public function parseFuncCanHandleTagsAcrossMultipleLines(string $input, array $configuration, string $expected): void
+    {
+        $typoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $typoScript->setConfigArray([]);
+        $request = (new ServerRequest())->withAttribute('frontend.typoscript', $typoScript);
+        $this->subject->setRequest($request);
+        self::assertEquals($expected, $this->subject->stdWrap_parseFunc($input, $configuration));
+
     }
 
     public static function httpMakelinksDataProvider(): array
@@ -2800,7 +2889,7 @@ final class ContentObjectRendererTest extends UnitTestCase
     public function calculateCacheKey(string $expect, array $conf, int $times, ?string $with, ?array $withWrap, ?string $will): void
     {
         $subject = $this->getAccessibleMock(ContentObjectRenderer::class, ['stdWrap']);
-        $subject->expects(self::exactly($times))
+        $subject->expects($this->exactly($times))
             ->method('stdWrap')
             ->with($with, $withWrap)
             ->willReturn($will);
@@ -2864,27 +2953,25 @@ final class ContentObjectRendererTest extends UnitTestCase
             ]
         );
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('calculateCacheKey')
             ->with($conf)
             ->willReturn($cacheKey);
-        $request = (new ServerRequest())->withAttribute('frontend.cache.instruction', new CacheInstruction());
+        $cacheDataCollector = $this->createMock(CacheDataCollectorInterface::class);
+        $cacheDataCollector
+            ->expects($this->exactly($times))
+            ->method('addCacheTags')
+            ->with(self::isInstanceOf(CacheTag::class));
+        $request = (new ServerRequest())
+            ->withAttribute('frontend.cache.collector', $cacheDataCollector)
+            ->withAttribute('frontend.cache.instruction', new CacheInstruction());
         $subject
-            ->expects(self::once())
+            ->expects($this->atLeastOnce())
             ->method('getRequest')
             ->willReturn($request);
-        $typoScriptFrontendController = $this->createMock(TypoScriptFrontendController::class);
-        $typoScriptFrontendController
-            ->expects(self::exactly($times))
-            ->method('addCacheTags')
-            ->with($tags);
-        $subject
-            ->expects(self::exactly($times))
-            ->method('getTypoScriptFrontendController')
-            ->willReturn($typoScriptFrontendController);
         $cacheFrontend = $this->createMock(CacheFrontendInterface::class);
         $cacheFrontend
-            ->expects(self::exactly($times))
+            ->expects($this->exactly($times))
             ->method('get')
             ->with($cacheKey)
             ->willReturn(['content' => $cached, 'cacheTags' => $tags]);
@@ -3142,7 +3229,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['HTMLparser_TSbridge'])->getMock();
         $subject
-            ->expects(self::exactly($times))
+            ->expects($this->exactly($times))
             ->method('HTMLparser_TSbridge')
             ->with($content, $conf['HTMLparser.'] ?? [])
             ->willReturn($will);
@@ -3160,11 +3247,11 @@ final class ContentObjectRendererTest extends UnitTestCase
                 ['addPageCacheTags' => ''],
             ],
             'Two expectedTags' => [
-                ['tag1', 'tag2'],
+                [new CacheTag('tag1'), new CacheTag('tag2')],
                 ['addPageCacheTags' => 'tag1,tag2'],
             ],
             'Two expectedTags plus one with stdWrap' => [
-                ['tag1', 'tag2', 'tag3'],
+                [new CacheTag('tag1'), new CacheTag('tag2'), new CacheTag('tag3')],
                 [
                     'addPageCacheTags' => 'tag1,tag2',
                     'addPageCacheTags.' => ['wrap' => '|,tag3'],
@@ -3177,8 +3264,13 @@ final class ContentObjectRendererTest extends UnitTestCase
     #[Test]
     public function stdWrap_addPageCacheTagsAddsPageTags(array $expectedTags, array $configuration): void
     {
+        $cacheDataCollector = new CacheDataCollector();
+        $request = new ServerRequest();
+        $request = $request->withAttribute('frontend.cache.collector', $cacheDataCollector);
+        $this->subject->setRequest($request);
         $this->subject->stdWrap_addPageCacheTags('', $configuration);
-        self::assertEquals($expectedTags, $this->frontendControllerMock->_get('pageCacheTags'));
+
+        self::assertEquals($expectedTags, $cacheDataCollector->getCacheTags());
     }
 
     /**
@@ -3203,7 +3295,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['calcAge'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('calcAge')
             ->with($difference, $conf['age'])
             ->willReturn($return);
@@ -3234,7 +3326,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cObjGetSingle'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cObjGetSingle')
             ->with($conf['append'], $conf['append.'], $debugKey)
             ->willReturn($return);
@@ -3361,7 +3453,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cObjGetSingle'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cObjGetSingle')
             ->with($conf['cObject'], $conf['cObject.'], $debugKey)
             ->willReturn($return);
@@ -3523,7 +3615,7 @@ final class ContentObjectRendererTest extends UnitTestCase
             ['getFromCache']
         );
         $subject
-            ->expects(self::exactly($times))
+            ->expects($this->exactly($times))
             ->method('getFromCache')
             ->with($with)
             ->willReturn($will);
@@ -3587,7 +3679,7 @@ final class ContentObjectRendererTest extends UnitTestCase
                 'getTypoScriptFrontendController',
             ]
         );
-        $subject->expects(self::exactly($times))->method('calculateCacheKey')->with($confCache)->willReturn($key);
+        $subject->expects($this->exactly($times))->method('calculateCacheKey')->with($confCache)->willReturn($key);
         self::assertSame(
             $content,
             $subject->stdWrap_cacheStore($content, $conf)
@@ -3627,8 +3719,8 @@ final class ContentObjectRendererTest extends UnitTestCase
         $container->set(EventDispatcherInterface::class, new EventDispatcher($listenerProvider));
 
         $content = StringUtility::getUniqueId('content');
-        $tags = [StringUtility::getUniqueId('tags')];
         $key = StringUtility::getUniqueId('key');
+        $tags = [StringUtility::getUniqueId('tags')];
         $lifetime = 100;
         $cacheConfig = [
             StringUtility::getUniqueId('cache.'),
@@ -3643,18 +3735,19 @@ final class ContentObjectRendererTest extends UnitTestCase
                 'calculateCacheKey',
                 'calculateCacheTags',
                 'calculateCacheLifetime',
-                'getTypoScriptFrontendController',
+                'getRequest',
             ]
         );
-        $subject->expects(self::once())->method('calculateCacheKey')->with($cacheConfig)->willReturn($key);
-        $subject->expects(self::once())->method('calculateCacheTags')->with($cacheConfig)->willReturn($tags);
-        $subject->expects(self::once())->method('calculateCacheLifetime')->with($cacheConfig)->willReturn($lifetime);
-        $typoScriptFrontendController = $this->createMock(TypoScriptFrontendController::class);
-        $typoScriptFrontendController->expects(self::once())->method('addCacheTags')->with($tags);
-        $subject->expects(self::once())->method('getTypoScriptFrontendController')->willReturn($typoScriptFrontendController);
+
+        $subject->expects($this->once())->method('calculateCacheKey')->with($cacheConfig)->willReturn($key);
+        $subject->expects($this->once())->method('calculateCacheTags')->with($cacheConfig)->willReturn($tags);
+        $subject->expects($this->once())->method('calculateCacheLifetime')->with($cacheConfig)->willReturn($lifetime);
+        $cacheDataCollector = new CacheDataCollector();
+        $request = (new ServerRequest())->withAttribute('frontend.cache.collector', $cacheDataCollector);
+        $subject->expects($this->once())->method('getRequest')->willReturn($request);
         $cacheFrontend = $this->createMock(CacheFrontendInterface::class);
         $cacheFrontend
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('set')
             ->with($key, ['content' => $modifiedContent, 'cacheTags' => $tags], $tags, $lifetime)
             ->willReturn(null);
@@ -3674,6 +3767,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         self::assertSame($lifetime, $beforeStdWrapContentStoredInCacheEvent->getLifetime());
         self::assertSame($configuration, $beforeStdWrapContentStoredInCacheEvent->getConfiguration());
         self::assertSame($subject, $beforeStdWrapContentStoredInCacheEvent->getContentObjectRenderer());
+        self::assertCount(count($tags), $cacheDataCollector->getCacheTags());
     }
 
     /**
@@ -3698,7 +3792,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['HTMLcaseshift'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('HTMLcaseshift')
             ->with($content, $conf['case'])
             ->willReturn($return);
@@ -3741,7 +3835,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['crop'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('crop')
             ->with($content, $conf['crop'])
             ->willReturn($return);
@@ -3773,7 +3867,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cropHTML'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cropHTML')
             ->with($content, $conf['cropHTML'])
             ->willReturn($return);
@@ -4001,7 +4095,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         );
         $subject->_set('data', $data);
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('getData')
             ->with($conf['data'], $expect)
             ->willReturn($return);
@@ -4030,7 +4124,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['dataWrap'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('dataWrap')
             ->with($content, $conf['dataWrap'])
             ->willReturn($return);
@@ -4296,7 +4390,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['encaps_lineSplit'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('encaps_lineSplit')
             ->with($content, $conf['encapsLines.'])
             ->willReturn($return);
@@ -4525,7 +4619,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['getFieldVal'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('getFieldVal')
             ->with($conf['field'])
             ->willReturn($expect);
@@ -4866,7 +4960,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject->_set('stdWrapRecursionLevel', 1);
         $subject->_set('stopRendering', [1 => false]);
         $subject
-            ->expects(self::exactly($times))
+            ->expects($this->exactly($times))
             ->method('checkIf')
             ->with($conf['if.'] ?? null)
             ->willReturn($will);
@@ -5189,7 +5283,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $return = StringUtility::getUniqueId('return');
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['insertData'])->getMock();
-        $subject->expects(self::once())->method('insertData')
+        $subject->expects($this->once())->method('insertData')
             ->with($content)->willReturn($return);
         self::assertSame(
             $return,
@@ -5448,7 +5542,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['listNum'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('listNum')
             ->with(
                 $content,
@@ -5566,7 +5660,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         ];
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['numRows'])->getMock();
-        $subject->expects(self::once())->method('numRows')
+        $subject->expects($this->once())->method('numRows')
             ->with($conf['numRows.'])->willReturn('return');
         self::assertSame(
             'return',
@@ -5596,7 +5690,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['numberFormat'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('numberFormat')
             ->with((float)$content, $conf['numberFormat.'])
             ->willReturn($return);
@@ -5771,7 +5865,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['parseFunc'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('parseFunc')
             ->with($content, $conf['parseFunc.'], $conf['parseFunc'])
             ->willReturn($return);
@@ -5805,7 +5899,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cObjGetSingle'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cObjGetSingle')
             ->with($conf['postCObject'], $conf['postCObject.'], $debugKey)
             ->willReturn($return);
@@ -5836,7 +5930,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['callUserFunction'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('callUserFunction')
             ->with($conf['postUserFunc'], $conf['postUserFunc.'])
             ->willReturn($return);
@@ -5876,7 +5970,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $frontend = $this->getMockBuilder(TypoScriptFrontendController::class)
             ->disableOriginalConstructor()->onlyMethods(['uniqueHash'])
             ->getMock();
-        $frontend->expects(self::once())->method('uniqueHash')
+        $frontend->expects($this->once())->method('uniqueHash')
             ->with()->willReturn($uniqueHash);
         $frontend->config = ['INTincScript' => []];
         $subject = $this->getAccessibleMock(
@@ -5925,7 +6019,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cObjGetSingle'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cObjGetSingle')
             ->with($conf['preCObject'], $conf['preCObject.'], $debugKey)
             ->willReturn($return);
@@ -5960,7 +6054,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['listNum'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('listNum')
             ->with(
                 $content,
@@ -6028,7 +6122,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $request = (new ServerRequest())->withAttribute('frontend.typoscript', $typoScript);
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)->onlyMethods(['prefixComment'])->getMock();
         $subject->setRequest($request);
-        $subject->expects(self::exactly($times))
+        $subject->expects($this->exactly($times))
             ->method('prefixComment')
             ->with($conf['prefixComment'] ?? null, [], $content)
             ->willReturn($will);
@@ -6062,7 +6156,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['cObjGetSingle'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('cObjGetSingle')
             ->with($conf['prepend'], $conf['prepend.'], $debugKey)
             ->willReturn($return);
@@ -6135,7 +6229,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         ];
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['callUserFunction'])->getMock();
-        $subject->expects(self::once())->method('callUserFunction')
+        $subject->expects($this->once())->method('callUserFunction')
             ->with($conf['preUserFunc'], $conf['preUserFunc.'], $content)
             ->willReturn('return');
         self::assertSame(
@@ -6201,7 +6295,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['replacement'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('replacement')
             ->with($content, $conf['replacement.'])
             ->willReturn($return);
@@ -6281,7 +6375,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['round'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('round')
             ->with($content, $conf['round.'])
             ->willReturn($return);
@@ -6395,7 +6489,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['splitObj'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('splitObj')
             ->with($content, $conf['split.'])
             ->willReturn($return);
@@ -6426,7 +6520,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['stdWrap'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('stdWrap')
             ->with($content, $conf['stdWrap.'])
             ->willReturn($return);
@@ -6794,7 +6888,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['substring'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('substring')
             ->with($content, $conf['substring'])
             ->willReturn($return);
@@ -6886,7 +6980,7 @@ final class ContentObjectRendererTest extends UnitTestCase
         $subject = $this->getMockBuilder(ContentObjectRenderer::class)
             ->onlyMethods(['typolink'])->getMock();
         $subject
-            ->expects(self::once())
+            ->expects($this->once())
             ->method('typolink')
             ->with($content, $conf['typolink.'])
             ->willReturn($return);

@@ -61,6 +61,10 @@ final class SystemInformationController
                 $queryBuilder->expr()->in(
                     'error',
                     $queryBuilder->createNamedParameter([-1, 1, 2], Connection::PARAM_INT_ARRAY)
+                ),
+                $queryBuilder->expr()->eq(
+                    'channel',
+                    $queryBuilder->createNamedParameter('php', Connection::PARAM_STR)
                 )
             )
             ->executeQuery()
@@ -90,11 +94,7 @@ final class SystemInformationController
             return 0;
         }
         $systemInformationUc = json_decode($this->backendUserConfiguration['systeminformation'], true);
-        if (!isset($systemInformationUc['system_BelogLog']['lastAccess'])) {
-            return 0;
-        }
-
-        return (int)$systemInformationUc['system_BelogLog']['lastAccess'];
+        return (int)($systemInformationUc['system_log']['lastAccess'] ?? 0);
     }
 
     private function getLanguageService(): LanguageService

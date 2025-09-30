@@ -65,20 +65,20 @@ class RecoveryConfiguration implements LoggerAwareInterface
      */
     public function getMailTemplatePaths(): TemplatePaths
     {
-        $pathArray = array_replace_recursive(
-            [
-                'layoutRootPaths'   => $GLOBALS['TYPO3_CONF_VARS']['MAIL']['layoutRootPaths'],
-                'templateRootPaths' => $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'],
-                'partialRootPaths'  => $GLOBALS['TYPO3_CONF_VARS']['MAIL']['partialRootPaths'],
-            ],
-            [
-                'layoutRootPaths'   => $this->settings['email']['layoutRootPaths'],
-                'templateRootPaths' => $this->settings['email']['templateRootPaths'],
-                'partialRootPaths'  => $this->settings['email']['partialRootPaths'],
-            ]
-        );
-
-        return new TemplatePaths($pathArray);
+        $templatePaths = new TemplatePaths();
+        $templatePaths->setTemplateRootPaths(array_replace(
+            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'] ?? [],
+            $this->settings['email']['templateRootPaths'] ?? [],
+        ));
+        $templatePaths->setLayoutRootPaths(array_replace(
+            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['layoutRootPaths'] ?? [],
+            $this->settings['email']['layoutRootPaths'] ?? [],
+        ));
+        $templatePaths->setPartialRootPaths(array_replace(
+            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['partialRootPaths'] ?? [],
+            $this->settings['email']['partialRootPaths'] ?? [],
+        ));
+        return $templatePaths;
     }
 
     /**
@@ -95,7 +95,7 @@ class RecoveryConfiguration implements LoggerAwareInterface
     public function getLifeTimeTimestamp(): int
     {
         if ($this->timestamp === null) {
-            $lifetimeInHours = $this->settings['forgotLinkHashValidTime'] ?: 12;
+            $lifetimeInHours = (int)($this->settings['forgotLinkHashValidTime'] ?? 0) ?: 12;
             $currentTimestamp = $this->context->getPropertyFromAspect('date', 'timestamp');
             $this->timestamp = $currentTimestamp + 3600 * $lifetimeInHours;
         }
@@ -128,14 +128,14 @@ class RecoveryConfiguration implements LoggerAwareInterface
 
     protected function resolveFromTypoScript(): void
     {
-        $fromAddress = $this->settings['email_from'] ?: $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress'];
+        $fromAddress = ($this->settings['email_from'] ?? null) ?: $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromAddress'];
         if (empty($fromAddress)) {
             throw new IncompleteConfigurationException(
                 'Either "$GLOBALS[\'TYPO3_CONF_VARS\'][\'MAIL\'][\'defaultMailFromAddress\']" or extension key "plugin.tx_felogin_login.settings.email_from" cannot be empty!',
                 1573825624
             );
         }
-        $fromName = $this->settings['email_fromName'] ?: $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromName'];
+        $fromName = ($this->settings['email_fromName'] ?? null) ?: $GLOBALS['TYPO3_CONF_VARS']['MAIL']['defaultMailFromName'];
         if (empty($fromName)) {
             throw new IncompleteConfigurationException(
                 'Either "$GLOBALS[\'TYPO3_CONF_VARS\'][\'MAIL\'][\'defaultMailFromName\']" or extension key "plugin.tx_felogin_login.settings.email_fromName" cannot be empty!',
@@ -155,10 +155,10 @@ class RecoveryConfiguration implements LoggerAwareInterface
                 );
             }
         }
-        $this->mailTemplateName = (string)$this->settings['email']['templateName'];
+        $this->mailTemplateName = (string)($this->settings['email']['templateName'] ?? '');
         if (empty($this->mailTemplateName)) {
             throw new IncompleteConfigurationException(
-                'Key "plugin.tx_felogin_login.settings.email.templateName" cannot be empty!',
+                'Key "plugin.tx_felogin_login.settings.email.templateName" cannot be empty! Ensure that TypoScript is properly included.',
                 1584998393
             );
         }

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tree\Repository;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
@@ -26,7 +27,6 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\DataHandling\PlainDataResolver;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 
 /**
@@ -66,6 +66,8 @@ class PageTreeRepository
     protected readonly array $additionalQueryRestrictions;
 
     protected ?string $additionalWhereClause = null;
+
+    protected EventDispatcherInterface $eventDispatcher;
 
     /**
      * @param int $workspaceId the workspace ID to be checked for.
@@ -111,6 +113,8 @@ class PageTreeRepository
         ], $additionalFieldsToQuery);
         $this->additionalQueryRestrictions = $additionalQueryRestrictions;
 
+        // @todo: use DI in the future
+        $this->eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
         $this->quotedFields = GeneralUtility::makeInstance(ConnectionPool::class)
             ->getQueryBuilderForTable('pages')
             ->quoteIdentifiersForSelect($this->fields);
@@ -167,29 +171,28 @@ class PageTreeRepository
      *
      * @param array $pageTree The page record of the top level page you want to get the page tree of
      * @param int $depth Number of levels to fetch
-     * @param array $entryPointIds entryPointIds to include
+     * @param ?array $entryPointIds entryPointIds to include (null in case no entry-points were provided)
      * @return array An array with page records and their children
      */
-    public function getTreeLevels(array $pageTree, int $depth, array $entryPointIds = []): array
+    public function getTreeLevels(array $pageTree, int $depth, ?array $entryPointIds = null): array
     {
         $groupedAndSortedPagesByPid = [];
-
-        if (count($entryPointIds) > 0) {
+        // the method was called without any entry-point information
+        if ($entryPointIds === null) {
+            $parentPageIds = [$pageTree['uid']];
+            // the method was called with entry-point information, that is not empty
+        } elseif ($entryPointIds !== []) {
             $pageRecords = $this->getPageRecords($entryPointIds);
             $groupedAndSortedPagesByPid[$pageTree['uid']] = $pageRecords;
             $parentPageIds = $entryPointIds;
-        } else {
-            $parentPageIds = [$pageTree['uid']];
         }
-
         for ($i = 0; $i < $depth; $i++) {
+            // stop in case the initial or recursive query did not have any pages
             if (empty($parentPageIds)) {
                 break;
             }
             $pageRecords = $this->getChildPageRecords($parentPageIds);
-
             $groupedAndSortedPagesByPid = $this->groupAndSortPages($pageRecords, $groupedAndSortedPagesByPid);
-
             $parentPageIds = array_column($pageRecords, 'uid');
         }
         $this->addChildrenToPage($pageTree, $groupedAndSortedPagesByPid);
@@ -478,6 +481,9 @@ class PageTreeRepository
     {
         $page['_children'] = $groupedAndSortedPagesByPid[(int)$page['uid']] ?? [];
         ksort($page['_children']);
+
+        $event = $this->eventDispatcher->dispatch(new AfterRawPageRowPreparedEvent($page, $this->currentWorkspace));
+        $page = $event->getRawPage();
         foreach ($page['_children'] as &$child) {
             $this->addChildrenToPage($child, $groupedAndSortedPagesByPid);
         }
@@ -544,17 +550,12 @@ class PageTreeRepository
                 QueryHelper::stripLogicalOperatorPrefix($additionalWhereClause)
             );
 
-        $searchParts = $expressionBuilder->or();
-
-        // Extract true integers from search string
-        $searchUids = [];
-        $searchPhrases = GeneralUtility::trimExplode(',', $searchFilter, true);
-        foreach ($searchPhrases as $searchPhrase) {
-            if (MathUtility::canBeInterpretedAsInteger($searchPhrase) && $searchPhrase > 0) {
-                $searchUids[] = (int)$searchPhrase;
-            }
-        }
-        $searchUids = array_unique($searchUids);
+        // Allow to extend search parts and search uids
+        $event = $this->eventDispatcher->dispatch(
+            new BeforePageTreeIsFilteredEvent($expressionBuilder->or(), [], $searchFilter, $queryBuilder)
+        );
+        $searchParts = $event->searchParts;
+        $searchUids = $event->searchUids;
 
         if (!empty($searchUids)) {
             // Ensure that the LIVE id is also found
@@ -582,19 +583,6 @@ class PageTreeRepository
             }
             $searchParts = $searchParts->with($uidFilter);
         }
-        $searchFilter = '%' . $queryBuilder->escapeLikeWildcards($searchFilter) . '%';
-
-        $searchWhereAlias = $expressionBuilder->or(
-            $expressionBuilder->like(
-                'nav_title',
-                $queryBuilder->createNamedParameter($searchFilter)
-            ),
-            $expressionBuilder->like(
-                'title',
-                $queryBuilder->createNamedParameter($searchFilter)
-            )
-        );
-        $searchParts = $searchParts->with($searchWhereAlias);
 
         $queryBuilder->andWhere($searchParts);
         $pageRecords = $queryBuilder
@@ -757,8 +745,6 @@ class PageTreeRepository
 
     /**
      * Group pages by parent page and sort pages based on sorting property
-     *
-     * @param array $groupedAndSortedPagesByPid
      */
     protected function groupAndSortPages(array $pages, array $groupedAndSortedPagesByPid = []): array
     {

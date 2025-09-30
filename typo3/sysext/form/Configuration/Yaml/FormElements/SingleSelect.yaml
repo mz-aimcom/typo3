@@ -36,7 +36,6 @@ prototypes:
               enableDeleteRow: true
               removeLastAvailableRowFlashMessageTitle: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageTitle
               removeLastAvailableRowFlashMessageMessage: formEditor.elements.SelectionMixin.editor.options.removeLastAvailableRowFlashMessageMessage
-              shouldShowPreselectedValueColumn: single
               multiSelection: false
             600:
               identifier: autocomplete
@@ -121,23 +120,16 @@ prototypes:
             properties:
               options: {  }
           label: formEditor.elements.SingleSelect.label
+          description: formEditor.elements.SingleSelect.description
           group: select
           groupSorting: 200
           iconIdentifier: form-single-select
         implementationClassName: TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement
         properties:
-          containerClassAttribute: input
-          elementClassAttribute: ''
-          elementErrorClassAttribute: error
-        variants:
-          -
-            identifier: template-variant
-            condition: 'getRootFormProperty("renderingOptions.templateVariant") == "version2"'
-            properties:
-              containerClassAttribute: 'form-element form-element-select mb-3'
-              elementClassAttribute: form-select
-              elementErrorClassAttribute: ~
-              labelClassAttribute: form-label
+          containerClassAttribute: 'form-element form-element-select mb-3'
+          elementClassAttribute: form-select
+          elementErrorClassAttribute: ~
+          labelClassAttribute: form-label
     formEditor:
       formEditorPartials:
         FormElement-SingleSelect: Stage/SelectTemplate

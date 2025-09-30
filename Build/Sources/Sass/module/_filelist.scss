@@ -1,0 +1,30 @@
+//
+// Filelist
+//
+.t3-filelist-info-container {
+    display: flex;
+    min-height: 300px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin-top: -2rem;
+}
+
+.file-replace-dialog {
+    display: flex;
+    gap: var(--typo3-spacing);
+    flex-direction: column;
+
+    &-summary {
+        display: flex;
+        gap: var(--typo3-spacing);
+
+        &-thumbnail {
+            flex-shrink: 1;
+        }
+
+        &-info {
+            flex-grow: 1;
+        }
+    }
+}

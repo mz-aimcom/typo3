@@ -8,14 +8,16 @@
     --pagemodule-grid-inner-spacing: 1rem;
     --pagemodule-grid-cell-header-size: 1em;
     --pagemodule-grid-cell-border-radius: 4px;
-    --pagemodule-grid-cell-bg: color-mix(in srgb, var(--module-bg), currentColor 3%);
+    --pagemodule-grid-cell-bg: color-mix(in srgb, var(--module-bg), currentColor 5%);
     --pagemodule-grid-cell-restricted-bg: var(--typo3-surface-container-warning);
     --pagemodule-grid-column-unused-bg: var(--typo3-surface-container-warning);
     --pagemodule-element-spacing: 1rem;
     --pagemodule-element-bg: var(--typo3-surface-bright);
-    --pagemodule-element-border-radius: 2px;
+    --pagemodule-element-border-radius: 4px;
+    --pagemodule-element-border-color: color-mix(in srgb, var(--pagemodule-element-bg), currentColor 15%);
     --pagemodule-element-warning-bg: var(--typo3-surface-container-warning);
     --pagemodule-element-hidden-bg: var(--pagemodule-grid-cell-bg);
+    --pagemodule-action-height: 28.5px;
     --pagemodule-dropzone-bg: var(--typo3-surface-container-warning);
     --pagemodule-dropzone-possible-bg: var(--typo3-surface-container-success);
 }
@@ -87,11 +89,6 @@
     position: relative;
     text-align: start;
     font-size: var(--pagemodule-grid-cell-header-size);
-
-    a {
-        color: inherit;
-        position: relative;
-    }
 }
 
 .t3-page-column-header-icons {
@@ -101,7 +98,8 @@
     inset-inline-end: calc(var(--pagemodule-grid-inner-spacing) * -1);
     bottom: 0;
 
-    &:hover {
+    &:hover,
+    &:focus-within {
         opacity: 1;
     }
 }
@@ -141,7 +139,7 @@
 }
 
 .t3-page-ce-element {
-    border: 1px solid var(--pagemodule-element-bg);
+    border: 1px solid var(--pagemodule-element-border-color);
     background-color: var(--pagemodule-element-bg);
     border-radius: var(--pagemodule-element-border-radius);
     box-shadow: var(--typo3-component-box-shadow-strong);
@@ -155,7 +153,8 @@
         box-shadow: none;
         transition: opacity .3s ease-in-out;
 
-        &:hover {
+        &:hover,
+        &:focus-within {
             opacity: 1;
         }
     }
@@ -172,6 +171,10 @@
     align-items: center;
     gap: .5rem;
     padding: var(--pagemodule-element-spacing);
+
+    &[draggable="true"] {
+        cursor: grab;
+    }
 
     &-left {
         display: flex;
@@ -222,6 +225,7 @@
 }
 
 .t3-page-ce-actions {
+    height: var(--pagemodule-action-height);
     text-align: center;
     z-index: 2;
 }
@@ -232,18 +236,16 @@
 .t3-page-ce-dropzone {
     position: relative;
     top: 0;
-    z-index: 297;
+    border: 1px dashed color-mix(in srgb, var(--pagemodule-dropzone-bg), currentColor 10%);
     border-radius: var(--pagemodule-element-border-radius);
     background-color: var(--pagemodule-dropzone-bg);
+    height: var(--pagemodule-action-height);
 
     &.active {
-        border: 1px dashed color-mix(in srgb, var(--pagemodule-dropzone-bg), currentColor 10%);
-        height: 25.75px; // @todo refactor later
         width: 100%;
 
         &.t3-page-ce-dropzone-possible {
             --pagemodule-dropzone-bg: var(--pagemodule-dropzone-possible-bg);
-            z-index: 298;
         }
     }
 }
@@ -305,25 +307,28 @@
 //
 // Thumbnails
 //
-:root {
-    --preview-thumbnails-size: 64px;
-}
-
 .preview-thumbnails {
+    --preview-thumbnails-element-bg: var(--typo3-surface-bright);
+    --preview-thumbnails-element-border-color: color-mix(in srgb, var(--preview-thumbnails-element-bg), currentColor 15%);
+    --preview-thumbnails-element-border-radius: var(--typo3-component-border-radius);
+    --preview-thumbnails-element-spacing: .5rem;
+    --preview-thumbnails-size: 64px;
     display: flex;
     flex-wrap: wrap;
     gap: .5rem;
 
     &-element {
+        background-color: var(--preview-thumbnails-element-bg);
+        border: 1px solid var(--preview-thumbnails-element-border-color);
+        border-radius: var(--preview-thumbnails-element-border-radius);
         display: block;
+        padding: var(--preview-thumbnails-element-spacing);
 
         &-image {
             height: var(--preview-thumbnails-size);
             width: var(--preview-thumbnails-size);
             display: flex;
-            background-color: rgba(0, 0, 0, .05);
             overflow: hidden;
-            border-radius: 2px;
             justify-content: center;
             align-items: center;
 
@@ -332,14 +337,5 @@
                 width: calc(var(--preview-thumbnails-size) / 2);
             }
         }
-    }
-}
-
-//
-// Dragging
-//
-.t3-page-ce-dragitem {
-    .t3-page-ce-header-draggable:hover {
-        cursor: move;
     }
 }

@@ -30,6 +30,8 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\SiteInterface;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -75,12 +77,13 @@ class PageLayoutContext
         protected readonly BackendLayout $backendLayout,
         protected readonly SiteInterface $site,
         protected readonly DrawingConfiguration $drawingConfiguration,
-        protected readonly ServerRequestInterface $request
+        protected readonly ServerRequestInterface $request,
     ) {
         $this->pageId = (int)($pageRecord['uid'] ?? 0);
-        $this->contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class, $this);
+        $this->contentFetcher = GeneralUtility::makeInstance(ContentFetcher::class);
         $this->siteLanguages = $this->site->getAvailableLanguages($this->getBackendUser(), true, $this->pageId);
         $this->siteLanguage = $this->site->getDefaultLanguage();
+        $this->recordIdentityMap = GeneralUtility::makeInstance(RecordIdentityMap::class);
     }
 
     public function cloneForLanguage(SiteLanguage $language): self
@@ -169,6 +172,11 @@ class PageLayoutContext
         return [$this->site->getDefaultLanguage()];
     }
 
+    public function hasMultiLanguages(): bool
+    {
+        return count($this->getLanguagesToShow()) > 1;
+    }
+
     public function getSiteLanguage(?int $languageId = null): SiteLanguage
     {
         if ($languageId === null) {
@@ -186,7 +194,11 @@ class PageLayoutContext
         if ($this->getBackendUser()->isAdmin()) {
             return true;
         }
-        return !$this->pageRecord['editlock'] && $this->getBackendUser()->doesUserHaveAccess($this->pageRecord, Permission::PAGE_EDIT);
+        return $this->getBackendUser()->doesUserHaveAccess($this->pageRecord, Permission::PAGE_EDIT)
+            && (
+                !($schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
+                || !($this->pageRecord[$schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
+            );
     }
 
     public function getAllowNewContent(): bool
@@ -201,8 +213,17 @@ class PageLayoutContext
     public function getContentTypeLabels(): array
     {
         if (empty($this->contentTypeLabels)) {
-            foreach ($GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'] as $val) {
-                $this->contentTypeLabels[$val['value']] = $this->getLanguageService()->sL($val['label']);
+            $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+            $schema = $schemaFactory->get('tt_content');
+            if ($schema->supportsSubSchema()) {
+                if (($schemaTypeInformation = $schema->getSubSchemaTypeInformation())->isPointerToForeignFieldInForeignSchema()) {
+                    $typeField = $schemaFactory->get($schemaTypeInformation->getForeignSchemaName())->getField($schemaTypeInformation->getForeignFieldName());
+                } else {
+                    $typeField = $schema->getField($schemaTypeInformation->getFieldName());
+                }
+                foreach ($typeField->getConfiguration()['items'] ?? [] as $val) {
+                    $this->contentTypeLabels[$val['value']] = $this->getLanguageService()->sL($val['label']);
+                }
             }
         }
         return $this->contentTypeLabels;
@@ -211,8 +232,8 @@ class PageLayoutContext
     public function getItemLabels(): array
     {
         if (empty($this->itemLabels)) {
-            foreach ($GLOBALS['TCA']['tt_content']['columns'] as $name => $val) {
-                $this->itemLabels[$name] = $this->getLanguageService()->sL($val['label'] ?? '');
+            foreach (GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('tt_content')->getFields() as $field) {
+                $this->itemLabels[$field->getName()] = $this->getLanguageService()->sL($field->getLabel());
             }
         }
         return $this->itemLabels;
@@ -221,8 +242,8 @@ class PageLayoutContext
     public function getLanguageModeLabelClass(): string
     {
         $languageId = $this->siteLanguage->getLanguageId();
-        $contentRecordsPerColumn = $this->contentFetcher->getFlatContentRecords($languageId);
-        $translationData = $this->contentFetcher->getTranslationData($contentRecordsPerColumn, $languageId);
+        $contentRecordsPerColumn = $this->contentFetcher->getFlatContentRecords($this, $languageId);
+        $translationData = $this->contentFetcher->getTranslationData($this, $contentRecordsPerColumn, $languageId);
         return $translationData['mode'] === 'mixed' ? 'danger' : 'info';
     }
 
@@ -238,9 +259,9 @@ class PageLayoutContext
 
     public function getLanguageModeIdentifier(): string
     {
-        $contentRecordsPerColumn = $this->contentFetcher->getContentRecordsPerColumn(null, $this->siteLanguage->getLanguageId());
+        $contentRecordsPerColumn = $this->contentFetcher->getContentRecordsPerColumn($this, null, $this->siteLanguage->getLanguageId());
         $contentRecords = empty($contentRecordsPerColumn) ? [] : array_merge(...$contentRecordsPerColumn);
-        $translationData = $this->contentFetcher->getTranslationData($contentRecords, $this->siteLanguage->getLanguageId());
+        $translationData = $this->contentFetcher->getTranslationData($this, $contentRecords, $this->siteLanguage->getLanguageId());
         return $translationData['mode'] ?? '';
     }
 
@@ -259,6 +280,8 @@ class PageLayoutContext
             $availableTranslations[$language->getLanguageId()] = $language->getTitle();
         }
 
+        $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages');
+
         // Then, subtract the languages which are already on the page:
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()->removeAll()
@@ -268,7 +291,7 @@ class PageLayoutContext
             ->from('pages')
             ->where(
                 $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'],
+                    $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
                     $queryBuilder->createNamedParameter($this->pageId, Connection::PARAM_INT)
                 )
             );
@@ -276,7 +299,7 @@ class PageLayoutContext
         while ($row = $statement->fetchAssociative()) {
             BackendUtility::workspaceOL('pages', $row, $this->getBackendUser()->workspace);
             if ($row && VersionState::tryFrom($row['t3ver_state']) !== VersionState::DELETE_PLACEHOLDER) {
-                unset($availableTranslations[(int)$row[$GLOBALS['TCA']['pages']['ctrl']['languageField']]]);
+                unset($availableTranslations[(int)$row[$schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()]]);
             }
         }
         // If any languages are left, make selector:
@@ -302,7 +325,7 @@ class PageLayoutContext
                             'record_edit',
                             [
                                 'justLocalized' => 'pages:' . $this->pageId . ':' . $languageUid,
-                                'returnUrl' => $this->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+                                'returnUrl' => $this->getReturnUrl(),
                             ]
                         ),
                     ]
@@ -330,10 +353,12 @@ class PageLayoutContext
 
     public function getRecordIdentityMap(): RecordIdentityMap
     {
-        if (!isset($this->recordIdentityMap)) {
-            $this->recordIdentityMap = GeneralUtility::makeInstance(RecordIdentityMap::class);
-        }
         return $this->recordIdentityMap;
+    }
+
+    public function getReturnUrl(): string
+    {
+        return $this->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri();
     }
 
     protected function getLanguageService(): LanguageService

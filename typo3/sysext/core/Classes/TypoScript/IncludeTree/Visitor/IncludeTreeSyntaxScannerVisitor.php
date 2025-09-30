@@ -20,13 +20,10 @@ namespace TYPO3\CMS\Core\TypoScript\IncludeTree\Visitor;
 use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\AtImportInclude;
 use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\ConditionElseInclude;
 use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\ConditionInclude;
-use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\ConditionIncludeTyposcriptInclude;
 use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\IncludeInterface;
-use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\IncludeTyposcriptInclude;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\BlockCloseLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\IdentifierBlockOpenLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\ImportLine;
-use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\ImportOldLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\InvalidLine;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\Line\LineInterface;
 
@@ -121,7 +118,7 @@ final class IncludeTreeSyntaxScannerVisitor implements IncludeTreeVisitorInterfa
     }
 
     /**
-     * Look for @import and INCLUDE_TYPOSCRIPT that don't find to-include file(s).
+     * Look for @import that don't find to-include file(s).
      *
      * @todo: This code is far more complex than it could be. See #102102 and #102103 for
      *        changes we should apply to the include tree structure to simplify this.
@@ -142,15 +139,15 @@ final class IncludeTreeSyntaxScannerVisitor implements IncludeTreeVisitorInterfa
         // combination of line number and column position.
         $allImportLines = [];
         foreach ($lineStream->getNextLine() as $line) {
-            if ($line instanceof ImportLine || $line instanceof ImportOldLine) {
+            if ($line instanceof ImportLine) {
                 $valueToken = $line->getValueToken();
                 $allImportLines[$valueToken->getLine() . '-' . $valueToken->getColumn()] = $line;
             }
         }
         // Now iterate children to exclude valid allImportLines, those that included something.
         foreach ($include->getNextChild() as $child) {
-            if ($child instanceof AtImportInclude || $child instanceof IncludeTyposcriptInclude) {
-                /** @var ImportLine|ImportOldLine $originalLine */
+            if ($child instanceof AtImportInclude) {
+                /** @var ImportLine $originalLine */
                 $originalLine = $child->getOriginalLine();
                 $valueToken = $originalLine->getValueToken();
                 unset($allImportLines[$valueToken->getLine() . '-' . $valueToken->getColumn()]);
@@ -158,13 +155,10 @@ final class IncludeTreeSyntaxScannerVisitor implements IncludeTreeVisitorInterfa
             // Condition includes don't have the "body" lines itself (or a "body" sub node). This may change,
             // but until then we'll have to scan the parent node and loop condition includes here to find out
             // which of them resolved to child nodes.
-            if ($child instanceof ConditionInclude
-                || $child instanceof ConditionElseInclude
-                || $child instanceof ConditionIncludeTyposcriptInclude
-            ) {
+            if ($child instanceof ConditionInclude || $child instanceof ConditionElseInclude) {
                 foreach ($child->getNextChild() as $conditionChild) {
-                    if ($conditionChild instanceof AtImportInclude || $conditionChild instanceof IncludeTyposcriptInclude) {
-                        /** @var ImportLine|ImportOldLine $originalLine */
+                    if ($conditionChild instanceof AtImportInclude) {
+                        /** @var ImportLine $originalLine */
                         $originalLine = $conditionChild->getOriginalLine();
                         $valueToken = $originalLine->getValueToken();
                         unset($allImportLines[$valueToken->getLine() . '-' . $valueToken->getColumn()]);

@@ -61,8 +61,8 @@ final class ImageViewHelperTest extends FunctionalTestCase
             ],
             [
                 '<f:image src="something" />',
-                1509741911,
-                'Unable to render image tag: Folder "/something/" does not exist.',
+                1509741912,
+                'Unable to render image tag: Supplied something could not be resolved to a File or FileReference.',
             ],
             [
                 '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
@@ -110,8 +110,8 @@ final class ImageViewHelperTest extends FunctionalTestCase
             ],
             [
                 '<f:image src="something" />',
-                1509741911,
-                'Unable to render image tag in "tt_content:123": Folder "/something/" does not exist.',
+                1509741912,
+                'Unable to render image tag in "tt_content:123": Supplied something could not be resolved to a File or FileReference.',
             ],
             [
                 '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
@@ -140,11 +140,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $this->expectExceptionMessage($message);
 
         $cObj = new ContentObjectRenderer();
-        $cObj->start(['uid' => 123], 'tt_content');
         $serverRequest = (new ServerRequest())
             ->withAttribute('currentContentObject', $cObj)
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $cObj->setRequest($serverRequest);
+        $cObj->start(['uid' => 123], 'tt_content');
 
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource($template);
@@ -263,6 +264,46 @@ final class ImageViewHelperTest extends FunctionalTestCase
     #[Test]
     public function basicUsageScalingCropping(string $template, string $expected, int $expectedWidth, int $expectedHeight): void
     {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource($template);
+        $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(1));
+        $result = (new TemplateView($context))->render();
+        self::assertMatchesRegularExpression($expected, $result);
+
+        $matches = [];
+        preg_match($expected, $result, $matches);
+        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
+        self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
+    }
+
+    public static function noUpScalingDataProvider(): \Generator
+    {
+        yield 'no upscaling (both target dimensions above actual dimensions)' => [
+            '<f:image src="fileadmin/ImageViewHelperTest.jpg"  width="800" height="800" />',
+            '@^<img src="(fileadmin/ImageViewHelperTest\.jpg)" width="400" height="300" alt="" />$@',
+            400,
+            300,
+        ];
+        yield 'no upscaling (width exceeds target dimension)' => [
+            '<f:image src="fileadmin/ImageViewHelperTest.jpg"  width="800" height="80" />',
+            '@^<img src="(fileadmin/ImageViewHelperTest\.jpg)" width="400" height="300" alt="" />$@',
+            400,
+            300,
+        ];
+        yield 'no upscaling (height exceeds target dimension)' => [
+            '<f:image src="fileadmin/ImageViewHelperTest.jpg"  width="80" height="800" />',
+            '@^<img src="(fileadmin/ImageViewHelperTest\.jpg)" width="400" height="300" alt="" />$@',
+            400,
+            300,
+        ];
+    }
+
+    #[DataProvider('noUpScalingDataProvider')]
+    #[Test]
+    public function noUpScaling(string $template, string $expected, int $expectedWidth, int $expectedHeight): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor_allowUpscaling'] = false;
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
         $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(1));
@@ -406,6 +447,70 @@ final class ImageViewHelperTest extends FunctionalTestCase
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png" width="400" height="300" alt="" />$@',
             (new TemplateView($context))->render(),
+        );
+    }
+
+    #[Test]
+    public function fileExtensionArgumentWritesAvif(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" fileExtension="avif" />');
+
+        // Only for this specific test we want ImageMagick instead of GraphicsMagick.
+        // (AVIF not yet supported by GraphicsMagick)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'ImageMagick';
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.avif" width="400" height="300" alt="" />$@',
+            (new TemplateView($context))->render(),
+        );
+    }
+
+    #[Test]
+    public function fileExtensionArgumentWithNonWebimageFormatWritesCompatibleOutputFormat(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperFailTest.tif" width="200" fileExtension="jpg" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/3/3/csm_ImageViewHelperFailTest_.*\.jpg" width="200" height="150" alt="" />$@',
+            (new TemplateView($context))->render(),
+        );
+    }
+
+    #[Test]
+    public function fileExtensionArgumentWithNonWebimageFormatWritesFallbackFormatInstead(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        // Note the absence of a fileExtension argument; this uses 'web' as default format then.
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperFailTest.tif" width="200" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/3/3/csm_ImageViewHelperFailTest_.*\.png" width="200" height="150" alt="" />$@',
+            (new TemplateView($context))->render(),
+        );
+    }
+
+    #[Test]
+    public function fileExtensionArgumentWithWebimageFormatMayNotWriteNonWebImageFormatButFallback(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="200" fileExtension="tif" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.tif" width="200" height="150" alt="" />$@',
+            (new TemplateView($context))->render(),
+        );
+    }
+
+    #[Test]
+    public function fileExtensionArgumentDoesNotWriteAvifWhenUnsupported(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="200" fileExtension="avif" />');
+
+        // Force GraphicsMagick here which does not support AVIF. Output should be in jpeg format then.
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'GraphicsMagick';
+        $renderOutput = (new TemplateView($context))->render();
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.avif.jpg" width="200" height="150" alt="" />$@',
+            $renderOutput,
         );
     }
 

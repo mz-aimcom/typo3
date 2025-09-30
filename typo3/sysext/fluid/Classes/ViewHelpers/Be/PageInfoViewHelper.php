@@ -22,24 +22,17 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 
 /**
- * ViewHelper which return page info icon as known from TYPO3 backend modules.
+ * ViewHelper which returns the page info icon as known from TYPO3 backend modules.
  *
- * .. note::
- *    This ViewHelper is experimental!
+ * ```
+ *   <f:be.pageInfo />
+ * ```
  *
- * Examples
- * ========
+ * **Note:** This ViewHelper is experimental!
  *
- * Default::
- *
- *    <f:be.pageInfo />
- *
- * Page info icon with context menu
- *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-be-pageinfo
  * @todo: Candidate to deprecate? The page info is typically displayed in doc header, done by ModuleTemplate in controllers.
  */
 final class PageInfoViewHelper extends AbstractBackendViewHelper
@@ -51,25 +44,23 @@ final class PageInfoViewHelper extends AbstractBackendViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly IconFactory $iconFactory
+    ) {}
+
     public function render(): string
     {
-        return self::renderStatic([], $this->buildRenderChildrenClosure(), $this->renderingContext);
-    }
-
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
-    {
         $id = 0;
-        if ($renderingContext->hasAttribute(ServerRequestInterface::class)) {
-            $request = $renderingContext->getAttribute(ServerRequestInterface::class);
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
+            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
             $id = $request->getParsedBody()['id'] ?? $request->getQueryParams()['id'] ?? 0;
         }
         $pageRecord = BackendUtility::readPageAccess($id, $GLOBALS['BE_USER']->getPagePermsClause(Permission::PAGE_SHOW));
         // Add icon with context menu, etc:
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
         if (is_array($pageRecord) && ($pageRecord['uid'] ?? false)) {
             // If there IS a real page
             $altText = BackendUtility::getRecordIconAltText($pageRecord, 'pages');
-            $theIcon = '<span title="' . $altText . '">' . $iconFactory->getIconForRecord('pages', $pageRecord, IconSize::SMALL)->render() . '</span>';
+            $theIcon = '<span title="' . $altText . '">' . $this->iconFactory->getIconForRecord('pages', $pageRecord, IconSize::SMALL)->render() . '</span>';
             // Make Icon:
             $theIcon = BackendUtility::wrapClickMenuOnIcon($theIcon, 'pages', $pageRecord['uid']);
 
@@ -78,7 +69,7 @@ final class PageInfoViewHelper extends AbstractBackendViewHelper
         } else {
             // On root-level of page tree
             // Make Icon
-            $theIcon = '<span title="' . htmlspecialchars($GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename']) . '">' . $iconFactory->getIcon('apps-pagetree-page-domain', IconSize::SMALL)->render() . '</span>';
+            $theIcon = '<span title="' . htmlspecialchars($GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename']) . '">' . $this->iconFactory->getIcon('apps-pagetree-page-domain', IconSize::SMALL)->render() . '</span>';
             if ($GLOBALS['BE_USER']->isAdmin()) {
                 $theIcon = BackendUtility::wrapClickMenuOnIcon($theIcon, 'pages');
             }

@@ -19,6 +19,8 @@ namespace TYPO3\CMS\Extbase\Validation\Validator;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Http\UploadedFile;
+use TYPO3\CMS\Core\Type\File\FileInfo;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Error\Result;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
@@ -63,9 +65,6 @@ abstract class AbstractValidator implements ValidatorInterface
         $this->initializeTranslationOptions($options);
     }
 
-    /**
-     * @todo: Add to ValidatorInterface in TYPO3 v14
-     */
     public function setRequest(?ServerRequestInterface $request): void
     {
         $this->request = $request;
@@ -128,9 +127,6 @@ abstract class AbstractValidator implements ValidatorInterface
         return $this->options;
     }
 
-    /**
-     * @todo: Add to ValidatorInterface in TYPO3 v14
-     */
     public function getRequest(): ?ServerRequestInterface
     {
         return $this->request;
@@ -146,14 +142,14 @@ abstract class AbstractValidator implements ValidatorInterface
 
     /**
      * Translates an error message using LocalizationUtility::translate() method. If the translate key does not
-     * start with 'LLL:', the original translate key is returned.
+     * start with 'LLL:' and if no extension name is provided, the original translate key is returned.
      */
     protected function translateErrorMessage(
         string $translateKey,
         string $extensionName = '',
         array $arguments = []
     ): string {
-        if (!str_starts_with($translateKey, 'LLL:')) {
+        if ($extensionName === '' && !str_starts_with($translateKey, 'LLL:')) {
             return $translateKey;
         }
 
@@ -214,6 +210,11 @@ abstract class AbstractValidator implements ValidatorInterface
         }
 
         throw new \InvalidArgumentException('Value to validate must be a TYPO3\\CMS\\Core\\Http\\UploadedFile', 1712057926);
+    }
+
+    protected function getFileInfo(string $filePath): FileInfo
+    {
+        return GeneralUtility::makeInstance(FileInfo::class, $filePath);
     }
 
     /**

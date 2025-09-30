@@ -12,7 +12,7 @@
  */
 
 import RegularEvent from '@typo3/core/event/regular-event';
-import { ResourceInterface } from '@typo3/backend/resource/resource';
+import type { ResourceInterface } from '@typo3/backend/resource/resource';
 import { MultiRecordSelectionSelectors } from '@typo3/backend/multi-record-selection';
 import { FileListActionSelector, FileListActionUtility } from '@typo3/filelist/file-list-actions';
 import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
@@ -29,11 +29,9 @@ export enum FileListDragDropEvent {
 }
 
 class FileListDragDrop {
-  private readonly rootDocument: Document;
   private readonly previewSize: number = 32;
 
   constructor() {
-    this.rootDocument = top.document;
     const selector = FileListActionSelector.elementSelector + '[draggable="true"]';
 
     new RegularEvent('dragstart', (event: DragEvent, target: HTMLElement): void => {
@@ -102,10 +100,13 @@ class FileListDragDrop {
 
   private getPreviewItems(selectedItems: ResourceInterface[]): DragDropThumbnail[] {
     return selectedItems
-      .filter((item: ResourceInterface): boolean => item.thumbnail !== null)
+      .filter((item: ResourceInterface): boolean => item.hasPreview)
       .map((item: ResourceInterface) => {
+        const thumbnailUrl = new URL(top.TYPO3.settings.Resource.thumbnailUrl, window.origin);
+        thumbnailUrl.searchParams.set('identifier', item.uid.toString(10));
+
         return {
-          src: item.thumbnail,
+          src: thumbnailUrl.toString(),
           width: this.previewSize,
           height: this.previewSize,
         };
@@ -114,7 +115,7 @@ class FileListDragDrop {
 
   private getPreviewLabel(selectedItems: ResourceInterface[]): string {
     // Counter
-    const previewItems = selectedItems.filter((item: ResourceInterface): boolean => item.thumbnail !== null)
+    const previewItems = selectedItems.filter((item: ResourceInterface): boolean => item.hasPreview);
     const count = selectedItems.length - previewItems.length;
     if (count > 0) {
       return (previewItems.length > 0 ? '+' : '') + count.toString();

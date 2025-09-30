@@ -17,52 +17,83 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Scheduler\Task;
 
+use Psr\Container\ContainerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use Symfony\Component\DependencyInjection\Exception\ServiceNotFoundException;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Exception\InvalidTaskException;
+use TYPO3\CMS\Scheduler\Execution;
+use TYPO3\CMS\Scheduler\Service\TaskService;
 
 /**
  * Handles serialization of `AbstractTask` objects.
  *
  * @internal This is an internal API, avoid using it in custom implementations.
  */
+#[Autoconfigure(public: true)]
 class TaskSerializer
 {
+    public function __construct(
+        protected readonly ContainerInterface $container,
+        protected readonly TaskService $taskService,
+    ) {}
+
     /**
      * This method takes care of safely deserializing tasks from the database
      * and either returns a valid Task or throws an InvalidTaskException, which
      * holds information about the broken task.
      *
+     * First, find the task object, from the registry
+     * Second, recreate the execution object,
+     * Then fill all the data of the new task object from the rest of the row.
+     *
      * @throws InvalidTaskException
      */
-    public function deserialize(string $serializedTask): AbstractTask
+    public function deserialize(array $row): AbstractTask
     {
-        try {
-            $task = @unserialize($serializedTask);
-            if ($task === false) {
-                throw new InvalidTaskException('The serialized task is corrupted', 1642956282);
+        $taskType = $row['tasktype'] ?? '';
+        if (!empty($taskType)) {
+            if ($this->taskService->isTaskTypeRegistered($taskType)) {
+                $taskInformation = $this->taskService->getTaskDetailsFromTaskType($taskType);
+                $className = $taskInformation['className'];
+                try {
+                    $taskObject = $this->container->get($className);
+                } catch (ServiceNotFoundException) {
+                    $taskObject = GeneralUtility::makeInstance($className);
+                }
+            } else {
+                throw new InvalidTaskException('Task type ' . $taskType . ' not found. Probably not registered?', 1742584362);
             }
-            if (!$task instanceof AbstractTask) {
+
+            if (!$taskObject instanceof AbstractTask) {
                 throw new InvalidTaskException('The deserialized task in not an instance of AbstractTask', 1642954501);
             }
-            return $task;
-        } catch (\BadMethodCallException $e) {
-            // This can happen, if a Task has a dependency to a class with the BlockSerializationTrait.
-            throw new InvalidTaskException($e->getMessage(), 1642938352);
+            if ($taskObject instanceof ExecuteSchedulableCommandTask) {
+                $taskObject->setTaskType($taskType);
+            }
+            $taskObject->setTaskUid((int)$row['uid']);
+            $taskObject->setTaskGroup((int)$row['task_group']);
+            $taskParameters = json_decode($row['parameters'] ?? '', true) ?: [];
+            // Set additional fields from the row with the parameters stored
+            // in the parameters field for native types.
+            if ($taskInformation['isNativeTask'] ?? false) {
+                // If there are native registered fields, they take precedence over the values.
+                foreach ($taskInformation['additionalFields'] ?? [] as $additionalFieldName) {
+                    $taskParameters[$additionalFieldName] = $taskParameters[$additionalFieldName] ?? $row[$additionalFieldName] ?? null;
+                }
+            }
+            $taskObject->setTaskParameters($taskParameters);
+            $taskObject->setDescription((string)$row['description']);
+            $taskObject->setExecutionTime((int)$row['nextexecution']);
+            $taskObject->setTaskGroup((int)$row['task_group']);
+            $taskObject->setDisabled((bool)$row['disable']);
+            $executionDetails = json_decode($row['execution_details'] ?? '', true);
+            if ($executionDetails !== null) {
+                $taskObject->setExecution(Execution::createFromDetails($executionDetails));
+            }
+            return $taskObject;
         }
-    }
-
-    /**
-     * @template T of object
-     * @param T $task
-     * @return class-string<T>|string
-     */
-    public function resolveClassName(object $task): string
-    {
-        $taskClass = get_class($task);
-        if ($taskClass === '__PHP_Incomplete_Class') {
-            $taskArray = json_decode((string)json_encode($task, 0, 1), true);
-            $taskClass = (string)$taskArray['__PHP_Incomplete_Class_Name'];
-        }
-        return $taskClass;
+        throw new InvalidTaskException('No task type given for task ID : ' . $row['uid'], 1740514192);
     }
 
     /**

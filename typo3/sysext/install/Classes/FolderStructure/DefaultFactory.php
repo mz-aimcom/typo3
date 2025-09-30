@@ -22,16 +22,14 @@ use TYPO3\CMS\Install\WebserverType;
  * Factory returns default folder structure object hierarchy
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
-class DefaultFactory
+final readonly class DefaultFactory
 {
     private const TEMPLATE_PATH = __DIR__ . '/../../Resources/Private/FolderStructureTemplateFiles';
 
     /**
      * Get default structure object hierarchy
-     *
-     * @return StructureFacadeInterface
      */
-    public function getStructure(WebserverType $webserverType = WebserverType::Other)
+    public function getStructure(WebserverType $webserverType = WebserverType::Other): StructureFacadeInterface
     {
         $rootNode = new RootNode($this->getDefaultStructureDefinition($webserverType), null);
         return new StructureFacade($rootNode);
@@ -41,7 +39,7 @@ class DefaultFactory
      * Default definition of folder and file structure with dynamic
      * permission settings
      */
-    protected function getDefaultStructureDefinition(WebserverType $webserverType): array
+    private function getDefaultStructureDefinition(WebserverType $webserverType): array
     {
         $filePermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['fileCreateMask'];
         $directoryPermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['folderCreateMask'];
@@ -53,7 +51,7 @@ class DefaultFactory
                 'children' => [
                     [
                         'name' => 'typo3temp',
-                        'type' => DirectoryNode::class,
+                        'type' => LinkOrDirectoryNode::class,
                         'targetPermission' => $directoryPermission,
                         'children' => [
                             [
@@ -65,7 +63,7 @@ class DefaultFactory
                             $this->getTemporaryAssetsFolderStructure(),
                             [
                                 'name' => 'var',
-                                'type' => DirectoryNode::class,
+                                'type' => LinkOrDirectoryNode::class,
                                 'targetPermission' => $directoryPermission,
                                 'children' => [
                                     [
@@ -73,11 +71,6 @@ class DefaultFactory
                                         'type' => FileNode::class,
                                         'targetPermission' => $filePermission,
                                         'targetContentFile' => self::TEMPLATE_PATH . '/typo3temp-var-htaccess',
-                                    ],
-                                    [
-                                        'name' => 'charset',
-                                        'type' => DirectoryNode::class,
-                                        'targetPermission' => $directoryPermission,
                                     ],
                                     [
                                         'name' => 'cache',
@@ -260,7 +253,7 @@ class DefaultFactory
     /**
      * Get public path structure while resolving nested paths
      */
-    protected function getPublicStructure(string $publicPath, array $subStructure): array
+    private function getPublicStructure(string $publicPath, array $subStructure): array
     {
         $directoryPermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['folderCreateMask'];
         $publicPathParts = array_reverse(explode('/', $publicPath));
@@ -283,13 +276,13 @@ class DefaultFactory
         return $lastNode;
     }
 
-    protected function getFileadminStructure(): array
+    private function getFileadminStructure(): array
     {
         $filePermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['fileCreateMask'];
         $directoryPermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['folderCreateMask'];
         return [
             'name' => !empty($GLOBALS['TYPO3_CONF_VARS']['BE']['fileadminDir']) ? rtrim($GLOBALS['TYPO3_CONF_VARS']['BE']['fileadminDir'], '/') : 'fileadmin',
-            'type' => DirectoryNode::class,
+            'type' => LinkOrDirectoryNode::class,
             'targetPermission' => $directoryPermission,
             'children' => [
                 [
@@ -319,7 +312,7 @@ class DefaultFactory
                 ],
                 [
                     'name' => 'user_upload',
-                    'type' => DirectoryNode::class,
+                    'type' => LinkOrDirectoryNode::class,
                     'targetPermission' => $directoryPermission,
                     'children' => [
                         [
@@ -369,7 +362,7 @@ class DefaultFactory
     /**
      * This defines the structure for typo3temp/assets
      */
-    protected function getTemporaryAssetsFolderStructure(): array
+    private function getTemporaryAssetsFolderStructure(): array
     {
         $directoryPermission = $GLOBALS['TYPO3_CONF_VARS']['SYS']['folderCreateMask'];
         return [

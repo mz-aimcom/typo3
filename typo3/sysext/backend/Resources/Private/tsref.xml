@@ -350,11 +350,11 @@ See "config.htmlTag_setParams" for more details on the effect on the html tag.
 ]]></default>
         </property>
         <property name="extTarget" type="string">
-            <description><![CDATA[default external target. Used by typolink if no extTarget is set]]></description>
-            <default><![CDATA[_top]]></default>
+            <description><![CDATA[Default external target. Used by typolink if no extTarget is set.]]></description>
+            <default><![CDATA["" by default, "_blank" if TypoScript settings from Fluid Styled Content are loaded]]></default>
         </property>
         <property name="fileTarget" type="string">
-            <description><![CDATA[Default file link target. Used by typolink if no fileTarget is set. ]]></description>
+            <description><![CDATA[Default file link target. Used by typolink if no fileTarget is set.]]></description>
             <default><![CDATA[
             ]]></default>
         </property>
@@ -588,16 +588,46 @@ The conditions for allowing client caching are:
 page was cachedNo *_INT or *_EXT objects were on the page (eg. USER_INT)No frontend user is logged inNo backend user is logged in
 
 If these conditions are met, the headers sent are:
-Last-Modified [SYS_LASTCHANGED of page id]Expires [expire time of page cache]ETag [md5 of content]Cache-Control: max-age: [seconds til expiretime]Pragma: public
+
+Expires: [expire time of page cache]
+ETag: [md5 of content]
+Cache-Control: max-age=[seconds til expiretime]
+Pragma: public
 
 In case caching is not allowed, these headers are sent to avoid client caching:
-Cache-Control: private
+Cache-Control: private, no-store
 
 Notice that enabling the browser caches means you have to consider how log files are written. Because when a page is cached on the client it will not invoke a request to the webserver, thus not writing the request to the log. There should be ways to circumvent these problems but they are outside the domain of TYPO3 in any case.
 
 Tip: Enabling cache-control headers might confuse editors seeing old content served from the browser cache. "Shift-Reload" will bypass both browser- and reverse-proxy caches and even make TYPO3 regenerate the page. Teach them that trick!
 
 Thanks to Ole Tange, www.forbrug.dk for co-authoring this feature.]]></description>
+            <default><![CDATA[
+]]></default>
+        </property>
+        <property name="sendCacheHeadersForSharedCaches" type="string">
+            <description><![CDATA[If enabled, TYPO3 will output cache-control headers to a possible proxy / shared cache based mainly on whether the page was cached internally. This feature allows shared caches such as CDNs / reverse proxies to take load of TYPO3 websites while delivering fresh content to the client.
+
+The value "auto" will send s-maxage if TYPO3 is served behind a trusted reverse proxy, config.sendCacheHeaders might be respected if the request was not performed by a trusted reverse proxy.
+
+The value "force" will send s-maxage in any case, config.sendCacheHeaders will be ignored.
+
+The conditions for allowing proxy caching are:
+page was cachedNo *_INT or *_EXT objects were on the page (eg. USER_INT)No frontend user is logged inNo backend user is logged in
+
+If these conditions are met, the headers sent are:
+
+Expires: [expire time of page cache]
+ETag: [md5 of content]
+Cache-Control: max-age=0, s-maxage=[seconds til expiretime]
+Pragma: public
+
+In case caching is not allowed, these headers are sent to avoid client caching:
+Cache-Control: private, no-store
+
+Notice that enabling the shared caches means you have to consider how log files are written. Because when a page is cached on the client it will not invoke a request to the webserver, thus not writing the request to the log. There should be ways to circumvent these problems but they are outside the domain of TYPO3 in any case.
+
+Tip: Enabling cache-control headers might confuse editors seeing old content served from the shared cache. You should configure you shared cache to bypass cache if the cookie "be_typo_user" is set.]]></description>
             <default><![CDATA[
 ]]></default>
         </property>
@@ -1345,6 +1375,11 @@ If value is tx_myextension[input][  |  ]  then the fieldname "email" would be
             JPG-quality (if ".format" = jpg/jpeg)]]></description>
             <default><![CDATA[
 ]]></default>
+        </property>
+        <property name="speed" type="int">
+            <description><![CDATA[posint (0-10)
+            Speed parameter (if ".format" = avif)]]></description>
+            <default><![CDATA[-1]]></default>
         </property>
         <property name="transparentBackground" type="boolean">
             <description><![CDATA[Set this flag to render the background transparent. TYPO3 makes the color found at position 0,0 of the image (upper left corner) transparent.
@@ -3965,17 +4000,17 @@ This must be a valid ".ico"-file (iconfile)]]></description>
 ]]></default>
         </property>
         <property name="stdWrap" type="stdWrap">
-            <description><![CDATA[Wraps the content of the the cObject array with stdWrap options]]></description>
+            <description><![CDATA[Wraps the content of the cObject array with stdWrap options]]></description>
             <default><![CDATA[
 ]]></default>
         </property>
         <property name="typeNum" type="int">
-            <description><![CDATA[This decides the the typeId of the page. The value defaults to 0 for the first
+            <description><![CDATA[This decides the typeId of the page. The value defaults to 0 for the first
 found PAGE object, but it MUST be set and be unique as soon you use more than one such object (watch this if you use frames on your page)!]]></description>
             <default><![CDATA[0]]></default>
         </property>
         <property name="wrap" type="wrap">
-            <description><![CDATA[Wraps the content of the the cObject array]]></description>
+            <description><![CDATA[Wraps the content of the cObject array]]></description>
             <default><![CDATA[
 ]]></default>
         </property>
@@ -4066,7 +4101,7 @@ to
             <default><![CDATA[
 ]]></default>
         </property>
-        <property name="removeWrapping" type="boolen">
+        <property name="removeWrapping" type="boolean">
             <description><![CDATA[If set, then all existing wrapping will be removed.
 
 This:

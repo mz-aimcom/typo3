@@ -22,11 +22,13 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Module\ModuleFactory;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Hooks\TcaItemsProcessorFunctions;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -61,11 +63,13 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                 'ctrl' => [
                     'adminOnly' => true,
                 ],
+                'columns' => [],
             ],
             'aTable' => [
                 'ctrl' => [
                     'title' => 'aTitle',
                 ],
+                'columns' => [],
             ],
         ];
         $expected = [
@@ -81,6 +85,7 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                 ],
             ],
         ];
+        $this->get(TcaSchemaFactory::class)->load($GLOBALS['TCA'], true);
         $this->get(TcaItemsProcessorFunctions::class)->populateAvailableTables($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
@@ -88,11 +93,6 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateAvailablePageTypesTest(): void
     {
-        $fieldDefinition = [
-            'items' => [],
-        ];
-        $this->get(TcaItemsProcessorFunctions::class)->populateAvailablePageTypes($fieldDefinition);
-        self::assertSame($fieldDefinition, $fieldDefinition);
         $GLOBALS['TCA']['pages']['columns']['doktype']['config']['items'] = [
             0 => [
                 'label' => 'Divider',
@@ -120,6 +120,7 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                 ],
             ],
         ];
+        $this->get(TcaSchemaFactory::class)->load($GLOBALS['TCA'], true);
         $this->get(TcaItemsProcessorFunctions::class)->populateAvailablePageTypes($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
@@ -168,7 +169,9 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
             $this->get(IconFactory::class),
             $this->get(IconRegistry::class),
             $moduleProviderMock,
-            $this->get(FlexFormTools::class)
+            $this->get(FlexFormTools::class),
+            $this->get(TcaSchemaFactory::class),
+            $this->get(PageDoktypeRegistry::class),
         );
         $subject->populateAvailableUserModules($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
@@ -188,9 +191,15 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                             'bar' => [
                                 'label' => 'barColumnTitle',
                                 'exclude' => true,
+                                'config' => [
+                                    'type' => 'input',
+                                ],
                             ],
                             'baz' => [
                                 'label' => 'bazColumnTitle',
+                                'config' => [
+                                    'type' => 'input',
+                                ],
                             ],
                         ],
                     ],
@@ -224,6 +233,9 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                             'bar' => [
                                 'label' => 'barColumnTitle',
                                 'exclude' => true,
+                                'config' => [
+                                    'type' => 'input',
+                                ],
                             ],
                         ],
                     ],
@@ -254,6 +266,9 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                             'bar' => [
                                 'label' => 'barColumnTitle',
                                 'exclude' => true,
+                                'config' => [
+                                    'type' => 'input',
+                                ],
                             ],
                         ],
                     ],
@@ -274,6 +289,9 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
                             'bar' => [
                                 'label' => 'barColumnTitle',
                                 'exclude' => true,
+                                'config' => [
+                                    'type' => 'input',
+                                ],
                             ],
                         ],
                     ],
@@ -289,13 +307,13 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateExcludeFieldsTest(array $tca, array $expectedItems): void
     {
-        $GLOBALS['TCA'] = $tca;
         $fieldDefinition = [
             'items' => [],
         ];
         $expected = [
             'items' => $expectedItems,
         ];
+        $this->get(TcaSchemaFactory::class)->load($tca, true);
         $this->get(TcaItemsProcessorFunctions::class)->populateExcludeFields($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
@@ -303,36 +321,113 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateExcludeFieldsWithFlexFormTest(): void
     {
-        $GLOBALS['TCA'] = [
+        $tca = [
             'fooTable' => [
                 'ctrl' => [
                     'title' => 'fooTableTitle',
+                    'type' => 'pointerField',
                 ],
                 'columns' => [
+                    'pointerField' => [
+                        'label' => 'pointerFieldTitle',
+                        'config' => [
+                            'type' => 'select',
+                            'items' => [
+                                [
+                                    'value' => 'dummy',
+                                    'label' => 'dummy',
+                                ],
+                                [
+                                    'value' => 'dummy2',
+                                    'label' => 'dummy2',
+                                ],
+                            ],
+                        ],
+                    ],
                     'aFlexField' => [
-                        'label' => 'aFlexFieldTitle',
+                        'label' => 'defaultFlexFieldTitle',
                         'config' => [
                             'type' => 'flex',
                             'title' => 'title',
-                            'ds' => [
-                                'dummy' => '
-									<T3DataStructure>
-										<ROOT>
-											<type>array</type>
-											<el>
-												<input1>
-													<label>flexInputLabel</label>
-													<exclude>1</exclude>
-													<config>
-														<type>input</type>
-														<size>23</size>
-													</config>
-												</input1>
-											</el>
-										</ROOT>
-									</T3DataStructure>
-								',
+                            'ds' => '
+                                <T3DataStructure>
+                                    <ROOT>
+                                        <type>array</type>
+                                        <el>
+                                            <input1>
+                                                <label>defaultFieldLabel</label>
+                                                <exclude>1</exclude>
+                                                <config>
+                                                    <type>input</type>
+                                                </config>
+                                            </input1>
+                                        </el>
+                                    </ROOT>
+                                </T3DataStructure>
+                            ',
+                        ],
+                    ],
+                ],
+                'types' => [
+                    'dummy' => [
+                        'showitem' => 'pointerField,aFlexField',
+                        // Specific record type override
+                        'columnsOverrides' => [
+                            'aFlexField' => [
+                                'label' => 'overrideFieldTitle',
+                                'config' => [
+                                    'ds' => '
+                                        <T3DataStructure>
+                                            <ROOT>
+                                                <type>array</type>
+                                                <el>
+                                                    <text1>
+                                                        <label>overrideFieldLabel</label>
+                                                        <exclude>1</exclude>
+                                                        <config>
+                                                            <type>text</type>
+                                                        </config>
+                                                    </text1>
+                                                </el>
+                                            </ROOT>
+                                        </T3DataStructure>
+                                    ',
+                                ],
                             ],
+                        ],
+                    ],
+                    'dummy2' => [
+                        // Fallback to default ds
+                        'showitem' => 'pointerField,aFlexField',
+                    ],
+                    'dummy3' => [
+                        'showitem' => 'pointerField,aFlexField',
+                        // Invalid override
+                        'columnsOverrides' => [
+                            'aFlexField' => [
+                                'config' => [
+                                    'ds' => '',
+                                ],
+                            ],
+                        ],
+                    ],
+                    'dummy4' => [
+                        // No flex field
+                        'showitem' => 'pointerField',
+                    ],
+                    '5' => [
+                        // Evaluated as integer by PHP
+                        'showitem' => 'pointerField,aFlexField',
+                    ],
+                ],
+            ],
+            'barTable' => [
+                'columns' => [
+                    'barflexField' => [
+                        'label' => 'barflexFieldTitle',
+                        'config' => [
+                            'type' => 'flex',
+                            'ds' => 'FILE:EXT:core/Tests/Functional/Configuration/FlexForm/Fixtures/DataStructureWithSheetAndExclude.xml',
                         ],
                     ],
                 ],
@@ -343,18 +438,61 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
         ];
         $expected = [
             'items' => [
-                'fooTableTitle aFlexFieldTitle dummy' => [
-                    'label' => 'fooTableTitle aFlexFieldTitle dummy',
+                'barTable barflexFieldTitle default' => [
+                    'label' => 'barTable barflexFieldTitle default',
                     'value' => '--div--',
                     'icon' => '',
                 ],
                 0 => [
-                    'label' => 'flexInputLabel (input1)',
-                    'value' => 'fooTable:aFlexField;dummy;sDEF;input1',
+                    'label' => 'anExcludeFlexField (input_exclude)',
+                    'value' => 'barTable:barflexField;default;sDEF;input_exclude',
+                    'icon' => 'empty-empty',
+                ],
+                'fooTableTitle defaultFlexFieldTitle 5' => [
+                    'label' => 'fooTableTitle defaultFlexFieldTitle 5',
+                    'value' => '--div--',
+                    'icon' => '',
+                ],
+                1 => [
+                    'label' => 'defaultFieldLabel (input1)',
+                    'value' => 'fooTable:aFlexField;5;sDEF;input1',
+                    'icon' => 'empty-empty',
+                ],
+                'fooTableTitle defaultFlexFieldTitle default' => [
+                    'label' => 'fooTableTitle defaultFlexFieldTitle default',
+                    'value' => '--div--',
+                    'icon' => '',
+                ],
+                2 => [
+                    'label' => 'defaultFieldLabel (input1)',
+                    'value' => 'fooTable:aFlexField;default;sDEF;input1',
+                    'icon' => 'empty-empty',
+                ],
+                'fooTableTitle defaultFlexFieldTitle dummy2' => [
+                    'label' => 'fooTableTitle defaultFlexFieldTitle dummy2',
+                    'value' => '--div--',
+                    'icon' => '',
+                ],
+                3 => [
+                    'label' => 'defaultFieldLabel (input1)',
+                    'value' => 'fooTable:aFlexField;dummy2;sDEF;input1',
+                    'icon' => 'empty-empty',
+                ],
+                'fooTableTitle overrideFieldTitle dummy' => [
+                    'label' => 'fooTableTitle overrideFieldTitle dummy',
+                    'value' => '--div--',
+                    'icon' => '',
+                ],
+                4 => [
+                    'label' => 'overrideFieldLabel (text1)',
+                    'value' => 'fooTable:aFlexField;dummy;sDEF;text1',
                     'icon' => 'empty-empty',
                 ],
             ],
         ];
+        // needs to be kept until FlexFormTools is using TcaSchemaFactory
+        $GLOBALS['TCA'] = $tca;
+        $this->get(TcaSchemaFactory::class)->load($tca, true);
         $this->get(TcaItemsProcessorFunctions::class)->populateExcludeFields($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
@@ -403,11 +541,11 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateExplicitAuthValuesTest(array $tca, array $expectedItems): void
     {
-        $GLOBALS['TCA'] = $tca;
         $fieldDefinition = ['items' => []];
         $expected = [
             'items' => $expectedItems,
         ];
+        $this->get(TcaSchemaFactory::class)->load($tca, true);
         $this->get(TcaItemsProcessorFunctions::class)->populateExplicitAuthValues($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
@@ -535,32 +673,37 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateAvailableCategoryFields(array $itemsProcConfig, array $expectedItems): void
     {
-        $GLOBALS['TCA']['aTable']['columns'] = [
-            'aField' => [
-                'label' => 'aField label',
-                'config' => [
-                    'type' => 'category',
-                    'relationship' => 'manyToMany',
-                ],
+        $GLOBALS['TCA']['aTable'] = [
+            'ctrl' => [
+                'title' => 'aTable title',
             ],
-            'bField' => [
-                'label' => 'bField label',
-                'config' => [
-                    'type' => 'category',
+            'columns' => [
+                'aField' => [
+                    'label' => 'aField label',
+                    'config' => [
+                        'type' => 'category',
+                        'relationship' => 'manyToMany',
+                    ],
                 ],
-            ],
-            'cField' => [
-                'label' => 'cField label',
-                'config' => [
-                    'type' => 'category',
-                    'relationship' => 'oneToMany',
+                'bField' => [
+                    'label' => 'bField label',
+                    'config' => [
+                        'type' => 'category',
+                    ],
                 ],
-            ],
-            'dField' => [
-                'label' => 'dField label',
-                'config' => [
-                    'type' => 'category',
-                    'relationship' => 'manyToMany',
+                'cField' => [
+                    'label' => 'cField label',
+                    'config' => [
+                        'type' => 'category',
+                        'relationship' => 'oneToMany',
+                    ],
+                ],
+                'dField' => [
+                    'label' => 'dField label',
+                    'config' => [
+                        'type' => 'category',
+                        'relationship' => 'manyToMany',
+                    ],
                 ],
             ],
         ];
@@ -572,6 +715,7 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
         ];
         $expected = $fieldDefinition;
         $expected['items'] = $expectedItems;
+        $this->get(TcaSchemaFactory::class)->load($GLOBALS['TCA'], true);
         $this->get(TcaItemsProcessorFunctions::class)->populateAvailableCategoryFields($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }

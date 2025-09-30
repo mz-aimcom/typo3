@@ -88,6 +88,7 @@ return [
             ],
             'update' => [
                 'target' => ActiveTypoScriptController::class . '::updateAction',
+                'methods' => ['POST'],
             ],
         ],
         'moduleData' => [
@@ -120,8 +121,6 @@ return [
         ],
         'moduleData' => [
             'selectedTemplatePerPage' => [],
-            'constantConditions' => [],
-            'setupConditions' => [],
         ],
     ],
 ];

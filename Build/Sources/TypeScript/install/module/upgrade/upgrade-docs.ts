@@ -12,9 +12,8 @@
  */
 
 import 'bootstrap';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import '../../renderable/clearable';
-import { AbstractInteractableModule, ModuleLoadedResponse } from '../abstract-interactable-module';
+import { AbstractInteractableModule, type ModuleLoadedResponse } from '../abstract-interactable-module';
 import Notification from '@typo3/backend/notification';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Router from '../../router';
@@ -22,8 +21,9 @@ import DebounceEvent from '@typo3/core/event/debounce-event';
 import '@typo3/backend/element/icon-element';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { Collapse } from 'bootstrap';
-import type { ModalElement } from '@typo3/backend/modal';
 import type { SelectPure } from 'select-pure/lib/components';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { ModalElement } from '@typo3/backend/modal';
 
 enum Identifiers {
   fulltextSearch = '.t3js-upgradeDocs-fulltext-search',
@@ -40,7 +40,7 @@ class UpgradeDocs extends AbstractInteractableModule {
   private selectPureField: SelectPure;
   private fulltextSearchField: HTMLInputElement;
 
-  public initialize(currentModal: ModalElement): void {
+  public override initialize(currentModal: ModalElement): void {
     super.initialize(currentModal);
 
     this.loadModuleFrameAgnostic('select-pure').then((): void => {
@@ -190,7 +190,7 @@ class UpgradeDocs extends AbstractInteractableModule {
             // something similar
             items.forEach((item: HTMLElement) => {
               item.classList.remove('hidden', 'searchhit', 'filterhit');
-            })
+            });
           }
         }, { once: true }).bindTo(panel);
 
@@ -214,7 +214,7 @@ class UpgradeDocs extends AbstractInteractableModule {
       modalContent.querySelectorAll(tagSelection).forEach((result: HTMLElement) => {
         result.classList.remove('hidden');
         result.classList.add('searchhit', 'filterhit');
-      })
+      });
     } else {
       items.forEach((item: HTMLElement) => {
         item.classList.add('filterhit');
@@ -255,8 +255,8 @@ class UpgradeDocs extends AbstractInteractableModule {
    * Moves all documents that are either read or not affected
    */
   private moveNotRelevantDocuments(container: Element): void {
-    this.findInModal('.panel-body-read').append(container.querySelector('[data-item-state="read"]'));
-    this.findInModal('.panel-body-not-affected').append(container.querySelector('[data-item-state="notAffected"]'));
+    this.findInModal('.panel-body-read').append(container.querySelector('[data-item-state="read"]') ?? '');
+    this.findInModal('.panel-body-not-affected').append(container.querySelector('[data-item-state="notAffected"]') ?? '');
   }
 
   private markRead(element: Element): void {

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Validation\Validator;
 
+use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidValidationOptionsException;
 use TYPO3\CMS\Extbase\Validation\Exception\NoSuchValidatorException;
 
@@ -34,14 +35,7 @@ abstract class AbstractCompositeValidator implements ObjectValidatorInterface, \
 
     protected array $options = [];
     protected \SplObjectStorage $validators;
-
-    /**
-     * @todo: Properties {@see self::$validators} and {@see self::$validatedInstancesContainer} are not properly
-     *        initialized in this class because introducing a constructor is considered possibly breaking.
-     *        However, it is unlikely that anyone extends this validator. Hence, it should be marked @internal in
-     *        v13 and get a constructor. Both framework validators that extend this class, {@see ConjunctionValidator}
-     *        and {@see DisjunctionValidator} do have a constructor. Their constructors need to be removed again then.
-     */
+    protected ?ServerRequestInterface $request = null;
     protected \SplObjectStorage $validatedInstancesContainer;
 
     public function setOptions(array $options): void
@@ -54,7 +48,17 @@ abstract class AbstractCompositeValidator implements ObjectValidatorInterface, \
      */
     public function addValidator(ValidatorInterface $validator): void
     {
-        $this->validators->attach($validator);
+        $this->validators->offsetSet($validator);
+    }
+
+    public function getRequest(): ?ServerRequestInterface
+    {
+        return $this->request;
+    }
+
+    public function setRequest(?ServerRequestInterface $request): void
+    {
+        $this->request = $request;
     }
 
     /**
@@ -64,10 +68,10 @@ abstract class AbstractCompositeValidator implements ObjectValidatorInterface, \
      */
     public function removeValidator(ValidatorInterface $validator): void
     {
-        if (!$this->validators->contains($validator)) {
+        if (!$this->validators->offsetExists($validator)) {
             throw new NoSuchValidatorException('Cannot remove validator because its not in the conjunction.', 1207020177);
         }
-        $this->validators->detach($validator);
+        $this->validators->offsetUnset($validator);
     }
 
     /**

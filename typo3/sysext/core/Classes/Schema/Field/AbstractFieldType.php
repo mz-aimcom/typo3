@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Schema\Field;
 
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * A single field definition containing the basic information for a field
@@ -28,6 +29,12 @@ abstract readonly class AbstractFieldType implements FieldTypeInterface
         protected string $name,
         protected array $configuration,
     ) {}
+
+    public static function __set_state(array $state): self
+    {
+        /** @phpstan-ignore-next-line Usage is safe because state is exported by PHP var_export() from the static instance */
+        return new static(...$state);
+    }
 
     abstract public function getType(): string;
 
@@ -61,9 +68,16 @@ abstract readonly class AbstractFieldType implements FieldTypeInterface
         return (bool)($this->configuration['nullable'] ?? false);
     }
 
+    abstract public function isSearchable(): bool;
+
     public function getDefaultValue(): mixed
     {
         return $this->configuration['default'] ?? null;
+    }
+
+    public function hasDefaultValue(): bool
+    {
+        return array_key_exists('default', $this->configuration);
     }
 
     public function getConfiguration(): array
@@ -84,5 +98,14 @@ abstract readonly class AbstractFieldType implements FieldTypeInterface
     public function isType(TableColumnType ...$tableColumnTypes): bool
     {
         return in_array(TableColumnType::tryFrom($this->getType()), $tableColumnTypes, true);
+    }
+
+    public function getSoftReferenceKeys(): array|false
+    {
+        if (!isset($this->configuration['softref'])) {
+            return false;
+        }
+
+        return GeneralUtility::trimExplode(',', $this->configuration['softref'], true);
     }
 }

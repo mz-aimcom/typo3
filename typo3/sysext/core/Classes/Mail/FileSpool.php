@@ -33,7 +33,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Inspired by SwiftMailer, adapted for TYPO3 and Symfony/Mailer
  *
- * @internal This class is experimental and subject to change!
+ * @internal This class is handled internally in TransportFactory
  */
 class FileSpool extends AbstractTransport implements DelayedTransportInterface
 {
@@ -176,7 +176,7 @@ class FileSpool extends AbstractTransport implements DelayedTransportInterface
     protected function getRandomString(int $count): string
     {
         // This string MUST stay FS safe, avoid special chars
-        $base = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+        $base = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_';
         $ret = '';
         $strlen = strlen($base);
         for ($i = 0; $i < $count; ++$i) {

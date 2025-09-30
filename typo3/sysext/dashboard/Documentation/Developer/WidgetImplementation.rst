@@ -1,8 +1,6 @@
 .. include:: /Includes.rst.txt
 
-.. highlight:: php
-
-.. _implement-new-widget:
+..  _implement-new-widget:
 
 ====================
 Implement new widget
@@ -26,11 +24,15 @@ For example a TYPO3.org RSS Widget would consist of an :php:`RssWidget` PHP clas
 This class would provide the implementation to fetch rss news and display them.
 The concrete registration will provide the URL to RSS feed.
 
+..  _widget-php-class:
+
 PHP class
 ---------
 
 Each Widget has to be a PHP class.
-This class has to implement the :php:`WidgetInterface` and could look like this::
+This class has to implement the :php:`WidgetInterface` and could look like this:
+
+..  code-block:: php
 
     class RssWidget implements WidgetInterface, RequestAwareWidgetInterface
     {
@@ -73,7 +75,7 @@ This class has to implement the :php:`WidgetInterface` and could look like this:
         {
             return $this->options;
         }
-   }
+    }
 
 The class should always provide documentation how to use in :file:`Services.yaml`.
 The above class is documented at :ref:`rss-widget`.
@@ -85,7 +87,7 @@ The difference between :php:`$options` and :php:`$configuration` in above exampl
 :php:`$configuration` is an instance of :php:`WidgetConfigurationInterface`
 holding all internal configuration, like icon identifier.
 
-.. _implement-new-widget-fluid:
+..  _implement-new-widget-fluid:
 
 Using Fluid
 -----------
@@ -95,7 +97,7 @@ Therefore each widget can define :php:`BackendViewFactory` as requirement for DI
 constructor, like done in RSS example.
 
 
-.. _implement-new-widget-custom-js:
+..  _implement-new-widget-custom-js:
 
 Providing custom JS
 -------------------
@@ -106,6 +108,7 @@ JavaScript module
     Implement :php:`\TYPO3\CMS\Dashboard\Widgets\JavaScriptInterface`:
 
     ..  code-block:: php
+
 
         class ExampleChartWidget implements JavaScriptInterface
         {
@@ -163,21 +166,24 @@ JavaScript
 
 All ways can be combined.
 
+..  _custom-css:
 
 Providing custom CSS
 --------------------
 
 It is possible to add custom Css to style widgets.
 
-Implement :php:`AdditionalCssInterface`::
+Implement :php:`AdditionalCssInterface`:
 
-   class RssWidget implements WidgetInterface, AdditionalCssInterface
-   {
-         public function getCssFiles(): array
-         {
-            return [
-                'EXT:my_extension/Resources/Public/Css/widgets.css',
-                'EXT:my_extension/Resources/Public/Css/list-widget.css',
-            ];
-         }
-   }
+..  code-block:: php
+
+    class RssWidget implements WidgetInterface, AdditionalCssInterface
+    {
+          public function getCssFiles(): array
+          {
+             return [
+                 'EXT:my_extension/Resources/Public/Css/widgets.css',
+                 'EXT:my_extension/Resources/Public/Css/list-widget.css',
+             ];
+          }
+    }

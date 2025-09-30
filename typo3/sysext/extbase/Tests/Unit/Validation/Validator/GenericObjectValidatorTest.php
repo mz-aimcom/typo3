@@ -85,14 +85,14 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $validator = new GenericObjectValidator();
 
         $validatorForFoo = $this->getMockBuilder(ValidatorInterface::class)
-            ->onlyMethods(['validate', 'getOptions', 'setOptions'])
+            ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
-        $validatorForFoo->expects(self::once())->method('validate')->with('foovalue')->willReturn($validationResultForFoo);
+        $validatorForFoo->expects($this->once())->method('validate')->with('foovalue')->willReturn($validationResultForFoo);
 
         $validatorForBar = $this->getMockBuilder(ValidatorInterface::class)
-            ->onlyMethods(['validate', 'getOptions', 'setOptions'])
+            ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
-        $validatorForBar->expects(self::once())->method('validate')->with('barvalue')->willReturn($validationResultForBar);
+        $validatorForBar->expects($this->once())->method('validate')->with('barvalue')->willReturn($validationResultForBar);
 
         $validator->addPropertyValidator('foo', $validatorForFoo);
         $validator->addPropertyValidator('bar', $validatorForBar);
@@ -147,7 +147,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $result->addError($error);
 
         $mockUuidValidator = $this->getMockBuilder(ValidatorInterface::class)
-            ->onlyMethods(['validate', 'getOptions', 'setOptions'])
+            ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
         $mockUuidValidator->method('validate')->with(15)->willReturn($result);
         $bValidator->addPropertyValidator('uuid', $mockUuidValidator);
@@ -180,7 +180,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $result1->addError($error1);
 
         $mockUuidValidator = $this->getMockBuilder(ValidatorInterface::class)
-            ->onlyMethods(['validate', 'getOptions', 'setOptions'])
+            ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
         $mockUuidValidator->method('validate')->with(15)->willReturn($result1);
         $aValidator->addPropertyValidator('uuid', $mockUuidValidator);
@@ -213,7 +213,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $result1->addError($error1);
 
         $mockValidatorUuidNot0xF = $this->getMockBuilder(ValidatorInterface::class)
-            ->onlyMethods(['validate', 'getOptions', 'setOptions'])
+            ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
         $mockValidatorUuidNot0xF
             ->method('validate')->with(0xF)->willReturn($result1);
@@ -228,5 +228,45 @@ final class GenericObjectValidatorTest extends UnitTestCase
             ['uuid' => [$error1], 'b.uuid' => [$error1], 'b.a.uuid' => [$error1]],
             $aValidator->validate($A)->getFlattenedErrors()
         );
+    }
+
+    #[Test]
+    public function getPropertyValidatorsReturnsAllConfiguredValidators(): void
+    {
+        $validatorForFoo = self::createStub(ValidatorInterface::class);
+        $validatorForBar = self::createStub(ValidatorInterface::class);
+
+        $validator = new GenericObjectValidator();
+        $validator->addPropertyValidator('foo', $validatorForFoo);
+        $validator->addPropertyValidator('bar', $validatorForBar);
+
+        $fooObjectStorage = new \SplObjectStorage();
+        $fooObjectStorage->offsetSet($validatorForFoo);
+
+        $barObjectStorage = new \SplObjectStorage();
+        $barObjectStorage->offsetSet($validatorForBar);
+
+        $expected = [
+            'foo' => $fooObjectStorage,
+            'bar' => $barObjectStorage,
+        ];
+
+        self::assertEquals($expected, $validator->getPropertyValidators());
+    }
+
+    #[Test]
+    public function getPropertyValidatorsReturnsConfiguredValidatorsForGivenProperty(): void
+    {
+        $validatorForFoo = self::createStub(ValidatorInterface::class);
+        $validatorForBar = self::createStub(ValidatorInterface::class);
+
+        $validator = new GenericObjectValidator();
+        $validator->addPropertyValidator('foo', $validatorForFoo);
+        $validator->addPropertyValidator('bar', $validatorForBar);
+
+        $fooObjectStorage = new \SplObjectStorage();
+        $fooObjectStorage->offsetSet($validatorForFoo);
+
+        self::assertEquals($fooObjectStorage, $validator->getPropertyValidators('foo'));
     }
 }

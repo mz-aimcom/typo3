@@ -12,18 +12,31 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, css, LitElement, CSSResult, TemplateResult, nothing } from 'lit';
+import { html, css, LitElement, type CSSResult, type TemplateResult, nothing } from 'lit';
 import Modal from '@typo3/backend/modal';
 import '@typo3/backend/element/icon-element';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
-import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import { lll } from '@typo3/core/lit-helper';
 import Notification from '@typo3/backend/notification';
 import Viewport from '@typo3/backend/viewport';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
+import { RecordUsageStore } from '@typo3/backend/record-usage/record-usage-store';
+import ClientStorage from '@typo3/backend/storage/client';
 
-type RequestType = 'location'|'ajax'|undefined;
+type RequestType = 'location' | 'ajax' | 'event' | undefined;
+
+const booleanConverter = {
+  fromAttribute: (value: string | null) => {
+    if (value === null) {
+      return true;
+    }
+
+    return value.toLowerCase() === 'true';
+  },
+  toAttribute: (value: boolean) => (value ? 'true' : 'false'),
+};
 
 class Item {
   public visible: boolean = true;
@@ -33,11 +46,13 @@ class Item {
     public readonly label: string,
     public readonly description: string,
     public readonly icon: string,
-    public readonly url: string,
+    public readonly url: string | null,
     public readonly requestType: RequestType,
     public readonly defaultValues: Array<any>,
-    public readonly saveAndClose: boolean
-  ) { }
+    public readonly saveAndClose: boolean,
+    public readonly event: string | null,
+  ) {
+  }
 
   public static fromData(data: DataItemInterface) {
     return new Item(
@@ -45,27 +60,30 @@ class Item {
       data.label,
       data.description,
       data.icon,
-      data.url,
+      data.url ?? null,
       data.requestType ?? 'location',
       data.defaultValues ?? [],
       data.saveAndClose ?? false,
+      data.event ?? null
     );
   }
 
-  public reset(): void
-  {
+  public reset(): void {
     this.visible = true;
   }
 }
 
-class Category {
+export class Category {
   public disabled: boolean = false;
 
   public constructor(
     public readonly identifier: string,
     public readonly label: string,
     public readonly items: Item[],
-  ) { }
+    public readonly icon?: string,
+    public readonly featured?: boolean,
+  ) {
+  }
 
   public static fromData(data: DataCategoryInterface) {
     return new Category(
@@ -75,10 +93,11 @@ class Category {
     );
   }
 
-  public reset(): void
-  {
+  public reset(): void {
     this.disabled = false;
-    this.items.forEach((item: Item): void => { item.reset(); });
+    this.items.forEach((item: Item): void => {
+      item.reset();
+    });
   }
 
   public activeItems(): Item[] {
@@ -86,10 +105,11 @@ class Category {
   }
 }
 
-class Categories {
+export class Categories {
   public constructor(
     public readonly items: Category[],
-  ) { }
+  ) {
+  }
 
   public static fromData(data: DataCategoriesInterface) {
     return new Categories(
@@ -97,9 +117,10 @@ class Categories {
     );
   }
 
-  public reset(): void
-  {
-    this.items.forEach((item: Category): void => { item.reset(); });
+  public reset(): void {
+    this.items.forEach((item: Category): void => {
+      item.reset();
+    });
   }
 
   public categoriesWithItems(): Category[] {
@@ -112,10 +133,11 @@ interface DataItemInterface {
   label: string;
   description: string;
   icon: string;
-  url: string,
+  url: string | null,
   requestType: RequestType,
   defaultValues: Array<any> | undefined,
-  saveAndClose: boolean | undefined
+  saveAndClose: boolean | undefined,
+  event: string | null,
 }
 
 interface DataCategoryInterface {
@@ -124,7 +146,7 @@ interface DataCategoryInterface {
   items: DataItemInterface[];
 }
 
-interface DataCategoriesInterface {
+export interface DataCategoriesInterface {
   [key: string]: DataCategoryInterface;
 }
 
@@ -133,16 +155,19 @@ interface Message {
   severity: string;
 }
 
+const LAST_USED_CATEGORY_IDENTIFIER = 'wizard-last-category/';
+
 /**
  * Module: @typo3/backend/new-record-wizard
  */
 @customElement('typo3-backend-new-record-wizard')
 export class NewRecordWizard extends LitElement {
-  static styles: CSSResult[] = [
+  static override styles: CSSResult[] = [
     css`
       :host {
         display: block;
         container-type: inline-size;
+        height: 100%;
       }
 
       .element {
@@ -151,6 +176,7 @@ export class NewRecordWizard extends LitElement {
         gap: var(--typo3-spacing);
         font-size: var(--typo3-component-font-size);
         line-height: var(--typo3-component-line-height);
+        height: 100%;
       }
 
       .main {
@@ -162,12 +188,14 @@ export class NewRecordWizard extends LitElement {
 
       @container (min-width: 500px) {
         .main {
-            flex-direction: row;
+          flex-direction: row;
+          overflow: hidden;
         }
       }
 
       .main > * {
         flex-grow: 1;
+        padding-inline-end: calc(var(--typo3-spacing) / 4);
       }
 
       .navigation {
@@ -177,14 +205,15 @@ export class NewRecordWizard extends LitElement {
 
       @container (min-width: 500px) {
         .navigation {
-            flex-grow: 0;
-            width: 200px;
+          flex-grow: 0;
+          width: 200px;
+          overflow-block: auto;
         }
       }
 
       @container (min-width: 500px) {
         .navigation-toggle {
-            display: none !important;
+          display: none !important;
         }
       }
 
@@ -205,7 +234,8 @@ export class NewRecordWizard extends LitElement {
         .navigation-list {
           z-index: 1;
           position: absolute;
-          padding: var(--typo3-component-border-width);
+          top: calc(100% + 2px);
+          padding: 2px;
           background: var(--typo3-component-bg);
           border: var(--typo3-component-border-width) solid var(--typo3-component-border-color);
           border-radius: var(--typo3-component-border-radius);
@@ -215,7 +245,7 @@ export class NewRecordWizard extends LitElement {
 
       @container (min-width: 500px) {
         .navigation-list {
-            display: flex;
+          display: flex;
         }
       }
 
@@ -233,8 +263,14 @@ export class NewRecordWizard extends LitElement {
         padding: var(--typo3-list-item-padding-y) var(--typo3-list-item-padding-x);
       }
 
+      .navigation-item-featured:has(+ .navigation-item:not(.navigation-item-featured)) {
+        margin-bottom: calc(var(--typo3-spacing) / 2);
+      }
+
       @container (max-width: 499px) {
         .navigation-item {
+          --typo3-component-border-color: transparent;
+          margin-bottom: 0 !important;
           border-radius: calc(var(--typo3-component-border-radius) - var(--typo3-component-border-width));
         }
       }
@@ -258,6 +294,10 @@ export class NewRecordWizard extends LitElement {
         border-color: var(--typo3-component-active-border-color);
       }
 
+      .navigation-item.active:focus-visible {
+        outline: var(--typo3-outline-width) var(--typo3-outline-style) color-mix(in srgb, var(--typo3-component-active-border-color), transparent 25%);
+      }
+
       .navigation-item:disabled {
         cursor: not-allowed;
         color: var(--typo3-component-disabled-color);
@@ -276,17 +316,35 @@ export class NewRecordWizard extends LitElement {
 
       .content {
         container-type: inline-size;
+        overflow-block: auto;
       }
 
-      .item-list {
+      .elementwizard-categories {
+        display: grid;
+        gap: var(--typo3-spacing);
+      }
+
+      .elementwizard-category-headline {
+        font-weight: bold;
+        color: var(--typo3-text-color-variant);
+        margin-bottom: calc(var(--typo3-spacing) / 2);
+      }
+
+      .elementwizard-category-items {
         display: grid;
         grid-template-columns: repeat(1, 1fr);
         gap: var(--typo3-spacing);
       }
 
       @container (min-width: 500px) {
-        .item-list {
+        .elementwizard-category-items {
           grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @container (min-width: 750px) {
+        .elementwizard-category-items {
+          grid-template-columns: repeat(3, 1fr);
         }
       }
 
@@ -329,7 +387,8 @@ export class NewRecordWizard extends LitElement {
   ];
 
   @property({
-    type: Object, converter: {
+    type: Object,
+    converter: {
       fromAttribute: (value) => {
         const data: DataCategoriesInterface = JSON.parse(value);
         return Categories.fromData(data);
@@ -338,25 +397,76 @@ export class NewRecordWizard extends LitElement {
   }) categories: Categories = new Categories([]);
   @property({ type: String }) searchPlaceholder: string = 'newRecordWizard.filter.placeholder';
   @property({ type: String }) searchNothingFoundLabel: string = 'newRecordWizard.filter.noResults';
+  @property({
+    type: Boolean,
+    converter: booleanConverter
+  }) displayMenu: boolean = true;
+  @property({
+    type: Boolean,
+    converter: booleanConverter
+  }) displayFilter: boolean = true;
   @property({ type: String, attribute: false }) selectedCategory: Category | null = null;
   @property({ type: String, attribute: false }) searchTerm: string = '';
   @property({ type: Array, attribute: false }) messages: Message[] = [];
   @property({ type: Boolean, attribute: false }) toggleMenu: boolean = false;
+  @property({ type: String }) storeName: string | null = null;
+  @property({ type: Boolean, reflect: true, attribute: 'has-navigation' }) hasNavigation = false;
 
-  public constructor() {
-    super();
-  }
+  private recordUsageStore: RecordUsageStore;
 
-  protected firstUpdated(): void {
+  protected override firstUpdated(): void {
     // Load shared css file
     const link = document.createElement('link');
     link.setAttribute('rel', 'stylesheet');
     link.setAttribute('href', TYPO3.settings.cssUrls.backend);
     this.shadowRoot.appendChild(link);
 
-    const filterField: HTMLInputElement = this.renderRoot.querySelector('input[name="search"]');
-    filterField.focus();
+    if (this.displayFilter === true) {
+      const filterField: HTMLInputElement = this.renderRoot.querySelector('input[name="search"]');
+      filterField.focus();
+    }
+
+    if (this.storeName) {
+      this.recordUsageStore = new RecordUsageStore(this.storeName);
+      this.addRecentlyUsedCategory();
+    }
     this.selectAvailableCategory();
+  }
+
+  protected addRecentlyUsedCategory(): void {
+    const usageData = this.recordUsageStore.getUsage();
+    if (Object.keys(usageData).length === 0) {
+      return;
+    }
+
+    const recentlyUsedItems: Item[] = this.categories.items.flatMap(
+      category => category.items.filter(
+        item => item.identifier in usageData
+      )
+    ).sort(
+      (a, b) => {
+        const usageA = usageData[a.identifier];
+        const usageB = usageData[b.identifier];
+        // Sort by count (descending)
+        if (usageB.count !== usageA.count) {
+          return usageB.count - usageA.count;
+        }
+        // Sort by lastUsed (descending)
+        return usageB.lastUsed - usageA.lastUsed;
+      }
+    ).slice(0, 10);
+
+    if (recentlyUsedItems.length > 0) {
+      const recentlyUsedCategory = new Category(
+        'recently-used',
+        this.getLanguageLabel('newRecordWizard.recentlyUsed'),
+        recentlyUsedItems,
+        'actions-history',
+        true
+      );
+
+      this.categories.items.unshift(recentlyUsedCategory);
+    }
   }
 
   protected getLanguageLabel(label: string): string {
@@ -369,11 +479,22 @@ export class NewRecordWizard extends LitElement {
   }
 
   protected selectAvailableCategory(): void {
+    let savedCategoryIdentifier: string | null = null;
+
+    if (this.storeName) {
+      savedCategoryIdentifier = ClientStorage.get(this.getCategoryLocalStorageKey());
+    }
 
     const needsCategoryChange: boolean = this.categories.categoriesWithItems()
       .filter((item: Category): boolean => item === this.selectedCategory).length === 0;
     if (needsCategoryChange) {
-      this.selectedCategory = this.categories.categoriesWithItems()[0] ?? null;
+      if (savedCategoryIdentifier) {
+        this.selectedCategory = this.categories.categoriesWithItems().find(
+          (category: Category): boolean => category.identifier === savedCategoryIdentifier
+        ) ?? this.categories.categoriesWithItems()[0] ?? null;
+      } else {
+        this.selectedCategory = this.categories.categoriesWithItems()[0] ?? null;
+      }
     }
 
     this.messages = [];
@@ -393,7 +514,7 @@ export class NewRecordWizard extends LitElement {
       const categoryMatch: boolean = !(this.searchTerm !== '' && !RegExp(this.searchTerm, 'i').test(categoryText));
       if (!categoryMatch) {
         category.items.forEach((item: Item) => {
-          const text = item.label.trim().replace(/\s+/g, ' ') + item.description.trim().replace(/\s+/g, ' ');
+          const text = item.label.trim().replace(/\s+/g, ' ') + item.description?.trim().replace(/\s+/g, ' ');
           item.visible = !(this.searchTerm !== '' && !RegExp(this.searchTerm, 'i').test(text));
         });
       }
@@ -402,22 +523,33 @@ export class NewRecordWizard extends LitElement {
     this.selectAvailableCategory();
   }
 
-  protected render(): TemplateResult {
+  protected override willUpdate(): void {
+    const next = this.selectedCategory !== null
+              && this.displayMenu === true
+              && this.categories.items.length > 1;
+
+    if (this.hasNavigation !== next) {
+      this.hasNavigation = next;
+    }
+  }
+
+  protected override render(): TemplateResult {
     return html`
       <div class="element">
-        ${this.renderFilter()}
+        ${this.displayFilter === true ? this.renderFilter() : nothing}
         ${this.renderMessages()}
         ${this.selectedCategory === null ? nothing : html`
-        <div class="main">
-          <div class="navigation">
-            ${this.renderNavigationToggle()}
-            ${this.renderNavigationList()}
+          <div class="main">
+            ${this.categories.items.length > 1 && this.displayMenu === true ? html`
+              <div class="navigation">
+                ${this.renderNavigationToggle()}
+                ${this.renderNavigationList()}
+              </div>` : nothing}
+            <div class="content">
+              ${this.renderCategories()}
+            </div>
           </div>
-          <div class="content">
-            ${this.renderCategories()}
-          </div>
-        </div>
-      `}
+        `}
       </div>
     `;
   }
@@ -449,9 +581,10 @@ export class NewRecordWizard extends LitElement {
   protected renderNavigationToggle(): TemplateResult {
     return html`
         <button
-          class="navigation-toggle btn btn-light"
+          class="navigation-toggle btn btn-default"
           @click="${() => { this.toggleMenu = !this.toggleMenu; }}"
         >
+          ${ this.selectedCategory.icon ? html`<typo3-backend-icon identifier="${this.selectedCategory.icon}" size="small"></typo3-backend-icon>` : nothing }
           ${this.selectedCategory.label}
           <typo3-backend-icon identifier="actions-chevron-${(this.toggleMenu === true) ? 'up' : 'down'}" size="small"></typo3-backend-icon>
         </button>
@@ -460,21 +593,55 @@ export class NewRecordWizard extends LitElement {
 
   protected renderNavigationList(): TemplateResult {
     return html`
-      <div class="navigation-list${(this.toggleMenu === true) ? ' show' : ''}" role="tablist">
+      <div class="navigation-list${(this.toggleMenu === true) ? ' show' : ''}" role="tablist" aria-orientation="vertical">
     ${this.categories.items.map((category: Category) => {
     return html`
         <button
           data-identifier="${category.identifier}"
-          class="navigation-item${(this.selectedCategory === category) ? ' active' : ''}"
+          class="navigation-item${(category.featured) ? ' navigation-item-featured' : ''}${(this.selectedCategory === category) ? ' active' : ''}"
           ?disabled="${category.disabled}"
-          @click="${() => { this.selectedCategory = category; this.toggleMenu = false; }}"
+          @click="${() => { this.handleNavigationClick(category); }}"
+          @keydown="${(event: KeyboardEvent) => { this.handleNavigationKeydown(event, category); }}"
+          role="tab"
+          aria-selected="${(this.selectedCategory === category) ? 'true' : 'false'}"
+          tabindex="${(this.selectedCategory === category) ? '0' : '-1'}"
         >
+          ${category.icon ? html`<span class="navigation-item-icon"><typo3-backend-icon identifier="${category.icon}" size="small"></typo3-backend-icon></div>` : nothing}
           <span class="navigation-item-label">${category.label}</span>
           <span class="navigation-item-count">${category.activeItems().length}</span>
         </button>
-      `;
+    `;
   })}
       </div>`;
+  }
+
+  protected handleNavigationClick(category: Category): void {
+    this.selectedCategory = category;
+    this.toggleMenu = false;
+
+    if (this.storeName) {
+      ClientStorage.set(this.getCategoryLocalStorageKey(), category.identifier);
+    }
+  }
+
+  protected handleNavigationKeydown(event: KeyboardEvent, category: Category): void {
+    const activeCategories = this.categories.categoriesWithItems();
+    const currentIndex = activeCategories.findIndex((item: Category): boolean => item.identifier === category.identifier);
+    let selectedCategory: Category | undefined = undefined;
+
+    if (event.key === KeyTypesEnum.UP) {
+      selectedCategory = activeCategories[currentIndex - 1] ?? undefined;
+    } else if (event.key === KeyTypesEnum.DOWN) {
+      selectedCategory = activeCategories[currentIndex + 1] ?? undefined;
+    } else {
+      return;
+    }
+
+    if (selectedCategory) {
+      const categoryButton = this.shadowRoot.querySelector(`button[data-identifier="${selectedCategory.identifier}"]`) as HTMLButtonElement;
+      categoryButton.focus();
+      this.handleNavigationClick(selectedCategory);
+    }
   }
 
   protected renderCategories(): TemplateResult {
@@ -488,16 +655,24 @@ export class NewRecordWizard extends LitElement {
   }
 
   protected renderCategory(category: Category): TemplateResult {
-    return html`${this.selectedCategory === category ?
+    return html`${(this.selectedCategory === category || this.displayMenu === false) && !category.disabled ?
       html`
-        <div class="item-list">
-          ${category.items.map((item: Item) => this.renderCategoryButton(item))}
+        <div class="elementwizard-category" role="${this.displayMenu ? 'tabpanel' : nothing}">
+          ${this.displayMenu === false ?
+    html`<div class="elementwizard-category-headline">
+      ${ category.icon ? html`<typo3-backend-icon identifier="${category.icon}" size="small"></typo3-backend-icon>` : nothing }
+      ${category.label}
+    </div>`
+    : nothing}
+          <div class="elementwizard-category-items">
+            ${category.items.map((item: Item) => this.renderCategoryItem(item))}
+          </div>
         </div>` :
       nothing
     }`;
   }
 
-  protected renderCategoryButton(item: Item): TemplateResult {
+  protected renderCategoryItem(item: Item): TemplateResult {
     return html`${item.visible ?
       html`
       <button
@@ -520,6 +695,21 @@ export class NewRecordWizard extends LitElement {
   }
 
   protected handleItemClick(item: Item): void {
+    if (this.storeName) {
+      this.recordUsageStore.track(item.identifier);
+    }
+
+    if (item.requestType === 'event') {
+      const event = new CustomEvent(item.event, {
+        detail: {
+          item: item
+        }
+      });
+      this.dispatchEvent(event);
+      Modal.dismiss();
+      return;
+    }
+
     if (item.url.trim() === '') {
       return;
     }
@@ -556,6 +746,14 @@ export class NewRecordWizard extends LitElement {
       });
     }
   }
+
+  protected getCategoryLocalStorageKey(): string {
+    return LAST_USED_CATEGORY_IDENTIFIER + this.storeName;
+  }
+}
+
+export interface NewRecordWizardItemSelectedEventInterface {
+  item: Item;
 }
 
 declare global {

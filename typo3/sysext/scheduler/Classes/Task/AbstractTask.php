@@ -18,11 +18,7 @@ namespace TYPO3\CMS\Scheduler\Task;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Log\LogManager;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Scheduler\Domain\Repository\SchedulerTaskRepository;
 use TYPO3\CMS\Scheduler\Execution;
-use TYPO3\CMS\Scheduler\Scheduler;
 
 /**
  * This is the base class for all Scheduler tasks
@@ -35,13 +31,6 @@ abstract class AbstractTask implements LoggerAwareInterface
 
     public const TYPE_SINGLE = 1;
     public const TYPE_RECURRING = 2;
-
-    /**
-     * Reference to a scheduler object
-     *
-     * @var \TYPO3\CMS\Scheduler\Scheduler|null
-     */
-    protected $scheduler;
 
     /**
      * The unique id of the task used to identify it in the database.
@@ -88,14 +77,9 @@ abstract class AbstractTask implements LoggerAwareInterface
      */
     protected $taskGroup = 0;
 
-    /**
-     * Constructor
-     */
     public function __construct()
     {
-        // Using makeInstance instead of setScheduler() here as the logger is injected due to LoggerAwareTrait
-        $this->scheduler = GeneralUtility::makeInstance(Scheduler::class);
-        $this->execution = GeneralUtility::makeInstance(Execution::class);
+        $this->execution = new Execution();
     }
 
     /**
@@ -143,7 +127,9 @@ abstract class AbstractTask implements LoggerAwareInterface
     }
 
     /**
-     * This method returns the title of the scheduler task
+     * This method returns the title of the scheduler task.
+     * Unused since TYPO3 v14.0, can be deprecated and removed once we migrate task registration away from TYPO3_CONF_VARS.
+     * Note by benni in 2025: This method will cease to exist at some point, as the title is loaded from TCA eventually.
      *
      * @return string
      */
@@ -154,6 +140,8 @@ abstract class AbstractTask implements LoggerAwareInterface
 
     /**
      * This method returns the description of the scheduler task
+     * Unused since TYPO3 v14.0, can be deprecated and removed once we migrate task registration away from TYPO3_CONF_VARS.
+     * Note by benni in 2025: This method will cease to exist at some point, as the description is loaded from TCA eventually.
      *
      * @return string
      */
@@ -164,6 +152,7 @@ abstract class AbstractTask implements LoggerAwareInterface
 
     /**
      * This method returns the class name of the scheduler task
+     * Unused since TYPO3 v14.0, can be deprecated and removed once we migrate task registration away from TYPO3_CONF_VARS.
      *
      * @return string
      */
@@ -277,85 +266,12 @@ abstract class AbstractTask implements LoggerAwareInterface
     }
 
     /**
-     * Sets the internal reference to the singleton instance of the Scheduler
-     * and the logger instance in case it was unserialized
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function setScheduler()
-    {
-        $this->scheduler = GeneralUtility::makeInstance(Scheduler::class);
-        $this->logger = GeneralUtility::makeInstance(LogManager::class)->getLogger(__CLASS__);
-    }
-
-    /**
-     * Unsets the internal reference to the singleton instance of the Scheduler
-     * and the logger instance.
-     * This is done before a task is serialized, so that the scheduler instance
-     * and the logger instance are not saved to the database
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function unsetScheduler()
-    {
-        $this->scheduler = null;
-        unset($this->logger);
-    }
-
-    /**
-     * Registers a single execution of the task
-     *
-     * @param int $timestamp Timestamp of the next execution
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function registerSingleExecution($timestamp)
-    {
-        $execution = GeneralUtility::makeInstance(Execution::class);
-        $execution->setStart($timestamp);
-        $execution->setInterval(0);
-        $execution->setEnd($timestamp);
-        $execution->setCronCmd('');
-        $execution->setMultiple(false);
-        $execution->setIsNewSingleExecution(true);
-        // Replace existing execution object
-        $this->execution = $execution;
-    }
-
-    /**
-     * Registers a recurring execution of the task
-     *
-     * @param int $start The first date/time where this execution should occur (timestamp)
-     * @param int $interval Execution interval in seconds
-     * @param int $end The last date/time where this execution should occur (timestamp)
-     * @param bool $multiple Set to FALSE if multiple executions of this task are not permitted in parallel
-     * @param string $cron_cmd Used like in crontab (minute hour day month weekday)
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function registerRecurringExecution($start, $interval, $end = 0, $multiple = false, $cron_cmd = '')
-    {
-        $execution = GeneralUtility::makeInstance(Execution::class);
-        // Set general values
-        $execution->setStart($start);
-        $execution->setEnd($end);
-        $execution->setMultiple($multiple);
-        if (empty($cron_cmd)) {
-            // Use interval
-            $execution->setInterval($interval);
-            $execution->setCronCmd('');
-        } else {
-            // Use cron syntax
-            $execution->setInterval(0);
-            $execution->setCronCmd($cron_cmd);
-        }
-        // Replace existing execution object
-        $this->execution = $execution;
-    }
-
-    /**
      * Sets the internal execution object
      *
      * @param Execution $execution The execution to add
      * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
      */
-    public function setExecution(Execution $execution)
+    public function setExecution(Execution $execution): void
     {
         $this->execution = $execution;
     }
@@ -372,58 +288,12 @@ abstract class AbstractTask implements LoggerAwareInterface
     }
 
     /**
-     * Returns the timestamp for next due execution of the task
-     *
-     * @return int Date and time of the next execution as a timestamp
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function getNextDueExecution()
-    {
-        // NOTE: this call may throw an exception, but we let it bubble up
-        return $this->execution->getNextExecution();
-    }
-
-    /**
-     * Returns TRUE if several runs of the task are allowed concurrently
-     *
-     * @return bool TRUE if concurrent executions are allowed, FALSE otherwise
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function areMultipleExecutionsAllowed()
-    {
-        return $this->execution->getMultiple();
-    }
-
-    /**
-     * Saves the details of the task to the database.
-     *
-     * @return bool
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function save()
-    {
-        return GeneralUtility::makeInstance(SchedulerTaskRepository::class)->update($this);
-    }
-
-    /**
-     * Stops the task, by replacing the execution object by an empty one
-     * NOTE: the task still needs to be saved after that
-     * @internal since TYPO3 v12.3, not part of TYPO3 Public API anymore.
-     */
-    public function stop()
-    {
-        $this->execution = GeneralUtility::makeInstance(Execution::class);
-    }
-
-    /**
-     * Guess task type from the existing information
+     * Guess recurring type from the existing information
      * If an interval or a cron command is defined, it's a recurring task
-     *
-     * @return int
      */
-    public function getType()
+    public function getType(): int
     {
-        if (!empty($this->getExecution()->getInterval()) || !empty($this->getExecution()->getCronCmd())) {
+        if ($this->execution->isRecurring()) {
             return self::TYPE_RECURRING;
         }
         return self::TYPE_SINGLE;
@@ -431,11 +301,61 @@ abstract class AbstractTask implements LoggerAwareInterface
 
     protected function logException(\Exception $e)
     {
-        $this->logger->error('A Task Exception was captured.', ['exception' => $e]);
+        $this->logger?->error('A Task Exception was captured.', ['exception' => $e]);
     }
 
     protected function getLanguageService(): ?LanguageService
     {
         return $GLOBALS['LANG'] ?? null;
+    }
+
+    public function getTaskType(): string
+    {
+        return static::class;
+    }
+
+    /**
+     * It is recommended to implement this method in the respective task class.
+     */
+    public function getTaskParameters(): array
+    {
+        $vars = get_object_vars($this);
+        $parameters = [];
+        foreach ($vars as $key => $value) {
+            $key = trim($key);
+            $key = trim($key, "*\0");
+            $key = trim($key);
+            $parameters[$key] = $value;
+        }
+        unset(
+            // Needs to be kept until TYPO3 v16.0 until the upgrade wizard was run through
+            $parameters['scheduler'],
+            $parameters['logger'],
+            $parameters['taskUid'],
+            $parameters['disabled'],
+            $parameters['runOnNextCronJob'],
+            $parameters['execution'],
+            $parameters['executionTime'],
+            $parameters['description'],
+            $parameters['taskGroup'],
+        );
+        return $parameters;
+    }
+
+    /**
+     * Used to fill fields of this class, e.g. also when instantiating this class when no parameters are
+     * given but native DB fields are coming in.
+     * @param array $parameters
+     */
+    public function setTaskParameters(array $parameters): void
+    {
+        foreach ($parameters as $key => $value) {
+            // Ensure a member property exists; Task objects might have old configuration data changed with
+            // attributes that were removed meanwhile. This would otherwise trigger a PHP notice like
+            // "PHP Runtime Deprecation Notice: Creation of dynamic property TYPO3\CMS\Linkvalidator\Task\ValidatorTask::$fileConfiguration is deprecated"
+            if (property_exists($this, $key)) {
+                $this->{$key} = $value;
+            }
+        }
     }
 }

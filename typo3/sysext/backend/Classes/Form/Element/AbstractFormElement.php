@@ -21,6 +21,7 @@ use TYPO3\CMS\Backend\Form\Behavior\UpdateBitmaskOnFieldChange;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\Locale;
@@ -124,7 +125,7 @@ abstract class AbstractFormElement extends AbstractNode
     {
         $label = htmlspecialchars($this->data['parameterArray']['fieldConf']['label'] ?? '');
         if ($this->getBackendUser()->shallDisplayDebugInformation()) {
-            $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['fieldName'];
+            $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['containerFieldName'] ?? $this->data['fieldName'];
             $label .= ' <code>[' . htmlspecialchars($fieldName) . ']</code>';
         }
         return '<label for="' . htmlspecialchars($for) . '" class="form-label t3js-formengine-label">' . $label . '</label>';
@@ -138,12 +139,12 @@ abstract class AbstractFormElement extends AbstractNode
     {
         $legend = htmlspecialchars($this->data['parameterArray']['fieldConf']['label'] ?? '');
         if ($this->getBackendUser()->shallDisplayDebugInformation()) {
-            $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['fieldName'];
+            $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['containerFieldName'] ?? $this->data['fieldName'];
             $legend .= ' <code>[' . htmlspecialchars($fieldName) . ']</code>';
         }
         $html = [];
         $html[] = '<fieldset>';
-        $html[] =     '<legend class="form-legend t3js-formengine-legend">' . $legend . '</legend>';
+        $html[] =     '<legend class="form-label t3js-formengine-label">' . $legend . '</legend>';
         $html[] =     $innerHTML;
         $html[] = '</fieldset>';
         return implode(LF, $html);
@@ -239,15 +240,17 @@ abstract class AbstractFormElement extends AbstractNode
                     } else {
                         $value = BackendUtility::date((int)$itemValue);
                     }
+                    if (isset($formatOptions['appendAge']) && $formatOptions['appendAge']) {
+                        $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
+                        $then = DateTimeFactory::createFromTimestamp((int)$itemValue);
+                        $age = (new DateFormatter())->formatDateInterval(
+                            $now->diff($then),
+                            $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
+                        );
+                        $value .= ' (' . $age . ')';
+                    }
                 } else {
                     $value = '';
-                }
-                if (isset($formatOptions['appendAge']) && $formatOptions['appendAge']) {
-                    $age = BackendUtility::calcAge(
-                        $GLOBALS['EXEC_TIME'] - $itemValue,
-                        $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
-                    );
-                    $value .= ' (' . $age . ')';
                 }
                 $itemValue = $value;
                 break;
@@ -267,12 +270,6 @@ abstract class AbstractFormElement extends AbstractNode
                 // compatibility with "eval" (type "input")
                 if ($itemValue !== '' && $itemValue !== null) {
                     $itemValue = BackendUtility::time((int)$itemValue);
-                }
-                break;
-            case 'year':
-                // compatibility with "eval" (type "input")
-                if ($itemValue !== '' && $itemValue !== null) {
-                    $itemValue = date('Y', (int)$itemValue);
                 }
                 break;
             case 'int':

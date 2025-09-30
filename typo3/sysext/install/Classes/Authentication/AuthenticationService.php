@@ -22,6 +22,7 @@ use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Exception\RfcComplianceException;
 use Symfony\Component\Mime\RawMessage;
+use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Mail\FluidEmail;
@@ -41,9 +42,13 @@ class AuthenticationService
 
     public function __construct(protected readonly MailerInterface $mailer)
     {
-        $templateConfiguration = $GLOBALS['TYPO3_CONF_VARS']['MAIL'];
-        $templateConfiguration['templateRootPaths'][20] = 'EXT:install/Resources/Private/Templates/Email/';
-        $this->templatePaths = new TemplatePaths($templateConfiguration);
+        $this->templatePaths = new TemplatePaths();
+        $this->templatePaths->setTemplateRootPaths(array_replace(
+            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'] ?? [],
+            [20 => 'EXT:install/Resources/Private/Templates/Email/'],
+        ));
+        $this->templatePaths->setLayoutRootPaths($GLOBALS['TYPO3_CONF_VARS']['MAIL']['layoutRootPaths'] ?? []);
+        $this->templatePaths->setPartialRootPaths($GLOBALS['TYPO3_CONF_VARS']['MAIL']['partialRootPaths'] ?? []);
     }
 
     /**
@@ -59,10 +64,17 @@ class AuthenticationService
         if ($password !== null && $password !== '') {
             $installToolPassword = $GLOBALS['TYPO3_CONF_VARS']['BE']['installToolPassword'];
             $hashFactory = GeneralUtility::makeInstance(PasswordHashFactory::class);
-            // Throws an InvalidPasswordHashException if no hash mechanism for the stored password is found
-            $hashInstance = $hashFactory->get($installToolPassword, 'BE');
-            // @todo: This code should check required hash updates and update the hash if needed
-            $validPassword = $hashInstance->checkPassword($password, $installToolPassword);
+            try {
+                $hashInstance = $hashFactory->get($installToolPassword, 'BE');
+                // @todo: This code should check required hash updates and update the hash if needed
+                $validPassword = $hashInstance->checkPassword($password, $installToolPassword);
+            } catch (InvalidPasswordHashException $e) {
+                $logger = GeneralUtility::makeInstance(LogManager::class)->getLogger(__CLASS__);
+                $logger->error(
+                    'Invalid install tool password hash specified in "BE/installToolPassword" configuration.',
+                    ['exceptionMessage' => $e->getMessage()]
+                );
+            }
         }
         if ($validPassword) {
             $session->setAuthorized();

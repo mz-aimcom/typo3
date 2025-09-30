@@ -20,11 +20,11 @@ use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Utility\CommandUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\IndexedSearch\Dto\IndexingDataAsString;
 
 /**
@@ -44,7 +44,7 @@ class FileContentParser
     public array $ext2itemtype_map = [];
     public array $supportedExtensions = [];
     public Indexer $pObj;
-    protected LanguageService|TypoScriptFrontendController $langObject;
+    protected LanguageService $langObject;
     protected ?string $lastLocale = null;
 
     /**
@@ -52,8 +52,14 @@ class FileContentParser
      */
     public function __construct()
     {
-        // Set the language object to be used accordant to current application type
-        $this->langObject = ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isFrontend() ? $GLOBALS['TSFE'] : $GLOBALS['LANG'];
+        // @todo: Needs refactoring, obviously.
+        $request = $GLOBALS['TYPO3_REQUEST'];
+        if (ApplicationType::fromRequest($request)->isFrontend()) {
+            $language = $request->getAttribute('language') ?? $request->getAttribute('site')->getDefaultLanguage();
+            $this->langObject = GeneralUtility::makeInstance(LanguageServiceFactory::class)->createFromSiteLanguage($language);
+        } else {
+            $this->langObject = $GLOBALS['LANG'];
+        }
     }
 
     /**
@@ -522,6 +528,8 @@ class FileContentParser
             case 'xltx':
                 if ($this->app['unzip']) {
                     $this->setLocaleForServerFileSystem();
+                    $utf8_content = null;
+                    $cmd = '';
                     switch ($ext) {
                         case 'docx':
                         case 'dotx':
@@ -531,22 +539,23 @@ class FileContentParser
                         case 'ppsx':
                         case 'pptx':
                         case 'potx':
-                            // Read slide1.xml:
-                            $cmd = $this->app['unzip'] . ' -p ' . escapeshellarg($absFile) . ' ppt/slides/slide1.xml';
+                            $utf8_content = $this->extractPptxContent($absFile);
                             break;
                         case 'xlsx':
                         case 'xltx':
-                            // Read sheet1.xml:
-                            $cmd = $this->app['unzip'] . ' -p ' . escapeshellarg($absFile) . ' xl/worksheets/sheet1.xml';
+                            // Read sharedStrings.xml:
+                            $cmd = $this->app['unzip'] . ' -p ' . escapeshellarg($absFile) . ' xl/sharedStrings.xml';
                             break;
                         default:
                             $cmd = '';
                             break;
                     }
-                    CommandUtility::exec($cmd, $res);
-                    $content_xml = implode(LF, $res);
-                    unset($res);
-                    $utf8_content = trim(strip_tags(str_replace('<', ' <', $content_xml)));
+                    if ($utf8_content === null) {
+                        CommandUtility::exec($cmd, $res);
+                        $content_xml = implode(LF, $res);
+                        unset($res);
+                        $utf8_content = trim(strip_tags(str_replace('<', ' <', $content_xml)));
+                    }
                     $indexingDataDto = $this->pObj->splitRegularContent($utf8_content);
                     // Make sure the title doesn't expose the absolute path!
                     $indexingDataDto->title = PathUtility::basename($absFile);
@@ -733,18 +742,19 @@ class FileContentParser
                 CommandUtility::exec($cmd, $res);
                 $pdfInfo = $this->splitPdfInfo($res);
                 unset($res);
-                if ((int)$pdfInfo['pages']) {
+                $pages = (int)($pdfInfo['pages'] ?? 0);
+                if ($pages) {
                     $cParts = [];
                     // Calculate mode
                     if ($this->pdf_mode > 0) {
-                        $iter = ceil($pdfInfo['pages'] / $this->pdf_mode);
+                        $iter = ceil($pages / $this->pdf_mode);
                     } else {
-                        $iter = MathUtility::forceIntegerInRange(abs($this->pdf_mode), 1, $pdfInfo['pages']);
+                        $iter = MathUtility::forceIntegerInRange(abs($this->pdf_mode), 1, $pages);
                     }
                     // Traverse and create intervals.
                     for ($a = 0; $a < $iter; $a++) {
-                        $low = floor($a * ($pdfInfo['pages'] / $iter)) + 1;
-                        $high = floor(($a + 1) * ($pdfInfo['pages'] / $iter));
+                        $low = floor($a * ($pages / $iter)) + 1;
+                        $high = floor(($a + 1) * ($pages / $iter));
                         $cParts[] = $low . '-' . $high;
                     }
                 }
@@ -769,7 +779,10 @@ class FileContentParser
         foreach ($pdfInfoArray as $line) {
             $parts = explode(':', $line, 2);
             if (count($parts) > 1 && trim($parts[0])) {
-                $res[strtolower(trim($parts[0]))] = trim($parts[1]);
+                $key = strtolower(trim($parts[0]));
+                if (!isset($res[$key])) {
+                    $res[$key] = trim($parts[1]);
+                }
             }
         }
         return $res;
@@ -784,6 +797,31 @@ class FileContentParser
     public function removeEndJunk(string $string): string
     {
         return trim((string)preg_replace('/[' . LF . chr(12) . ']*$/', '', $string));
+    }
+
+    /**
+     * @param string $absFile Absolute filename of file (must exist and be validated OK before calling function)
+     */
+    protected function extractPptxContent(string $absFile): string
+    {
+        // Extract the list of slides:
+        $cmd = $this->app['unzip'] . ' -l ' . escapeshellarg($absFile);
+        CommandUtility::exec($cmd, $res);
+
+        $buffer = [];
+        foreach ($res as $line) {
+            if (preg_match('#\s+(ppt/slides/slide\d+.xml)$#', $line, $matches)) {
+                $slideFile = $matches[1];
+                // Extract the content of the slide:
+                $cmd = $this->app['unzip'] . ' -p ' . escapeshellarg($absFile) . ' ' . $slideFile;
+                CommandUtility::exec($cmd, $xml);
+                $content_xml = implode(LF, $xml);
+                unset($xml);
+                $buffer[] = trim(strip_tags(str_replace('<', ' <', $content_xml)));
+            }
+        }
+
+        return trim(implode(LF, $buffer));
     }
 
     /************************

@@ -12,7 +12,7 @@
  */
 
 import { customElement, property } from 'lit/decorators';
-import { html, LitElement, nothing, TemplateResult } from 'lit';
+import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import IconHelper from '@typo3/workspaces/utility/icon-helper';
 import { classMap } from 'lit/directives/class-map';
 import { ifDefined } from 'lit/directives/if-defined';
@@ -29,17 +29,10 @@ export type RecordData = {
   Workspaces_CollectionCurrent: string,
   Workspaces_CollectionChildren: number,
   label_Workspace: string,
-  label_Workspace_crop: string,
   label_Stage: string,
-  label_nextStage: string,
   value_nextStage: number,
-  label_prevStage: string,
   value_prevStage: number,
-  path_Live: string,
   path_Workspace: string,
-  path_Workspace_crop: string,
-  workspace_Title: string,
-  workspace_Tstamp: number,
   lastChangedFormatted: string,
   t3ver_wsid: number,
   t3ver_oid: number,
@@ -47,14 +40,11 @@ export type RecordData = {
   stage: number,
   icon_Workspace: string,
   icon_Workspace_Overlay: string,
-  languageValue: number,
   language: {
     icon: string,
     title: string,
     title_crop: string
   },
-  allowedAction_nextStage: boolean,
-  allowedAction_prevStage: boolean,
   allowedAction_publish: boolean,
   allowedAction_delete: boolean,
   allowedAction_view: boolean,
@@ -62,6 +52,7 @@ export type RecordData = {
   allowedAction_versionPageOpen: boolean,
   state_Workspace: string,
   hasChanges: boolean,
+  urlToPage: string,
   expanded: boolean,
   integrity: {
     status: string,
@@ -76,12 +67,12 @@ export class RecordTableElement extends LitElement {
 
   private latestPath: string | null = null;
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     // @todo Switch to Shadow DOM once Bootstrap CSS style can be applied correctly
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return html`
       <div class="table-fit mb-0">
         <table class="table table-striped">
@@ -94,7 +85,7 @@ export class RecordTableElement extends LitElement {
                 </button>
                 <ul class="dropdown-menu t3js-multi-record-selection-check-actions">
                   <li>
-                    <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-all" title=${TYPO3.lang['labels.checkAll']}>
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title=${TYPO3.lang['labels.checkAll']}>
                       <span class="dropdown-item-columns">
                         <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                           <typo3-backend-icon identifier="actions-selection-elements-all" size="small"></typo3-backend-icon>
@@ -106,7 +97,7 @@ export class RecordTableElement extends LitElement {
                     </button>
                   </li>
                   <li>
-                    <button type="button" class="dropdown-item disabled" data-multi-record-selection-check-action="check-none" title=${TYPO3.lang['labels.uncheckAll']}>
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title=${TYPO3.lang['labels.uncheckAll']}>
                       <span class="dropdown-item-columns">
                           <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                             <typo3-backend-icon identifier="actions-selection-elements-none" size="small"></typo3-backend-icon>
@@ -199,11 +190,8 @@ export class RecordTableElement extends LitElement {
     return html`
       ${latestPathChanged ? html`
         <tr>
-          <th></th>
-          <th colspan="7">
-            <span title=${data.path_Workspace}>
-              ${data.path_Workspace_crop}
-            </span>
+          <th colspan="8" class="col-white-space-normal">
+            <a href=${data.urlToPage}>${data.path_Workspace}</a>
           </th>
         </tr>
       ` : nothing}
@@ -227,13 +215,12 @@ export class RecordTableElement extends LitElement {
           </span>
         </td>
         <td class="col-min t3js-title-workspace">
+          ${ data.Workspaces_CollectionLevel > 0 ? this.renderIndent(data.Workspaces_CollectionLevel) : nothing}
           <span class="icon icon-size-small">
             <typo3-backend-icon identifier=${IconHelper.getIconIdentifier(data.icon_Workspace)} overlay=${IconHelper.getIconIdentifier(data.icon_Workspace_Overlay)} size="small"></typo3-backend-icon>
           </span>
           <a href="#" data-action="changes">
-            <span title=${data.label_Workspace}>
-              ${data.label_Workspace_crop}
-            </span>
+            ${data.label_Workspace}
           </a>
         </td>
         <td class="col-language">
@@ -258,6 +245,10 @@ export class RecordTableElement extends LitElement {
         </td>
       </tr>
     `;
+  }
+
+  protected renderIndent(level: number) {
+    return html`<span class="indent indent-inline-block" style="--indent-level: ${level}"></span>`;
   }
 
   private renderElementActions(data: RecordData): TemplateResult[] {
@@ -341,27 +332,19 @@ export class RecordTableElement extends LitElement {
    * @return {JQuery}
    */
   private getAction(condition: boolean, action: string, iconIdentifier: string, additionalAttributes?: Record<string, string>): TemplateResult {
-    if (condition) {
-      return html`
-        <button
-          class="btn btn-default"
-          data-action="${action}"
-          title=${ifDefined(additionalAttributes.title)}
-          data-bs-target=${ifDefined(additionalAttributes['data-bs-target'])}
-          data-bs-toggle=${ifDefined(additionalAttributes['data-bs-toggle'])}
-          aria-expanded=${ifDefined(additionalAttributes['aria-expanded'])}>
-          <typo3-backend-icon identifier=${IconHelper.getIconIdentifier(iconIdentifier)} size="small"></typo3-backend-icon>
-        </button>
-      `;
-    }
-    return html`<span
-      class="btn btn-default disabled"
-      title=${ifDefined(additionalAttributes.title)}
-      data-bs-target=${ifDefined(additionalAttributes['data-bs-target'])}
-      data-bs-toggle=${ifDefined(additionalAttributes['data-bs-toggle'])}
-      aria-expanded=${ifDefined(additionalAttributes['aria-expanded'])}>
-      <typo3-backend-icon identifier=${IconHelper.getIconIdentifier('empty-empty')} size="small"></typo3-backend-icon>
-    </span>`;
+    return html`
+      <button
+        type="button"
+        class="btn btn-default"
+        ?disabled=${condition ? nothing : ''}
+        data-action="${condition ? action : nothing}"
+        title=${ifDefined(additionalAttributes.title)}
+        data-bs-target=${ifDefined(additionalAttributes['data-bs-target'])}
+        data-bs-toggle=${ifDefined(additionalAttributes['data-bs-toggle'])}
+        aria-expanded=${ifDefined(additionalAttributes['aria-expanded'])}>
+        <typo3-backend-icon identifier=${IconHelper.getIconIdentifier((condition ? iconIdentifier : 'empty-empty'))} size="small"></typo3-backend-icon>
+      </button>
+    `;
   }
 }
 

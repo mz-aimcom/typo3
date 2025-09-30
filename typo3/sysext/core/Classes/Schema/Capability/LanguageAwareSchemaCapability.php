@@ -24,8 +24,6 @@ use TYPO3\CMS\Core\Schema\Field\LanguageFieldType;
  * Contains all information if a schema is language-aware, meaning
  * it has a "languageField", a "translationOrigPointerField", maybe a "translationSourceField"
  * and maybe a "diffSourceField".
- *
- * @internal This is an experimental implementation and might change until TYPO3 v13 LTS
  */
 final readonly class LanguageAwareSchemaCapability implements SchemaCapabilityInterface
 {
@@ -36,11 +34,17 @@ final readonly class LanguageAwareSchemaCapability implements SchemaCapabilityIn
         protected ?FieldTypeInterface $diffSourceField
     ) {}
 
+    /**
+     * languageField->getName() typically resolves to 'sys_language_uid'
+     */
     public function getLanguageField(): LanguageFieldType
     {
         return $this->languageField;
     }
 
+    /**
+     * translationOriginPointerField->getName() typically resolves to 'l10n_parent' or 'l18n_parent'
+     */
     public function getTranslationOriginPointerField(): FieldTypeInterface
     {
         return $this->originPointerField;
@@ -56,6 +60,9 @@ final readonly class LanguageAwareSchemaCapability implements SchemaCapabilityIn
         return $this->translationSourceField;
     }
 
+    /**
+     * diffSourceField->getName() typically resolves to 'l10n_diffsource' or 'l18n_diffsource'
+     */
     public function getDiffSourceField(): ?FieldTypeInterface
     {
         return $this->diffSourceField;

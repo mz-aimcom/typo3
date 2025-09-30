@@ -1,5 +1,6 @@
 <html
     xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:be="http://typo3.org/ns/TYPO3/CMS/Backend/ViewHelpers"
     xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
     data-namespace-typo3-fluid="true"
 >
@@ -27,13 +28,10 @@
                     <form name="tx_scheduler_form_group" id="tx_scheduler_form_group" method="post">
                         <input name="action[group][uid]" type="hidden" value="{group.uid}">
                         <div class="btn-group" role="group">
-                            <a href="{be:moduleLink(route: 'scheduler_manage', arguments: {action: 'add', groupId: group.uid}, currentUrlParameterName: 'redirect')}"
-                                class="btn btn-sm btn-default"
-                                title="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}"
-                            >
+                            <typo3-scheduler-new-task-wizard-button class="btn btn-sm btn-default" url="{f:be.uri(route:'ajax_new_scheduler_task_wizard', parameters:'{returnUrl: returnUrl, defaultValues: {task_group: group.uid}}')}" subject="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}">
                                 <core:icon identifier="actions-plus" />
                                 <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add" />
-                            </a>
+                            </typo3-scheduler-new-task-wizard-button>
                         </div>
                         <div class="btn-group" role="group">
                             <f:if condition="{group.hidden}">

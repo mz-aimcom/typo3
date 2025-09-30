@@ -2,9 +2,9 @@
 @import "forms/form-group";
 @import "forms/form-row";
 @import "forms/form-label";
-@import "forms/form-legend";
 @import "forms/form-control";
 @import "forms/form-select";
+@import "forms/form-range";
 @import "forms/form-check";
 @import "forms/form-text";
 @import "forms/form-validation";
@@ -18,6 +18,10 @@
 //
 .form {
     margin-bottom: var(--typo3-spacing);
+}
+
+.form-inline {
+    display: inline;
 }
 
 // Search results can be displayed as badges next to the search input field. Wrap the search

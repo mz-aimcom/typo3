@@ -125,16 +125,16 @@ class ImportController
         $view->setModuleName('');
         $view->getDocHeaderComponent()->setMetaInformation($pageInfo);
         if ((int)($pageInfo['uid'] ?? 0) > 0) {
-            $this->addDocHeaderPreviewButton($view, (int)$pageInfo['uid']);
+            $this->addDocHeaderPreviewButton($view, $pageInfo);
         }
         return $view->renderResponse('Import');
     }
 
-    protected function addDocHeaderPreviewButton(ModuleTemplate $view, int $pageUid): void
+    protected function addDocHeaderPreviewButton(ModuleTemplate $view, array $pageInfo): void
     {
         $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $previewDataAttributes = PreviewUriBuilder::create($pageUid)
-            ->withRootLine(BackendUtility::BEgetRootLine($pageUid))
+        $previewDataAttributes = PreviewUriBuilder::create($pageInfo)
+            ->withRootLine(BackendUtility::BEgetRootLine($pageInfo['uid']))
             ->buildDispatcherDataAttributes();
         $viewButton = $buttonBar->makeLinkButton()
             ->setHref('#')
@@ -153,7 +153,7 @@ class ImportController
         $conflictMode = empty($parsedBody['overwriteExistingFiles']) ? DuplicationBehavior::CANCEL : DuplicationBehavior::REPLACE;
         $this->fileProcessor->setActionPermissions();
         $this->fileProcessor->setExistingFilesConflictMode($conflictMode);
-        $this->fileProcessor->start($file);
+        $this->fileProcessor->start($file, $request->getUploadedFiles());
         $result = $this->fileProcessor->processData();
         if (isset($result['upload'][0][0])) {
             // If upload went well, set the new file as the import file.

@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Clipboard;
 
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Clipboard\Type\CountMode;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -34,6 +35,8 @@ use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -75,18 +78,14 @@ class Clipboard
 
     public int $numberOfPads = 3;
 
-    protected IconFactory $iconFactory;
-    protected UriBuilder $uriBuilder;
-    protected ResourceFactory $resourceFactory;
-
     protected ?ServerRequestInterface $request = null;
 
-    public function __construct(IconFactory $iconFactory, UriBuilder $uriBuilder, ResourceFactory $resourceFactory)
-    {
-        $this->iconFactory = $iconFactory;
-        $this->uriBuilder = $uriBuilder;
-        $this->resourceFactory = $resourceFactory;
-    }
+    public function __construct(
+        protected readonly IconFactory $iconFactory,
+        protected readonly UriBuilder $uriBuilder,
+        protected readonly ResourceFactory $resourceFactory,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
 
     /*****************************************
      *
@@ -223,7 +222,7 @@ class Clipboard
     public function cleanUpCBC(array $CBarr, string $table, bool $removeDeselected = false): array
     {
         foreach ($CBarr as $reference => $value) {
-            $referenceTable = (string)(explode('|', $reference)[0] ?? '');
+            [$referenceTable] = explode('|', $reference, 2);
             if ($referenceTable !== $table || ($removeDeselected && !$value)) {
                 unset($CBarr[$reference]);
             }
@@ -296,20 +295,19 @@ class Clipboard
                     /** @var File $fileObject */
                     if (!$folder && ($fileObject->isImage() || $fileObject->isMediaFile())) {
                         $processedFile = $fileObject->process(
-                            ProcessedFile::CONTEXT_IMAGEPREVIEW,
+                            ProcessedFile::CONTEXT_IMAGECROPSCALEMASK,
                             [
-                                'width' => 64,
-                                'height' => 64,
+                                'maxWidth' => 64,
+                                'maxHeight' => 64,
                             ]
                         );
-
                         $thumb = '<img src="' . htmlspecialchars($processedFile->getPublicUrl() ?? '') . '" ' .
                             'width="' . htmlspecialchars((string)$processedFile->getProperty('width')) . '" ' .
                             'height="' . htmlspecialchars((string)$processedFile->getProperty('height')) . '" ' .
                             'title="' . htmlspecialchars($processedFile->getName()) . '" alt="" loading="lazy" />';
                     }
                     $linkItemText = GeneralUtility::fixed_lgd_cs($fileObject->getName(), (int)($this->getBackendUser()->uc['titleLen'] ?? 0));
-                    $combinedIdentifier = ($parentFolder = $fileObject->getParentFolder()) instanceof Folder ? $parentFolder->getCombinedIdentifier() : '';
+                    $combinedIdentifier = $fileObject->getParentFolder()->getCombinedIdentifier();
                     $filesRequested = $currentTable === '_FILE';
                     $records[] = [
                         'identifier' => '_FILE|' . md5($value),
@@ -384,27 +382,33 @@ class Clipboard
      */
     protected function getLocalizations(string $table, array $parentRecord, bool $isRequestedTable): array
     {
-        if (!BackendUtility::isTableLocalizable($table)) {
+        if (!$this->tcaSchemaFactory->has($table)) {
+            return [];
+        }
+        $schema = $this->tcaSchemaFactory->get($table);
+        if (!$schema->isLanguageAware()) {
             return [];
         }
 
+        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+
         $records = [];
-        $tcaCtrl = $GLOBALS['TCA'][$table]['ctrl'];
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()
             ->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+            ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
+            ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
 
         $queryBuilder
             ->select('*')
             ->from($table)
             ->where(
                 $queryBuilder->expr()->eq(
-                    $tcaCtrl['transOrigPointerField'],
+                    $languageCapability->getTranslationOriginPointerField()->getName(),
                     $queryBuilder->createNamedParameter((int)$parentRecord['uid'], Connection::PARAM_INT)
                 ),
                 $queryBuilder->expr()->neq(
-                    $tcaCtrl['languageField'],
+                    $languageCapability->getLanguageField()->getName(),
                     $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 ),
                 $queryBuilder->expr()->gt(
@@ -412,13 +416,7 @@ class Clipboard
                     $queryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
                 )
             )
-            ->orderBy($tcaCtrl['languageField']);
-
-        if (BackendUtility::isTableWorkspaceEnabled($table)) {
-            $queryBuilder->getRestrictions()->add(
-                GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace)
-            );
-        }
+            ->orderBy($languageCapability->getLanguageField()->getName());
 
         foreach ($queryBuilder->executeQuery()->fetchAllAssociative() as $record) {
             $title = htmlspecialchars(GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($table, $record), (int)$this->getBackendUser()->uc['titleLen']));
@@ -557,25 +555,27 @@ class Clipboard
      * @param string $table Table name
      * @param array|string $reference For records its an array, for files its a string (path)
      * @param string $type Type-code
-     * @param array $selectedElements Array of selected elements
-     * @param string $columnLabel Name of the content column
      * @return string the text for a confirm message
      */
     public function confirmMsgText(
         string $table,
         $reference,
         string $type,
-        array $selectedElements,
-        string $columnLabel = ''
+        CountMode $countMode = CountMode::CURRENT,
     ): string {
         if (!$this->getBackendUser()->jsConfirmation(JsConfirmation::COPY_MOVE_PASTE)) {
             return '';
         }
 
+        $selectedElements = match ($countMode) {
+            CountMode::CURRENT => $this->elFromTable($table),
+            CountMode::ALL => $this->elFromTable(),
+        };
+
         $labelKey = 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:mess.'
             . ($this->currentMode() === 'copy' ? 'copy' : 'move')
             . ($this->current === 'normal' ? '' : 'cb') . '_' . $type;
-        $confirmationMessage = $this->getLanguageService()->sL($labelKey . ($columnLabel ? '_colPos' : ''));
+        $confirmationMessage = $this->getLanguageService()->sL($labelKey);
 
         if ($table === '_FILE' && is_string($reference)) {
             $recordTitle = PathUtility::basename($reference);
@@ -596,19 +596,11 @@ class Clipboard
                 $selectedRecordTitle = (string)count($selectedElements);
             }
         }
-        // @TODO
-        // This can get removed as soon as the "_colPos" label is translated
-        // into all available locallang languages.
-        if (!$confirmationMessage && $columnLabel) {
-            $recordTitle .= ' | ' . $columnLabel;
-            $confirmationMessage = $this->getLanguageService()->sL($labelKey);
-        }
 
         return sprintf(
             $confirmationMessage,
             GeneralUtility::fixed_lgd_cs($selectedRecordTitle, 30),
-            GeneralUtility::fixed_lgd_cs($recordTitle, 30),
-            GeneralUtility::fixed_lgd_cs($columnLabel, 30)
+            GeneralUtility::fixed_lgd_cs($recordTitle, 30)
         );
     }
 
@@ -711,7 +703,7 @@ class Clipboard
             }
             [$table, $uid] = explode('|', $reference);
             if ($table !== '_FILE') {
-                if ((!$matchTable || $table === $matchTable) && ($GLOBALS['TCA'][$table] ?? false)) {
+                if ((!$matchTable || $table === $matchTable) && $this->tcaSchemaFactory->has($table)) {
                     $elements[$reference] = $padIdentifier === 'normal' ? $value : $uid;
                 }
             } elseif ($table === $matchTable) {

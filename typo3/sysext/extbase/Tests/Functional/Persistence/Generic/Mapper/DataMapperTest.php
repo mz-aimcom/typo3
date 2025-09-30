@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\InvalidClassException;
@@ -33,9 +34,13 @@ use TYPO3\CMS\Extbase\Tests\Functional\Persistence\Generic\Mapper\Fixtures\Hydra
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Tests\BlogExample\Domain\Model\Blog;
 use TYPO3Tests\BlogExample\Domain\Model\Comment;
+use TYPO3Tests\BlogExample\Domain\Model\CustomDate;
 use TYPO3Tests\BlogExample\Domain\Model\DateExample;
 use TYPO3Tests\BlogExample\Domain\Model\DateTimeImmutableExample;
 use TYPO3Tests\BlogExample\Domain\Model\Post;
+use TYPO3Tests\BlogExample\Domain\Model\RestrictedComment;
+use TYPO3Tests\BlogExample\Domain\Repository\RestrictedCommentRepository;
+use TYPO3Tests\TestDataMapper\Domain\Model\ConstructorPromotionExample;
 use TYPO3Tests\TestDataMapper\Domain\Model\CustomDateTime;
 use TYPO3Tests\TestDataMapper\Domain\Model\Enum\IntegerBackedEnum;
 use TYPO3Tests\TestDataMapper\Domain\Model\Enum\StringBackedEnum;
@@ -49,12 +54,9 @@ final class DataMapperTest extends FunctionalTestCase
         'typo3/sysext/extbase/Tests/Functional/Fixtures/Extensions/test_data_mapper',
     ];
 
-    protected PersistenceManager $persistenceManager;
-
     protected function setUp(): void
     {
         parent::setUp();
-        $this->persistenceManager = $this->get(PersistenceManager::class);
         $GLOBALS['BE_USER'] = new BackendUserAuthentication();
 
         $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
@@ -68,13 +70,14 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTime('2016-03-06T12:40:00+01:00');
         $example->setDatetimeInt($date);
 
-        $this->persistenceManager->add($example);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($example);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($example);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($example);
+        $persistenceManager->clearState();
 
         /** @var DateExample $example */
-        $example = $this->persistenceManager->getObjectByIdentifier($uid, DateExample::class);
+        $example = $persistenceManager->getObjectByIdentifier($uid, DateExample::class);
 
         self::assertEquals($example->getDatetimeInt()->getTimestamp(), $date->getTimestamp());
     }
@@ -86,13 +89,14 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTime('2016-03-06T12:40:00+01:00');
         $example->setDatetimeText($date);
 
-        $this->persistenceManager->add($example);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($example);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($example);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($example);
+        $persistenceManager->clearState();
 
         /** @var DateExample $example */
-        $example = $this->persistenceManager->getObjectByIdentifier($uid, DateExample::class);
+        $example = $persistenceManager->getObjectByIdentifier($uid, DateExample::class);
 
         self::assertEquals($example->getDatetimeText()->getTimestamp(), $date->getTimestamp());
     }
@@ -104,15 +108,35 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTime('2016-03-06T12:40:00');
         $example->setDatetimeDatetime($date);
 
-        $this->persistenceManager->add($example);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($example);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($example);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($example);
+        $persistenceManager->clearState();
 
         /** @var DateExample $example */
-        $example = $this->persistenceManager->getObjectByIdentifier($uid, DateExample::class);
+        $example = $persistenceManager->getObjectByIdentifier($uid, DateExample::class);
 
         self::assertEquals($example->getDatetimeDatetime()->getTimestamp(), $date->getTimestamp());
+    }
+
+    #[Test]
+    public function dateValuesAreStoredInLocalTimeFromCustomDateTimeObject(): void
+    {
+        $example = new DateExample();
+        $date = new CustomDate('2016-03-06T00:00:00+01:00');
+        $example->setCustomDate($date);
+
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($example);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($example);
+        $persistenceManager->clearState();
+
+        /** @var DateExample $example */
+        $example = $persistenceManager->getObjectByIdentifier($uid, DateExample::class);
+
+        self::assertEquals($example->getCustomDate()->format('Y-m-d'), $date->format('Y-m-d'));
     }
 
     #[Test]
@@ -122,13 +146,14 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTimeImmutable('2018-07-24T20:40:00');
         $subject->setDatetimeImmutableInt($date);
 
-        $this->persistenceManager->add($subject);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($subject);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($subject);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($subject);
+        $persistenceManager->clearState();
 
         /** @var DateTimeImmutableExample $subject */
-        $subject = $this->persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
+        $subject = $persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
 
         self::assertEquals($date, $subject->getDatetimeImmutableInt());
     }
@@ -140,13 +165,14 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTimeImmutable('2018-07-24T20:40:00');
         $subject->setDatetimeImmutableText($date);
 
-        $this->persistenceManager->add($subject);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($subject);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($subject);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($subject);
+        $persistenceManager->clearState();
 
         /** @var DateTimeImmutableExample $subject */
-        $subject = $this->persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
+        $subject = $persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
 
         self::assertEquals($date, $subject->getDatetimeImmutableText());
     }
@@ -158,13 +184,14 @@ final class DataMapperTest extends FunctionalTestCase
         $date = new \DateTimeImmutable('2018-07-24T20:40:00');
         $subject->setDatetimeImmutableDatetime($date);
 
-        $this->persistenceManager->add($subject);
-        $this->persistenceManager->persistAll();
-        $uid = $this->persistenceManager->getIdentifierByObject($subject);
-        $this->persistenceManager->clearState();
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($subject);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($subject);
+        $persistenceManager->clearState();
 
         /** @var DateTimeImmutableExample $subject */
-        $subject = $this->persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
+        $subject = $persistenceManager->getObjectByIdentifier($uid, DateTimeImmutableExample::class);
 
         self::assertSame($date->getTimestamp(), $subject->getDatetimeImmutableDatetime()->getTimestamp());
     }
@@ -347,41 +374,91 @@ final class DataMapperTest extends FunctionalTestCase
      * strings but using the date('c') conversion instead, which considers the
      * current local timezone setting.
      */
-    public static function mapDateTimeHandlesDifferentFieldEvaluationsDataProvider(): array
+    public static function mapDateTimeHandlesDifferentFieldEvaluationsDataProvider(): \Generator
     {
-        return [
-            'nothing' => [null, null, null],
+        $variants = [
+            'nothing' => [null, null, null, null],
             'timestamp' => [1, null, date('c', 1)],
             'invalid date' => ['0000-00-00', 'date', null],
             'valid date' => ['2013-01-01', 'date', date('c', strtotime('2013-01-01 00:00:00'))],
             'invalid datetime' => ['0000-00-00 00:00:00', 'datetime', null],
             'valid datetime' => ['2013-01-01 01:02:03', 'datetime', date('c', strtotime('2013-01-01 01:02:03'))],
-            'invalid time' => ['00:00:00', 'time', null],
-            'valid time' => ['01:02:03', 'time', date('c', strtotime('01:02:03'))],
+            'invalid time' => ['00:00:00', 'time', '1970-01-01T00:00:00+00:00', null],
+            'valid time' => ['01:02:03', 'time', date('c', strtotime('1970-01-01 01:02:03')), date('c', strtotime('01:02:03'))],
             'null datetime' => [null, 'datetime', null],
             'null time' => [null, 'time', null],
         ];
+
+        foreach ($variants as $description => $variant) {
+            yield $description . ' (consistentDateTimeHandling=true)' => [
+                $variant[0],
+                $variant[1],
+                $variant[2],
+                true,
+            ];
+            yield $description . ' (consistentDateTimeHandling=false)' => [
+                $variant[0],
+                $variant[1],
+                array_key_exists(3, $variant) ? $variant[3] : $variant[2],
+                false,
+            ];
+        }
     }
 
     #[DataProvider('mapDateTimeHandlesDifferentFieldEvaluationsDataProvider')]
     #[Test]
-    public function mapDateTimeHandlesDifferentFieldEvaluations(string|int|null $value, ?string $storageFormat, ?string $expectedValue): void
-    {
-        $GLOBALS['TCA']['tx_testdatamapper_domain_model_example']['columns']['initialized_date_time_property']['config']['dbType'] = $storageFormat;
+    public function mapDateTimeHandlesDifferentFieldEvaluations(
+        string|int|null $value,
+        ?string $storageFormat,
+        ?string $expectedValue,
+        bool $consistentDateTimeHandling,
+    ): void {
+        $bak = $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'];
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $consistentDateTimeHandling;
         $rows = [
             [
                 'uid' => 123,
-                'initialized_date_time_property' => $value,
+                'initialized_date_time_property' . ($storageFormat !== null ? '_' . $storageFormat : '') => $value,
             ],
         ];
         $dataMapper = $this->get(DataMapper::class);
         $mappedObjectsArray = $dataMapper->map(Example::class, $rows);
 
-        self::assertSame($expectedValue, $mappedObjectsArray[0]->getInitializedDateTimeProperty()?->format('c'));
+        $getter = 'getInitializedDateTimeProperty' . ($storageFormat !== null ? ucfirst($storageFormat) : '');
+        self::assertSame($expectedValue, $mappedObjectsArray[0]->{$getter}()?->format('c'));
 
         // Flush DataMapFactory cache on each run.
         $cacheManager = $this->get(CacheManager::class);
         $cacheManager->getCache('extbase')->flush();
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $bak;
+    }
+
+    #[DataProvider('mapDateTimeHandlesDifferentFieldEvaluationsDataProvider')]
+    #[Test]
+    public function mapDateTimeHandlesDifferentFieldEvaluationsWithConstructorPromotion(
+        string|int|null $value,
+        ?string $storageFormat,
+        ?string $expectedValue,
+        bool $consistentDateTimeHandling,
+    ): void {
+        $bak = $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'];
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $consistentDateTimeHandling;
+        $rows = [
+            [
+                'uid' => 123,
+                'initialized_date_time_property' . ($storageFormat !== null ? '_' . $storageFormat : '') => $value,
+            ],
+        ];
+        $dataMapper = $this->get(DataMapper::class);
+        $mappedObjectsArray = $dataMapper->map(ConstructorPromotionExample::class, $rows);
+
+        $getter = 'getInitializedDateTimeProperty' . ($storageFormat !== null ? ucfirst($storageFormat) : '');
+        self::assertSame($expectedValue, $mappedObjectsArray[0]->{$getter}()?->format('c'));
+
+        // Flush DataMapFactory cache on each run.
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->getCache('extbase')->flush();
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $bak;
     }
 
     public static function mapDateTimeHandlesDifferentFieldEvaluationsWithTimeZoneDataProvider(): array
@@ -404,18 +481,18 @@ final class DataMapperTest extends FunctionalTestCase
         date_default_timezone_set('America/Chicago');
         $usedTimeZone = date_default_timezone_get();
 
-        $GLOBALS['TCA']['tx_testdatamapper_domain_model_example']['columns']['initialized_date_time_property']['config']['dbType'] = $storageFormat;
         $rows = [
             [
                 'uid' => 123,
-                'initialized_date_time_property' => $value,
+                'initialized_date_time_property' . ($storageFormat !== null ? '_' . $storageFormat : '') => $value,
             ],
         ];
         $dataMapper = $this->get(DataMapper::class);
         $mappedObjectsArray = $dataMapper->map(Example::class, $rows);
 
+        $getter = 'getInitializedDateTimeProperty' . ($storageFormat !== null ? ucfirst($storageFormat) : '');
         $expectedValue = $expectedValue !== null ? new \DateTime($expectedValue, new \DateTimeZone($usedTimeZone)) : $expectedValue;
-        self::assertEquals($expectedValue, $mappedObjectsArray[0]->getInitializedDateTimeProperty());
+        self::assertEquals($expectedValue, $mappedObjectsArray[0]->{$getter}());
 
         // Flush DataMapFactory cache on each run.
         $cacheManager = $this->get(CacheManager::class);
@@ -444,10 +521,16 @@ final class DataMapperTest extends FunctionalTestCase
     public function getPlainValueReturnsCorrectDateTimeFormat(): void
     {
         $dataMapper = $this->get(DataMapper::class);
-        $columnMapDateTime = new ColumnMap('column_name');
-        $columnMapDateTime->setDateTimeStorageFormat('datetime');
-        $columnMapDate = new ColumnMap('column_name');
-        $columnMapDate->setDateTimeStorageFormat('date');
+        $columnMapDateTime = new ColumnMap(
+            columnName: 'column_name',
+            type: TableColumnType::DATETIME,
+            dateTimeStorageFormat: 'datetime',
+        );
+        $columnMapDate = new ColumnMap(
+            columnName: 'column_name',
+            type: TableColumnType::DATETIME,
+            dateTimeStorageFormat: 'date',
+        );
         $input = new \DateTime('2013-04-15 09:30:00');
 
         $plainValueDateTime = $dataMapper->getPlainValue($input, $columnMapDateTime);
@@ -457,10 +540,10 @@ final class DataMapperTest extends FunctionalTestCase
         self::assertSame('2013-04-15', $plainValueDate);
     }
 
-    public static function getPlainValueReturnsExpectedValuesDataProvider(): array
+    public static function getPlainValueReturnsExpectedValuesDataProvider(): \Generator
     {
-        return [
-            'datetime to timestamp' => ['1365866253', new \DateTime('@1365866253')],
+        $variants = [
+            'datetime to timestamp' => [1365866253, new \DateTime('@1365866253'), '1365866253'],
             'boolean true to 1' => [1, true],
             'boolean false to 0' => [0, false],
             'NULL is handled as string' => ['NULL', null],
@@ -473,17 +556,36 @@ final class DataMapperTest extends FunctionalTestCase
             'string backed enum converted to string' => ['One', StringBackedEnum::ONE],
             'int backed enum converted to int' => [1, IntegerBackedEnum::ONE],
         ];
+
+        foreach ($variants as $description => $variant) {
+            yield $description . ' (consistentDateTimeHandling=true)' => [
+                $variant[0],
+                $variant[1],
+                true,
+            ];
+            yield $description . ' (consistentDateTimeHandling=false)' => [
+                array_key_exists(2, $variant) ? $variant[2] : $variant[0],
+                $variant[1],
+                false,
+            ];
+        }
     }
 
     #[DataProvider('getPlainValueReturnsExpectedValuesDataProvider')]
     #[Test]
-    public function getPlainValueReturnsExpectedValues(string|int $expectedValue, mixed $input): void
-    {
+    public function getPlainValueReturnsExpectedValues(
+        string|int $expectedValue,
+        mixed $input,
+        bool $consistentDateTimeHandling
+    ): void {
+        $bak = $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'];
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $consistentDateTimeHandling;
         $dataMapper = $this->get(DataMapper::class);
 
         $plainValue = $dataMapper->getPlainValue($input);
 
         self::assertSame($expectedValue, $plainValue);
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $bak;
     }
 
     #[Test]
@@ -508,16 +610,10 @@ final class DataMapperTest extends FunctionalTestCase
     public function fetchRelatedRespectsForeignDefaultSortByTCAConfiguration(): void
     {
         $this->importCSVDataSet(__DIR__ . '/Fixtures/DataMapperTestImport.csv');
-
-        $dataMapper = $this->get(DataMapper::class);
-
         $post = new Post();
         $post->_setProperty('uid', 1);
-
-        // Act
-        $comments = $dataMapper->fetchRelated($post, 'comments', '5', false)->toArray();
-
-        // Assert
+        $subject = $this->get(DataMapper::class);
+        $comments = $subject->fetchRelated($post, 'comments', '5', false)->toArray();
         self::assertSame(
             [5, 4, 3, 2, 1], // foreign_default_sortby is set to uid desc, see
             array_map(static fn(Comment $comment): int => $comment->getUid(), $comments)
@@ -544,5 +640,58 @@ final class DataMapperTest extends FunctionalTestCase
         $subject = $this->get(DataMapper::class);
         $subjectReflection = new \ReflectionObject($subject);
         $subjectReflection->getMethod('createEmptyObject')->invoke($subject, HydrationFixtureEntity::class);
+    }
+
+    #[Test]
+    public function customRestrictionFieldsAreMapped(): void
+    {
+        $restrictedCommentRows = [
+            [
+                'uid' => 123,
+                'content' => 'abc',
+                'customhidden' => 1,
+                'customstarttime' => 1449066092,
+                'customendtime' => 1449067092,
+                'customfegroup' => '-1',
+            ],
+        ];
+        $dataMapper = $this->get(DataMapper::class);
+        $mappedObjectArray = $dataMapper->map(RestrictedComment::class, $restrictedCommentRows);
+
+        self::assertSame(123, $mappedObjectArray[0]->getUid());
+        self::assertSame('abc', $mappedObjectArray[0]->getContent());
+        self::assertTrue($mappedObjectArray[0]->getCustomhidden());
+        self::assertSame('1449066092', $mappedObjectArray[0]->getCustomstarttime()->format('U'));
+        self::assertSame('1449067092', $mappedObjectArray[0]->getCustomendtime()->format('U'));
+        self::assertSame('-1', $mappedObjectArray[0]->getCustomfegroup());
+    }
+
+    #[Test]
+    public function customRestrictionFieldsAreMappedFromPersistence(): void
+    {
+        $example = new RestrictedComment();
+        $example->setPid(1);
+        $example->setContent('abc');
+        $example->setCustomhidden(true);
+        $example->setCustomstarttime(new \DateTime('@1449066092'));
+        $example->setCustomendtime(new \DateTime('@1449067092'));
+        $example->setCustomfegroup('-1');
+
+        $persistenceManager = $this->get(PersistenceManager::class);
+        $persistenceManager->add($example);
+        $persistenceManager->persistAll();
+        $uid = $persistenceManager->getIdentifierByObject($example);
+        $persistenceManager->clearState();
+
+        $example = $persistenceManager->getObjectByIdentifier($uid, RestrictedComment::class);
+        // Due to restrictions, default fetching shall NOT be successful!
+        self::assertNull($example);
+
+        // Do the same via specific repository access
+        $retrievedComment = $this->get(RestrictedCommentRepository::class)->findByUid((int)$uid);
+        // Due to restrictions, default fetching shall NOT be successful!
+        self::assertNull($retrievedComment);
+
+        self::assertCSVDataSet(__DIR__ . '/Fixtures/DataMapperCustomRestrictionFields.csv');
     }
 }

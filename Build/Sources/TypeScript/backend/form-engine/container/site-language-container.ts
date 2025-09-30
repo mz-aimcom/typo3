@@ -11,19 +11,20 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { MessageUtility } from '../../utility/message-utility';
 import { AjaxDispatcher } from './../inline-relation/ajax-dispatcher';
-import { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 import NProgress from 'nprogress';
 import FormEngine from '@typo3/backend/form-engine';
 import FormEngineValidation from '@typo3/backend/form-engine-validation';
-import { default as Modal, ModalElement } from '@typo3/backend/modal';
+import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import Notification from '../../notification';
+import DocumentService from '@typo3/core/document-service';
 import RegularEvent from '@typo3/core/event/regular-event';
 import Severity from '../../severity';
 import Utility from '../../utility';
 import { selector } from '@typo3/core/literals';
+import type AjaxRequest from '@typo3/core/ajax/ajax-request';
+import type { InlineResponseInterface } from './../inline-relation/inline-response-interface';
 
 enum Selectors {
   toggleSelector = '[data-bs-toggle="formengine-inline"]',
@@ -157,8 +158,9 @@ class SiteLanguageContainer extends HTMLElement {
     }
   }
 
-  public connectedCallback(): void {
+  public async connectedCallback(): Promise<void> {
     const identifier = this.getAttribute('identifier') || '' as string;
+    await DocumentService.ready();
     this.container = <HTMLElement>this.querySelector(selector`#${identifier}`);
 
     if (this.container !== null) {
@@ -405,7 +407,7 @@ class SiteLanguageContainer extends HTMLElement {
     }
 
     (<HTMLInputElement>formField).value = records.join(',');
-    (<HTMLInputElement>formField).classList.add('has-change');
+    FormEngine.markFieldAsChanged(formField);
     document.dispatchEvent(new Event('change'));
 
     this.setUnique(newUid, selectedValue);
@@ -427,7 +429,7 @@ class SiteLanguageContainer extends HTMLElement {
       records.splice(indexOfRemoveUid, 1);
 
       (<HTMLInputElement>formField).value = records.join(',');
-      (<HTMLInputElement>formField).classList.add('has-change');
+      FormEngine.markFieldAsChanged(formField);
       document.dispatchEvent(new Event('change'));
     }
 
@@ -449,7 +451,7 @@ class SiteLanguageContainer extends HTMLElement {
     }
 
     new RegularEvent('transitionend', (): void => {
-      recordContainer.parentElement.removeChild(recordContainer);
+      recordContainer.remove();
       FormEngineValidation.validate(this.container);
     }).bindTo(recordContainer);
 

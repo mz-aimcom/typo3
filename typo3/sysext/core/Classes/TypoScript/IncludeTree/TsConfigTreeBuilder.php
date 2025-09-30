@@ -97,11 +97,6 @@ final class TsConfigTreeBuilder
             $includeTree->addChild($this->getTreeFromString((string)$key, $typoScriptString, $tokenizer, $cache));
         }
 
-        // @deprecated since TYPO3 v13. Remove in v14 along with defaultUserTSconfig and EMU::addUserTSConfig
-        if (!empty($GLOBALS['TYPO3_CONF_VARS']['BE']['defaultUserTSconfig'] ?? '')) {
-            $includeTree->addChild($this->getTreeFromString('userTsConfig-globals', $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultUserTSconfig'], $tokenizer, $cache));
-        }
-
         foreach ($backendUser->userGroupsUID as $groupId) {
             // Loop through all groups and add their 'TSconfig' fields
             if (!empty($backendUser->userGroups[$groupId]['TSconfig'] ?? '')) {
@@ -123,11 +118,6 @@ final class TsConfigTreeBuilder
         $collectedPagesTsConfigArray = [];
 
         $collectedPagesTsConfigArray += $this->getPackagePageTsConfigTree($cache);
-
-        // @deprecated since TYPO3 v13. Remove in v14 along with defaultPageTSconfig and EMU::addPageTSConfig
-        if (!empty($GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig'] ?? '')) {
-            $collectedPagesTsConfigArray['pagesTsConfig-globals-defaultPageTSconfig'] = ['content' => $GLOBALS['TYPO3_CONF_VARS']['BE']['defaultPageTSconfig']];
-        }
 
         // HEADS up: rootLine may be modified by getSitePagesTsConfigTree
         $collectedPagesTsConfigArray += $this->getSitePageTsConfigTree($rootLine, $cache);
@@ -232,14 +222,19 @@ final class TsConfigTreeBuilder
             $pageTsConfig = [];
             $sets = $this->setRegistry->getSets(...$rootSite->getSets());
             foreach ($sets as $set) {
-                if ($set->pagets !== null && file_exists($set->pagets)) {
-                    $content = @file_get_contents($set->pagets);
-                    if (!empty($content)) {
-                        $pageTsConfig['pageTsConfig-set-' . str_replace('/', '-', $set->name)] = [
-                            'filename' => GeneralUtility::getFileAbsFileName($set->pagets),
-                            'content' => $content,
-                        ];
-                    }
+                if ($set->pagets === null) {
+                    continue;
+                }
+                $filename = GeneralUtility::getFileAbsFileName($set->pagets);
+                if (!file_exists($filename)) {
+                    continue;
+                }
+                $content = @file_get_contents($filename);
+                if (!empty($content)) {
+                    $pageTsConfig['pageTsConfig-set-' . str_replace('/', '-', $set->name)] = [
+                        'filename' => $filename,
+                        'content' => $content,
+                    ];
                 }
             }
 

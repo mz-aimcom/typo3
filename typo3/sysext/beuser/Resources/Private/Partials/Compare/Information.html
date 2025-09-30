@@ -16,14 +16,14 @@
                             <f:then>
                                 <td class="col-icon"></td>
                                 <td class="col-title">
-                                    {language.title} (<f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.defaultLanguage" />)
+                                    {language.title} (<f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.defaultLanguage" />)<f:if condition="{showUid}"> <code>[{languageId}]</code></f:if>
                                 </td>
                             </f:then>
                             <f:else>
                                 <td class="col-icon">
                                     <span title="id={languageId}"><core:icon identifier="{language.flagIconIdentifier}" /></span>
                                 </td>
-                                <td class="col-title">{language.title}</td>
+                                <td class="col-title">{language.title}<f:if condition="{showUid}"> <code>[{languageId}]</code></f:if></td>
                             </f:else>
                         </f:if>
                     </tr>
@@ -39,7 +39,7 @@
             <table class="table table-bordered">
                 <thead>
                     <tr>
-                        <th><f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.groups.th.groupTitle" /></th>
+                        <th><f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.groups.table.column.groupTitle" /></th>
                         <th{f:if(condition: '{hasColumnClasses}', then: ' class="col-min"')}><f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:compare.direct.direct" /></th>
                         <th{f:if(condition: '{hasColumnClasses}', then: ' class="col-min"')}><f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:compare.direct.inherit" /></th>
                     </tr>
@@ -50,7 +50,7 @@
                             <td class="col-title col-responsive nowrap">
                                 <button
                                     type="button"
-                                    class="btn btn-link p-0"
+                                    class="btn btn-link"
                                     data-contextmenu-trigger="click"
                                     data-contextmenu-table="be_groups"
                                     data-contextmenu-uid="{group.row.uid}"
@@ -62,9 +62,9 @@
                                 <backend:link.editRecord
                                     table="be_groups"
                                     uid="{group.row.uid}"
-                                    title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:link.editRecord')}"
+                                    title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:btn.edit')}"
                                 >
-                                    {group.row.title}
+                                    {group.row.title}<f:if condition="{showUid}"> <code>[{group.row.uid}]</code></f:if>
                                 </backend:link.editRecord>
                             </td>
                             <td{f:if(condition: '{hasColumnClasses}', then: ' class="col-min"')}>
@@ -90,7 +90,7 @@
                         <td class="col-icon">
                             <button
                                 type="button"
-                                class="btn btn-link p-0"
+                                class="btn btn-link"
                                 data-contextmenu-trigger="click"
                                 data-contextmenu-table="pages"
                                 data-contextmenu-uid="{item.uid}"
@@ -104,9 +104,9 @@
                             <backend:link.editRecord
                                 table="pages"
                                 uid="{item.uid}"
-                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:link.editRecord')}"
+                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:btn.edit')}"
                             >
-                                {item.title}
+                                {item.title}<f:if condition="{showUid}"> <code>[{item.uid}]</code></f:if>
                             </backend:link.editRecord>
                         </td>
                     </tr>
@@ -125,7 +125,7 @@
                         <td class="col-icon">
                             <button
                                 type="button"
-                                class="btn btn-link p-0"
+                                class="btn btn-link"
                                 data-contextmenu-trigger="click"
                                 data-contextmenu-table="sys_filemounts"
                                 data-contextmenu-uid="{item.uid}"
@@ -139,9 +139,9 @@
                             <backend:link.editRecord
                                 table="sys_filemounts"
                                 uid="{item.uid}"
-                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:link.editRecord')}"
+                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:btn.edit')}"
                             >
-                                {item.title}
+                                {item.title}<f:if condition="{showUid}"> <code>[{item.uid}]</code></f:if>
                             </backend:link.editRecord>
                         </td>
                     </tr>
@@ -163,6 +163,7 @@
                                 <f:then>{f:translate(key:item.label,default:item.label)}</f:then>
                                 <f:else>{item.value}</f:else>
                             </f:if>
+                            <f:if condition="{showUid}"> <code>[{item.value}]</code></f:if>
                         </td>
                     </tr>
                 </f:for>
@@ -180,7 +181,7 @@
                         <td class="col-icon">
                             <button
                                 type="button"
-                                class="btn btn-link p-0"
+                                class="btn btn-link"
                                 data-contextmenu-trigger="click"
                                 data-contextmenu-table="sys_category"
                                 data-contextmenu-uid="{item.uid}"
@@ -194,9 +195,9 @@
                             <backend:link.editRecord
                                 table="sys_category"
                                 uid="{item.uid}"
-                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:link.editRecord')}"
+                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:btn.edit')}"
                             >
-                                {item.title}
+                                {item.title}<f:if condition="{showUid}"> <code>[{item.uid}]</code></f:if>
                             </backend:link.editRecord>
                         </td>
                     </tr>
@@ -215,7 +216,7 @@
                         <td class="col-icon">
                             <button
                                 type="button"
-                                class="btn btn-link p-0"
+                                class="btn btn-link"
                                 data-contextmenu-trigger="click"
                                 data-contextmenu-table="sys_workspace"
                                 data-contextmenu-uid="{workspaces.record.uid}"
@@ -229,9 +230,9 @@
                             <backend:link.editRecord
                                 table="sys_workspace"
                                 uid="{workspaces.record.uid}"
-                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:link.editRecord')}"
+                                title="{f:translate(key: 'LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:btn.edit')}"
                             >{workspaces.record.title}</backend:link.editRecord>
-                            (<f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.defaultWorkspace" />)
+                            (<f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:information.defaultWorkspace" />)<f:if condition="{showUid}"> <code>[{workspaces.record.uid}]</code></f:if>
                         </td>
                     </tr>
                 </table>
@@ -248,7 +249,7 @@
                     <tr>
                         <td class="col-icon"><core:icon identifier="{item.icon}" /></td>
                         <td class="col-title">
-                            <f:if condition="{item.label}">{f:translate(key:item.label,default:item.label)}</f:if>
+                            <f:if condition="{item.label}">{f:translate(key:item.label,default:item.label)}</f:if><f:if condition="{showUid}"> <code>[{item.value}]</code></f:if>
                         </td>
                     </tr>
                 </f:for>
@@ -292,91 +293,83 @@
             </f:if>
         </f:for>
         <f:if condition="{tableReadConfigured}">
-            <typo3-backend-collapsible>
-                <div class="panel panel-default">
-                    <button
-                        type="button"
-                        class="panel-heading panel-heading-button"
-                        aria-expanded="false"
-                        aria-controls="permission-group-read-table-{id}-collapse"
-                        data-bs-target="#permission-group-read-table-{id}-collapse"
-                        data-bs-toggle="collapse"
-                    >
-                        <span class="flex-grow-1 align-self-center">
-                            <f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:tableModes.read" />
-                        </span>
-                        <div class="panel-actions ml-auto">
-                            <span class="btn btn-sm btn-default">
-                                <span class="collapseIcon">
-                                    <core:icon identifier="actions-view-list-expand" alternativeMarkupIdentifier="inline" />
-                                </span>
-                            </span>
-                        </div>
-                    </button>
-                    <div id="permission-group-read-table-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
-                        <div class="table-fit">
-                            <table class="table">
-                                <f:for each="{tables.all}" key="table" as="label">
-                                    <f:if condition="{tables.tables_select.{table}} && !{tables.tables_modify.{table}}">
-                                        <tr>
-                                            <td class="col-icon">
-                                                <core:iconForRecord table="{table}" row="{id: '0'}" />
-                                            </td>
-                                            <td class="col-title">
-                                                <f:if condition="{label}">{f:translate(key:label, default:label)}</f:if><f:if condition="{showUid}"> <code>[{table}]</code></f:if>
-                                            </td>
-                                        </tr>
-                                    </f:if>
-                                </f:for>
-                            </table>
-                        </div>
+            <div class="panel panel-default">
+                <div class="panel-heading" role="tab">
+                    <div class="panel-heading-row">
+                        <button
+                            class="panel-button collapsed"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#permission-group-read-table-{id}-collapse"
+                            aria-controls="permission-group-read-table-{id}-collapse"
+                            aria-expanded="false"
+                        >
+                            <div class="panel-title">
+                                <f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:tableModes.read" />
+                            </div>
+                            <span class="caret"></span>
+                        </button>
                     </div>
                 </div>
-            </typo3-backend-collapsible>
+                <div id="permission-group-read-table-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
+                    <div class="table-fit">
+                        <table class="table">
+                            <f:for each="{tables.all}" key="table" as="label">
+                                <f:if condition="{tables.tables_select.{table}} && !{tables.tables_modify.{table}}">
+                                    <tr>
+                                        <td class="col-icon">
+                                            <core:iconForRecord table="{table}" row="{id: '0'}" />
+                                        </td>
+                                        <td class="col-title">
+                                            <f:if condition="{label}">{f:translate(key:label, default:label)}</f:if><f:if condition="{showUid}"> <code>[{table}]</code></f:if>
+                                        </td>
+                                    </tr>
+                                </f:if>
+                            </f:for>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </f:if>
 
         <f:if condition="{tableReadWriteConfigured}">
-            <typo3-backend-collapsible>
-                <div class="panel panel-default">
-                    <button
-                        type="button"
-                        class="panel-heading panel-heading-button"
-                        aria-expanded="false"
-                        aria-controls="permission-group-read-write-table-{id}-collapse"
-                        data-bs-target="#permission-group-read-write-table-{id}-collapse"
-                        data-bs-toggle="collapse"
-                    >
-                        <span class="flex-grow-1 align-self-center">
-                            <f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:tableModes.write" />
-                        </span>
-                        <div class="panel-actions ml-auto">
-                            <span class="btn btn-sm btn-default">
-                                <span class="collapseIcon">
-                                    <core:icon identifier="actions-view-list-expand" alternativeMarkupIdentifier="inline" />
-                                </span>
-                            </span>
-                        </div>
-                    </button>
-                    <div id="permission-group-read-write-table-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
-                        <div class="table-fit">
-                            <table class="table">
-                                <f:for each="{tables.all}" key="table" as="label">
-                                    <f:if condition="{tables.tables_modify.{table}}">
-                                        <tr>
-                                            <td class="col-icon">
-                                                <core:iconForRecord table="{table}" row="{id: '0'}" />
-                                            </td>
-                                            <td class="col-title">
-                                                <f:if condition="{label}">{f:translate(key:label, default:label)}</f:if><f:if condition="{showUid}"> <code>[{table}]</code></f:if>
-                                            </td>
-                                        </tr>
-                                    </f:if>
-                                </f:for>
-                            </table>
-                        </div>
+            <div class="panel panel-default">
+                <div class="panel-heading" role="tab">
+                    <div class="panel-heading-row">
+                        <button
+                            class="panel-button collapsed"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#permission-group-read-write-table-{id}-collapse"
+                            aria-controls="permission-group-read-write-table-{id}-collapse"
+                            aria-expanded="false"
+                        >
+                            <div class="panel-title">
+                                <f:translate key="LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:tableModes.write" />
+                            </div>
+                            <span class="caret"></span>
+                        </button>
                     </div>
                 </div>
-            </typo3-backend-collapsible>
+                <div id="permission-group-read-write-table-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
+                    <div class="table-fit">
+                        <table class="table">
+                            <f:for each="{tables.all}" key="table" as="label">
+                                <f:if condition="{tables.tables_modify.{table}}">
+                                    <tr>
+                                        <td class="col-icon">
+                                            <core:iconForRecord table="{table}" row="{id: '0'}" />
+                                        </td>
+                                        <td class="col-title">
+                                            <f:if condition="{label}">{f:translate(key:label, default:label)}</f:if><f:if condition="{showUid}"> <code>[{table}]</code></f:if>
+                                        </td>
+                                    </tr>
+                                </f:if>
+                            </f:for>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </f:if>
     </f:if>
 </f:section>
@@ -384,72 +377,66 @@
 <f:section name="nonExcludeFields">
     <f:if condition="{nonExcludeFields}">
         <f:for each="{nonExcludeFields}" key="tableName" as="table">
-            <typo3-backend-collapsible>
-                <div class="panel panel-default">
-                    <button
-                        type="button"
-                        class="panel-heading panel-heading-button"
-                        aria-expanded="false"
-                        aria-controls="permission-group-{tableName}-{id}-collapse"
-                        data-bs-target="#permission-group-{tableName}-{id}-collapse"
-                        data-bs-toggle="collapse"
-                    >
-                        <span class="flex-grow-1 align-self-center">
-                            <core:iconForRecord table="{tableName}" row="{id: '0'}" />
-                            <f:if condition="{table.label}">{f:translate(key:table.label,default:table.label)}</f:if><f:if condition="{showUid}"> <code>[{tableName}]</code></f:if>
-                        </span>
-                        <div class="panel-actions ml-auto">
-                            <span class="btn btn-sm btn-default">
-                                <span class="collapseIcon">
-                                    <core:icon identifier="actions-view-list-expand" alternativeMarkupIdentifier="inline" />
-                                </span>
-                            </span>
-                        </div>
-                    </button>
-                    <div id="permission-group-{tableName}-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
-                        <div class="panel-body">
-                            <ul class="panel-list">
-                                <f:for each="{table.fields}" as="label" key="field">
-                                    <li><f:if condition="{label}">{f:translate(key:label,default:label)} </f:if><code>[{field}]</code></li>
-                                </f:for>
-                            </ul>
-                        </div>
+            <div class="panel panel-default">
+                <div class="panel-heading" role="tab">
+                    <div class="panel-heading-row">
+                        <button
+                            class="panel-button collapsed"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#permission-group-{tableName}-{id}-collapse"
+                            aria-controls="permission-group-{tableName}-{id}-collapse"
+                            aria-expanded="false"
+                        >
+                            <div class="panel-icon">
+                                <core:iconForRecord table="{tableName}" row="{id: '0'}" />
+                            </div>
+                            <div class="panel-title">
+                                <f:if condition="{table.label}">{f:translate(key:table.label,default:table.label)}</f:if><f:if condition="{showUid}"> <code>[{tableName}]</code></f:if>
+                            </div>
+                            <span class="caret"></span>
+                        </button>
                     </div>
                 </div>
-            </typo3-backend-collapsible>
+                <div id="permission-group-{tableName}-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
+                    <div class="panel-body">
+                        <ul class="panel-list">
+                            <f:for each="{table.fields}" as="label" key="field">
+                                <li><f:if condition="{label}">{f:translate(key:label,default:label)} </f:if><code>[{field}]</code></li>
+                            </f:for>
+                        </ul>
+                    </div>
+                </div>
+            </div>
         </f:for>
     </f:if>
 </f:section>
 
 <f:section name="tsconfig">
-    <typo3-backend-collapsible>
-        <div class="panel panel-default">
-            <button
-                type="button"
-                class="panel-heading panel-heading-button"
-                aria-expanded="false"
-                aria-controls="permission-group-tsconfig-{id}-collapse"
-                data-bs-target="#permission-group-tsconfig-{id}-collapse"
-                data-bs-toggle="collapse"
-            >
-                <span class="flex-grow-1 align-self-center">
-                    <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:TSconfig" />
-                </span>
-                <div class="panel-actions ml-auto">
-                    <span class="btn btn-sm btn-default">
-                        <span class="collapseIcon">
-                            <core:icon identifier="actions-view-list-expand" alternativeMarkupIdentifier="inline" />
-                        </span>
-                    </span>
-                </div>
-            </button>
-            <div id="permission-group-tsconfig-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
-                <div class="panel-body">
-                    <f:render section="userTsConfigTree" arguments="{treeArray: tsconfig}" />
-                </div>
+    <div class="panel panel-default">
+        <div class="panel-heading" role="tab">
+            <div class="panel-heading-row">
+                <button
+                    class="panel-button collapsed"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#permission-group-tsconfig-{id}-collapse"
+                    aria-controls="permission-group-tsconfig-{id}-collapse"
+                    aria-expanded="false"
+                >
+                    <div class="panel-title">
+                        <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:TSconfig" />
+                    </div>
+                    <span class="caret"></span>
+                </button>
             </div>
         </div>
-    </typo3-backend-collapsible>
+        <div id="permission-group-tsconfig-{id}-collapse" class="panel-collapse collapse" data-persist-collapse-state="true" role="tabpanel">
+            <div class="panel-body">
+                <f:render section="userTsConfigTree" arguments="{treeArray: tsconfig}" />
+            </div>
+        </div>
+    </div>
 </f:section>
 
 <f:section name="userTsConfigTree">
@@ -473,11 +460,29 @@
 
 <f:section name="pageContentTypes">
     <f:if condition="{pageContentTypes}">
-        <ul class="panel-list">
-            <f:for each="{pageContentTypes}" as="item">
-                <li>{f:translate(key:item)}</li>
-            </f:for>
-        </ul>
+        <div class="table-fit">
+            <table class="table">
+                <f:for each="{pageContentTypes}" as="item">
+                    <tr>
+                        <td class="col-icon">
+                            <core:icon identifier="{f:if(condition: item.icon, then: item.icon, else: 'empty-empty')}" />
+                        </td>
+                        <td class="col-title">
+                            <f:if condition="{item.label}">
+                                <f:then>
+                                    {f:translate(key: item.label)}
+                                    <f:if condition="{showUid}"><code title="{item.longType}">[{item.shortType}]</code></f:if>
+                                </f:then>
+                                <f:else>
+                                    {f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:notAvailableAbbreviation')}
+                                    <f:if condition="{showUid}"><code>[{item.longType}]</code></f:if>
+                                </f:else>
+                            </f:if>
+                        </td>
+                    </tr>
+                </f:for>
+            </table>
+        </div>
     </f:if>
 </f:section>
 

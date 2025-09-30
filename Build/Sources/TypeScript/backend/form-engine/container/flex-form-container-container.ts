@@ -13,18 +13,19 @@
 
 import { Collapse } from 'bootstrap';
 import SecurityUtility from '@typo3/core/security-utility';
-import FlexFormSectionContainer from './flex-form-section-container';
 import Modal from '@typo3/backend/modal';
 import RegularEvent from '@typo3/core/event/regular-event';
 import Severity from '@typo3/backend/severity';
 import { selector } from '@typo3/core/literals';
 import ClientStorage from '@typo3/backend/storage/client';
+import type FlexFormSectionContainer from './flex-form-section-container';
 
 enum Selectors {
   toggleSelector = '[data-bs-toggle="flexform-inline"]',
   actionFieldSelector = '.t3js-flex-control-action',
   controlSectionSelector = '.t3js-formengine-irre-control',
   sectionContentContainerSelector = '.t3js-flex-section-content',
+  sectionContainerLabelSelector = '.t3js-formengine-label',
   deleteContainerButtonSelector = '.t3js-delete',
   contentPreviewSelector = '.content-preview',
 }
@@ -39,7 +40,6 @@ class FlexFormContainerContainer {
   private readonly parentContainer: FlexFormSectionContainer;
   private readonly container: HTMLElement;
   private readonly containerContent: HTMLElement;
-  private readonly parentId: string;
   private readonly containerId: string;
   private readonly toggleKeyInLocalStorage: string;
 
@@ -51,9 +51,8 @@ class FlexFormContainerContainer {
     this.parentContainer = parentContainer;
     this.container = container;
     this.containerContent = container.querySelector(Selectors.sectionContentContainerSelector);
-    this.parentId = container.dataset.parent;
     this.containerId = container.dataset.flexformContainerId;
-    this.toggleKeyInLocalStorage = `formengine-flex-${parentContainer.getSectionContainer().id}-${this.containerId}-collapse`
+    this.toggleKeyInLocalStorage = `formengine-flex-${parentContainer.getSectionContainer().id}-${this.containerId}-collapse`;
 
     this.panelHeading = container.querySelector(selector`[data-bs-target="#flexform-container-${this.containerId}"]`);
     this.panelButton = this.panelHeading.querySelector(selector`[aria-controls="flexform-container-${this.containerId}"]`);
@@ -105,7 +104,7 @@ class FlexFormContainerContainer {
 
           this.container.appendChild(actionField);
           this.container.classList.add('t3-flex-section--deleted');
-          this.container.classList.add('has-change');
+          this.container.closest('.t3-form-field-container.t3-form-flex')?.querySelector(Selectors.sectionContainerLabelSelector)?.classList.add('has-change');
           new RegularEvent('transitionend', (): void => {
             this.container.classList.add('hidden');
 

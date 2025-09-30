@@ -46,7 +46,7 @@ readonly class AuthenticationStyleInformation
         $backgroundImageUri = $this->getUriForFileName($backgroundImage);
         if ($backgroundImageUri === '') {
             $this->logger->warning('The configured TYPO3 backend login background image "{image_url}" can\'t be resolved. Please check if the file exists and the extension is activated.', [
-                'image_url' => $backgroundImageUri,
+                'image_url' => $backgroundImage,
             ]);
             return '';
         }
@@ -68,6 +68,9 @@ readonly class AuthenticationStyleInformation
         }
         $highlightColor = GeneralUtility::sanitizeCssVariableValue($highlightColor);
         return '
+            .typo3-login {
+                --typo3-login-highlight: ' . $highlightColor . ';
+            }
             .btn-login {
                 --typo3-btn-color: #fff;
                 --typo3-btn-bg: ' . $highlightColor . ';
@@ -98,19 +101,7 @@ readonly class AuthenticationStyleInformation
 
     public function getLogo(): string
     {
-        $logo = ($this->getBackendExtensionConfiguration()['loginLogo'] ?? '');
-        if ($logo === '') {
-            return '';
-        }
-        $logoUri = $this->getUriForFileName($logo);
-        if ($logoUri === '') {
-            $this->logger->warning('The configured TYPO3 backend login logo "{logo_url}" can\'t be resolved. Please check if the file exists and the extension is activated.', [
-                'logo_url' => $logoUri,
-            ]);
-            return '';
-        }
-
-        return $logoUri;
+        return $this->getBackendExtensionConfiguration()['loginLogo'] ?? '';
     }
 
     public function getLogoAlt(): string
@@ -120,24 +111,7 @@ readonly class AuthenticationStyleInformation
 
     public function getDefaultLogo(): string
     {
-        // Use TYPO3 logo depending on highlight color
-        $logo = ((string)($this->getBackendExtensionConfiguration()['loginHighlightColor'] ?? '') !== '')
-            ? 'EXT:core/Resources/Public/Images/typo3_black.svg'
-            : 'EXT:core/Resources/Public/Images/typo3_orange.svg';
-
-        return $this->getUriForFileName($logo);
-    }
-
-    public function getDefaultLogoStyles(): string
-    {
-        return '.typo3-login-logo .typo3-login-image { max-width: 150px; height:100%;}';
-    }
-
-    public function getSupportingImages(): array
-    {
-        return [
-            'typo3' => $this->getUriForFileName('EXT:core/Resources/Public/Images/typo3_orange.svg'),
-        ];
+        return 'EXT:core/Resources/Public/Images/typo3_variable.svg';
     }
 
     /**
@@ -149,7 +123,7 @@ readonly class AuthenticationStyleInformation
      * @return string Returns the filename of $filename if valid, otherwise blank string.
      * @internal
      */
-    protected function getUriForFileName(string $filename): string
+    public function getUriForFileName(string $filename): string
     {
         // Check if it's already a URL
         if (preg_match('/^(https?:)?\/\//', $filename)) {

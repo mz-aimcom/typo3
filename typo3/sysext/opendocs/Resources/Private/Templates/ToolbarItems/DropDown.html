@@ -1,20 +1,17 @@
 <html xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers" data-namespace-typo3-fluid="true">
-<f:be.pageRenderer
-    includeJavaScriptModules="{
-        0: '@typo3/opendocs/toolbar/opendocs-menu.js'
-    }"
-/>
 
-<p class="h3 dropdown-headline"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.headline" /></p>
+<f:asset.module identifier="@typo3/opendocs/toolbar/opendocs-menu.js"/>
 
-<p class="h4 dropdown-headline"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.openDocuments.headline" /></p>
+<p class="dropdown-headline"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.headline" /></p>
+
+<p class="dropdown-header"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.openDocuments.headline" /></p>
 <f:if condition="{openDocuments}">
     <f:then>
         <ul class="dropdown-list" data-open-docs="{openDocuments->f:count()}">
             <f:for each="{openDocuments}" as="openDocument">
                 <li>
                     <a href="{openDocument.uri}" class="dropdown-item dropdown-item-title t3js-open-doc"
-                        data-pid="{openDocument.label}"
+                        data-pid="{openDocument.pid}"
                         title="{openDocument.label}">
                         <span class="dropdown-item-columns">
                             <span class="dropdown-item-column dropdown-item-column-icon">
@@ -55,7 +52,7 @@
 
 <hr class="dropdown-divider" aria-hidden="true">
 
-<p class="h4 dropdown-headline"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.recentDocuments.headline" /></p>
+<p class="dropdown-header"><f:translate key="LLL:EXT:opendocs/Resources/Private/Language/locallang.xlf:toolbarItems.recentDocuments.headline" /></p>
 <f:if condition="{recentDocuments}">
     <f:then>
         <ul class="dropdown-list">

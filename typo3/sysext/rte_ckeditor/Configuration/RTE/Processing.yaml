@@ -1,6 +1,7 @@
-# ****************************************************
+# ********************************************************
 # Sets the proc options for all default configurations
-# ****************************************************
+# https://docs.typo3.org/permalink/t3tsref:rte-config-proc
+# ********************************************************
 
 processing:
   mode: default
@@ -92,7 +93,7 @@ processing:
 
     ## REMOVE OPEN OFFICE META DATA TAGS, WORD 2003 TAGS, LINK, META, STYLE AND TITLE TAGS, AND DEPRECATED HTML TAGS
     ## We use this rule instead of the denyTags rule so that we can protect custom tags without protecting these unwanted tags.
-    removeTags: [center, font, link, meta, o:p, sdfield, strike, style, title, u]
+    removeTags: [link, meta, o:p, sdfield, style, title, font, center]
 
     ## PROTECT CUSTOM TAGS
     keepNonMatchedTags: protect

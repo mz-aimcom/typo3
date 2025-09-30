@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Backend\Controller\Page;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Controller\Event\AfterPageTreeItemsPreparedEvent;
 use TYPO3\CMS\Backend\Dto\Tree\Label\Label;
 use TYPO3\CMS\Backend\Dto\Tree\PageTreeItem;
@@ -30,98 +31,64 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\JsConfirmation;
 use TYPO3\CMS\Core\Database\Query\Restriction\DocumentTypeExclusionRestriction;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
  * Controller providing data to the page tree
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
+#[AsController]
 class TreeController
 {
     /**
      * Option to use the nav_title field for outputting in the tree items, set via userTS.
-     *
-     * @var bool
      */
-    protected $useNavTitle = false;
+    protected bool $useNavTitle = false;
 
     /**
      * Option to prefix the page ID when outputting the tree items, set via userTS.
-     *
-     * @var bool
      */
-    protected $addIdAsPrefix = false;
+    protected bool $addIdAsPrefix = false;
 
     /**
      * Option to prefix the domain name of sys_domains when outputting the tree items, set via userTS.
-     *
-     * @var bool
      */
-    protected $addDomainName = false;
+    protected bool $addDomainName = false;
 
     /**
      * Option to add the rootline path above each mount point, set via userTS.
-     *
-     * @var bool
      */
-    protected $showMountPathAboveMounts = false;
+    protected bool $showMountPathAboveMounts = false;
 
     /**
      * A list of pages not to be shown.
-     *
-     * @var array
      */
-    protected $hiddenRecords = [];
-
-    /**
-     * An array of background colors for a branch in the tree, set via userTS.
-     *
-     * @var array
-     * @deprecated will be removed in TYPO3 v14.0, please use labels instead
-     */
-    protected $backgroundColors = [];
+    protected array $hiddenRecords = [];
 
     /**
      * An array of labels for a branch in the tree, set via userTS.
-     *
-     * @var array
      */
     protected array $labels = [];
 
     /**
-     * Contains the state of all items that are expanded.
-     *
-     * @var array
-     */
-    protected $expandedState = [];
-
-    /**
-     * Instance of the icon factory, to be used for generating the items.
-     *
-     * @var IconFactory
-     */
-    protected $iconFactory;
-
-    /**
      * Number of tree levels which should be returned on the first page tree load
-     *
-     * @var int
      */
-    protected $levelsToFetch = 2;
+    protected int $levelsToFetch = 2;
 
     /**
      * When set to true all nodes returend by API will be expanded
-     * @var bool
      */
-    protected $expandAllNodes = false;
+    protected bool $expandAllNodes = false;
 
     /**
      * Used in the record link picker to limit the page tree only to a specific list
@@ -129,20 +96,18 @@ class TreeController
      */
     protected array $alternativeEntryPoints = [];
 
-    protected UriBuilder $uriBuilder;
-
     protected PageTreeRepository $pageTreeRepository;
 
     protected bool $userHasAccessToModifyPagesAndToDefaultLanguage = false;
 
-    /**
-     * Constructor to set up common objects needed in various places.
-     */
-    public function __construct()
-    {
-        $this->iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-        $this->uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-    }
+    public function __construct(
+        protected readonly IconFactory $iconFactory,
+        protected readonly UriBuilder $uriBuilder,
+        protected readonly EventDispatcherInterface $eventDispatcher,
+        protected readonly SiteFinder $siteFinder,
+        protected readonly PageDoktypeRegistry $pageDoktypeRegistry,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
 
     protected function initializeConfiguration(ServerRequestInterface $request)
     {
@@ -163,7 +128,6 @@ class TreeController
             (string)($userTsConfig['options.']['hideRecords.']['pages'] ?? ''),
             true
         );
-        $this->backgroundColors = $userTsConfig['options.']['pageTree.']['backgroundColor.'] ?? [];
         $this->labels = $userTsConfig['options.']['pageTree.']['label.'] ?? [];
         $this->addIdAsPrefix = (bool)($userTsConfig['options.']['pageTree.']['showPageIdWithTitle'] ?? false);
         $this->addDomainName = (bool)($userTsConfig['options.']['pageTree.']['showDomainNameWithTitle'] ?? false);
@@ -184,6 +148,7 @@ class TreeController
             'temporaryMountPoint' => $this->getMountPointPath((int)($this->getBackendUser()->uc['pageTree_temporaryMountPoint'] ?? 0)),
             'showIcons' => true,
             'dataUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_data'),
+            'rootlineUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_rootline'),
             'filterUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_filter'),
             'setTemporaryMountPointUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_set_temporary_mount_point'),
         ];
@@ -222,11 +187,7 @@ class TreeController
     {
         $backendUser = $this->getBackendUser();
         $doktypeLabelMap = [];
-        foreach ($GLOBALS['TCA']['pages']['columns']['doktype']['config']['items'] as $doktypeItemConfig) {
-            $selectionItem = SelectItem::fromTcaItemArray($doktypeItemConfig);
-            if ($selectionItem->isDivider()) {
-                continue;
-            }
+        foreach ($this->pageDoktypeRegistry->getAllDoktypes() as $selectionItem) {
             $doktypeLabelMap[$selectionItem->getValue()] = $selectionItem->getLabel();
         }
         $doktypes = GeneralUtility::intExplode(',', (string)($backendUser->getTSConfig()['options.']['pageTree.']['doktypesToShowInNewPageDragArea'] ?? ''), true);
@@ -245,7 +206,7 @@ class TreeController
             $label = htmlspecialchars($this->getLanguageService()->sL($doktypeLabelMap[$doktype]));
             $output[] = [
                 'nodeType' => $doktype,
-                'icon' => $GLOBALS['TCA']['pages']['ctrl']['typeicon_classes'][$doktype] ?? '',
+                'icon' => $this->tcaSchemaFactory->get('pages')->getRawConfiguration()['typeicon_classes'][$doktype] ?? '',
                 'title' => $label,
             ];
         }
@@ -279,6 +240,31 @@ class TreeController
         $items = array_merge(...$items);
 
         return new JsonResponse($this->getPostProcessedPageItems($request, $items));
+    }
+
+    /**
+     * Returns JSON representing page rootline
+     */
+    public function fetchRootlineAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $identifier = (string)($request->getQueryParams()['identifier'] ?? '');
+        if (!MathUtility::canBeInterpretedAsInteger($identifier)) {
+            return new JsonResponse(null, 400);
+        }
+        $pageId = (int)$identifier;
+
+        if ($pageId === 0) {
+            return new JsonResponse(['rootline' => ['0']]);
+        }
+
+        $rootline = BackendUtility::BEgetRootLine((int)$identifier);
+        if ($rootline === []) {
+            return new JsonResponse(null, 404);
+        }
+
+        return new JsonResponse([
+            'rootline' => array_map(strval(...), array_column(array_reverse($rootline), 'uid')),
+        ]);
     }
 
     /**
@@ -350,9 +336,6 @@ class TreeController
 
         $stopPageTree = !empty($page['php_tree_stop']) && $depth > 0;
         $identifier = $entryPoint . '_' . $pageId;
-        $expanded = !empty($page['expanded'])
-            || (isset($this->expandedState[$identifier]) && $this->expandedState[$identifier])
-            || $this->expandAllNodes;
 
         $suffix = '';
         $prefix = '';
@@ -387,13 +370,6 @@ class TreeController
         }
 
         $labels = [];
-        if (!empty($this->backgroundColors[$pageId])) {
-            $labels[] = new Label(
-                label: $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.color') . ': ' . $this->backgroundColors[$pageId],
-                color: $this->backgroundColors[$pageId] ?? '#ff0000',
-                priority: -1,
-            );
-        }
         if (!empty($this->labels[$pageId . '.']) && isset($this->labels[$pageId . '.']['label']) && trim($this->labels[$pageId . '.']['label']) !== '') {
             $labels[] = new Label(
                 label: (string)($this->labels[$pageId . '.']['label']),
@@ -419,7 +395,6 @@ class TreeController
             'depth' => $depth,
             'icon' => $icon->getIdentifier(),
             'overlayIcon' => $icon->getOverlayIcon() ? $icon->getOverlayIcon()->getIdentifier() : '',
-            'expanded' => $expanded,
             'editable' => $editable,
             'deletable' => $backendUser->doesUserHaveAccess($page, Permission::PAGE_DELETE),
             'labels' => $labels,
@@ -452,7 +427,7 @@ class TreeController
         }
 
         $items[] = $item;
-        if (!$stopPageTree && is_array($page['_children']) && !empty($page['_children']) && ($depth < $this->levelsToFetch || $expanded)) {
+        if (!$stopPageTree && is_array($page['_children']) && !empty($page['_children']) && ($depth < $this->levelsToFetch || $this->expandAllNodes)) {
             $items[key($items)]['loaded'] = true;
             foreach ($page['_children'] as $child) {
                 $items = array_merge($items, $this->pagesToFlatArray($child, $entryPoint, $depth + 1));
@@ -568,7 +543,7 @@ class TreeController
                     $entryPointRecord = $this->pageTreeRepository->getTree($entryPointRecord['uid'], null, $entryPointIds);
                 }
 
-                if (is_array($entryPointRecord) && !empty($entryPointRecord)) {
+                if ($entryPointRecord !== []) {
                     $entryPointRecords[$k] = $entryPointRecord;
                 }
             }
@@ -582,16 +557,13 @@ class TreeController
      */
     protected function getDomainNameForPage(int $pageId): string
     {
-        $domain = '';
-        $siteFinder = GeneralUtility::makeInstance(SiteFinder::class);
         try {
-            $site = $siteFinder->getSiteByRootPageId($pageId);
-            $domain = (string)$site->getBase();
-        } catch (SiteNotFoundException $e) {
+            $site = $this->siteFinder->getSiteByRootPageId($pageId);
+            return (string)$site->getBase();
+        } catch (SiteNotFoundException) {
             // No site found
         }
-
-        return $domain;
+        return '';
     }
 
     /**
@@ -660,7 +632,6 @@ class TreeController
                         tooltip: (string)($item['tooltip'] ?? ''),
                         depth: (int)($item['depth'] ?? 0),
                         hasChildren: (bool)($item['hasChildren'] ?? false),
-                        expanded: (bool)($item['expanded'] ?? false),
                         loaded: (bool)($item['loaded'] ?? false),
                         editable: (bool)($item['editable'] ?? false),
                         deletable: (bool)($item['deletable'] ?? false),
@@ -678,7 +649,7 @@ class TreeController
                     mountPoint: (int)($item['mountPoint'] ?? 0),
                 );
             },
-            GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+            $this->eventDispatcher->dispatch(
                 new AfterPageTreeItemsPreparedEvent($request, $items)
             )->getItems()
         );

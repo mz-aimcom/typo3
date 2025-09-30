@@ -15,6 +15,7 @@
 
 namespace TYPO3\CMS\Backend\Form\Container;
 
+use TYPO3\CMS\Backend\Form\Behavior\ReloadOnFieldChange;
 use TYPO3\CMS\Backend\Form\Behavior\UpdateValueOnFieldChange;
 use TYPO3\CMS\Backend\Form\InlineStackProcessor;
 use TYPO3\CMS\Backend\Form\Utility\FormEngineUtility;
@@ -33,12 +34,10 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  */
 class SingleFieldContainer extends AbstractContainer
 {
-    /**
-     * Entry method
-     *
-     * @throws \InvalidArgumentException
-     * @return array As defined in initializeResultArray() of AbstractNode
-     */
+    public function __construct(
+        private readonly InlineStackProcessor $inlineStackProcessor
+    ) {}
+
     public function render(): array
     {
         $backendUser = $this->getBackendUserAuthentication();
@@ -119,6 +118,14 @@ class SingleFieldContainer extends AbstractContainer
             $parameterArray['itemFormElName']
         );
 
+        $requestFormEngineUpdate =
+            (!empty($this->data['processedTca']['ctrl']['type']) && $fieldName === $typeField)
+            || (isset($parameterArray['fieldConf']['onChange']) && $parameterArray['fieldConf']['onChange'] === 'reload');
+        if ($requestFormEngineUpdate) {
+            $askForUpdate = $backendUser->jsConfirmation(JsConfirmation::TYPE_CHANGE);
+            $parameterArray['fieldChangeFunc']['record_type_changed'] = new ReloadOnFieldChange($askForUpdate);
+        }
+
         // Based on the type of the item, call a render function on a child element
         $options = $this->data;
         $options['parameterArray'] = $parameterArray;
@@ -129,48 +136,25 @@ class SingleFieldContainer extends AbstractContainer
             // Fallback to type if no renderType is given
             $options['renderType'] = $parameterArray['fieldConf']['config']['type'];
         }
-        $resultArray = $this->nodeFactory->create($options)->render();
-        if ($resultArray['html'] !== '') {
-            // Render a custom HTML element which will ask the user to save/update the form due to changing the element.
-            // This is used for e.g. "type" fields and others configured with "onChange"
-            // (https://docs.typo3.org/m/typo3/reference-tca/main/en-us/Columns/Properties/OnChange.html)
-            $requestFormEngineUpdate =
-                (!empty($this->data['processedTca']['ctrl']['type']) && $fieldName === $typeField)
-                || (isset($parameterArray['fieldConf']['onChange']) && $parameterArray['fieldConf']['onChange'] === 'reload');
-            if ($requestFormEngineUpdate) {
-                $askForUpdate = $backendUser->jsConfirmation(JsConfirmation::TYPE_CHANGE);
-                $requestMode = $askForUpdate ? 'ask' : 'enforce';
-                $fieldSelector = sprintf('[name="%s"]', $parameterArray['itemFormElName']);
-                $resultArray['html'] .= '<typo3-formengine-updater mode="' . htmlspecialchars($requestMode) . '" field="' . htmlspecialchars($fieldSelector) . '"></typo3-formengine-updater>';
-            }
-        }
-        return $resultArray;
+
+        return $this->nodeFactory->create($options)->render();
     }
 
     /**
      * Rendering of inline fields should be skipped under certain circumstances
-     *
-     * @return bool TRUE if field should be skipped based on inline configuration
      */
-    protected function inlineFieldShouldBeSkipped()
+    protected function inlineFieldShouldBeSkipped(): bool
     {
         $table = $this->data['tableName'];
         $fieldName = $this->data['fieldName'];
         $fieldConfig = $this->data['processedTca']['columns'][$fieldName]['config'];
-
         $fieldConfig += [
             'MM' => '',
             'foreign_table' => '',
             'foreign_selector' => '',
             'foreign_field' => '',
         ];
-
-        $inlineStackProcessor = GeneralUtility::makeInstance(InlineStackProcessor::class);
-        $inlineStackProcessor->initializeByGivenStructure($this->data['inlineStructure']);
-        $structureDepth = $inlineStackProcessor->getStructureDepth();
-
-        $skipThisField = false;
-        if ($structureDepth > 0) {
+        if (count($this->data['inlineStructure']['stable'] ?? []) > 0) {
             $searchArray = [
                 '%OR' => [
                     'config' => [
@@ -195,8 +179,6 @@ class SingleFieldContainer extends AbstractContainer
                     ],
                 ],
             ];
-            // Get the parent record from structure stack
-            $level = $inlineStackProcessor->getStructureLevel(-1) ?: [];
             // If we have symmetric fields, check on which side we are and hide fields, that are set automatically:
             if ($this->data['isOnSymmetricSide']) {
                 $searchArray['%OR']['config'][0]['%AND']['%OR']['symmetric_field'] = $fieldName;
@@ -205,9 +187,11 @@ class SingleFieldContainer extends AbstractContainer
                 $searchArray['%OR']['config'][0]['%AND']['%OR']['foreign_field'] = $fieldName;
                 $searchArray['%OR']['config'][0]['%AND']['%OR']['foreign_sortby'] = $fieldName;
             }
-            $skipThisField = $this->arrayCompareComplex($level, $searchArray);
+            // Parent record from structure stack
+            $parent = $this->inlineStackProcessor->getStructureLevelFromStructure($this->data['inlineStructure'], -1) ?? [];
+            return $this->arrayCompareComplex($parent, $searchArray);
         }
-        return $skipThisField;
+        return false;
     }
 
     /**
@@ -242,7 +226,7 @@ class SingleFieldContainer extends AbstractContainer
      * @param string $type Use '%AND' or '%OR' for comparison
      * @return bool The result of the comparison
      */
-    protected function arrayCompareComplex($subjectArray, $searchArray, $type = '')
+    protected function arrayCompareComplex($subjectArray, $searchArray, $type = ''): bool
     {
         $localMatches = 0;
         $localEntries = 0;

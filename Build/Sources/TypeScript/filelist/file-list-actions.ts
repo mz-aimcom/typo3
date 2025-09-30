@@ -12,7 +12,7 @@
  */
 
 import RegularEvent from '@typo3/core/event/regular-event';
-import { ResourceInterface } from '@typo3/backend/resource/resource';
+import type { ResourceInterface } from '@typo3/backend/resource/resource';
 
 export interface FileListActionDetail {
   event: Event;
@@ -28,6 +28,7 @@ export enum FileListActionEvent {
   primaryContextmenu = 'typo3:filelist:resource:action:primaryContextmenu',
   show = 'typo3:filelist:resource:action:show',
   rename = 'typo3:filelist:resource:action:rename',
+  replace = 'typo3:filelist:resource:action:replace',
   select = 'typo3:filelist:resource:action:select',
   download = 'typo3:filelist:resource:action:download',
   updateOnlineMedia = 'typo3:filelist:resource:action:updateOnlineMedia',
@@ -44,9 +45,12 @@ export class FileListActionUtility {
       type: dataset.filecontextType,
       identifier: dataset.filecontextIdentifier,
       name: dataset.filecontextName,
-      thumbnail: null,
+      hasPreview: false,
       uid: dataset.filecontextUid ? parseInt(dataset.filecontextUid, 10) : null,
       metaUid: dataset.filecontextMetaUid ? parseInt(dataset.filecontextMetaUid, 10) : null,
+      url: dataset.filecontextUid ? dataset.url : null,
+      createdAt: dataset.filecontextCreatedAt ? parseInt(dataset.filecontextCreatedAt, 10) : null,
+      size: dataset.filecontextSize ? parseInt(dataset.filecontextSize, 10) : null,
     };
 
     return resource;
@@ -58,9 +62,12 @@ export class FileListActionUtility {
       type: element.dataset.filelistType,
       identifier: element.dataset.filelistIdentifier,
       name: element.dataset.filelistName,
-      thumbnail: ('filelistThumbnail' in element.dataset && element.dataset.filelistThumbnail.trim() !== '') ? element.dataset.filelistThumbnail : null,
+      hasPreview: 'filelistPreview' in element.dataset && element.dataset.filelistPreview.trim() === 'true',
       uid: element.dataset.filelistUid ? parseInt(element.dataset.filelistUid, 10) : null,
       metaUid: element.dataset.filelistMetaUid ? parseInt(element.dataset.filelistMetaUid, 10) : null,
+      url: element.dataset.filelistUrl ? element.dataset.filelistUrl : null,
+      createdAt: element.dataset.filelistCreatedAt ? parseInt(element.dataset.filelistCreatedAt, 10) : null,
+      size: element.dataset.filelistSize ? parseInt(element.dataset.filelistSize, 10) : null,
     };
 
     return resource;
@@ -98,6 +105,9 @@ class FileListActions {
           break;
         case 'rename':
           document.dispatchEvent(new CustomEvent(FileListActionEvent.rename, { detail: detail }));
+          break;
+        case 'replace':
+          document.dispatchEvent(new CustomEvent(FileListActionEvent.replace, { detail: detail }));
           break;
         case 'download':
           document.dispatchEvent(new CustomEvent(FileListActionEvent.download, { detail: detail }));

@@ -66,7 +66,4 @@ enum TokenType: int
     case T_IMPORT_KEYWORD = 1200; // '@import'
     case T_IMPORT_START = 1201; // ''' (tick) or '"' (doubletick) after @import
     case T_IMPORT_STOP = 1202; // ''' (tick) or '"' (doubletick) after T_IMPORT_START
-
-    case T_IMPORT_KEYWORD_OLD = 1300; // '<INCLUDE_TYPOSCRIPT:'
-    case T_IMPORT_KEYWORD_OLD_STOP = 1301; // '>' after T_IMPORT_KEYWORD_OLD
 }

@@ -20,11 +20,13 @@ namespace TYPO3\CMS\Workspaces\Preview;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\UriInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder as BackendPreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
@@ -32,12 +34,13 @@ use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
 use TYPO3\CMS\Core\Routing\UnableToLinkToPageException;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Workspaces\Event\RetrievedPreviewUrlEvent;
-use TYPO3\CMS\Workspaces\Service\WorkspaceService;
 
 /**
  * Create links to pages when in a workspace for previewing purposes
@@ -45,34 +48,18 @@ use TYPO3\CMS\Workspaces\Service\WorkspaceService;
  * @internal
  */
 #[Autoconfigure(public: true)]
-class PreviewUriBuilder
+readonly class PreviewUriBuilder
 {
-    /**
-     * @var array
-     */
-    protected $pageCache = [];
-
-    /**
-     * @var WorkspaceService
-     */
-    protected $workspaceService;
-
-    /**
-     * @var EventDispatcherInterface
-     */
-    protected $eventDispatcher;
-
-    /**
-     * @var int
-     */
-    protected $previewLinkLifetime;
-
-    public function __construct(EventDispatcherInterface $eventDispatcher, WorkspaceService $workspaceService)
-    {
-        $this->eventDispatcher = $eventDispatcher;
-        $this->workspaceService = $workspaceService;
-        $this->previewLinkLifetime = $this->workspaceService->getPreviewLinkLifetime();
-    }
+    public function __construct(
+        private EventDispatcherInterface $eventDispatcher,
+        #[Autowire(service: 'cache.runtime')]
+        private FrontendInterface $runtimeCache,
+        private SiteFinder $siteFinder,
+        private UriBuilder $uriBuilder,
+        private ConnectionPool $connectionPool,
+        private TranslationConfigurationProvider $translationConfigurationProvider,
+        private TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
 
     /**
      * Generates a workspace preview link.
@@ -83,17 +70,12 @@ class PreviewUriBuilder
      */
     public function buildUriForPage(int $uid, int $languageId = 0): string
     {
-        $previewKeyword = $this->compilePreviewKeyword(
-            $this->previewLinkLifetime * 3600,
-            $this->workspaceService->getCurrentWorkspace()
-        );
-
-        $siteFinder = GeneralUtility::makeInstance(SiteFinder::class);
+        $previewKeyword = $this->compilePreviewKeyword();
         try {
-            $site = $siteFinder->getSiteByPageId($uid);
+            $site = $this->siteFinder->getSiteByPageId($uid);
             try {
                 $language = $site->getLanguageById($languageId);
-            } catch (\InvalidArgumentException $e) {
+            } catch (\InvalidArgumentException) {
                 $language = $site->getDefaultLanguage();
             }
             $uri = $site->getRouter()->generateUri($uid, ['ADMCMD_prev' => $previewKeyword, '_language' => $language], '');
@@ -130,8 +112,7 @@ class PreviewUriBuilder
         if ($uid > 0) {
             $uid = $this->getLivePageUid($uid);
         }
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-        return $uriBuilder->buildUriFromRoute(
+        return $this->uriBuilder->buildUriFromRoute(
             'workspace_previewcontrols',
             ['id' => $uid],
             UriBuilder::ABSOLUTE_URL
@@ -143,8 +124,6 @@ class PreviewUriBuilder
      *
      * @param string $table Table to be used
      * @param int $uid Uid of the version(!) record
-     * @param array $liveRecord Optional live record data
-     * @param array $versionRecord Optional version record data
      */
     public function buildUriForElement(string $table, int $uid, ?array $liveRecord = null, ?array $versionRecord = null): string
     {
@@ -160,40 +139,33 @@ class PreviewUriBuilder
 
     protected function createPreviewUriForElement(string $table, int $uid, ?array $liveRecord = null, ?array $versionRecord = null): ?UriInterface
     {
-        if ($table === 'pages') {
-            return BackendPreviewUriBuilder::create((int)BackendUtility::getLiveVersionIdOfRecord('pages', $uid))
-                ->buildUri();
-        }
-
         if ($liveRecord === null) {
             $liveRecord = BackendUtility::getLiveVersionOfRecord($table, $uid);
         }
+
+        if ($table === 'pages') {
+            return BackendPreviewUriBuilder::create($liveRecord)->buildUri();
+        }
+
         if ($versionRecord === null) {
             $versionRecord = BackendUtility::getRecord($table, $uid);
         }
 
         // Directly use pid value and consider move placeholders
         $previewPageId = (int)(empty($versionRecord['pid']) ? $liveRecord['pid'] : $versionRecord['pid']);
-        $linkParameters = [
-            'previewWS' => $versionRecord['t3ver_wsid'],
-        ];
+        $linkParameters = [];
         // Add language parameter if record is a localization
-        if (BackendUtility::isTableLocalizable($table)) {
-            $languageField = $GLOBALS['TCA'][$table]['ctrl']['languageField'];
+        $schema = $this->tcaSchemaFactory->get($table);
+        if ($schema->isLanguageAware()) {
+            $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
             if ($versionRecord[$languageField] > 0) {
                 $linkParameters['_language'] = $versionRecord[$languageField];
             }
         }
 
         $pageTsConfig = BackendUtility::getPagesTSconfig($previewPageId);
-        // Directly use determined direct page id
-        if ($table === 'tt_content') {
-            return BackendPreviewUriBuilder::create($previewPageId)
-                ->withAdditionalQueryParameters(
-                    HttpUtility::buildQueryString($linkParameters, '&')
-                )
-                ->buildUri();
-        }
+        $backendPreviewConfiguration = $pageTsConfig['TCEMAIN.']['preview.'][$table . '.'] ?? [];
+
         if (!empty($pageTsConfig['options.']['workspaces.']['previewPageId.'][$table]) || !empty($pageTsConfig['options.']['workspaces.']['previewPageId'])) {
             // Analyze Page TSconfig options.workspaces.previewPageId
             if (!empty($pageTsConfig['options.']['workspaces.']['previewPageId.'][$table])) {
@@ -208,78 +180,99 @@ class PreviewUriBuilder
             } else {
                 $previewPageId = (int)$previewConfiguration;
             }
-
-            // Add preview parameters from standard backend preview mechanism
-            // map record data to GET parameters
-            $backendPreviewConfiguration = $pageTsConfig['TCEMAIN.']['preview.'][$table . '.'] ?? [];
-            if (isset($backendPreviewConfiguration['fieldToParameterMap.'])) {
-                foreach ($backendPreviewConfiguration['fieldToParameterMap.'] as $field => $parameterName) {
-                    $value = $versionRecord[$field] ?? '';
-                    if ($field === 'uid') {
-                        $value = $versionRecord['t3ver_oid'] === 0 ? $versionRecord['uid'] : $versionRecord['t3ver_oid'];
-                    }
-                    $linkParameters[$parameterName] = $value;
-                }
-            }
-            // add/override parameters by configuration
-            if (isset($backendPreviewConfiguration['additionalGetParameters.'])) {
-                $additionalGetParameters = GeneralUtility::removeDotsFromTS($backendPreviewConfiguration['additionalGetParameters.']);
-                $linkParameters = array_replace($linkParameters, $additionalGetParameters);
-            }
-
-            return BackendPreviewUriBuilder::create($previewPageId)
-                ->withAdditionalQueryParameters(
-                    HttpUtility::buildQueryString($linkParameters, '&')
-                )
-                ->buildUri();
+        } elseif (isset($backendPreviewConfiguration['previewPageId'])) {
+            $previewPageId = (int)$backendPreviewConfiguration['previewPageId'];
         }
-        return null;
+
+        // Add preview parameters from standard backend preview mechanism
+        // map record data to GET parameters
+        if (isset($backendPreviewConfiguration['fieldToParameterMap.'])) {
+            foreach ($backendPreviewConfiguration['fieldToParameterMap.'] as $field => $parameterName) {
+                $value = $versionRecord[$field] ?? '';
+                if ($field === 'uid') {
+                    $value = $versionRecord['t3ver_oid'] === 0 ? $versionRecord['uid'] : $versionRecord['t3ver_oid'];
+                }
+                $linkParameters[$parameterName] = $value;
+            }
+        }
+        // add/override parameters by configuration
+        if (isset($backendPreviewConfiguration['additionalGetParameters.'])) {
+            $additionalGetParameters = GeneralUtility::removeDotsFromTS($backendPreviewConfiguration['additionalGetParameters.']);
+            $linkParameters = array_replace($linkParameters, $additionalGetParameters);
+        }
+
+        return BackendPreviewUriBuilder::create($previewPageId)
+            ->withAdditionalQueryParameters(
+                HttpUtility::buildQueryString($linkParameters, '&')
+            )
+            ->buildUri();
     }
 
     /**
      * Adds an entry to the sys_preview database table and return the preview keyword.
+     * Cached in runtime cache to only create *one* link per request, even if the service
+     * method is called multiple times.
      *
-     * @param int $ttl Time-To-Live for keyword
-     * @param int|null $workspaceId Which workspace ID to preview.
-     * @return string Returns keyword to use in URL for ADMCMD_prev=, a 32 byte MD5 hash keyword for the URL: "?ADMCMD_prev=[keyword]
+     * @return string Returns a 32 byte MD5 hash keyword for use in URL for ADMCMD_prev=[keyword]
      */
-    protected function compilePreviewKeyword(int $ttl = 172800, ?int $workspaceId = null): string
+    protected function compilePreviewKeyword(): string
     {
+        $workspaceId = $this->getBackendUser()->workspace;
+        $userId = $this->getBackendUser()->getUserId();
+        $cacheIdentifier = 'workspaces-preview-keyword-' . $workspaceId . '-' . $userId;
+        if ($keyword = $this->runtimeCache->get($cacheIdentifier)) {
+            return $keyword;
+        }
+        $lifetimeInSeconds = $this->getPreviewLinkLifetime() * 3600;
         $keyword = md5(StringUtility::getUniqueId());
-        GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getConnectionForTable('sys_preview')
+        $this->connectionPool->getConnectionForTable('sys_preview')
             ->insert(
                 'sys_preview',
                 [
                     'keyword' => $keyword,
                     'tstamp' => $GLOBALS['EXEC_TIME'],
-                    'endtime' => $GLOBALS['EXEC_TIME'] + $ttl,
+                    'endtime' => $GLOBALS['EXEC_TIME'] + $lifetimeInSeconds,
                     'config' => json_encode([
-                        'fullWorkspace' => $workspaceId,
+                        'fullWorkspace' => $this->getBackendUser()->workspace,
                     ]),
                 ]
             );
-
+        $this->runtimeCache->set($cacheIdentifier, $keyword);
         return $keyword;
     }
 
     /**
-     * Find the Live-Uid for a given page,
-     * the results are cached at run-time to avoid too many database-queries
-     *
-     * @throws \InvalidArgumentException
+     * Determine the number of hours a preview link should be valid after creation, default 48 hours.
+     */
+    protected function getPreviewLinkLifetime(): int
+    {
+        $workspaceId = $this->getBackendUser()->workspace;
+        if ($workspaceId > 0) {
+            $wsRecord = BackendUtility::getRecord('sys_workspace', $workspaceId, 'previewlink_lifetime');
+            if (($wsRecord['previewlink_lifetime'] ?? 0) > 0) {
+                return (int)$wsRecord['previewlink_lifetime'];
+            }
+        }
+        return (int)($this->getBackendUser()->getTSConfig()['options.']['workspaces.']['previewLinkTTLHours'] ?? 0) ?: 24 * 2;
+    }
+
+    /**
+     * Find the Live-Uid for a given page uid and runtime cache the result
+     * to avoid too many database-queries.
      */
     protected function getLivePageUid(int $uid): int
     {
-        if (!isset($this->pageCache[$uid])) {
-            $pageRecord = BackendUtility::getRecord('pages', $uid);
-            if (is_array($pageRecord)) {
-                $this->pageCache[$uid] = $pageRecord['t3ver_oid'] ? (int)$pageRecord['t3ver_oid'] : $uid;
-            } else {
-                throw new \InvalidArgumentException('uid is supposed to point to an existing page - given value was: ' . $uid, 1290628113);
-            }
+        $cacheIdentifier = 'workspaces-page-uid-to-live-uid-' . $uid;
+        if ($liveUid = $this->runtimeCache->get($cacheIdentifier)) {
+            return $liveUid;
         }
-        return $this->pageCache[$uid];
+        $pageRecord = BackendUtility::getRecord('pages', $uid);
+        if (!is_array($pageRecord)) {
+            throw new \InvalidArgumentException('uid is supposed to point to an existing page - given value was: ' . $uid, 1290628113);
+        }
+        $liveUid = $pageRecord['t3ver_oid'] ? (int)$pageRecord['t3ver_oid'] : $uid;
+        $this->runtimeCache->set($cacheIdentifier, $liveUid);
+        return $liveUid;
     }
 
     /**
@@ -290,33 +283,33 @@ class PreviewUriBuilder
     protected function getAvailableLanguages(int $pageId): array
     {
         $languageOptions = [];
-        $translationConfigurationProvider = GeneralUtility::makeInstance(TranslationConfigurationProvider::class);
-        $systemLanguages = $translationConfigurationProvider->getSystemLanguages($pageId);
+        $systemLanguages = $this->translationConfigurationProvider->getSystemLanguages($pageId);
 
         if ($this->getBackendUser()->checkLanguageAccess(0)) {
             // Use configured label for default language
             $languageOptions[0] = $systemLanguages[0]['title'];
         }
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable('pages');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
 
-        $result = $queryBuilder->select('sys_language_uid')
+        $languageDetails = $this->tcaSchemaFactory->get('pages')->getCapability(TcaSchemaCapability::Language);
+        $result = $queryBuilder
+            ->select($languageDetails->getLanguageField()->getName())
             ->from('pages')
             ->where(
                 $queryBuilder->expr()->eq(
-                    $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'],
+                    $languageDetails->getTranslationOriginPointerField()->getName(),
                     $queryBuilder->createNamedParameter($pageId, Connection::PARAM_INT)
                 )
             )
             ->executeQuery();
 
         while ($row = $result->fetchAssociative()) {
-            $languageId = (int)$row['sys_language_uid'];
+            $languageId = (int)$row[$languageDetails->getLanguageField()->getName()];
             // Only add links to active languages the user has access to
             if (isset($systemLanguages[$languageId]) && $this->getBackendUser()->checkLanguageAccess($languageId)) {
                 $languageOptions[$languageId] = $systemLanguages[$languageId]['title'];

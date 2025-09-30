@@ -11,13 +11,11 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, TemplateResult, render } from 'lit';
+import { html, LitElement, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators';
 import { lll } from '@typo3/core/lit-helper';
 import '@typo3/backend/element/icon-element';
-import Severity from '@typo3/backend/severity';
 import Modal from '@typo3/backend/modal';
-import { SeverityEnum } from '@typo3/backend/enum/severity';
 
 /**
  * Module: @typo3/backend/form-engine/element/table-wizard-element
@@ -43,7 +41,7 @@ export class TableWizardElement extends LitElement {
     return this.table[0] || [];
   }
 
-  public connectedCallback(): void {
+  public override connectedCallback(): void {
     super.connectedCallback();
 
     this.selectorData = this.getAttribute('selector');
@@ -52,11 +50,11 @@ export class TableWizardElement extends LitElement {
     this.readTableFromTextarea();
   }
 
-  protected createRenderRoot(): HTMLElement | ShadowRoot {
+  protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
-  protected render(): TemplateResult {
+  protected override render(): TemplateResult {
     return this.renderTemplate();
   }
 
@@ -70,6 +68,7 @@ export class TableWizardElement extends LitElement {
   }
 
   private readTableFromTextarea(): void {
+    // Note: We do not wait for `DocumentService.ready()` here, as the <textarea> is placed as a previous sibling before this element in DOM
     const textarea: HTMLTextAreaElement = document.querySelector(this.selectorData);
     const table: string[][] = [];
 
@@ -304,21 +303,29 @@ export class TableWizardElement extends LitElement {
     const initTableValue: number = lastColIndex || 1;
 
     const modal = Modal.advanced({
-      content: '', // Callback is used to fill in content
+      content: html`
+        <div class="form-group">
+          <label for="t3js-expand-rows" class="form-label">${lll('table_rowCount')}</label>
+          <input id="t3js-expand-rows" class="form-control" type="number" min="1" required value="${initRowValue}">
+        </div>
+        <div class="form-group">
+          <label for="t3js-expand-cols" class="form-label">${lll('table_colCount')}</label>
+          <input id="t3js-expand-cols" class="form-control" type="number" min="1" required value="${initTableValue}">
+        </div>
+      `,
       title: lll('table_setCountHeadline'),
-      severity: SeverityEnum.notice,
       size: Modal.sizes.small,
       buttons: [
         {
-          text: lll('button.close') || 'Close',
-          active: true,
+          text: lll('labels.cancel') || 'Cancel',
           btnClass: 'btn-default',
           name: 'cancel',
-          trigger: (): void => Modal.dismiss(),
+          trigger: (): void => modal.hideModal(),
         },
         {
-          text: lll('table_buttonApply') || 'Apply',
-          btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.info),
+          text: lll('table_buttonUpdate') || 'Update',
+          active: true,
+          btnClass: 'btn-primary',
           name: 'apply',
           trigger: (): void => {
             const rows: HTMLInputElement = modal.querySelector('#t3js-expand-rows');
@@ -332,70 +339,51 @@ export class TableWizardElement extends LitElement {
               const modifyRows: number = Number(rows.value) - lastRowIndex;
               const modifyCols: number = Number(cols.value) - lastColIndex;
               this.setColAndRowCount(evt, modifyCols, modifyRows);
-              Modal.dismiss();
+              modal.hideModal();
             } else {
               rows.reportValidity();
               cols.reportValidity();
             }
           }
         }
-      ],
-      callback: (currentModal: HTMLElement): void => {
-        render(
-          html`
-            <div class="form-group ">
-              <label>${lll('table_rowCount')}</label>
-              <input id="t3js-expand-rows" class="form-control" type="number" min="1" required value="${initRowValue}">
-            </div>
-            <div class="form-group ">
-              <label>${lll('table_colCount')}</label>
-              <input id="t3js-expand-cols" class="form-control" type="number" min="1" required value="${initTableValue}">
-            </div>
-          `,
-          currentModal.querySelector('.t3js-modal-body') as HTMLElement
-        );
-      }
+      ]
     });
   }
 
   private showTableSyntax(): void {
-
+    const textarea: HTMLTextAreaElement = document.querySelector(this.selectorData);
     const modal = Modal.advanced({
-      content: '', // Callback is used to fill in content
-      title: lll('table_showCode'),
-      severity: SeverityEnum.notice,
+      content: html`
+        <div class="form-group">
+          <label for="table-wizard-textarea-raw" class="form-label">${lll('table_showCodeLabel')}</label>
+          <textarea id="table-wizard-textarea-raw" rows="8" class="form-control">${textarea.value}</textarea>
+        </div>
+      `,
+      title: lll('table_showCodeHeadline'),
       size: Modal.sizes.small,
       buttons: [
         {
-          text: lll('button.close') || 'Close',
-          active: true,
+          text: lll('labels.cancel') || 'Cancel',
           btnClass: 'btn-default',
           name: 'cancel',
-          trigger: (): void => Modal.dismiss(),
+          trigger: (): void => modal.hideModal(),
         },
         {
-          text: lll('table_buttonApply') || 'Apply',
-          btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.info),
+          text: lll('table_buttonUpdate') || 'Update',
+          active: true,
+          btnClass: 'btn-primary',
           name: 'apply',
           trigger: (): void => {
             // Apply table changes
-            const textarea: HTMLTextAreaElement = document.querySelector(this.selectorData);
             textarea.value = modal.querySelector('textarea').value;
+            textarea.dispatchEvent(new CustomEvent('change', { bubbles: true }));
             this.readTableFromTextarea();
             this.requestUpdate();
 
-            Modal.dismiss();
+            modal.hideModal();
           }
         }
-      ],
-      callback: (currentModal: HTMLElement): void => {
-        const textarea: HTMLTextAreaElement = document.querySelector(this.selectorData);
-
-        render(
-          html`<textarea style="width: 100%;">${textarea.value}</textarea>`,
-          currentModal.querySelector('.t3js-modal-body') as HTMLElement
-        );
-      }
+      ]
     });
   }
 

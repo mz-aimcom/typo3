@@ -16,7 +16,6 @@ return [
         'languageField' => 'sys_language_uid',
         'transOrigPointerField' => 'l10n_parent',
         'transOrigDiffSourceField' => 'l10n_diffsource',
-        'searchFields' => 'title,description',
         'enablecolumns' => [
             'disabled' => 'hidden',
             'starttime' => 'starttime',
@@ -55,7 +54,6 @@ return [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:sys_category.title',
             'config' => [
                 'type' => 'input',
-                'width' => 200,
                 'required' => true,
                 'eval' => 'trim',
             ],

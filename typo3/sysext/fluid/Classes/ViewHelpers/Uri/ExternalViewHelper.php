@@ -17,49 +17,31 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\ViewHelpers\Uri;
 
-use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Traits\CompileWithRenderStatic;
 
 /**
- * A ViewHelper for creating URIs to external targets.
- * Currently the specified URI is simply passed through.
+ * ViewHelper for creating URIs to external targets, enforcing a specific scheme
+ * (https by default).
+ * The specified URI is passed through without further resolving or transformation.
  *
- * Examples
- * ========
+ * ```
+ *   <f:uri.external uri="https://www.typo3.org" target="_blank">external link</f:uri.external>
+ * ```
  *
- * Default
- * -------
- *
- * ::
- *
- *    <f:uri.external uri="https://www.typo3.org" />
- *
- * ``https://www.typo3.org``
- *
- * Custom default scheme
- * ---------------------
- *
- * ::
- *
- *    <f:uri.external uri="typo3.org" defaultScheme="ftp" />
- *
- * ``ftp://typo3.org``
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-uri-external
  */
 final class ExternalViewHelper extends AbstractViewHelper
 {
-    use CompileWithRenderStatic;
-
     public function initializeArguments(): void
     {
         $this->registerArgument('uri', 'string', 'target URI', true);
         $this->registerArgument('defaultScheme', 'string', 'scheme the href attribute will be prefixed with if specified $uri does not contain a scheme already', false, 'https');
     }
 
-    public static function renderStatic(array $arguments, \Closure $renderChildrenClosure, RenderingContextInterface $renderingContext): string
+    public function render(): string
     {
-        $uri = $arguments['uri'];
-        $defaultScheme = $arguments['defaultScheme'];
+        $uri = $this->arguments['uri'];
+        $defaultScheme = $this->arguments['defaultScheme'];
         $scheme = parse_url($uri, PHP_URL_SCHEME);
         if ($scheme === null && $defaultScheme !== '') {
             $uri = $defaultScheme . '://' . $uri;

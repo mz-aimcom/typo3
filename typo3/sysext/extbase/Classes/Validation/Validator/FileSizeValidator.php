@@ -18,7 +18,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Validation\Validator;
 
 use TYPO3\CMS\Core\Http\UploadedFile;
-use TYPO3\CMS\Core\Type\File\FileInfo;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidValidationOptionsException;
@@ -30,6 +29,8 @@ final class FileSizeValidator extends AbstractValidator
 {
     protected string $lessMessage = 'LLL:EXT:extbase/Resources/Private/Language/locallang.xlf:validation.filesize.less';
     protected string $exceedMessage = 'LLL:EXT:extbase/Resources/Private/Language/locallang.xlf:validation.filesize.exceed';
+
+    protected array $translationOptions = ['lessMessage', 'exceedMessage'];
 
     /**
      * @var array
@@ -95,11 +96,6 @@ final class FileSizeValidator extends AbstractValidator
                 $this->addError($message, $code);
             }
         }
-    }
-
-    protected function getFileInfo(string $filePath): FileInfo
-    {
-        return GeneralUtility::makeInstance(FileInfo::class, $filePath);
     }
 
     /**
