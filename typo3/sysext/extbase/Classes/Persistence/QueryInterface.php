@@ -16,10 +16,14 @@
 namespace TYPO3\CMS\Extbase\Persistence;
 
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\AndInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\CoalesceInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ComparisonInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConcatInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConstraintInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\DynamicOperandInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SourceInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\TrimInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\QuerySettingsInterface;
 
 /**
@@ -31,73 +35,73 @@ interface QueryInterface
     /**
      * The '=' comparison operator.
      */
-    public const OPERATOR_EQUAL_TO = 1;
+    public const int OPERATOR_EQUAL_TO = 1;
 
     /**
      * For NULL we have to use 'IS' instead of '='
      */
-    public const OPERATOR_EQUAL_TO_NULL = 101;
+    public const int OPERATOR_EQUAL_TO_NULL = 101;
 
     /**
      * The '!=' comparison operator.
      */
-    public const OPERATOR_NOT_EQUAL_TO = 2;
+    public const int OPERATOR_NOT_EQUAL_TO = 2;
 
     /**
      * For NULL we have to use 'IS NOT' instead of '!='
      */
-    public const OPERATOR_NOT_EQUAL_TO_NULL = 202;
+    public const int OPERATOR_NOT_EQUAL_TO_NULL = 202;
 
     /**
      * The '<' comparison operator.
      */
-    public const OPERATOR_LESS_THAN = 3;
+    public const int OPERATOR_LESS_THAN = 3;
 
     /**
      * The '<=' comparison operator.
      */
-    public const OPERATOR_LESS_THAN_OR_EQUAL_TO = 4;
+    public const int OPERATOR_LESS_THAN_OR_EQUAL_TO = 4;
 
     /**
      * The '>' comparison operator.
      */
-    public const OPERATOR_GREATER_THAN = 5;
+    public const int OPERATOR_GREATER_THAN = 5;
 
     /**
      * The '>=' comparison operator.
      */
-    public const OPERATOR_GREATER_THAN_OR_EQUAL_TO = 6;
+    public const int OPERATOR_GREATER_THAN_OR_EQUAL_TO = 6;
 
     /**
      * The 'like' comparison operator.
      */
-    public const OPERATOR_LIKE = 7;
+    public const int OPERATOR_LIKE = 7;
 
     /**
      * The 'contains' comparison operator for collections.
      */
-    public const OPERATOR_CONTAINS = 8;
+    public const int OPERATOR_CONTAINS = 8;
 
     /**
      * The 'in' comparison operator.
      */
-    public const OPERATOR_IN = 9;
+    public const int OPERATOR_IN = 9;
 
     /**
      * The 'is NULL' comparison operator.
      */
-    public const OPERATOR_IS_NULL = 10;
+    public const int OPERATOR_IS_NULL = 10;
 
     /**
      * The 'is empty' comparison operator for collections.
      */
-    public const OPERATOR_IS_EMPTY = 11;
+    public const int OPERATOR_IS_EMPTY = 11;
 
     /**
      * Constants representing the direction when ordering result sets.
      */
-    public const ORDER_ASCENDING = 'ASC';
-    public const ORDER_DESCENDING = 'DESC';
+    public const string ORDER_ASCENDING = 'ASC';
+    public const string ORDER_DESCENDING = 'DESC';
 
     /**
      * Gets the node-tuple source for this query.
@@ -111,8 +115,7 @@ interface QueryInterface
      * Executes the query and returns the result.
      *
      * @param bool $returnRawQueryResult avoids the object mapping by the persistence
-     * @return QueryResultInterface|list<array<string,mixed>> The query result object or an array if $returnRawQueryResult is TRUE
-     * @phpstan-return ($returnRawQueryResult is true ? list<array<string,mixed>> : QueryResultInterface<int,T>)
+     * @return ($returnRawQueryResult is true ? list<array<string,mixed>> : QueryResultInterface<int,T>) The query result object or an array if $returnRawQueryResult is TRUE
      */
     public function execute($returnRawQueryResult = false);
 
@@ -124,18 +127,55 @@ interface QueryInterface
      * )
      *
      * @param array<string,string> $orderings The property names to order by
-     * @return \TYPO3\CMS\Extbase\Persistence\QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setOrderings(array $orderings);
+
+    /**
+     * Sets the ordering for the result by a single operand. Replaces any existing orderings.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or a dynamic operand (e.g., concat(), trim())
+     * @param string $order The order direction (QueryInterface::ORDER_ASCENDING or ORDER_DESCENDING)
+     * @return QueryInterface<T>
+     */
+    public function orderBy(string|DynamicOperandInterface $operand, string $order = self::ORDER_ASCENDING);
+
+    /**
+     * Adds an ordering for the result. Appends to any existing orderings.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or a dynamic operand (e.g., concat(), trim())
+     * @param string $order The order direction (QueryInterface::ORDER_ASCENDING or ORDER_DESCENDING)
+     * @return QueryInterface<T>
+     */
+    public function addOrderBy(string|DynamicOperandInterface $operand, string $order = self::ORDER_ASCENDING);
+
+    /**
+     * Creates a CONCAT expression for ordering.
+     *
+     * @param string|DynamicOperandInterface ...$operands Property names or operand objects to concatenate
+     */
+    public function concat(string|DynamicOperandInterface ...$operands): ConcatInterface;
+
+    /**
+     * Creates a TRIM expression for ordering.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or operand to trim
+     */
+    public function trim(string|DynamicOperandInterface $operand): TrimInterface;
+
+    /**
+     * Creates a COALESCE expression for ordering.
+     *
+     * @param string|DynamicOperandInterface ...$operands Property names or operand objects
+     */
+    public function coalesce(string|DynamicOperandInterface ...$operands): CoalesceInterface;
 
     /**
      * Sets the maximum size of the result set to limit. Returns $this to allow
      * for chaining (fluid interface).
      *
      * @param int $limit
-     * @return \TYPO3\CMS\Extbase\Persistence\QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setLimit($limit);
 
@@ -144,8 +184,7 @@ interface QueryInterface
      * allow for chaining (fluid interface).
      *
      * @param int $offset
-     * @return \TYPO3\CMS\Extbase\Persistence\QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setOffset($offset);
 
@@ -154,8 +193,7 @@ interface QueryInterface
      * for chaining (fluid interface).
      *
      * @param ConstraintInterface $constraint Some constraint, depending on the backend
-     * @return \TYPO3\CMS\Extbase\Persistence\QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function matching($constraint);
 
@@ -271,15 +309,14 @@ interface QueryInterface
 
     /**
      * Set the type this query cares for.
-     * @phpstan-param class-string<T> $type
+     * @param class-string<T> $type
      */
     public function setType(string $type): void;
 
     /**
      * Returns the type this query cares for.
      *
-     * @return string
-     * @phpstan-return class-string<T>
+     * @return class-string<T>
      */
     public function getType();
 
@@ -304,13 +341,18 @@ interface QueryInterface
     public function count();
 
     /**
-     * Gets the property names to order the result by, like this:
+     * Gets the orderings for this query.
+     *
+     * When using setOrderings(), returns legacy format:
      * array(
      *  'foo' => \TYPO3\CMS\Extbase\Persistence\QueryInterface::ORDER_ASCENDING,
      *  'bar' => \TYPO3\CMS\Extbase\Persistence\QueryInterface::ORDER_DESCENDING
      * )
      *
-     * @return array<string,string>
+     * When using orderBy()/addOrderBy(), returns OrderingInterface objects:
+     * array(\TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrderingInterface, ...)
+     *
+     * @return array<string,string>|array<\TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrderingInterface>
      */
     public function getOrderings();
 

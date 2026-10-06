@@ -37,17 +37,6 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 class BackendLayoutWizardElement extends AbstractFormElement
 {
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
     protected array $rows = [];
     protected int $colCount = 0;
     protected int $rowCount = 0;
@@ -211,9 +200,6 @@ class BackendLayoutWizardElement extends AbstractFormElement
                         $cells[] = $cellData;
                     }
                     $rows[] = $cells;
-                    if (!empty($spannedMatrix[$i]) && is_array($spannedMatrix[$i])) {
-                        ksort($spannedMatrix[$i]);
-                    }
                 }
             }
         }

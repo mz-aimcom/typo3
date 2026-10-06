@@ -27,13 +27,15 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class AreaTest extends UnitTestCase
 {
+    protected bool $resetSingletonInstances = true;
+
     #[Test]
     public function makeRelativeToFileReducesSizes(): void
     {
         $imageArea = new Area(50.0, 50.0, 100.0, 100.0);
         $imageFixture = new File(
             [],
-            $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock(),
+            self::createStub(ResourceStorage::class),
             ['width' => 100, 'height' => 200]
         );
         $relativeArea = $imageArea->makeRelativeBasedOnFile($imageFixture);

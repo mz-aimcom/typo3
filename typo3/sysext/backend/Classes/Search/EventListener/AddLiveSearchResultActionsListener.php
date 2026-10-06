@@ -25,7 +25,6 @@ use TYPO3\CMS\Core\Attribute\AsEventListener;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
-use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 
 /**
@@ -33,16 +32,12 @@ use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
  *
  * @internal
  */
-final class AddLiveSearchResultActionsListener
+final readonly class AddLiveSearchResultActionsListener
 {
-    protected LanguageService $languageService;
-
     public function __construct(
-        protected readonly IconFactory $iconFactory,
-        protected readonly LanguageServiceFactory $languageServiceFactory
-    ) {
-        $this->languageService = $this->languageServiceFactory->createFromUserPreferences($this->getBackendUser());
-    }
+        private IconFactory $iconFactory,
+        private LanguageServiceFactory $languageServiceFactory
+    ) {}
 
     #[AsEventListener('typo3/cms-backend/add-live-search-result-actions-listener')]
     public function __invoke(ModifyResultItemInLiveSearchEvent $event): void
@@ -57,11 +52,11 @@ final class AddLiveSearchResultActionsListener
         }
     }
 
-    protected function addSwitchUserAction(ResultItem $resultItem): void
+    private function addSwitchUserAction(ResultItem $resultItem): void
     {
         $row = $resultItem->getInternalData()['row'];
-        $backendUserIsActive =
-            (int)$row['disable'] === 0
+        $backendUserIsActive
+            = (int)$row['disable'] === 0
             && ($row['starttime'] === 0 && $row['endtime'] === 0 || $row['starttime'] <= time() && ($row['starttime'] === 0 && $row['endtime'] > time()));
         $currentUser = $this->getBackendUser();
 
@@ -71,15 +66,16 @@ final class AddLiveSearchResultActionsListener
             && $currentUser->getOriginalUserIdWhenInSwitchUserMode() === null
             && (int)$currentUser->getUserId() !== (int)$resultItem->getExtraData()['uid']
         ) {
-            $switchUserAction = (new ResultItemAction('switch_backend_user'))
-                ->setLabel($this->languageService->sL('LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:switchBackMode'))
+            $languageService = $this->languageServiceFactory->createFromUserPreferences($this->getBackendUser());
+            $switchUserAction = new ResultItemAction('switch_backend_user')
+                ->setLabel($languageService->sL('LLL:EXT:beuser/Resources/Private/Language/locallang.xlf:switchBackMode'))
                 ->setIcon($this->iconFactory->getIcon('actions-system-backend-user-switch', IconSize::SMALL))
                 ->setUrl('#');
             $resultItem->addAction($switchUserAction);
         }
     }
 
-    protected function getBackendUser(): BackendUserAuthentication
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }

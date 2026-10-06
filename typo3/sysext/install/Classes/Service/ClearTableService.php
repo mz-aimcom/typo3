@@ -17,18 +17,22 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Service;
 
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Package\FailsafePackageManager;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Package\PackageManager;
 
 /**
  * Service handling clearing and statistics of semi-persistent core tables.
  *
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
+#[Autoconfigure(public: true)]
 final readonly class ClearTableService
 {
-    public function __construct(private FailsafePackageManager $packageManager) {}
+    public function __construct(
+        private ConnectionPool $connectionPool,
+        private PackageManager $packageManager,
+    ) {}
 
     /**
      * Get an array of all affected tables, a short description and their row counts
@@ -37,7 +41,7 @@ final readonly class ClearTableService
     {
         $tableStatistics = [];
         foreach ($this->getTableList() as $table) {
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($table['name']);
+            $connection = $this->connectionPool->getConnectionForTable($table['name']);
             if ($connection->createSchemaManager()->tablesExist([$table['name']])) {
                 $table['rowCount'] = $connection->count(
                     '*',
@@ -68,7 +72,7 @@ final readonly class ClearTableService
                 1501942151
             );
         }
-        GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($tableName)->truncate($tableName);
+        $this->connectionPool->getConnectionForTable($tableName)->truncate($tableName);
     }
 
     /**
@@ -86,22 +90,24 @@ final readonly class ClearTableService
                 'description' => 'Frontend user sessions',
             ],
             [
-                'name' => 'sys_history',
-                'description' => 'Tracking of database record changes through TYPO3 backend forms',
-            ],
-            [
                 'name' => 'sys_lockedrecords',
                 'description' => 'Record locking of backend user editing',
+            ],
+            [
+                'name' => 'sys_http_report',
+                'description' => 'Requests with Content-Security-Policy Reports',
             ],
             [
                 'name' => 'sys_log',
                 'description' => 'General log table',
             ],
-            [
+        ];
+        if ($this->packageManager->isPackageActive('workspaces')) {
+            $tableList[] = [
                 'name' => 'sys_preview',
                 'description' => 'Workspace preview links',
-            ],
-        ];
+            ];
+        }
         if ($this->packageManager->isPackageActive('extensionmanager')) {
             $tableList[] = [
                 'name' => 'tx_extensionmanager_domain_model_extension',

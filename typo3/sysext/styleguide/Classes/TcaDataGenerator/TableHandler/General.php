@@ -19,6 +19,10 @@ namespace TYPO3\CMS\Styleguide\TcaDataGenerator\TableHandler;
 
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\RecordData;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\RecordFinder;
 use TYPO3\CMS\Styleguide\TcaDataGenerator\TableHandlerInterface;
@@ -35,6 +39,7 @@ final class General extends AbstractTableHandler implements TableHandlerInterfac
         private readonly RecordData $recordData,
         private readonly RecordFinder $recordFinder,
         private readonly Context $context,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -55,12 +60,25 @@ final class General extends AbstractTableHandler implements TableHandlerInterfac
         $fieldValues = [
             'pid' => $this->recordFinder->findPidOfMainTableRecord($tableName),
         ];
-        if (!empty($GLOBALS['TCA'][$tableName]['ctrl']['tstamp'])) {
-            $fieldValues[$GLOBALS['TCA'][$tableName]['ctrl']['tstamp']] = $this->context->getAspect('date')->get('timestamp');
+        $schema = $this->tcaSchemaFactory->get($tableName);
+        if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
+            $fieldValues[$schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName()] = $this->context->getAspect('date')->get('timestamp');
         }
-        if (!empty($GLOBALS['TCA'][$tableName]['ctrl']['crdate'])) {
-            $fieldValues[$GLOBALS['TCA'][$tableName]['ctrl']['crdate']] = $this->context->getAspect('date')->get('timestamp');
+        if ($schema->hasCapability(TcaSchemaCapability::CreatedAt)) {
+            $fieldValues[$schema->getCapability(TcaSchemaCapability::CreatedAt)->getFieldName()] = $this->context->getAspect('date')->get('timestamp');
         }
+
+        // Generate UUIDs for UUID columns that are not nullable
+        $uuidColumns = $schema->getFields(
+            static fn(FieldTypeInterface $field): bool => $field->isType(TableColumnType::UUID)
+        )->getNames();
+        if ($uuidColumns !== []) {
+            $values = $this->recordData->generate($tableName, $fieldValues);
+            foreach ($uuidColumns as $uuidColumn) {
+                $fieldValues[$uuidColumn] = $values[$uuidColumn];
+            }
+        }
+
         $connection = $this->connectionPool->getConnectionForTable($tableName);
         $connection->insert($tableName, $fieldValues);
         $fieldValues['uid'] = $connection->lastInsertId();

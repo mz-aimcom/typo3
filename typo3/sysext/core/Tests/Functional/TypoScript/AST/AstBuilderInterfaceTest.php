@@ -29,6 +29,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  */
 final class AstBuilderInterfaceTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $coreExtensionsToLoad = ['tstemplate'];
 
     protected array $testExtensionsToLoad = [
@@ -38,72 +40,82 @@ final class AstBuilderInterfaceTest extends FunctionalTestCase
     #[Test]
     public function notModifiedValueKeepsNullValue(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize('foo := doesNotExistFunction()');
+        $tokens = new LosslessTokenizer()->tokenize('foo := doesNotExistFunction()');
         $astBuilder = $this->get(AstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertNull($ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
     }
 
     #[Test]
     public function notModifiedValueKeepsNullValueCommentAware(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize('foo := doesNotExistFunction()');
+        $tokens = new LosslessTokenizer()->tokenize('foo := doesNotExistFunction()');
         $astBuilder = $this->get(CommentAwareAstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertNull($ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
     }
 
     #[Test]
     public function notModifiedValueKeepsOriginalValue(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize(
-            "foo = originalValue\n" .
-            'foo := doesNotExistFunction()'
+        $tokens = new LosslessTokenizer()->tokenize(
+            "foo = originalValue\n"
+            . 'foo := doesNotExistFunction()'
         );
         $astBuilder = $this->get(AstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertSame('originalValue', $ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
     }
 
     #[Test]
     public function notModifiedValueKeepsOriginalValueCommentAware(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize(
-            "foo = originalValue\n" .
-            'foo := doesNotExistFunction()'
+        $tokens = new LosslessTokenizer()->tokenize(
+            "foo = originalValue\n"
+            . 'foo := doesNotExistFunction()'
         );
         $astBuilder = $this->get(CommentAwareAstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertSame('originalValue', $ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
     }
 
     #[Test]
     public function modifiedValueUpdatesOriginalValue(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize(
-            "foo = originalValue\n" .
-            'foo := testFunction(modifierArgument)'
+        $tokens = new LosslessTokenizer()->tokenize(
+            "foo = originalValue\n"
+            . 'foo := testFunction(modifierArgument)'
         );
         $astBuilder = $this->get(AstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertSame('originalValue modifierArgument', $ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
     }
 
     #[Test]
     public function modifiedValueUpdatesOriginalValueCommentAware(): void
     {
-        $tokens = (new LosslessTokenizer())->tokenize(
-            "foo = originalValue\n" .
-            'foo := testFunction(modifierArgument)'
+        $tokens = new LosslessTokenizer()->tokenize(
+            "foo = originalValue\n"
+            . 'foo := testFunction(modifierArgument)'
         );
         $astBuilder = $this->get(CommentAwareAstBuilder::class);
         $ast = $astBuilder->build($tokens, new RootNode());
         self::assertSame('originalValue modifierArgument', $ast->getChildByName('foo')->getValue());
-        self::assertEquals($ast, unserialize(serialize($ast)));
+        self::assertRootNodeIsSerializable($ast);
+    }
+
+    /**
+     * The TYPO3 caching framework serializes cached objects.
+     * A successful serialize/unserialize round-trip proves the AST is cacheable.
+     */
+    private static function assertRootNodeIsSerializable(RootNode $ast): void
+    {
+        /* @phpstan-ignore unserialize.allowedClasses.insecure (Serialization within testing context does no harm) */
+        self::assertEquals($ast, unserialize(serialize($ast), ['allowed_classes' => true]));
     }
 }

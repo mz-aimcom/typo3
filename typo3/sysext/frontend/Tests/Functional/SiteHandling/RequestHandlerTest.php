@@ -17,18 +17,26 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Tests\Functional\SiteHandling;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\Backend\Typo3DatabaseBackend;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Directive;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationMode;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\SourceKeyword;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Cache\NonceValueSubstitution;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\Scenario\DataHandlerFactory;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\Scenario\DataHandlerWriter;
+use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\Internal\TypoScriptInstruction;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 
 final class RequestHandlerTest extends AbstractTestCase
 {
     protected array $configurationToUseInTestInstance = [
+        'FE' => [
+            'debug' => true,
+        ],
         'SYS' => [
             'caching' => [
                 // `typo3/testing-framework` uses `NullBackend` per default
@@ -51,7 +59,6 @@ final class RequestHandlerTest extends AbstractTestCase
 
     protected function setUp(): void
     {
-        $this->configurationToUseInTestInstance['FE']['debug'] = true;
         parent::setUp();
 
         $this->withDatabaseSnapshot(function () {
@@ -73,6 +80,11 @@ final class RequestHandlerTest extends AbstractTestCase
                 ['EXT:frontend/Tests/Functional/SiteHandling/Fixtures/RequestHandler.typoscript'],
                 ['title' => 'ACME Features']
             );
+            $this->setUpFrontendRootPage(
+                2000,
+                ['EXT:frontend/Tests/Functional/SiteHandling/Fixtures/RequestHandler.typoscript'],
+                ['title' => 'ACME Blog']
+            );
         });
         $this->writeSiteConfiguration(
             'website-default',
@@ -81,6 +93,24 @@ final class RequestHandlerTest extends AbstractTestCase
         $this->writeSiteConfiguration(
             'website-csp-enabled',
             $this->buildSiteConfiguration(1200, 'https://website.local/csp-enabled/'),
+            csp: [
+                'enforce' => [
+                    'inheritDefault' => true,
+                    'mutations' => [
+                        [
+                            'mode' => MutationMode::Extend->value,
+                            'directive' => Directive::ScriptSrc->value,
+                            // enforcing nonce sources by applying `'strict-dynamic'`
+                            'sources' => ["'" . SourceKeyword::strictDynamic->value . "'"],
+                        ],
+                    ],
+                ],
+                'report' => true,
+            ],
+        );
+        $this->writeSiteConfiguration(
+            identifier: 'website-csp-drop-nonce',
+            site: $this->buildSiteConfiguration(2000, 'https://website.local/csp-drop-nonce/'),
             csp: [
                 'enforce' => true,
                 'report' => true,
@@ -110,9 +140,10 @@ final class RequestHandlerTest extends AbstractTestCase
     }
 
     #[Test]
-    public function nonceAttributesForAssetsAreUpdated(): void
+    public function nonceAttributesForAssetsAreUpdatedInCachedState(): void
     {
-        $firstResponse = $this->executeFrontendSubRequest(new InternalRequest('https://website.local/csp-enabled/features'));
+        $internalRequest = new InternalRequest('https://website.local/csp-enabled/features');
+        $firstResponse = $this->executeFrontendSubRequest($internalRequest);
         $firstCspHeader = $firstResponse->getHeaderLine('Content-Security-Policy');
         $dom = new \DOMDocument();
         $dom->loadHTML((string)$firstResponse->getBody());
@@ -127,7 +158,7 @@ final class RequestHandlerTest extends AbstractTestCase
         self::assertNotEmpty($firstResponse->getHeaderLine('Content-Security-Policy-Report-Only'));
         self::assertSame('private, no-store', $firstResponse->getHeaderLine('Cache-Control'));
 
-        $secondResponse = $this->executeFrontendSubRequest(new InternalRequest('https://website.local/csp-enabled/features'));
+        $secondResponse = $this->executeFrontendSubRequest($internalRequest);
         $secondCspHeader = $secondResponse->getHeaderLine('Content-Security-Policy');
         $dom = new \DOMDocument();
         $dom->loadHTML((string)$secondResponse->getBody());
@@ -144,6 +175,105 @@ final class RequestHandlerTest extends AbstractTestCase
         self::assertSame('private, no-store', $secondResponse->getHeaderLine('Cache-Control'));
     }
 
+    public static function uncachedStateDataProvider(): \Generator
+    {
+        yield 'uncached' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'config.' => ['no_cache' => 1],
+            ]),
+        ];
+        yield 'partially cached (static content)' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'page.' => [
+                    '10' => 'COA_INT',
+                    '10.' => [
+                        '10' => 'TEXT',
+                        '10.' => ['value' => '<p>uncached content</p>'],
+                    ],
+                ],
+            ]),
+        ];
+        yield 'partially cached (inline JavaScript)' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'page.' => [
+                    '10' => 'COA_INT',
+                    '10.' => [
+                        '10' => 'FLUIDTEMPLATE',
+                        '10.' => [
+                            'template' => 'TEXT',
+                            'template.' => [
+                                'value' => '<f:asset.script identifier="test" csp="true">console.log(true);</f:asset.script>',
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('uncachedStateDataProvider')]
+    public function nonceAttributesForAssetsAreUpdatedInUncachedState(TypoScriptInstruction $instruction): void
+    {
+        $internalRequest = new InternalRequest('https://website.local/csp-enabled/features');
+        $internalRequest = $internalRequest->withInstructions([$instruction]);
+        $firstResponse = $this->executeFrontendSubRequest($internalRequest);
+        $firstCspHeader = $firstResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$firstResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        preg_match('/\'nonce-([^\']+)\'/', $firstCspHeader, $matches);
+        $firstCspHeaderNonce = $matches[1] ?? null;
+        self::assertNotEmpty($firstCspHeaderNonce);
+
+        $firstScripts = $xpath->query('//script');
+        $firstLinks = $xpath->query('//link');
+        $firstScriptNonce = $firstScripts->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+        $firstLinkNonce = $firstLinks->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+
+        foreach ($firstScripts as $node) {
+            self::assertSame($firstCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+        foreach ($firstLinks as $node) {
+            self::assertSame($firstCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+
+        self::assertNotEmpty($firstScriptNonce);
+        self::assertSame($firstScriptNonce, $firstLinkNonce);
+        self::assertEmpty($firstResponse->getHeaderLine('X-TYPO3-Debug-Cache'));
+        self::assertNotEmpty($firstResponse->getHeaderLine('Content-Security-Policy-Report-Only'));
+        self::assertSame('private, no-store', $firstResponse->getHeaderLine('Cache-Control'));
+
+        $secondResponse = $this->executeFrontendSubRequest($internalRequest);
+        $secondCspHeader = $secondResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$secondResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        preg_match('/\'nonce-([^\']+)\'/', $secondCspHeader, $matches);
+        $secondCspHeaderNonce = $matches[1] ?? null;
+        self::assertNotEmpty($secondCspHeaderNonce);
+
+        $secondScripts = $xpath->query('//script');
+        $secondLinks = $xpath->query('//link');
+        $secondScriptNonce = $secondScripts->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+        $secondLinkNonce = $secondLinks->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+
+        foreach ($secondScripts as $node) {
+            self::assertSame($secondCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+        foreach ($secondLinks as $node) {
+            self::assertSame($secondCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+
+        self::assertNotEmpty($secondScriptNonce);
+        self::assertSame($secondScriptNonce, $secondLinkNonce);
+        self::assertNotSame($firstScriptNonce, $secondScriptNonce);
+        self::assertNotEmpty($secondResponse->getHeaderLine('Content-Security-Policy-Report-Only'));
+        self::assertSame('private, no-store', $secondResponse->getHeaderLine('Cache-Control'));
+    }
+
     #[Test]
     public function nonceValueSubstitutionIsInvoked(): void
     {
@@ -154,5 +284,161 @@ final class RequestHandlerTest extends AbstractTestCase
             ->willReturnCallback(static fn(array $context) => $context['content'] ?? null);
         GeneralUtility::addInstance(NonceValueSubstitution::class, $nonceValueSubstitutionMock);
         $this->executeFrontendSubRequest(new InternalRequest('https://website.local/csp-enabled/features'));
+    }
+
+    #[Test]
+    public function nonceValuesAreOmittedInCachedState(): void
+    {
+        $internalRequest = new InternalRequest('https://website.local/csp-drop-nonce/authors');
+        $firstResponse = $this->executeFrontendSubRequest($internalRequest);
+        $firstCspHeader = $firstResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$firstResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        self::assertCount(0, $xpath->query('//script[@nonce]'));
+        self::assertCount(0, $xpath->query('//link[@nonce]'));
+        self::assertDoesNotMatchRegularExpression("/'nonce-[^']+'/", $firstCspHeader);
+        self::assertEmpty($firstResponse->getHeaderLine('X-TYPO3-Debug-Cache'));
+        self::assertSame('public', $firstResponse->getHeaderLine('Pragma'));
+
+        $secondResponse = $this->executeFrontendSubRequest($internalRequest);
+        $secondCspHeader = $secondResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$secondResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        self::assertCount(0, $xpath->query('//script[@nonce]'));
+        self::assertCount(0, $xpath->query('//link[@nonce]'));
+        self::assertDoesNotMatchRegularExpression("/'nonce-[^']+'/", $secondCspHeader);
+        self::assertStringStartsWith('Cached page generated', $secondResponse->getHeaderLine('X-TYPO3-Debug-Cache'));
+        self::assertSame('public', $secondResponse->getHeaderLine('Pragma'));
+    }
+
+    #[Test]
+    #[DataProvider('uncachedStateDataProvider')]
+    public function nonceValuesAreOmittedInUncachedState(TypoScriptInstruction $instruction): void
+    {
+        $internalRequest = new InternalRequest('https://website.local/csp-drop-nonce/authors');
+        $internalRequest = $internalRequest->withInstructions([$instruction]);
+        $firstResponse = $this->executeFrontendSubRequest($internalRequest);
+        $firstCspHeader = $firstResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$firstResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        preg_match('/\'nonce-([^\']+)\'/', $firstCspHeader, $matches);
+        $firstCspHeaderNonce = $matches[1] ?? null;
+        self::assertNotEmpty($firstCspHeaderNonce);
+
+        $firstScripts = $xpath->query('//script');
+        $firstLinks = $xpath->query('//link');
+        $firstScriptNonce = $firstScripts->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+        $firstLinkNonce = $firstLinks->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+
+        foreach ($firstScripts as $node) {
+            self::assertSame($firstCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+        foreach ($firstLinks as $node) {
+            self::assertSame($firstCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+
+        self::assertNotEmpty($firstScriptNonce);
+        self::assertSame($firstScriptNonce, $firstLinkNonce);
+        self::assertEmpty($firstResponse->getHeaderLine('X-TYPO3-Debug-Cache'));
+        self::assertNotEmpty($firstResponse->getHeaderLine('Content-Security-Policy-Report-Only'));
+        self::assertSame('private, no-store', $firstResponse->getHeaderLine('Cache-Control'));
+
+        $secondResponse = $this->executeFrontendSubRequest($internalRequest);
+        $secondCspHeader = $secondResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$secondResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        preg_match('/\'nonce-([^\']+)\'/', $secondCspHeader, $matches);
+        $secondCspHeaderNonce = $matches[1] ?? null;
+        self::assertNotEmpty($secondCspHeaderNonce);
+
+        $secondScripts = $xpath->query('//script');
+        $secondLinks = $xpath->query('//link');
+        $secondScriptNonce = $secondScripts->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+        $secondLinkNonce = $secondLinks->item(0)?->attributes->getNamedItem('nonce')?->nodeValue;
+
+        foreach ($secondScripts as $node) {
+            self::assertSame($secondCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+        foreach ($secondLinks as $node) {
+            self::assertSame($secondCspHeaderNonce, $node->attributes->getNamedItem('nonce')?->nodeValue);
+        }
+
+        self::assertNotEmpty($secondScriptNonce);
+        self::assertSame($secondScriptNonce, $secondLinkNonce);
+        self::assertNotSame($firstScriptNonce, $secondScriptNonce);
+        self::assertNotEmpty($secondResponse->getHeaderLine('Content-Security-Policy-Report-Only'));
+        self::assertSame('private, no-store', $secondResponse->getHeaderLine('Cache-Control'));
+    }
+
+    public static function nonceValuesAreExpectedDataProvider(): iterable
+    {
+        yield 'cached (static content)' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'page.' => [
+                    '10' => 'TEXT',
+                    '10.' => ['value' => '<p>cached content</p>'],
+                ],
+            ]),
+            false,
+        ];
+        yield 'cached (specific f:security.nonce view-helper)' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'page.' => [
+                    '10' => 'FLUIDTEMPLATE',
+                    '10.' => [
+                        'template' => 'TEXT',
+                        'template.' => [
+                            'value' => '<script nonce="{f:security.nonce(directive: \'script-src\')}">const test = true;</script>',
+                        ],
+                    ],
+                ],
+            ]),
+            false,
+        ];
+        yield 'cached (unspecific f:security.nonce view-helper)' => [
+            new TypoScriptInstruction()->withTypoScript([
+                'page.' => [
+                    '10' => 'FLUIDTEMPLATE',
+                    '10.' => [
+                        'template' => 'TEXT',
+                        'template.' => [
+                            'value' => '<script nonce="{f:security.nonce()}">const test = true;</script>',
+                        ],
+                    ],
+                ],
+            ]),
+            true,
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('nonceValuesAreExpectedDataProvider')]
+    public function nonceValuesAreExpected(TypoScriptInstruction $instruction, bool $expectation): void
+    {
+        $internalRequest = new InternalRequest('https://website.local/csp-drop-nonce/authors');
+        $internalRequest = $internalRequest->withInstructions([$instruction]);
+        $firstResponse = $this->executeFrontendSubRequest($internalRequest);
+        $firstCspHeader = $firstResponse->getHeaderLine('Content-Security-Policy');
+        $dom = new \DOMDocument();
+        $dom->loadHTML((string)$firstResponse->getBody());
+        $xpath = new \DOMXPath($dom);
+
+        if ($expectation) {
+            self::assertGreaterThan(0, count($xpath->query('//script[@nonce]')));
+            self::assertGreaterThan(0, count($xpath->query('//link[@nonce]')));
+            self::assertMatchesRegularExpression("/'nonce-[^']+'/", $firstCspHeader);
+        } else {
+            self::assertCount(0, $xpath->query('//script[@nonce]'));
+            self::assertCount(0, $xpath->query('//link[@nonce]'));
+            self::assertDoesNotMatchRegularExpression("/'nonce-[^']+'/", $firstCspHeader);
+        }
     }
 }

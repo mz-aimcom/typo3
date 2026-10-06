@@ -17,13 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Workspaces\Service\Dependency;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Workspaces\Dependency\DependencyCollectionAction;
 use TYPO3\CMS\Workspaces\Dependency\DependencyResolver;
 use TYPO3\CMS\Workspaces\Dependency\ElementEntity;
-use TYPO3\CMS\Workspaces\Dependency\ElementEntityProcessor;
-use TYPO3\CMS\Workspaces\Dependency\EventCallback;
 use TYPO3\CMS\Workspaces\Dependency\ReferenceEntity;
 
 /**
@@ -31,14 +30,22 @@ use TYPO3\CMS\Workspaces\Dependency\ReferenceEntity;
  *
  * @internal
  */
-class CollectionService implements SingletonInterface
+class CollectionService
 {
     protected ?DependencyResolver $dependencyResolver = null;
     protected array $dataArray;
     protected array $nestedDataArray;
 
+    /**
+     * Contexts elements have already been resolved in, see
+     * resolveDataArrayChildDependencies() for details.
+     *
+     * @var array<string, true>
+     */
+    protected array $visitedContexts;
+
     public function __construct(
-        protected readonly ElementEntityProcessor $elementEntityProcessor,
+        protected readonly EventDispatcherInterface $eventDispatcher,
     ) {}
 
     public function getDependencyResolver(): DependencyResolver
@@ -46,18 +53,8 @@ class CollectionService implements SingletonInterface
         if (!isset($this->dependencyResolver)) {
             $this->dependencyResolver = GeneralUtility::makeInstance(DependencyResolver::class);
             $this->dependencyResolver->setWorkspace($this->getBackendUser()->workspace);
-            $this->dependencyResolver->setEventCallback(
-                ElementEntity::EVENT_Construct,
-                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementCallback', ['workspace' => $this->getBackendUser()->workspace])
-            );
-            $this->dependencyResolver->setEventCallback(
-                ElementEntity::EVENT_CreateChildReference,
-                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementChildReferenceCallback')
-            );
-            $this->dependencyResolver->setEventCallback(
-                ElementEntity::EVENT_CreateParentReference,
-                GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementParentReferenceCallback')
-            );
+            $this->dependencyResolver->setEventDispatcher($this->eventDispatcher);
+            $this->dependencyResolver->setAction(DependencyCollectionAction::Display);
         }
         return $this->dependencyResolver;
     }
@@ -70,6 +67,7 @@ class CollectionService implements SingletonInterface
         $collection = 0;
         $this->dataArray = $dataArray;
         $this->nestedDataArray = [];
+        $this->visitedContexts = [];
 
         $outerMostParents = $this->getDependencyResolver()->getOuterMostParents();
 
@@ -87,8 +85,9 @@ class CollectionService implements SingletonInterface
 
         $processedDataArray = $this->finalize($this->dataArray);
 
-        unset($this->dataArray);
-        unset($this->nestedDataArray);
+        $this->dataArray = [];
+        $this->nestedDataArray = [];
+        $this->visitedContexts = [];
 
         return $processedDataArray;
     }
@@ -118,30 +117,52 @@ class CollectionService implements SingletonInterface
 
     /**
      * Resolves nested child dependencies.
+     *
+     * @param array<string, true> $entryPath Elements of the branch that is currently traversed
      */
-    protected function resolveDataArrayChildDependencies(ElementEntity $parent, int $collection, string $nextParentIdentifier = '', int $collectionLevel = 0): void
+    protected function resolveDataArrayChildDependencies(ElementEntity $parent, int $collection, string $nextParentIdentifier = '', int $collectionLevel = 0, array $entryPath = []): void
     {
         $parentIdentifier = $parent->__toString();
+        // Keep track of the current branch to avoid endless recursion in case
+        // relations form a cycle, for example A -> B -> A. Child edges pointing
+        // back to this branch are skipped below.
+        $entryPath[$parentIdentifier] = true;
+        // Resolving an element again in the very same context cannot add anything the
+        // first pass did not already do. Skipping those keeps densely cross referenced
+        // structures from being walked along every possible path through the graph.
+        $contextIdentifier = $parentIdentifier . '/' . $nextParentIdentifier . '/' . $collection . '/' . $collectionLevel;
+        if (isset($this->visitedContexts[$contextIdentifier])) {
+            return;
+        }
+        $this->visitedContexts[$contextIdentifier] = true;
+
         $parentIsSet = isset($this->dataArray[$parentIdentifier]);
 
         if ($parentIsSet) {
             $this->dataArray[$parentIdentifier]['Workspaces_Collection'] = $collection;
             $this->dataArray[$parentIdentifier]['Workspaces_CollectionLevel'] = $collectionLevel;
             $this->dataArray[$parentIdentifier]['Workspaces_CollectionCurrent'] = md5($parentIdentifier);
-            $this->dataArray[$parentIdentifier]['Workspaces_CollectionChildren'] = $this->getCollectionChildrenCount($parent->getChildren());
+            $this->dataArray[$parentIdentifier]['Workspaces_CollectionChildren'] = $this->getCollectionChildrenCount($parent->getChildren(), $entryPath);
             $nextParentIdentifier = $parentIdentifier;
             $collectionLevel++;
         }
 
         foreach ($parent->getChildren() as $child) {
+            $childElement = $child->getElement();
+            $childIdentifier = $childElement->__toString();
+            // Skip child edges that would point back to an ancestor in the
+            // current branch. The same element can still be processed in
+            // another branch.
+            if (isset($entryPath[$childIdentifier])) {
+                continue;
+            }
             $this->resolveDataArrayChildDependencies(
-                $child->getElement(),
+                $childElement,
                 $collection,
                 $nextParentIdentifier,
-                $collectionLevel
+                $collectionLevel,
+                $entryPath
             );
-
-            $childIdentifier = $child->getElement()->__toString();
             if (!empty($nextParentIdentifier) && isset($this->dataArray[$childIdentifier])) {
                 // Remove from dataArray, but collect to process later
                 // and add it just next to the accordant parent element
@@ -156,12 +177,16 @@ class CollectionService implements SingletonInterface
      * Return count of children, present in the data array
      *
      * @param ReferenceEntity[] $children
+     * @param array<string, true> $entryPath Elements of the branch that is currently traversed
      */
-    protected function getCollectionChildrenCount(array $children): int
+    protected function getCollectionChildrenCount(array $children, array $entryPath): int
     {
         return count(
-            array_filter($children, function (ReferenceEntity $child) {
-                return isset($this->dataArray[$child->getElement()->__toString()]);
+            array_filter($children, function (ReferenceEntity $child) use ($entryPath) {
+                $childIdentifier = $child->getElement()->__toString();
+                // Circular child edges are skipped by the resolver and should
+                // not contribute to the displayed child count.
+                return !isset($entryPath[$childIdentifier]) && isset($this->dataArray[$childIdentifier]);
             })
         );
     }

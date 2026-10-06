@@ -30,7 +30,7 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
  *
  * @internal
  */
-#[AsCommand('cleanup:previewlinks', 'Find all versioned records and possibly cleans up invalid records in the database.')]
+#[AsCommand('cleanup:previewlinks', 'Cleans up expired preview links from shared workspace previews.')]
 class CleanupPreviewLinksCommand extends Command
 {
     public function __construct(private readonly ConnectionPool $connectionPool)
@@ -41,7 +41,7 @@ class CleanupPreviewLinksCommand extends Command
     /**
      * Configuring the command options
      */
-    public function configure()
+    protected function configure(): void
     {
         $this->setHelp('Look for preview links within the database table "sys_preview" that have been expired and and remove them. This command should be called regularly when working with workspaces.');
     }

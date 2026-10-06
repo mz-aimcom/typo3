@@ -17,9 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Package\PackageActivationService;
+use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Package\PackageSetup;
+use TYPO3\CMS\Core\Registry;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Extensionmanager\Controller\ActionController;
@@ -27,19 +31,23 @@ use TYPO3\CMS\Extensionmanager\Service\ExtensionManagementService;
 use TYPO3\CMS\Extensionmanager\Utility\InstallUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class ActionControllerTest extends UnitTestCase
 {
     /**
      * Creates a fake extension inside typo3temp/. No configuration is created,
      * just the folder
      */
-    protected function createFakeExtension(): array
+    private function createFakeExtension(): array
     {
         $testRoot = Environment::getVarPath() . '/tests';
-        $this->testFilesToDelete[] = $testRoot;
         $extKey = strtolower(StringUtility::getUniqueId('testing'));
         $absExtPath = $testRoot . '/ext-' . $extKey . '/';
         GeneralUtility::mkdir_deep($absExtPath);
+        // Register the unique directory and not the shared root: other test cases
+        // keep their files below the same root and must not have them removed.
+        $this->testFilesToDelete[] = $absExtPath;
         return [
             'extensionKey' => $extKey,
             'version' => '0.0.0',
@@ -61,15 +69,17 @@ final class ActionControllerTest extends UnitTestCase
         $extKey = $fakeExtension['extensionKey'];
         $extensionRoot = $fakeExtension['packagePath'];
         $installUtility = $this->createMock(InstallUtility::class);
-        $installUtility->method('enrichExtensionWithDetails')->with($extKey)->willReturn($fakeExtension);
+        $installUtility->expects($this->atMost(PHP_INT_MAX))->method('enrichExtensionWithDetails')->with($extKey)->willReturn($fakeExtension);
         // Build mocked fileHandlingUtility:
         $subject = $this->getAccessibleMock(
             ActionController::class,
             null,
             [
                 $installUtility,
-                $this->createMock(ExtensionManagementService::class),
-                $this->createMock(PackageActivationService::class),
+                self::createStub(ExtensionManagementService::class),
+                self::createStub(Registry::class),
+                self::createStub(PackageManager::class),
+                self::createStub(PackageSetup::class),
             ]
         );
 

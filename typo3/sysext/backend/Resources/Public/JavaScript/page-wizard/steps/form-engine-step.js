@@ -1,0 +1,13 @@
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+import"@typo3/backend/tree/page-position-select.js";import{html as m}from"lit";import{unsafeHTML as c}from"lit/directives/unsafe-html.js";import{executeJavaScriptModuleInstruction as u}from"@typo3/core/java-script-item-processor.js";import d from"@typo3/core/ajax/ajax-request.js";class l{constructor(t,e){this.context=t,this.autoAdvance=!1,this.key="",this.title="",this.html="",this.modules=[],this.labels={},this.key=e.key,this.title=e.title,this.html=e.html,this.modules=e.modules,this.labels=e.labels}getValue(){const t=this.context.wizard.querySelector('form[name="editform"]');if(!t)return null;const e=this.context.getStoreData("fields")||{},s=new FormData(t);return e[this.key]=Object.fromEntries(Array.from(s.entries()).filter(([,r])=>r!=="")),e}setValue(t){const e=this.context.wizard.querySelector('form[name="editform"]'),s=t?.[this.key];if(!(!e||!s))for(const[r,a]of Object.entries(s)){const i=e.elements.namedItem(r);i&&(delete i.dataset.formengineInputInitialized,i.type==="checkbox"?i.checked=!!a:i.value=a)}}render(){return m`${c(this.html)}`}getSummaryData(){return this.summary}async afterRender(){if(this.setValue(this.context.getStoreData("fields")),this.modules.length>0&&await this.loadModules(),TYPO3.FormEngine){TYPO3.FormEngine.reinitialize();const t=this.context.wizard.querySelector('form[name="editform"]');if(t){t.addEventListener("t3-formengine-postfieldvalidation",()=>{this.context.wizard.requestUpdate()}),t.addEventListener("submit",s=>{s.preventDefault(),this.context.wizard.goToNextStep()});const e=t.querySelector(".has-error");e&&e.focus()}}}isComplete(){return TYPO3.FormEngine&&TYPO3.FormEngine.Validation?TYPO3.FormEngine.Validation.isValid():!0}async beforeAdvance(){const t=this.context.getStoreData("position")?.pageUid||0,e=this.getValue(),s=e[this.key]||{},r={};for(const[o,n]of Object.entries(s))r[this.getLabelKey(o)]=n;const i=await(await new d(TYPO3.settings.ajaxUrls.wizard_page_get_processed_value).withQueryArguments({fields:r,pageUid:t}).get()).resolve();this.summary=Object.keys(r).map(o=>{const n=r[o];return{label:this.labels[o]||o,value:i[o]??n}}),this.context.setStoreData("fields",e)}async loadModules(){const t=this.modules.map(e=>u(e));await Promise.all(t)}getLabelKey(t){const e=t.match(/\[([^\]]+)\]$/);return e?e[1]:t}}export{l as FormEngineStep,l as default};

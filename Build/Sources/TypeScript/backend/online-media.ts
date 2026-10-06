@@ -14,13 +14,14 @@
 import DocumentService from '@typo3/core/document-service';
 import { MessageUtility } from '@typo3/backend/utility/message-utility';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import NProgress from 'nprogress';
+import { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Modal, { type ModalElement, Types } from './modal';
 import Notification from './notification';
 import Severity from './severity';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { topLevelModuleImport } from '@typo3/backend/utility/top-level-module-import';
+import coreLabels from '~labels/core.core';
 
 interface Response {
   file?: number;
@@ -32,6 +33,8 @@ interface Response {
  * Javascript for show the online media dialog
  */
 class OnlineMedia {
+  private progressBar: ProgressBarElement | null = null;
+
   constructor() {
     DocumentService.ready().then(async (): Promise<void> => {
       // Since the web component is used in a modal and therefore in outer frames, we have to import the module in the
@@ -52,7 +55,9 @@ class OnlineMedia {
     const allowed = trigger.dataset.onlineMediaAllowed;
     const irreObjectUid = trigger.dataset.fileIrreObject;
 
-    NProgress.start();
+    this.progressBar = document.createElement('typo3-backend-progress-bar');
+    document.body.appendChild(this.progressBar);
+    this.progressBar.start();
     new AjaxRequest(TYPO3.settings.ajaxUrls.online_media_create).post({
       url: url,
       targetFolder: target,
@@ -69,9 +74,11 @@ class OnlineMedia {
         MessageUtility.send(message);
         modalElement.hideModal();
       } else {
-        Notification.error(top.TYPO3.lang['online_media.error.new_media.failed'], data.error);
+        Notification.error(coreLabels.get('online_media.error.new_media.failed'), data.error);
       }
-      NProgress.done();
+      if (this.progressBar) {
+        this.progressBar.done();
+      }
     });
   }
 
@@ -99,9 +106,7 @@ class OnlineMedia {
         text: btnSubmit,
         btnClass: 'btn btn-primary',
         name: 'ok',
-        trigger: (): void => {
-          onlineMediaForm.querySelector('form').requestSubmit();
-        },
+        form: 'online-media-form',
       }],
     });
   }

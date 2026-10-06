@@ -45,88 +45,62 @@ final class BackendTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
     }
 
     public static function getPlainValueMapsDateTimeDataProvider(): \Generator
     {
-        $cases = [
-            'persists null for nullable native DateTime' => [
-                'property' => 'datetimeDatetime',
-                'model' => DateExample::class,
-                'field' => 'datetime_datetime',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => null,
-                'expected' => null,
-            ],
-            'persists null for nullable integer DateTime' => [
-                'property' => 'datetimeInt',
-                'model' => DateExample::class,
-                'field' => 'datetime_int',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => null,
-                'expected' => null,
-            ],
-            'persists DateTime for native DateTime' => [
-                'property' => 'datetimeDatetime',
-                'model' => DateExample::class,
-                'field' => 'datetime_datetime',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => new \DateTime('2025-01-21T15:10:03Z'),
-                'expected' => '2025-01-21 15:10:03',
-            ],
-            'persists DateTime for integer DateTime' => [
-                'property' => 'datetimeInt',
-                'model' => DateExample::class,
-                'field' => 'datetime_int',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => new \DateTime('2025-01-21T15:10:03Z'),
-                // date --date=2025-01-21T15:10:03Z +%s
-                'expected' => 1737472203,
-            ],
-            'persists DateTime with non localtime offset for native DateTime' => [
-                'property' => 'datetimeDatetime',
-                'model' => DateExample::class,
-                'field' => 'datetime_datetime',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => new \DateTime('2025-01-21T15:10:03+03:00'),
-                'expected' => '2025-01-21 12:10:03',
-                // legacy differs!
-                'expectedLegacy' => '2025-01-21 15:10:03',
-            ],
-            'persists DateTime with non localtime for integer DateTime' => [
-                'property' => 'datetimeInt',
-                'model' => DateExample::class,
-                'field' => 'datetime_int',
-                'table' => 'tx_blogexample_domain_model_dateexample',
-                'value' => new \DateTime('2025-01-21T15:10:03+03:00'),
-                // date --date=2025-01-21T15:10:03+03:00 +%s
-                'expected' => 1737461403,
-            ],
+        yield 'persists null for nullable native DateTime' => [
+            'property' => 'datetimeDatetime',
+            'model' => DateExample::class,
+            'field' => 'datetime_datetime',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => null,
+            'expected' => null,
         ];
-
-        foreach ($cases as $description => $data) {
-            $expected = $data['expected'];
-            $expectedLegacy = array_key_exists('expectedLegacy', $data) ? $data['expectedLegacy'] : $expected;
-            unset($data['expected'], $data['expectedLegacy']);
-
-            $modes = [
-                [
-                    'consistentDateTimeHandling' => true,
-                    'expected' => $expected,
-                ],
-                [
-                    'consistentDateTimeHandling' => false,
-                    'expected' => $expectedLegacy,
-                ],
-            ];
-
-            foreach ($modes as $mode) {
-                $suffix = ' (consistentDateTimeHandling=' . ($mode['consistentDateTimeHandling'] ? 'true' : 'false') . ')';
-                yield $description . $suffix => [...$data, ...$mode];
-            }
-        }
+        yield 'persists null for nullable integer DateTime' => [
+            'property' => 'datetimeInt',
+            'model' => DateExample::class,
+            'field' => 'datetime_int',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => null,
+            'expected' => null,
+        ];
+        yield 'persists DateTime for native DateTime' => [
+            'property' => 'datetimeDatetime',
+            'model' => DateExample::class,
+            'field' => 'datetime_datetime',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => new \DateTime('2025-01-21T15:10:03Z'),
+            'expected' => '2025-01-21 15:10:03',
+        ];
+        yield 'persists DateTime for integer DateTime' => [
+            'property' => 'datetimeInt',
+            'model' => DateExample::class,
+            'field' => 'datetime_int',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => new \DateTime('2025-01-21T15:10:03Z'),
+            // date --date=2025-01-21T15:10:03Z +%s
+            'expected' => 1737472203,
+        ];
+        yield 'persists DateTime with non localtime offset for native DateTime' => [
+            'property' => 'datetimeDatetime',
+            'model' => DateExample::class,
+            'field' => 'datetime_datetime',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => new \DateTime('2025-01-21T15:10:03+03:00'),
+            'expected' => '2025-01-21 12:10:03',
+        ];
+        yield 'persists DateTime with non localtime for integer DateTime' => [
+            'property' => 'datetimeInt',
+            'model' => DateExample::class,
+            'field' => 'datetime_int',
+            'table' => 'tx_blogexample_domain_model_dateexample',
+            'value' => new \DateTime('2025-01-21T15:10:03+03:00'),
+            // date --date=2025-01-21T15:10:03+03:00 +%s
+            'expected' => 1737461403,
+        ];
     }
 
     #[DataProvider('getPlainValueMapsDateTimeDataProvider')]
@@ -137,12 +111,8 @@ final class BackendTest extends FunctionalTestCase
         string $field,
         string $table,
         ?\DateTimeInterface $value,
-        bool $consistentDateTimeHandling,
-        null|string|int $expected,
+        string|int|null $expected,
     ): void {
-        $bak = $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'];
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $consistentDateTimeHandling;
-
         $this->importCSVDataSet(__DIR__ . '/Fixtures/BackendTest/getPlainValueMapsDateTimeImport.csv');
         $date = $this->get(PersistenceManager::class)->getObjectByIdentifier(1, $model);
         $date->{'set' . ucfirst($property)}($value);
@@ -152,7 +122,7 @@ final class BackendTest extends FunctionalTestCase
         $backend->setChangedEntities($changedEntities);
         $backend->commit();
 
-        $queryBuilder = (new ConnectionPool())->getQueryBuilderForTable($table);
+        $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
         $row = $queryBuilder
             ->select($field)
@@ -164,8 +134,6 @@ final class BackendTest extends FunctionalTestCase
             ->fetchAssociative();
         self::assertNotFalse($row);
         self::assertEquals($expected, $row[$field]);
-
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['extbase.consistentDateTimeHandling'] = $bak;
     }
 
     #[Test]
@@ -188,8 +156,7 @@ final class BackendTest extends FunctionalTestCase
     public function getIdentifierByObjectWithStringInsteadOfObjectReturnsNull(): void
     {
         $subject = $this->get(Backend::class);
-        /** @phpstan-ignore-next-line */
-        self::assertNull($subject->getIdentifierByObject('thisIsAString'));
+        self::assertNull($subject->getIdentifierByObject('thisIsAString')); // @phpstan-ignore argument.type (intentionally passing string to test error handling)
     }
 
     #[Test]

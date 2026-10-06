@@ -27,6 +27,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class GlobalVariableProviderTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     #[Test]
     public function modifyBlindedConfigurationOptionsEventIsTriggered(): void
     {
@@ -66,5 +68,43 @@ final class GlobalVariableProviderTest extends FunctionalTestCase
         self::assertEquals($modifiedBlindedConfigurationOptions, $modifyBlindedConfigurationOptionsEvent->getBlindedConfigurationOptions());
         self::assertEquals($identifier, $modifyBlindedConfigurationOptionsEvent->getProviderIdentifier());
         self::assertEquals($blindedConfiguration, $configuration);
+    }
+
+    #[Test]
+    public function connectionOptionsAreBlindedForAdditionalConnections(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']['Secondary'] = [
+            'driver' => 'mysqli',
+            'dbname' => 'secondary-database',
+            'host' => 'secondary-host',
+            'password' => 'secondary-password',
+            'port' => 3307,
+            'user' => 'secondary-user',
+            'unix_socket' => 'secondary-socket',
+        ];
+
+        /** @var Container $container */
+        $container = $this->get('service_container');
+        $subject = new GlobalVariableProvider($container->get(EventDispatcherInterface::class));
+        $subject([
+            'identifier' => 'confVars',
+            'label' => 'confVars',
+            'globalVariableKey' => 'TYPO3_CONF_VARS',
+        ]);
+
+        $connections = $subject->getConfiguration()['DB']['Connections'];
+
+        self::assertSame(
+            [
+                'dbname' => '******',
+                'driver' => 'mysqli',
+                'host' => '******',
+                'password' => '******',
+                'port' => '******',
+                'unix_socket' => '******',
+                'user' => '******',
+            ],
+            $connections['Secondary']
+        );
     }
 }

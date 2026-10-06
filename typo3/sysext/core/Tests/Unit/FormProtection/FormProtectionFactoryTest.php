@@ -17,13 +17,17 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\FormProtection;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
-use Psr\Log\NullLogger;
+use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\Backend\TransientMemoryBackend;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
+use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Cache\Frontend\VariableFrontend;
+use TYPO3\CMS\Core\Crypto\HashService;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\FormProtection\BackendFormProtection;
 use TYPO3\CMS\Core\FormProtection\DisabledFormProtection;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
@@ -33,33 +37,39 @@ use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Localization\LocalizationFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Registry;
+use TYPO3\CMS\Core\Serializer\DenyListDeserializer;
+use TYPO3\CMS\Core\Serializer\DeserializationService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class FormProtectionFactoryTest extends UnitTestCase
 {
-    protected FormProtectionFactory $subject;
-    protected FrontendInterface $runtimeCacheMock;
+    protected bool $resetSingletonInstances = true;
+
+    private FormProtectionFactory $subject;
+    private FrontendInterface $runtimeCacheMock;
 
     protected function setUp(): void
     {
-        $this->runtimeCacheMock = new VariableFrontend('null', new TransientMemoryBackend('null', ['logger' => new NullLogger()]));
+        $this->runtimeCacheMock = new VariableFrontend('null', new TransientMemoryBackend());
+        $cacheStub = self::createStub(PhpFrontend::class);
+        $cacheStub->method('has')->willReturn(false);
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
+        $deserializer = new DenyListDeserializer($cacheStub, new HashService(), new DeserializationService());
+        $registry = new Registry(self::createStub(ConnectionPool::class), $deserializer);
+        $container = new Container();
+        $container->set(Registry::class, $registry);
         $this->subject = new FormProtectionFactory(
             new FlashMessageService(),
             new LanguageServiceFactory(
                 new Locales(),
-                $this->createMock(LocalizationFactory::class),
+                self::createStub(LocalizationFactory::class),
                 new NullFrontend('null')
             ),
-            new Registry(),
-            $this->runtimeCacheMock
+            $this->runtimeCacheMock,
+            $container,
         );
         parent::setUp();
-    }
-
-    protected function tearDown(): void
-    {
-        $this->runtimeCacheMock->flush();
-        parent::tearDown();
     }
 
     #[Test]

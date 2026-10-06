@@ -21,6 +21,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Configuration\Features;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Exception;
 use TYPO3\CMS\Core\Http\Response;
@@ -112,6 +113,7 @@ EOF;
     public function __construct(
         protected readonly Features $features,
         private readonly FileNameValidator $fileNameValidator,
+        private readonly ResourceFactory $resourceFactory,
     ) {}
 
     /**
@@ -136,7 +138,7 @@ EOF;
         /* For backwards compatibility the HMAC is transported within the md5 param */
         $hmacParameter = $this->request->getQueryParams()['md5'] ?? null;
         $hashService = GeneralUtility::makeInstance(HashService::class);
-        $hmac = $hashService->hmac(implode('|', [$fileUid, $parametersEncoded]), 'tx_cms_showpic');
+        $hmac = $hashService->hmac(implode('|', [$fileUid, $parametersEncoded]), 'tx_cms_showpic', HashAlgo::SHA3_256);
         if (!is_string($hmacParameter) || !hash_equals($hmac, $hmacParameter)) {
             throw new \InvalidArgumentException('hash does not match', 1476048456);
         }
@@ -151,9 +153,9 @@ EOF;
         }
 
         if (MathUtility::canBeInterpretedAsInteger($fileUid)) {
-            $this->file = GeneralUtility::makeInstance(ResourceFactory::class)->getFileObject((int)$fileUid);
+            $this->file = $this->resourceFactory->getFileObject((int)$fileUid);
         } else {
-            $this->file = GeneralUtility::makeInstance(ResourceFactory::class)->retrieveFileOrFolderObject($fileUid);
+            $this->file = $this->resourceFactory->retrieveFileOrFolderObject($fileUid);
         }
         if (!($this->file instanceof FileInterface && $this->isFileValid($this->file))) {
             throw new Exception('File processing for local storage is denied', 1594043425);
@@ -229,9 +231,9 @@ EOF;
             return $response;
         } catch (\InvalidArgumentException $e) {
             // add a 410 "gone" if invalid parameters given
-            return (new Response())->withStatus(410);
+            return new Response()->withStatus(410);
         } catch (Exception $e) {
-            return (new Response())->withStatus(404);
+            return new Response()->withStatus(404);
         }
     }
 

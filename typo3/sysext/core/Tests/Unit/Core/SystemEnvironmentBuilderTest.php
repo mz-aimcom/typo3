@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Core;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -28,9 +30,11 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 /**
  * Testcase
  */
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class SystemEnvironmentBuilderTest extends UnitTestCase
 {
-    protected SystemEnvironmentBuilder&MockObject&AccessibleObjectInterface $subject;
+    private SystemEnvironmentBuilder&MockObject&AccessibleObjectInterface $subject;
 
     protected function setUp(): void
     {
@@ -80,7 +84,6 @@ final class SystemEnvironmentBuilderTest extends UnitTestCase
         unset($GLOBALS['T3_SERVICES']);
         $this->subject->_call('initializeGlobalVariables');
         // PHPStan ignore required to mitigate phpstan confusion about `unset($GLOBALS['T3_SERVICES']);` above.
-        /** @phpstan-ignore offsetAccess.notFound */
         self::assertIsArray($GLOBALS['T3_SERVICES']);
     }
 
@@ -91,9 +94,7 @@ final class SystemEnvironmentBuilderTest extends UnitTestCase
     {
         return [
             'EXEC_TIME' => ['EXEC_TIME'],
-            'ACCESS_TIME' => ['ACCESS_TIME'],
             'SIM_EXEC_TIME' => ['SIM_EXEC_TIME'],
-            'SIM_ACCESS_TIME' => ['SIM_ACCESS_TIME'],
         ];
     }
 
@@ -107,19 +108,5 @@ final class SystemEnvironmentBuilderTest extends UnitTestCase
         unset($GLOBALS[$variable]);
         $this->subject->_call('initializeGlobalTimeTrackingVariables');
         self::assertTrue(isset($GLOBALS[$variable]));
-    }
-
-    #[Test]
-    public function initializeGlobalTimeTrackingVariablesRoundsAccessTimeToSixtySeconds(): void
-    {
-        $this->subject->_call('initializeGlobalTimeTrackingVariables');
-        self::assertEquals(0, $GLOBALS['ACCESS_TIME'] % 60);
-    }
-
-    #[Test]
-    public function initializeGlobalTimeTrackingVariablesRoundsSimAccessTimeToSixtySeconds(): void
-    {
-        $this->subject->_call('initializeGlobalTimeTrackingVariables');
-        self::assertEquals(0, $GLOBALS['SIM_ACCESS_TIME'] % 60);
     }
 }

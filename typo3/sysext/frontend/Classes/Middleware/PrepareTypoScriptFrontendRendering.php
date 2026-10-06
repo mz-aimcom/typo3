@@ -28,22 +28,42 @@ use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Localization\Locale;
+use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Locking\ResourceMutex;
+use TYPO3\CMS\Core\Page\AssetCollector;
+use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Routing\PageArguments;
+use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScriptFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
+use TYPO3\CMS\Frontend\Aspect\PreviewAspect;
+use TYPO3\CMS\Frontend\Cache\CacheInstruction;
 use TYPO3\CMS\Frontend\Cache\MetaDataState;
+use TYPO3\CMS\Frontend\ContentObject\RegisterStack;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Frontend\Event\AfterTypoScriptDeterminedEvent;
 use TYPO3\CMS\Frontend\Event\BeforePageCacheIdentifierIsHashedEvent;
 use TYPO3\CMS\Frontend\Event\ShouldUseCachedPageDataIfAvailableEvent;
 use TYPO3\CMS\Frontend\Page\CacheHashCalculator;
 use TYPO3\CMS\Frontend\Page\PageAccessFailureReasons;
+use TYPO3\CMS\Frontend\Page\PageInformationCreationFailedException;
+use TYPO3\CMS\Frontend\Page\PageInformationFactory;
+use TYPO3\CMS\Frontend\Page\PageParts;
+use TYPO3\CMS\Frontend\Response\ResponseData;
 
 /**
- * Initialize TypoScript, get page content from cache if possible, lock
- * rendering if needed and create more TypoScript data if needed.
+ * This important middleware prepares a lot of the heavy lifting.
+ *
+ * It is all about page determination, caching, locking, various request attributes and
+ * TypoScript calculation. All these aspects depends on each other, this middleware determines
+ * if the requested page has to be fully or partially rendered, determines cache state and sets
+ * up system by adding request attributes and a setting up a couple of singletons.
  *
  * @internal this middleware might get removed later.
  */
@@ -60,13 +80,68 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
         private Context $context,
         private LoggerInterface $logger,
         private ErrorController $errorController,
+        private TimeTracker $timeTracker,
+        private PageInformationFactory $pageInformationFactory,
+        // injecting this central stateful singleton. this is usually a smell, but ok in this case as exception.
+        private PageRenderer $pageRenderer,
+        private Locales $locales,
     ) {}
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
+        // Make sure frontend.preview aspect is given from now on
+        if (!$this->context->hasAspect('frontend.preview')) {
+            $this->context->setAspect('frontend.preview', new PreviewAspect());
+        }
+
+        // Verify crucial request attributes exist at this point
+        if (!$request->getAttribute('routing') instanceof PageArguments || !$request->getAttribute('normalizedParams') instanceof NormalizedParams) {
+            throw new \RuntimeException('Request attribute "routing" or "normalizedParams" not found. Error in previous middleware.', 1703150865);
+        }
+
         $site = $request->getAttribute('site');
-        $sysTemplateRows = $request->getAttribute('frontend.page.information')->getSysTemplateRows();
-        $isCachingAllowed = $request->getAttribute('frontend.cache.instruction')->isCachingAllowed();
+        // Cache instruction attribute may have been set by previous middlewares
+        $cacheInstruction = $request->getAttribute('frontend.cache.instruction', new CacheInstruction());
+        $cacheDataCollector = $request->getAttribute('frontend.cache.collector');
+        $language = $request->getAttribute('language') ?? $site->getDefaultLanguage();
+        $routing = $request->getAttribute('routing');
+
+        // Add the (internal!) response data "collector" attribute to allow single content elements
+        // to register HTTP header data. We do not check for attribute existence here, since
+        // middlewares *before* could just add their own headers directly.
+        $request = $request->withAttribute('frontend.response.data', new ResponseData());
+
+        if ($this->context->getPropertyFromAspect('frontend.preview', 'isPreview', false)) {
+            // Disable cache if this is a preview
+            $cacheInstruction->disableCache('EXT:frontend: Disabled cache due to enabled frontend.preview aspect isPreview.');
+        }
+        // Make sure cache instruction attribute is always set from now on
+        $request = $request->withAttribute('frontend.cache.instruction', $cacheInstruction);
+        // Did above code or some previous call disable cache?
+        $isCachingAllowed = $cacheInstruction->isCachingAllowed();
+
+        // Create and add PageInformation
+        try {
+            $this->timeTracker->push('Create PageInformation');
+            $pageInformation = $this->pageInformationFactory->create($request);
+        } catch (PageInformationCreationFailedException $exception) {
+            return $exception->getResponse();
+        } finally {
+            $this->timeTracker->pull();
+        }
+        $request = $request->withAttribute('frontend.page.information', $pageInformation);
+        $sysTemplateRows = $pageInformation->getSysTemplateRows();
+
+        // Init and add register and page parts
+        $request = $request->withAttribute('frontend.register.stack', new RegisterStack());
+        $pageParts = new PageParts();
+        // Init "last changed" with "tstamp" of the page record, or SYS_LASTCHANGED if it's younger
+        $lastChanged = (int)$pageInformation->getPageRecord()['tstamp'];
+        if ($lastChanged < (int)$pageInformation->getPageRecord()['SYS_LASTCHANGED']) {
+            $lastChanged = (int)$pageInformation->getPageRecord()['SYS_LASTCHANGED'];
+        }
+        $pageParts->setLastChanged($lastChanged);
+        $request = $request->withAttribute('frontend.page.parts', $pageParts);
 
         // Create FrontendTypoScript with essential info for page cache identifier
         $conditionMatcherVariables = $this->prepareConditionMatcherVariables($request);
@@ -77,14 +152,15 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
             $isCachingAllowed ? $this->typoScriptCache : null,
         );
 
-        $isUsingPageCacheAllowed = $this->eventDispatcher
-            ->dispatch(new ShouldUseCachedPageDataIfAvailableEvent($request, $isCachingAllowed))
-            ->shouldUseCachedPageData();
+        // Set up cache relevant information
+        $isUsingPageCacheAllowed = $this->eventDispatcher->dispatch(new ShouldUseCachedPageDataIfAvailableEvent($request, $isCachingAllowed))->shouldUseCachedPageData();
         $pageCacheIdentifier = $this->createPageCacheIdentifier($request, $frontendTypoScript);
+        $cacheDataCollector->setPageCacheIdentifier($pageCacheIdentifier);
 
+        // Get page cache row or lock rendering
         $pageCacheRow = null;
         if (!$isUsingPageCacheAllowed) {
-            // Caching is not allowed. We'll rebuild the page. Lock this.
+            // Caching not allowed. We'll rebuild the page. Lock this.
             $this->lock->acquireLock('pages', $pageCacheIdentifier);
         } else {
             // Try to get a page cache row.
@@ -109,42 +185,61 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
                     // can happen here is the page generation is done too often, which we accept as trade-off.
                     $pageCacheRow = $this->pageCache->get($pageCacheIdentifier);
                     if (is_array($pageCacheRow)) {
-                        // We have the content, some other process did the work for us, release our lock again.
+                        // Got cache row, some other process did the work for us, release our lock again.
                         $this->lock->releaseLock('pages');
                     }
                 }
-                // Keep the lock set, because we are the ones generating the page now and filling the cache.
+                // Keep lock, we are the one generating the page now and fill cache.
             }
         }
 
-        $controller = $request->getAttribute('frontend.controller');
-        $controller->newHash = $pageCacheIdentifier;
-        $pageContentWasLoadedFromCache = false;
         if (is_array($pageCacheRow)) {
-            $controller->config['INTincScript'] = $pageCacheRow['INTincScript'];
-            $controller->config['INTincScript_ext'] = $pageCacheRow['INTincScript_ext'];
-            $controller->config['pageTitleCache'] = $pageCacheRow['pageTitleCache'];
-            $controller->content = $pageCacheRow['content'];
-            $controller->setContentType($pageCacheRow['contentType']);
-            $controller->cacheGenerated = $pageCacheRow['tstamp'];
-            $controller->pageContentWasLoadedFromCache = true;
-            $pageContentWasLoadedFromCache = true;
-
+            // Got page from cache. Set up system state with it.
+            $pageParts->setPageContentWasLoadedFromCache();
+            $pageParts->setPageCacheGeneratedTimestamp($pageCacheRow['pageCacheGeneratedTimestamp']);
+            $pageParts->setPageCacheExpireTimestamp($pageCacheRow['pageCacheExpireTimestamp']);
+            foreach ($pageCacheRow['INTincScript'] as $intIncScript) {
+                $pageParts->addNotCachedContentElement($intIncScript);
+            }
+            $pageParts->setPageTitle($pageCacheRow['pageTitleCache']);
+            $pageParts->setContent($pageCacheRow['content']);
+            $pageParts->setHttpContentType($pageCacheRow['contentType']);
+            $pageParts->setPageRendererSubstitutionHash($pageCacheRow['pageRendererSubstitutionHash']);
+            if ($pageCacheRow['pageRendererState'] ?? false) {
+                $pageRendererState = unserialize($pageCacheRow['pageRendererState'], ['allowed_classes' => [Locale::class]]);
+                $this->pageRenderer->updateState($pageRendererState);
+            }
+            if ($pageCacheRow['assetCollectorState'] ?? false) {
+                $assetCollectorState = unserialize($pageCacheRow['assetCollectorState'], ['allowed_classes' => false]);
+                $assetCollector = GeneralUtility::makeInstance(AssetCollector::class);
+                $assetCollector->updateState($assetCollectorState);
+            }
             // Restore the current tags and add them to the CacheTageCollector
-            $cacheDataCollector = $request->getAttribute('frontend.cache.collector');
-            $lifetime = $pageCacheRow['expires'] - $GLOBALS['EXEC_TIME'];
+            $lifetime = $pageParts->getPageCacheExpireTimestamp() - $GLOBALS['EXEC_TIME'];
             $cacheTags = array_map(fn(string $cacheTag) => new CacheTag($cacheTag, $lifetime), $pageCacheRow['cacheTags'] ?? []);
             $cacheDataCollector->addCacheTags(...$cacheTags);
-
             // Restore meta-data state
             if (is_array($pageCacheRow['metaDataState'] ?? null)) {
                 GeneralUtility::makeInstance(MetaDataState::class)->updateState($pageCacheRow['metaDataState']);
             }
+        } else {
+            // Init FE PageRenderer defaults when this page needs to be generated
+            if ($language->hasCustomTypo3Language()) {
+                $locale = $this->locales->createLocale($language->getTypo3Language());
+            } else {
+                // The createLocale() call is needed in order to resolve dependencies from the Locales class
+                $locale = $this->locales->createLocale((string)$language->getLocale());
+            }
+            $this->pageRenderer->setLanguage($locale, $request);
+            $pageParts->setPageRendererSubstitutionHash(md5(StringUtility::getUniqueId()));
+            $pageParts->setPageCacheGeneratedTimestamp($GLOBALS['EXEC_TIME']);
         }
+        // Processing of page cache row done. Do not use this variable anymore.
+        unset($pageCacheRow);
 
         try {
-            $needsFullSetup = !$pageContentWasLoadedFromCache || $controller->isINTincScript();
-            $pageType = $request->getAttribute('routing')->getPageType();
+            $needsFullSetup = !$pageParts->hasPageContentBeenLoadedFromCache() || $pageParts->hasNotCachedContentElements();
+            $pageType = $routing->getPageType();
             $frontendTypoScript = $this->frontendTypoScriptFactory->createSetupConfigOrFullSetup(
                 $needsFullSetup,
                 $frontendTypoScript,
@@ -156,41 +251,24 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
                 $request,
             );
             if ($needsFullSetup && !$frontendTypoScript->hasPage()) {
-                $this->logger->error('No page configured for type={type}. There is no TypoScript object of type PAGE with typeNum={type}.', ['type' => $pageType]);
-                return $this->errorController->internalErrorAction(
-                    $request,
-                    'No page configured for type=' . $pageType . '.',
-                    ['code' => PageAccessFailureReasons::RENDERING_INSTRUCTIONS_NOT_CONFIGURED]
-                );
+                return $this->unconfiguredPageTypeResponse($request, $pageType);
             }
             $setupConfigAst = $frontendTypoScript->getConfigTree();
-            if ($pageContentWasLoadedFromCache && ($setupConfigAst->getChildByName('debug')?->getValue() || !empty($GLOBALS['TYPO3_CONF_VARS']['FE']['debug']))) {
-                // Prepare X-TYPO3-Debug-Cache HTTP header
-                $dateFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'];
-                $timeFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'];
-                $controller->debugInformationHeader = 'Cached page generated ' . date($dateFormat . ' ' . $timeFormat, $controller->cacheGenerated)
-                    . '. Expires ' . date($dateFormat . ' ' . $timeFormat, $pageCacheRow['expires']);
-            }
             if ($setupConfigAst->getChildByName('no_cache')?->getValue()) {
                 // Disable cache if config.no_cache is set!
                 $cacheInstruction = $request->getAttribute('frontend.cache.instruction');
                 $cacheInstruction->disableCache('EXT:frontend: Disabled cache due to TypoScript "config.no_cache = 1"');
             }
             $this->eventDispatcher->dispatch(new AfterTypoScriptDeterminedEvent($frontendTypoScript));
+
             $request = $request->withAttribute('frontend.typoscript', $frontendTypoScript);
 
-            // b/w compat
-            $controller->config['config'] = $frontendTypoScript->getConfigArray();
-            $GLOBALS['TYPO3_REQUEST'] = $request;
-
-            $response = $handler->handle($request);
+            return $handler->handle($request);
         } finally {
-            // Whatever happens in a below middleware, this finally is called, even when exceptions
-            // are raised by a lower middleware. This ensures locks are released no matter what.
+            // Whatever happens in a middleware below, this finally is called, even when exceptions
+            // are raised by a lower one. This ensures locks are released no matter what.
             $this->lock->releaseLock('pages');
         }
-
-        return $response;
     }
 
     /**
@@ -210,7 +288,6 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
             'localRootLine' => $localRootline,
             'site' => $request->getAttribute('site'),
             'siteLanguage' => $request->getAttribute('language'),
-            'tsfe' => $request->getAttribute('frontend.controller'),
         ];
     }
 
@@ -239,6 +316,7 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
         }
 
         $pageCacheIdentifierParameters = [
+            'projectPath' => Environment::getProjectPath(),
             'id' => $pageId,
             'type' => $pageArguments->getPageType(),
             'groupIds' => implode(',', $this->context->getAspect('frontend.user')->getGroupIds()),
@@ -260,5 +338,31 @@ final readonly class PrepareTypoScriptFrontendRendering implements MiddlewareInt
             ->getPageCacheIdentifierParameters();
 
         return $pageId . '_' . hash('xxh3', serialize($pageCacheIdentifierParameters));
+    }
+
+    /**
+     * type=0 is the mandatory default page representation. If it is missing, the site cannot
+     * render at all, which is a server misconfiguration that warrants a 500 and an error log.
+     *
+     * A non-zero type requests an optional page representation. If it does not exist, the
+     * resource in that representation is simply not available: respond with the configurable
+     * 404 handling instead of logging an error for every such (possibly malicious) request.
+     */
+    private function unconfiguredPageTypeResponse(ServerRequestInterface $request, string $pageType): ResponseInterface
+    {
+        $message = 'No page configured for type=' . $pageType . '.';
+        $reasons = [
+            'code' => PageAccessFailureReasons::RENDERING_INSTRUCTIONS_NOT_CONFIGURED,
+        ];
+        $logMessage = 'No page configured for type={type}. There is no TypoScript object of type PAGE with typeNum={type}.';
+        $logContext = [
+            'type' => $pageType,
+        ];
+        if ($pageType === '0') {
+            $this->logger->error($logMessage, $logContext);
+            return $this->errorController->internalErrorAction($request, $message, $reasons);
+        }
+        $this->logger->debug($logMessage, $logContext);
+        return $this->errorController->pageNotFoundAction($request, $message, $reasons);
     }
 }

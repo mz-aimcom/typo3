@@ -60,14 +60,12 @@ final class PhpIntegrityChecker extends Command
         __DIR__ . '/../../typo3/sysext/*/Classes',
         __DIR__ . '/../../typo3/sysext/*/Tests/Unit',
         __DIR__ . '/../../typo3/sysext/*/Tests/Functional',
-        __DIR__ . '/../../typo3/sysext/core/Tests/Acceptance',
     ];
 
     /**
      * @var string[]
      */
     private array $finderNotPath = [
-        'typo3/sysext/core/Tests/Acceptance/Support/_generated',
         // exclude some files not providing classes
         'typo3/sysext/*/Configuration',
     ];
@@ -92,7 +90,7 @@ final class PhpIntegrityChecker extends Command
 
     protected function configure(): void
     {
-        $this->addOption('php', 'p', InputOption::VALUE_OPTIONAL, 'the php version to use, like 8.2 or 7.4', '8.2');
+        $this->addOption('php', 'p', InputOption::VALUE_OPTIONAL, 'the php version to use, like 8.5', '8.5');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -204,7 +202,7 @@ final class PhpIntegrityChecker extends Command
 
     private function createFinder(): Finder
     {
-        return (new Finder())
+        return new Finder()
             ->files()
             ->in($this->finderFindIn)
             ->notPath($this->finderNotPath)
@@ -225,12 +223,12 @@ final class PhpIntegrityChecker extends Command
     private function getParser(): Parser
     {
 
-        return (new ParserFactory())->createForVersion($this->phpVersion);
+        return new ParserFactory()->createForVersion($this->phpVersion);
     }
 }
 
 $application = new Application('Integrity Check');
 $name = 'integrity_checker';
-$application->add(new PhpIntegrityChecker($name));
+$application->addCommand(new PhpIntegrityChecker($name));
 $application->setDefaultCommand($name, true);
 $application->run();

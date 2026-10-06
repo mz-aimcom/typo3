@@ -28,7 +28,6 @@ use TYPO3\CMS\Backend\Form\Exception\AccessDeniedTableModifyException;
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 
 /**
@@ -38,7 +37,6 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
 {
     public function __construct(
         private EventDispatcherInterface $eventDispatcher,
-        private TcaSchemaFactory $schemaFactory,
     ) {}
 
     /**
@@ -75,7 +73,7 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
 
         $exception = null;
         $userPermissionOnPage = new Permission(Permission::NOTHING);
-        $rootLevelCapability = $this->schemaFactory->get($result['tableName'])->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+        $rootLevelCapability = $result['tcaSchemata']->get($result['tableName'])->getCapability(TcaSchemaCapability::RestrictionRootLevel);
 
         if ($result['command'] === 'new') {
             // A new record is created. Access rights of parent record are important here
@@ -143,12 +141,14 @@ readonly class DatabaseUserPermissionCheck implements FormDataProviderInterface
                     1437679856
                 );
             }
-            // If general access is allowed, check "recordEditAccessInternals"
+            // If general access is allowed, check record edit access
             if ($exception === null
                 && !($result['isInlineDefaultLanguageRecordInLocalizedParentContext'] ?? false)
-                && !$backendUser->recordEditAccessInternals($result['tableName'], $result['databaseRow'])
             ) {
-                $exception = new AccessDeniedEditInternalsException($backendUser->errorMsg, 1437687404);
+                $accessResult = $backendUser->checkRecordEditAccess($result['tableName'], $result['databaseRow']);
+                if (!$accessResult->isAllowed) {
+                    $exception = new AccessDeniedEditInternalsException($accessResult->errorMessage, 1437687404);
+                }
             }
         }
 

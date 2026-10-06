@@ -121,6 +121,18 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         $dataHandler->deleteAction(self::TABLE_Content, self::VALUE_ContentIdLast, true, true);
     }
 
+    public function deleteParentContentThenUndeleteParentContent(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdLast);
+        /** @var DataHandler $dataHandler */
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start(
+            [],
+            [self::TABLE_Content => [self::VALUE_ContentIdLast => ['undelete' => 1]]]
+        );
+        $dataHandler->process_cmdmap();
+    }
+
     public function deleteParentContentWithMultipleChildrenThenHardDeleteParentContent(): void
     {
         $this->actionService->deleteRecord(self::TABLE_Content, self::VALUE_ContentIdFirst);
@@ -129,6 +141,32 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], []);
         $dataHandler->deleteAction(self::TABLE_Content, self::VALUE_ContentIdFirst, true, true);
+    }
+
+    public function deletePageWithDirectHotelChild(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Page, self::VALUE_PageId);
+    }
+
+    public function deletePageWithDirectHotelChildThenHardDelete(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Page, self::VALUE_PageId);
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Page, self::VALUE_PageId, true, true);
+    }
+
+    public function deleteHotelWithMultipleOffers(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Hotel, self::VALUE_HotelIdFirst);
+    }
+
+    public function deleteHotelWithMultipleOffersThenHardDelete(): void
+    {
+        $this->actionService->deleteRecord(self::TABLE_Hotel, self::VALUE_HotelIdFirst);
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], []);
+        $dataHandler->deleteAction(self::TABLE_Hotel, self::VALUE_HotelIdFirst, true, true);
     }
 
     public function copyParentContent(): void
@@ -164,6 +202,60 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_ContentHotel]['config']['behaviour']['allowLanguageSynchronization'] = true;
         $GLOBALS['TCA'][self::TABLE_Hotel]['columns'][self::FIELD_HotelOffer]['config']['behaviour']['allowLanguageSynchronization'] = true;
         $GLOBALS['TCA'][self::TABLE_Offer]['columns'][self::FIELD_OfferPrice]['config']['behaviour']['allowLanguageSynchronization'] = true;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    /**
+     * Localize content with a monoglot (non-language-aware) hotel child table.
+     * The monoglot table record is not copied nor localized.
+     *
+     * @todo: Discussion of localizeParentContentWithMonoglotHotelChild(), localizeParentContentWithMonoglotHotelChildWithLanguageSynchronization()
+     *        and localizeParentContentWithMonoglotHotelChildWithLocalizationExclude(): There are scenarios we can't discuss away where an inline
+     *        parent *is* localizable and a child *is not*. DB-wise, it would be good to actually always copy those records since it allows easier
+     *        querying, and it would allow for localizable->not-localizable->localizable inline children chains. This strategy requires a good
+     *        synchronization strategy within DataHandler, though. So for now, we'll *not* copy "monoglot" children, but should eventually change
+     *        that at some point. Also, setting l10n_mode=exclude and allowLanguageSynchronization=true (the other two tests below) don't really
+     *        make much sense. Thoughts on that should be finalized when these two TCA toggles receive some general love, we might end up unsetting
+     *        them for the monoglot scenario in TcaPreparation. Codewise, DataMapProcessor triggers magic for them currently. UI-wise, we should
+     *        probably take care monoglot children can always *only* be edited from within the default language record?! We could sort out details
+     *        here when similar thoughts on sys_language_uid=-1 have been answered and solved.
+     */
+    public function localizeParentContentWithMonoglotHotelChild(): void
+    {
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['languageField']);
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['transOrigPointerField']);
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    /**
+     * Localize content with a monoglot (non-language-aware) hotel child table
+     * using allowLanguageSynchronization. The monoglot child table is kept as is
+     * and not localized, but copied to the localized parent record.
+     */
+    public function localizeParentContentWithMonoglotHotelChildWithLanguageSynchronization(): void
+    {
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['languageField']);
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['transOrigPointerField']);
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_ContentHotel]['config']['behaviour']['allowLanguageSynchronization'] = true;
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+    }
+
+    /**
+     * Localize content with a monoglot (non-language-aware) hotel child table
+     * using l10n_mode=exclude. The monoglot child table is kept as is
+     * and not localized, but copied to the localized parent record.
+     */
+    public function localizeParentContentWithMonoglotHotelChildWithLocalizationExclude(): void
+    {
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['languageField']);
+        unset($GLOBALS['TCA'][self::TABLE_Hotel]['ctrl']['transOrigPointerField']);
+        $GLOBALS['TCA'][self::TABLE_Content]['columns'][self::FIELD_ContentHotel]['l10n_mode'] = 'exclude';
         $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
         $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
         $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
@@ -302,6 +394,13 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
         if (isset($newRecordIds[self::TABLE_Content][self::VALUE_ContentIdLast])) {
             $this->recordIds['newContentId'] = $newRecordIds[self::TABLE_Content][self::VALUE_ContentIdLast];
         }
+    }
+
+    public function localizeParentContentAndMoveToDifferentPage(): void
+    {
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdLast];
+        $this->actionService->moveRecord(self::TABLE_Content, self::VALUE_ContentIdLast, self::VALUE_PageIdTarget);
     }
 
     public function moveParentContentToDifferentPageTwice(): void
@@ -565,6 +664,93 @@ abstract class AbstractActionTestCase extends AbstractDataHandlerActionTestCase
             [
                 self::TABLE_Page => ['uid' => $this->recordIds['localizedPageId'], self::FIELD_PageHotel => '6,__nextUid', 'l10n_state' => [self::FIELD_PageHotel => 'custom']],
                 self::TABLE_Hotel => ['uid' => '__NEW', 'sys_language_uid' => self::VALUE_LanguageId, 'title' => 'Hotel in dansk page only'],
+            ]
+        );
+    }
+
+    /**
+     * Content element 297 has two children, both are localized. A third child is then created in the
+     * default language *between* the two existing ones and synchronized into the translation. The new
+     * translated child must end up between the two existing translations, not appended after them.
+     */
+    public function inlineLocalizeSynchronizeSortsNewChildLikeOriginal(): void
+    {
+        // Translate page 89 first
+        $newTableIds = $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        $this->recordIds['localizedPageId'] = $newTableIds[self::TABLE_Page][self::VALUE_PageId];
+        // Localize CE 297 which has two hotels, those are localized, too.
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdFirst, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdFirst];
+        // Add a third hotel to the default language CE, sorted between the two existing ones.
+        $this->actionService->modifyRecords(
+            self::VALUE_PageId,
+            [
+                self::TABLE_Content => [
+                    'uid' => self::VALUE_ContentIdFirst,
+                    self::FIELD_ContentHotel => self::VALUE_HotelIdFirst . ',__nextUid,' . self::VALUE_HotelIdSecond,
+                ],
+                self::TABLE_Hotel => ['uid' => '__NEW', 'title' => 'Hotel #1.5'],
+            ]
+        );
+        // Now inlineLocalizeSynchronize->synchronize - This is the 'synchronize with original language'
+        // button when inline 'appearance' 'showSynchronizationLink' has been enabled.
+        $this->actionService->invoke(
+            [],
+            [
+                self::TABLE_Content => [
+                    $this->recordIds['localizedContentId'] => [
+                        'inlineLocalizeSynchronize' => [
+                            'field' => self::FIELD_ContentHotel,
+                            'language' => self::VALUE_LanguageId,
+                            'action' => 'synchronize',
+                        ],
+                    ],
+                ],
+            ]
+        );
+    }
+
+    /**
+     * Content element 297 has two children, both are localized. A hotel that only exists in the
+     * translation is then added as *first* child of the localized content element. Synchronizing
+     * must sort the translations like their originals, but keep the translation-only child at the
+     * position the editor put it.
+     */
+    public function inlineLocalizeSynchronizeKeepsTranslationOnlyChildPosition(): void
+    {
+        // Translate page 89 first
+        $newTableIds = $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        $this->recordIds['localizedPageId'] = $newTableIds[self::TABLE_Page][self::VALUE_PageId];
+        // Localize CE 297 which has two hotels, those are localized, too.
+        $newTableIds = $this->actionService->localizeRecord(self::TABLE_Content, self::VALUE_ContentIdFirst, self::VALUE_LanguageId);
+        $this->recordIds['localizedContentId'] = $newTableIds[self::TABLE_Content][self::VALUE_ContentIdFirst];
+        $this->recordIds['localizedHotelIdFirst'] = $newTableIds[self::TABLE_Hotel][self::VALUE_HotelIdFirst];
+        $this->recordIds['localizedHotelIdSecond'] = $newTableIds[self::TABLE_Hotel][self::VALUE_HotelIdSecond];
+        // Add a hotel to the localized CE only, sorted before the two translated ones.
+        $this->actionService->modifyRecords(
+            self::VALUE_PageId,
+            [
+                self::TABLE_Content => [
+                    'uid' => $this->recordIds['localizedContentId'],
+                    self::FIELD_ContentHotel => '__nextUid,' . $this->recordIds['localizedHotelIdFirst'] . ',' . $this->recordIds['localizedHotelIdSecond'],
+                ],
+                self::TABLE_Hotel => ['uid' => '__NEW', 'sys_language_uid' => self::VALUE_LanguageId, 'title' => 'Hotel in dansk only'],
+            ]
+        );
+        // Now inlineLocalizeSynchronize->synchronize - This is the 'synchronize with original language'
+        // button when inline 'appearance' 'showSynchronizationLink' has been enabled.
+        $this->actionService->invoke(
+            [],
+            [
+                self::TABLE_Content => [
+                    $this->recordIds['localizedContentId'] => [
+                        'inlineLocalizeSynchronize' => [
+                            'field' => self::FIELD_ContentHotel,
+                            'language' => self::VALUE_LanguageId,
+                            'action' => 'synchronize',
+                        ],
+                    ],
+                ],
             ]
         );
     }

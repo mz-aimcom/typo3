@@ -12,16 +12,19 @@
  */
 
 import { html, LitElement, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators';
-import { lll } from '@typo3/core/lit-helper';
+import { customElement, property } from 'lit/decorators.js';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import '@typo3/backend/element/icon-element';
+import '@typo3/backend/viewport/content-navigation-toggle';
 import { Tree } from './tree';
+import coreLabels from '~labels/core.core';
 import type { TreeNodeInterface } from './tree-node';
+import 'bootstrap'; // for data-bs-toggle="dropdown"
 
 @customElement('typo3-backend-tree-toolbar')
 export class TreeToolbar extends LitElement {
   @property({ type: Tree }) tree: Tree = null;
+  @property({ type: Boolean }) showRefresh: boolean = true;
   protected settings = {
     searchInput: '.search-input',
     filterTimeout: 450
@@ -48,47 +51,55 @@ export class TreeToolbar extends LitElement {
         <div class="tree-toolbar__menu">
           <div class="tree-toolbar__search">
               <label for="toolbarSearch" class="visually-hidden">
-                ${lll('labels.label.searchString')}
+                ${coreLabels.get('labels.label.searchString')}
               </label>
-              <input type="search" id="toolbarSearch" class="form-control form-control-sm search-input" placeholder="${lll('tree.searchTermInfo')}">
+              <input type="search" autocomplete="off" id="toolbarSearch" class="form-control form-control-sm search-input" placeholder="${this.tree?.setup?.searchPlaceholder || coreLabels.get('tree.searchTermInfo')}">
           </div>
-        </div>
-        <div class="tree-toolbar__submenu">
-          <button
-            type="button"
-            class="tree-toolbar__menuitem dropdown-toggle dropdown-toggle-no-chevron float-end"
-            data-bs-toggle="dropdown"
-            aria-expanded="false"
+          <div class="dropdown">
+            <button
+              type="button"
+              class="btn btn-sm btn-icon btn-default btn-borderless dropdown-toggle dropdown-toggle-no-chevron"
+              data-bs-toggle="dropdown"
+              data-bs-boundary="window"
+              aria-expanded="false"
+              aria-label="${coreLabels.get('labels.openTreeOptionsMenu')}"
+            >
+              <typo3-backend-icon identifier="actions-menu-alternative" size="small"></typo3-backend-icon>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              ${this.showRefresh ? html`
+              <li>
+                <button class="dropdown-item" @click="${() => this.refreshTree()}">
+                  <span class="dropdown-item-columns">
+                    <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
+                      <typo3-backend-icon identifier="actions-refresh" size="small"></typo3-backend-icon>
+                    </span>
+                    <span class="dropdown-item-column dropdown-item-column-title">
+                      ${coreLabels.get('labels.refresh')}
+                    </span>
+                  </span>
+                </button>
+              </li>
+              ` : ''}
+              <li>
+                <button class="dropdown-item" @click="${(evt: MouseEvent) => this.collapseAll(evt)}">
+                  <span class="dropdown-item-columns">
+                    <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
+                      <typo3-backend-icon identifier="apps-pagetree-category-collapse-all" size="small"></typo3-backend-icon>
+                    </span>
+                    <span class="dropdown-item-column dropdown-item-column-title">
+                      ${coreLabels.get('labels.collapse')}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </div>
+          <typo3-backend-content-navigation-toggle
+            class="btn btn-sm btn-icon btn-default btn-borderless"
+            action="collapse"
           >
-            <typo3-backend-icon identifier="actions-menu-alternative" size="small"></typo3-backend-icon>
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li>
-              <button class="dropdown-item" @click="${() => this.refreshTree()}">
-                <span class="dropdown-item-columns">
-                  <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
-                    <typo3-backend-icon identifier="actions-refresh" size="small"></typo3-backend-icon>
-                  </span>
-                  <span class="dropdown-item-column dropdown-item-column-title">
-                    ${lll('labels.refresh')}
-                  </span>
-                </span>
-              </button>
-            </li>
-            <li>
-              <button class="dropdown-item" @click="${(evt: MouseEvent) => this.collapseAll(evt)}">
-                <span class="dropdown-item-columns">
-                  <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
-                    <typo3-backend-icon identifier="apps-pagetree-category-collapse-all" size="small"></typo3-backend-icon>
-                  </span>
-                  <span class="dropdown-item-column dropdown-item-column-title">
-                    ${lll('labels.collapse')}
-                  </span>
-                </span>
-              </button>
-            </li>
-          </ul>
-        </div>
+          </typo3-backend-content-navigation-toggle>
       </div>
     `;
   }

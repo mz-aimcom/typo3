@@ -29,13 +29,13 @@ final class StringLengthValidatorTest extends FunctionalTestCase
     #[Test]
     public function validateReturnsNoErrorIfTheGivenValueIsNull(): void
     {
-        self::assertFalse((new StringLengthValidator())->validate(null)->hasErrors());
+        self::assertFalse(new StringLengthValidator()->validate(null)->hasErrors());
     }
 
     #[Test]
     public function validateReturnsNoErrorIfTheGivenValueIsAnEmptyString(): void
     {
-        self::assertFalse((new StringLengthValidator())->validate('')->hasErrors());
+        self::assertFalse(new StringLengthValidator()->validate('')->hasErrors());
     }
 
     #[Test]
@@ -141,7 +141,7 @@ final class StringLengthValidatorTest extends FunctionalTestCase
     {
         $validator = new StringLengthValidator();
         $validator->setOptions(['minimum' => 5, 'maximum' => 100]);
-        $object = new class () {
+        $object = new class {
             public function __toString(): string
             {
                 return 'some string';
@@ -155,7 +155,7 @@ final class StringLengthValidatorTest extends FunctionalTestCase
     {
         $validator = new StringLengthValidator();
         $validator->setOptions(['minimum' => 5, 'maximum' => 100]);
-        $object = new class () {};
+        $object = new class {};
         $result = $validator->validate($object);
 
         self::assertTrue($result->hasErrors());

@@ -18,9 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\ContextMenu\ItemProviders;
 
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
-use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -57,6 +57,11 @@ class PageProvider extends RecordProvider
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.info',
             'iconIdentifier' => 'actions-document-info',
             'callbackAction' => 'openInfoPopUp',
+        ],
+        'qrcode' => [
+            'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:showPageQrCode',
+            'iconIdentifier' => 'actions-qrcode',
+            'callbackAction' => 'showQrCode',
         ],
         'divider1' => [
             'type' => 'divider',
@@ -100,11 +105,6 @@ class PageProvider extends RecordProvider
             'iconIdentifier' => '',
             'callbackAction' => 'openSubmenu',
             'childItems' => [
-                'newWizard' => [
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_misc.xlf:CM_newWizard',
-                    'iconIdentifier' => 'actions-page-new',
-                    'callbackAction' => 'newPageWizard',
-                ],
                 'pagesSort' => [
                     'label' => 'LLL:EXT:backend/Resources/Private/Language/locallang_pages_sort.xlf:title',
                     'iconIdentifier' => 'actions-page-move',
@@ -156,16 +156,13 @@ class PageProvider extends RecordProvider
             'callbackAction' => 'openHistoryPopUp',
         ],
         'clearCache' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.clear_cache',
+            'label' => 'core.cache:page.label',
             'iconIdentifier' => 'actions-system-cache-clear',
             'callbackAction' => 'clearCache',
         ],
     ];
 
-    /**
-     * @var bool
-     */
-    protected $languageAccess = false;
+    protected bool $languageAccess = false;
 
     /**
      * Checks if the provider can add items to the menu
@@ -191,13 +188,13 @@ class PageProvider extends RecordProvider
         $canRender = false;
         switch ($itemName) {
             case 'view':
+            case 'qrcode':
                 $canRender = $this->canBeViewed();
                 break;
             case 'edit':
                 $canRender = $this->canBeEdited();
                 break;
             case 'new':
-            case 'newWizard':
             case 'pagesNewMultiple':
                 $canRender = $this->canBeCreated();
                 break;
@@ -256,7 +253,7 @@ class PageProvider extends RecordProvider
     /**
      * Saves calculated permissions for a page to speed things up
      */
-    protected function initPermissions()
+    protected function initPermissions(): void
     {
         $this->pagePermissions = new Permission($this->backendUser->calcPerms($this->record));
         $this->languageAccess = $this->hasLanguageAccess();
@@ -271,7 +268,7 @@ class PageProvider extends RecordProvider
             return false;
         }
         if ($this->getLanguageField() !== ''
-            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, -1])
+            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, LanguageMarker::ALL_LANGUAGES])
         ) {
             return false;
         }
@@ -324,7 +321,7 @@ class PageProvider extends RecordProvider
             return false;
         }
         if ($this->getLanguageField() !== ''
-            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, -1])
+            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, LanguageMarker::ALL_LANGUAGES])
         ) {
             return false;
         }
@@ -345,7 +342,7 @@ class PageProvider extends RecordProvider
             return false;
         }
         if ($this->getLanguageField() !== ''
-            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, -1])
+            && !in_array($this->record[$this->getLanguageField()] ?? false, [0, LanguageMarker::ALL_LANGUAGES])
         ) {
             return false;
         }
@@ -454,20 +451,16 @@ class PageProvider extends RecordProvider
 
     /**
      * Returns true if current record is a root page
-     *
-     * @return bool
      */
-    protected function isRoot()
+    protected function isRoot(): bool
     {
         return (int)$this->identifier === 0;
     }
 
     /**
      * Returns true if current record is a web mount
-     *
-     * @return bool
      */
-    protected function isWebMount()
+    protected function isWebMount(): bool
     {
         return in_array($this->identifier, $this->backendUser->getWebmounts());
     }
@@ -475,7 +468,7 @@ class PageProvider extends RecordProvider
     protected function getAdditionalAttributes(string $itemName): array
     {
         $attributes = [];
-        if ($itemName === 'view') {
+        if ($itemName === 'view' || $itemName === 'qrcode') {
             $attributes += $this->getViewAdditionalAttributes();
         }
         if ($itemName === 'enable' || $itemName === 'disable') {
@@ -491,23 +484,16 @@ class PageProvider extends RecordProvider
             $attributes += $this->getPasteAdditionalAttributes('after');
         }
         if ($itemName === 'pagesSort') {
-            $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
             $attributes += [
-                'data-pages-sort-url' => (string)$uriBuilder->buildUriFromRoute('pages_sort', ['id' => $this->record['uid'] ?? null]),
-            ];
-        }
-        if ($itemName === 'newWizard') {
-            $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-            $attributes += [
-                'data-pages-new-wizard-url' => (string)$uriBuilder->buildUriFromRoute('db_new_pages', ['id' => $this->record['uid'] ?? 0]),
+                'data-pages-sort-url' => (string)$this->uriBuilder->buildUriFromRoute('pages_sort', ['id' => $this->record['uid'] ?? null]),
             ];
         }
         if ($itemName === 'pagesNewMultiple') {
-            $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
             $attributes += [
-                'data-pages-new-multiple-url' => (string)$uriBuilder->buildUriFromRoute('pages_new', ['id' => $this->record['uid'] ?? 0]),
+                'data-pages-new-multiple-url' => (string)$this->uriBuilder->buildUriFromRoute('pages_new', ['id' => $this->record['uid'] ?? 0]),
             ];
         }
+
         if ($itemName === 'edit') {
             $attributes = [
                 'data-pages-language-uid' => $this->record[$this->getLanguageField()] ?? null,
@@ -570,11 +556,7 @@ class PageProvider extends RecordProvider
      */
     protected function isExcludedDoktype(): bool
     {
-        $excludeDoktypes = [
-            PageRepository::DOKTYPE_SYSFOLDER,
-            PageRepository::DOKTYPE_SPACER,
-        ];
-
-        return in_array((int)($this->record['doktype'] ?? 0), $excludeDoktypes, true);
+        $doktypeRegistry = GeneralUtility::makeInstance(PageDoktypeRegistry::class);
+        return !$doktypeRegistry->isPageTypeViewable((int)($this->record['doktype'] ?? 0));
     }
 }

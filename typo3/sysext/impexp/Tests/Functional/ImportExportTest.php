@@ -16,11 +16,8 @@
 namespace TYPO3\CMS\Impexp\Tests\Functional;
 
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\ReferenceIndex;
-use TYPO3\CMS\Core\Information\Typo3Version;
-use TYPO3\CMS\Core\Localization\Locales;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Impexp\Export;
 use TYPO3\CMS\Impexp\Import;
 
@@ -33,38 +30,61 @@ final class ImportExportTest extends AbstractImportExportTestCase
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_irre_foreignfield',
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_irre_mnattributeinline',
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_irre_mnattributesimple',
+        'typo3/sysext/impexp/Tests/Functional/Fixtures/Extensions/template_extension',
     ];
 
     #[Test]
     public function importExportPingPongSucceeds(): void
     {
-        $recordTypesIncludeFields = include __DIR__ . '/Fixtures/IrreRecordsIncludeFields.php';
-
         $import = $this->get(Import::class);
         $import->setPid(0);
         $import->loadFile('EXT:impexp/Tests/Functional/Fixtures/XmlImports/irre-records.xml');
         $import->setForceAllUids(true);
         $import->importData();
 
-        $exportMock = $this->getAccessibleMock(Export::class, ['setMetaData'], [
-            $this->get(ConnectionPool::class),
-            $this->get(Locales::class),
-            $this->get(Typo3Version::class),
-            $this->get(ReferenceIndex::class),
-        ]);
-        $exportMock->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        $exportMock->setPid(1);
-        $exportMock->setLevels(Export::LEVELS_INFINITE);
-        $exportMock->setTables(['_ALL']);
-        $exportMock->setRelOnlyTables(['_ALL']);
-        $exportMock->setRecordTypesIncludeFields($recordTypesIncludeFields);
-        $exportMock->process();
-        $actual = $exportMock->render();
+        $export = $this->get(Export::class);
+        $export->setPid(1);
+        $export->setLevels(Export::LEVELS_INFINITE);
+        $export->setTables(['_ALL']);
+        $export->setRelOnlyTables(['_ALL']);
+        $export->process();
+        $actual = $export->render();
 
-        // @todo Use self::assertXmlStringEqualsXmlFile() instead when sqlite issue is sorted out
-        $this->assertXmlStringEqualsXmlFileWithIgnoredSqliteTypeInteger(
+        self::assertXmlStringEqualsXmlFile(
             __DIR__ . '/Fixtures/XmlImports/irre-records.xml',
             $actual
         );
+    }
+
+    #[Test]
+    public function importExportKeepsSchemeOfMailtoAndTelephoneLinks(): void
+    {
+        $bodytext = '<p><a href="mailto:info@example.org">Write us</a><br /> <a href="tel:0123456789">Call us</a></p>';
+
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/pages.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/tt_content-with-mailto-and-tel-links.csv');
+
+        $export = $this->get(Export::class);
+        $export->setPid(1);
+        $export->setLevels(1);
+        $export->setTables(['_ALL']);
+        $export->process();
+
+        $exportFile = Environment::getPublicPath() . '/fileadmin/xml_exports/mailto-and-tel-links.xml';
+        GeneralUtility::mkdir_deep(dirname($exportFile));
+        GeneralUtility::writeFile($exportFile, $export->render(), true);
+        $this->testFilesToDelete[] = $exportFile;
+
+        $import = $this->get(Import::class);
+        $import->setPid(0);
+        $import->loadFile('fileadmin/xml_exports/mailto-and-tel-links.xml');
+        $import->importData();
+
+        $importedBodytext = $this->getConnectionPool()
+            ->getConnectionForTable('tt_content')
+            ->executeQuery('SELECT bodytext FROM tt_content WHERE uid > 1 ORDER BY uid ASC')
+            ->fetchOne();
+
+        self::assertSame($bodytext, $importedBodytext);
     }
 }

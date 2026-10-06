@@ -11,16 +11,26 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { html, LitElement, type TemplateResult } from 'lit';
 import '@typo3/backend/element/icon-element';
+
+export interface ResultItemLanguageInterface {
+  id: number;
+  title: string;
+  iconIdentifier: string;
+}
 
 export interface ResultItemInterface {
   provider: string;
   actions: ResultItemActionInterface[];
+  defaultAction: ResultItemActionInterface;
   icon: Record<string, string>;
+  language: ResultItemLanguageInterface | null;
+  thumbnailUrl: string | null;
   itemTitle: string;
   typeLabel: string;
+  properties: Record<string, string>;
   extraData: { [key: string]: any }
 }
 
@@ -57,7 +67,7 @@ export class Item extends LitElement {
   }
 
   protected override render(): TemplateResult {
-    return html`<div class="livesearch-expand-action" @click="${(e: Event): void => { e.stopPropagation(); this.focus(); }}"><typo3-backend-icon identifier="actions-chevron-right" size="small"></typo3-backend-icon></div>`;
+    return html`<div class="livesearch-expand-action" @click="${(e: Event): void => { e.stopPropagation(); this.focus(); }}"><typo3-backend-icon identifier="actions-chevron-end" size="small"></typo3-backend-icon></div>`;
   }
 
   private onFocus(e: Event) {

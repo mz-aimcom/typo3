@@ -17,13 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
+use Psr\Http\Message\UriInterface;
+use TYPO3\CMS\Core\Imaging\ImageDimension;
 use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotDetectImageDimensionOfSystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Identifier\FalResourceIdentifier;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourceUriGeneratorInterface;
+use TYPO3\CMS\Core\SystemResource\Type\PublicResourceInterface;
+use TYPO3\CMS\Core\SystemResource\Type\SystemResourceInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * File representation in the file abstraction layer.
  */
-class File extends AbstractFile
+class File extends AbstractFile implements PublicResourceInterface, SystemResourceInterface, ProcessableFileInterface
 {
     /**
      * Contains the names of all properties that have been update since the
@@ -91,7 +98,6 @@ class File extends AbstractFile
      * @param string|null $targetFileName an optional destination fileName
      *
      * @return self The new (copied) file.
-     * @throws \RuntimeException
      */
     public function copyTo(Folder $targetFolder, ?string $targetFileName = null, DuplicationBehavior $conflictMode = DuplicationBehavior::RENAME): FileInterface
     {
@@ -271,9 +277,9 @@ class File extends AbstractFile
     public function calculateChecksum(): string
     {
         return md5(
-            $this->getCombinedIdentifier() . '|' .
-            $this->getMimeType() . '|' .
-            $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']
+            $this->getCombinedIdentifier() . '|'
+            . $this->getMimeType() . '|'
+            . $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey']
         );
     }
 
@@ -365,5 +371,51 @@ class File extends AbstractFile
             $this->metaDataAspect = GeneralUtility::makeInstance(MetaDataAspect::class, $this);
         }
         return $this->metaDataAspect;
+    }
+
+    /***********************************
+     * System Resources implementation *
+     ***********************************/
+    public function getHash(): string
+    {
+        return $this->getSha1();
+    }
+
+    public function getPublicUri(SystemResourceUriGeneratorInterface $uriGenerator): UriInterface
+    {
+        return $uriGenerator->generateForFile($this);
+    }
+
+    public function isPublished(): bool
+    {
+        return $this->getStorage()->isPublic();
+    }
+
+    public function getResourceIdentifier(): string
+    {
+        return (string)(new FalResourceIdentifier(
+            (string)$this->getStorage()->getUid(),
+            $this->getIdentifier(),
+            sprintf('File: uid: %d, identifier: %s', $this->getUid(), $this->getIdentifier()),
+        ));
+    }
+
+    public function __toString(): string
+    {
+        return $this->getResourceIdentifier();
+    }
+
+    public function getImageDimension(): ImageDimension
+    {
+        if ($this->getFileType() !== FileType::IMAGE) {
+            throw new CanNotDetectImageDimensionOfSystemResourceException(sprintf('Cannot determine image dimensions for FAL resource "%s". File is not an image.', $this->getResourceIdentifier()), 1787469051);
+        }
+        $width = $this->getProperty('width');
+        $height = $this->getProperty('height');
+        if ($width === 0 || $height === 0) {
+            throw new CanNotDetectImageDimensionOfSystemResourceException(sprintf('Cannot determine image dimensions for FAL resource "%s".', $this->getResourceIdentifier()), 1787470137);
+        }
+
+        return new ImageDimension($width, $height);
     }
 }

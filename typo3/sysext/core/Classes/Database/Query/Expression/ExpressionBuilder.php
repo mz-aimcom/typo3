@@ -24,6 +24,7 @@ use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform as DoctrineSQLitePlatform;
 use Doctrine\DBAL\Platforms\TrimMode;
 use Doctrine\DBAL\Query\Expression\ExpressionBuilder as DoctrineExpressionBuilder;
+use Psr\Container\ContainerInterface;
 
 /**
  * ExpressionBuilder class is responsible to dynamically create SQL query parts.
@@ -38,8 +39,10 @@ use Doctrine\DBAL\Query\Expression\ExpressionBuilder as DoctrineExpressionBuilde
  */
 class ExpressionBuilder extends DoctrineExpressionBuilder
 {
-    public function __construct(protected readonly DoctrineConnection $connection)
-    {
+    public function __construct(
+        protected readonly DoctrineConnection $connection,
+        protected readonly ContainerInterface $container,
+    ) {
         // parent::__construct() skipped by intention, otherwise the private property
         // nature of the parent constructor will prevent access in extended methods.
     }
@@ -178,9 +181,7 @@ class ExpressionBuilder extends DoctrineExpressionBuilder
         $fieldName = $this->connection->quoteIdentifier($fieldName);
         $platform = $this->connection->getDatabasePlatform();
         $escapeChar ??= '\\';
-        if ($escapeChar !== null) {
-            $escapeChar = $this->connection->quote($escapeChar);
-        }
+        $escapeChar = $this->connection->quote($escapeChar);
         if ($platform instanceof DoctrinePostgreSQLPlatform) {
             // Use ILIKE to mimic case-insensitive search like most people are trained from MySQL/MariaDB.
             return $this->comparison($this->castText($fieldName), 'ILIKE', $value);
@@ -189,7 +190,7 @@ class ExpressionBuilder extends DoctrineExpressionBuilder
         //       matching, UPPER() and LOWER() have the same issue, it only works with ascii letters.
         //       See: https://www.sqlite.org/src/doc/trunk/ext/icu/README.txt
         return $this->comparison($fieldName, 'LIKE', $value)
-            . ($escapeChar !== null && $escapeChar !== '' ? sprintf(' ESCAPE %s', $escapeChar) : '');
+            . ($escapeChar !== '' ? sprintf(' ESCAPE %s', $escapeChar) : '');
     }
 
     /**
@@ -203,9 +204,7 @@ class ExpressionBuilder extends DoctrineExpressionBuilder
         $fieldName = $this->connection->quoteIdentifier($fieldName);
         $platform = $this->connection->getDatabasePlatform();
         $escapeChar ??= '\\';
-        if ($escapeChar !== null) {
-            $escapeChar = $this->connection->quote($escapeChar);
-        }
+        $escapeChar = $this->connection->quote($escapeChar);
         if ($platform instanceof DoctrinePostgreSQLPlatform) {
             // Use ILIKE to mimic case-insensitive search like most people are trained from MySQL/MariaDB.
             return $this->comparison($this->castText($fieldName), 'NOT ILIKE', $value);
@@ -214,7 +213,7 @@ class ExpressionBuilder extends DoctrineExpressionBuilder
         //       matching, UPPER() and LOWER() have the same issue, it only works with ascii letters.
         //       See: https://www.sqlite.org/src/doc/trunk/ext/icu/README.txt
         return $this->comparison($fieldName, 'NOT LIKE', $value)
-            . ($escapeChar !== null && $escapeChar !== '' ? sprintf(' ESCAPE %s', $escapeChar) : '');
+            . ($escapeChar !== '' ? sprintf(' ESCAPE %s', $escapeChar) : '');
     }
 
     /**
@@ -1104,6 +1103,11 @@ class ExpressionBuilder extends DoctrineExpressionBuilder
     public function literal(string $input): string
     {
         return $this->connection->quote($input);
+    }
+
+    public function getContainer(): ContainerInterface
+    {
+        return $this->container;
     }
 
     /**

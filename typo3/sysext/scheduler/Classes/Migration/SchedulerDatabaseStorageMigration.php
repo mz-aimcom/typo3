@@ -19,14 +19,16 @@ namespace TYPO3\CMS\Scheduler\Migration;
 
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\ParameterType;
+use TYPO3\CMS\Core\Attribute\UpgradeWizard;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Serializer\DenyListDeserializer;
+use TYPO3\CMS\Core\Upgrades\DatabaseUpdatedPrerequisite;
+use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Install\Attribute\UpgradeWizard;
-use TYPO3\CMS\Install\Updates\DatabaseUpdatedPrerequisite;
-use TYPO3\CMS\Install\Updates\UpgradeWizardInterface;
 use TYPO3\CMS\Scheduler\Service\TaskService;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
+use TYPO3\CMS\Scheduler\Task\ExecuteSchedulableCommandTask;
 use TYPO3\CMS\Scheduler\Task\TaskSerializer;
 
 /**
@@ -37,6 +39,8 @@ use TYPO3\CMS\Scheduler\Task\TaskSerializer;
 class SchedulerDatabaseStorageMigration implements UpgradeWizardInterface
 {
     protected const TABLE_NAME = 'tx_scheduler_task';
+
+    public function __construct(private readonly DenyListDeserializer $deserializer) {}
 
     public function getTitle(): string
     {
@@ -76,7 +80,7 @@ class SchedulerDatabaseStorageMigration implements UpgradeWizardInterface
                     // unserialize() will only give a E_NOTICE and false result, not throw an error. Silence this
                     // (for tests) and operate on the "false". If future PHP promotes this to an exception, the Throwable
                     // catch will kick in.
-                    $taskObject = @unserialize($record['serialized_task_object']);
+                    $taskObject = $this->deserializer->deserialize($record['serialized_task_object']);
                 }
                 if ($taskObject instanceof AbstractTask) {
                     $fieldsToUpdate = [
@@ -85,8 +89,10 @@ class SchedulerDatabaseStorageMigration implements UpgradeWizardInterface
                     ];
                     $taskDetails = $taskService->getTaskDetailsFromTask($taskObject);
                     $taskParameters = $taskObject->getTaskParameters();
-                    if ($taskDetails['isNativeTask'] ?? false) {
-                        // map native types to real fields, and do not use the parameters' value.
+                    if (($taskDetails['isNativeTask'] ?? false) && $taskDetails['className'] !== ExecuteSchedulableCommandTask::class) {
+                        // map native types to real fields, and do not use the parameters' value. Only
+                        // exception to this are console commands, which are native types but use the
+                        // parameters as well, because they have dynamic configuration (arguments, options).
                         if (is_array($taskDetails['additionalFields'] ?? false) && $taskDetails['additionalFields'] !== []) {
                             foreach ($taskDetails['additionalFields'] as $additionalFieldName) {
                                 $fieldsToUpdate[$additionalFieldName] = $taskParameters[$additionalFieldName] ?? null;
@@ -213,7 +219,9 @@ class SchedulerDatabaseStorageMigration implements UpgradeWizardInterface
         $allTaskInformation = $taskService->getAllTaskTypes();
         $nativeTaskTypesWithAdditionalFields = [];
         foreach ($allTaskInformation as $taskType => $taskInformation) {
-            if ($taskInformation['isNativeTask'] ?? false) {
+            if (($taskInformation['isNativeTask'] ?? false) && $taskInformation['className'] !== ExecuteSchedulableCommandTask::class) {
+                // Native tasks can define "additionalFields". However, console commands, which are
+                // native tasks as well, do not define real fields but use the "parameters" feature.
                 $nativeTaskTypesWithAdditionalFields[$taskType] = $taskInformation['additionalFields'] ?? [];
             }
         }

@@ -17,13 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Workspaces\DataHandler;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Workspaces\Dependency\DependencyCollectionAction;
 use TYPO3\CMS\Workspaces\Dependency\DependencyResolver;
 use TYPO3\CMS\Workspaces\Dependency\ElementEntity;
-use TYPO3\CMS\Workspaces\Dependency\ElementEntityProcessor;
-use TYPO3\CMS\Workspaces\Dependency\EventCallback;
 
 /**
  * Handles the \TYPO3\CMS\Core\DataHandling\DataHandler command map and is
@@ -34,7 +34,7 @@ use TYPO3\CMS\Workspaces\Dependency\EventCallback;
 readonly class CommandMap
 {
     public function __construct(
-        protected ElementEntityProcessor $elementEntityProcessor,
+        protected EventDispatcherInterface $eventDispatcher,
     ) {}
 
     /**
@@ -48,61 +48,64 @@ readonly class CommandMap
     }
 
     /**
-     * Resolves workspaces related dependencies for swapping/publishing of the command map.
+     * Resolves workspaces related dependencies for publishing of the command map.
      * Workspaces records that have children or (relative) parents which are versionized
      * but not published with this request, are removed from the command map. Otherwise
      * this would produce hanging record sets and lost references.
+     *
+     * Dependencies are resolved on versioned record uids: ElementEntity, DependencyResolver
+     * and the sys_refindex lookups in between all address a record by the uid of its
+     * workspace version, and the live uid is derived data (ElementEntity data key "liveId").
+     * The "publish" command is keyed by that very versioned uid, the legacy "version"
+     * command is keyed by the live uid and carries the versioned uid in "swapWith" - so
+     * both end up as the same element and only the command map key differs.
      */
     protected function resolveWorkspacesPublishDependencies(array $commandMap, int $workspace): array
     {
         $dependency = GeneralUtility::makeInstance(DependencyResolver::class);
         $dependency->setWorkspace($workspace);
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_Construct,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementCallback', ['workspace' => $workspace])
-        );
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateChildReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementChildReferenceCallback')
-        );
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateParentReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementParentReferenceCallback')
-        );
-        foreach ($commandMap as $table => $liveIdCollection) {
-            foreach ($liveIdCollection as $liveId => $commandCollection) {
+        $dependency->setEventDispatcher($this->eventDispatcher);
+        $dependency->setAction(DependencyCollectionAction::Publish);
+        foreach ($commandMap as $table => $idCollection) {
+            foreach ($idCollection as $id => $commandCollection) {
                 foreach ($commandCollection as $command => $properties) {
-                    if ($command === 'version' && isset($properties['action']) && in_array($properties['action'], ['publish', 'swap'], true)) {
+                    if ($command === 'publish') {
+                        $dependency->addElement($table, (int)$id, ['properties' => $properties]);
+                        continue;
+                    }
+                    // @todo: Can be removed in TYPO3 v16.0 once the testing framework
+                    //        does not use 'version' with 'swap' / 'publish' anymore.
+                    if ($command === 'version' && in_array($properties['action'] ?? '', ['publish', 'swap'], true)) {
                         if (isset($properties['swapWith']) && MathUtility::canBeInterpretedAsInteger($properties['swapWith'])) {
-                            $dependency->addElement($table, (int)$properties['swapWith'], ['liveId' => $liveId, 'properties' => $properties]);
+                            $dependency->addElement($table, (int)$properties['swapWith'], ['liveId' => $id, 'properties' => $properties]);
                         }
                     }
                 }
             }
         }
         $elementsToBeVersioned = $dependency->getElements();
-        // Use the uid of the live record instead of the workspace record:
-        $elementsToBeVersioned = $this->transformDependentElementsToUseLiveId($elementsToBeVersioned);
         $outerMostParents = $dependency->getOuterMostParents();
         foreach ($outerMostParents as $outerMostParent) {
             $dependentElements = $dependency->getNestedElements($outerMostParent);
-            $dependentElements = $this->transformDependentElementsToUseLiveId($dependentElements);
             // Gets the difference (intersection) between elements that were submitted by the user
             // and the evaluation of all dependent records that should be used for this action instead:
             $intersectingElements = array_intersect_key($dependentElements, $elementsToBeVersioned);
             if (!empty($intersectingElements)) {
                 $intersectingElement = current($intersectingElements);
                 $orderedCommandMap = [];
-                $commonProperties = $this->getCommonSwapProperties($intersectingElement);
+                $commonProperties = $this->getCommonPublishProperties($intersectingElement);
                 /** @var ElementEntity $element */
                 foreach ($dependentElements as $element) {
                     $table = $element->getTable();
-                    $id = $element->getDataValue('liveId');
-                    unset($commandMap[$table][$id]['version']);
+                    $versionId = $element->getId();
+                    unset($commandMap[$table][$versionId]['publish']);
+                    // Drop a legacy 'version' command for the same element, which sits
+                    // below the live uid instead.
+                    unset($commandMap[$table][$element->getDataValue('liveId')]['version']);
                     if ($element->isInvalid()) {
                         continue;
                     }
-                    $orderedCommandMap[$table][$id]['version'] = array_merge($commonProperties, ['swapWith' => $element->getId()]);
+                    $orderedCommandMap[$table][$versionId]['publish'] = $commonProperties;
                 }
                 // Ensure that ordered command map is on top of the command map:
                 ArrayUtility::mergeRecursiveWithOverrule($orderedCommandMap, $commandMap);
@@ -121,14 +124,8 @@ readonly class CommandMap
     {
         $dependency = GeneralUtility::makeInstance(DependencyResolver::class);
         $dependency->setWorkspace($workspace);
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateChildReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementChildReferenceCallback')
-        );
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateParentReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createNewDependentElementParentReferenceCallback')
-        );
+        $dependency->setEventDispatcher($this->eventDispatcher);
+        $dependency->setAction(DependencyCollectionAction::StageChange);
         foreach ($commandMap as $table => $versionIdCollection) {
             foreach ($versionIdCollection as $versionIdList => $commandCollection) {
                 foreach ($commandCollection as $command => $properties) {
@@ -189,14 +186,8 @@ readonly class CommandMap
     {
         $dependency = GeneralUtility::makeInstance(DependencyResolver::class);
         $dependency->setWorkspace($workspace);
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateChildReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createClearDependentElementChildReferenceCallback')
-        );
-        $dependency->setEventCallback(
-            ElementEntity::EVENT_CreateParentReference,
-            GeneralUtility::makeInstance(EventCallback::class, $this->elementEntityProcessor, 'createClearDependentElementParentReferenceCallback')
-        );
+        $dependency->setEventDispatcher($this->eventDispatcher);
+        $dependency->setAction(DependencyCollectionAction::Discard);
         // Traverses the cmd[] array and fetches the accordant actions:
         foreach ($commandMap as $table => $versionIdCollection) {
             foreach ($versionIdCollection as $versionId => $commandCollection) {
@@ -261,22 +252,7 @@ readonly class CommandMap
     }
 
     /**
-     * Transforms dependent elements to use the liveId as array key.
-     *
-     * @param ElementEntity[] $elements
-     */
-    protected function transformDependentElementsToUseLiveId(array $elements): array
-    {
-        $transformedElements = [];
-        foreach ($elements as $element) {
-            $elementName = $element->getTable() . ':' . $element->getDataValue('liveId');
-            $transformedElements[$elementName] = $element;
-        }
-        return $transformedElements;
-    }
-
-    /**
-     * Callback to get common properties of dependent elements for clearing.
+     * Gets common properties of dependent elements for clearing.
      */
     protected function getCommonClearProperties(ElementEntity $element): array
     {
@@ -289,26 +265,23 @@ readonly class CommandMap
     }
 
     /**
-     * Callback to get common properties of dependent elements for swapping/publishing.
+     * Gets common properties of dependent elements for publishing.
      */
-    protected function getCommonSwapProperties(ElementEntity $element): array
+    protected function getCommonPublishProperties(ElementEntity $element): array
     {
-        $commonSwapProperties = [];
+        $commonPublishProperties = [];
         $elementProperties = $element->getDataValue('properties');
-        if (isset($elementProperties['action'])) {
-            $commonSwapProperties['action'] = $elementProperties['action'];
-        }
         if (isset($elementProperties['comment'])) {
-            $commonSwapProperties['comment'] = $elementProperties['comment'];
+            $commonPublishProperties['comment'] = $elementProperties['comment'];
         }
         if (isset($elementProperties['notificationAlternativeRecipients'])) {
-            $commonSwapProperties['notificationAlternativeRecipients'] = $elementProperties['notificationAlternativeRecipients'];
+            $commonPublishProperties['notificationAlternativeRecipients'] = $elementProperties['notificationAlternativeRecipients'];
         }
-        return $commonSwapProperties;
+        return $commonPublishProperties;
     }
 
     /**
-     * Callback to get common properties of dependent elements for staging.
+     * Gets common properties of dependent elements for staging.
      */
     protected function getSetStageProperties(ElementEntity $element): array
     {

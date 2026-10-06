@@ -17,12 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Configuration\Loader;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class YamlFileLoaderTest extends UnitTestCase
 {
     public static function loadWithEnvVarDataProvider(): array
@@ -103,7 +105,7 @@ final class YamlFileLoaderTest extends UnitTestCase
         $subject = $this->getAccessibleMock(
             YamlFileLoader::class,
             ['getFileContents', 'getStreamlinedFileName'],
-            [$this->createMock(LoggerInterface::class)]
+            [self::createStub(LoggerInterface::class)]
         );
         $subject->expects($this->once())->method('getStreamlinedFileName')->with($fileName)->willReturn($fileName);
         $subject->expects($this->once())->method('getFileContents')->with($fileName)->willReturn($fileContents);
@@ -146,7 +148,7 @@ betterthanbefore: \'%env(mynonexistingenv)%\'
         $subject = $this->getAccessibleMock(
             YamlFileLoader::class,
             ['getFileContents', 'getStreamlinedFileName'],
-            [$this->createMock(LoggerInterface::class)]
+            [self::createStub(LoggerInterface::class)]
         );
         $subject->expects($this->once())->method('getStreamlinedFileName')->with($fileName)->willReturn($fileName);
         $subject->expects($this->once())->method('getFileContents')->with($fileName)->willReturn($fileContents);
@@ -210,7 +212,7 @@ betterthanbefore: \'%env(mynonexistingenv)%\'
         $subject = $this->getAccessibleMock(
             YamlFileLoader::class,
             null,
-            [$this->createMock(LoggerInterface::class)]
+            [self::createStub(LoggerInterface::class)]
         );
         $output = $subject->_call('containsPlaceholder', $placeholderValue);
         self::assertSame($expected, $output);

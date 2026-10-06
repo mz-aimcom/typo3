@@ -24,17 +24,21 @@ import Severity from '../severity';
 import '@typo3/backend/element/icon-element';
 import { SeverityEnum } from '../enum/severity';
 import RegularEvent from '@typo3/core/event/regular-event';
+import { isContentTypeAllowedForTarget } from '@typo3/backend/layout-module/column-restriction';
 import type ResponseInterface from '../ajax-data-handler/response-interface';
+import layoutLabels from '~labels/backend.layout';
 
 type PasteOptions = {
   itemOnClipboardUid: number;
   itemOnClipboardTitle: string;
+  itemOnClipboardCType: string;
   copyMode: string;
 };
 
 class Paste {
   private readonly itemOnClipboardUid: number = 0;
   private readonly itemOnClipboardTitle: string = '';
+  private readonly itemOnClipboardCType: string = '';
   private readonly copyMode: string = '';
   private readonly elementIdentifier: string = '.t3js-page-ce';
   private pasteAfterLinkTemplate: string = '';
@@ -46,6 +50,7 @@ class Paste {
   constructor(args: PasteOptions) {
     this.itemOnClipboardUid = args.itemOnClipboardUid;
     this.itemOnClipboardTitle = args.itemOnClipboardTitle;
+    this.itemOnClipboardCType = args.itemOnClipboardCType;
     this.copyMode = args.copyMode;
 
     DocumentService.ready().then((): void => {
@@ -78,13 +83,13 @@ class Paste {
     this.pasteAfterLinkTemplate = '<button'
       + ' type="button"'
       + ' class="t3js-paste t3js-paste' + (this.copyMode ? '-' + this.copyMode : '') + ' t3js-paste-after btn btn-default btn-sm"'
-      + ' title="' + TYPO3.lang?.pasteAfterRecord + '">'
+      + ' title="' + layoutLabels.get('pasteAfterRecord') + '">'
       + '<typo3-backend-icon identifier="actions-document-paste-into" size="small"></typo3-backend-icon>'
       + '</button>';
     this.pasteIntoLinkTemplate = '<button'
       + ' type="button"'
       + ' class="t3js-paste t3js-paste' + (this.copyMode ? '-' + this.copyMode : '') + ' t3js-paste-into btn btn-default btn-sm"'
-      + ' title="' + TYPO3.lang?.pasteIntoColumn + '">'
+      + ' title="' + layoutLabels.get('pasteIntoColumn') + '">'
       + '<typo3-backend-icon identifier="actions-document-paste-into" size="small"></typo3-backend-icon>'
       + '</button>';
   }
@@ -95,6 +100,9 @@ class Paste {
   private activatePasteIcons(): void {
     if (this.pasteAfterLinkTemplate && this.pasteIntoLinkTemplate) {
       document.querySelectorAll('.t3js-page-new-ce').forEach((el: HTMLElement): void => {
+        if (!isContentTypeAllowedForTarget(this.itemOnClipboardCType, el)) {
+          return;
+        }
         const template = el.parentElement.dataset.page ? this.pasteIntoLinkTemplate : this.pasteAfterLinkTemplate;
         el.append(document.createRange().createContextualFragment(template));
       });
@@ -105,19 +113,19 @@ class Paste {
    * generates the paste into / paste after modal
    */
   private activatePasteModal(element: HTMLElement): void {
-    const title = (TYPO3.lang['paste.modal.title.paste'] || 'Paste record') + ': "' + this.itemOnClipboardTitle + '"';
-    const content = TYPO3.lang['paste.modal.paste'] || 'Do you want to paste the record to this position?';
+    const title = (layoutLabels.get('paste.modal.title.paste')) + ': "' + this.itemOnClipboardTitle + '"';
+    const content = layoutLabels.get('paste.modal.paste');
 
     let buttons: Array<Button> = [];
     buttons = [
       {
-        text: TYPO3.lang['paste.modal.button.cancel'] || 'Cancel',
+        text: layoutLabels.get('paste.modal.button.cancel'),
         active: true,
         btnClass: 'btn-default',
         trigger: (e: Event, modal: ModalElement): void => modal.hideModal(),
       },
       {
-        text: TYPO3.lang['paste.modal.button.paste'] || 'Paste',
+        text: layoutLabels.get('paste.modal.button.paste'),
         btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.warning),
         trigger: (e: Event, modal: ModalElement): void => {
           modal.hideModal();

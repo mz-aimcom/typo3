@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Tests\Unit\Typolink;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -25,6 +26,7 @@ use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Typolink\PageLinkBuilder;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class PageLinkBuilderTest extends UnitTestCase
 {
     public static function getQueryArgumentsExcludesParametersDataProvider(): \Generator
@@ -57,12 +59,124 @@ final class PageLinkBuilderTest extends UnitTestCase
         $request = new ServerRequest('https://example.com');
         $request = $request->withQueryParams($queryParameters);
         $request = $request->withAttribute('routing', new PageArguments(1, '', $queryParameters, [], []));
-        $cObj = new ContentObjectRenderer();
-        $cObj->setRequest($request);
+        $cObj = self::createStub(ContentObjectRenderer::class);
+        $cObj->method('getRequest')->willReturn($request);
         $subject = $this->getAccessibleMock(PageLinkBuilder::class, null, [], '', false);
         $subject->_set('contentObjectRenderer', $cObj);
         $actualResult = $subject->_call('getQueryArguments', $queryInformation, $configuration);
         self::assertEquals($expectedResult, $actualResult);
+    }
+
+    public static function calculateQueryParametersWithQueryParametersOptionDataProvider(): \Generator
+    {
+        yield 'queryParameters alone' => [
+            ['queryParameters' => ['foo' => 'bar', 'baz' => 'qux']],
+            [],
+            ['foo' => 'bar', 'baz' => 'qux'],
+        ];
+        yield 'queryParameters with nested array' => [
+            ['queryParameters' => ['tx_news' => ['id' => '42', 'category' => '5']]],
+            [],
+            ['tx_news' => ['id' => '42', 'category' => '5']],
+        ];
+        yield 'queryParameters overrides additionalParams' => [
+            [
+                'additionalParams' => '&foo=old&keep=yes',
+                'queryParameters' => ['foo' => 'new'],
+            ],
+            [],
+            ['foo' => 'new', 'keep' => 'yes'],
+        ];
+        yield 'queryParameters deep merge with additionalParams' => [
+            [
+                'additionalParams' => '&tx_ext[action]=list&tx_ext[format]=html',
+                'queryParameters' => ['tx_ext' => ['action' => 'show']],
+            ],
+            [],
+            ['tx_ext' => ['action' => 'show', 'format' => 'html']],
+        ];
+        yield 'empty queryParameters does not affect additionalParams' => [
+            [
+                'additionalParams' => '&foo=bar',
+                'queryParameters' => [],
+            ],
+            [],
+            ['foo' => 'bar'],
+        ];
+        yield 'queryParameters with linkDetails parameters' => [
+            [
+                'queryParameters' => ['foo' => 'bar'],
+            ],
+            ['parameters' => 'from=link'],
+            ['from' => 'link', 'foo' => 'bar'],
+        ];
+    }
+
+    #[DataProvider('calculateQueryParametersWithQueryParametersOptionDataProvider')]
+    #[Test]
+    public function calculateQueryParametersWithQueryParametersOption(array $conf, array $linkDetails, array $expectedResult): void
+    {
+        $conf['additionalParams'] = $conf['additionalParams'] ?? '';
+        $conf['queryParameters'] = (array)($conf['queryParameters'] ?? []);
+        $request = new ServerRequest('https://example.com');
+        $request = $request->withAttribute('routing', new PageArguments(1, '', [], [], []));
+        $cObj = self::createStub(ContentObjectRenderer::class);
+        $cObj->method('getRequest')->willReturn($request);
+        $cObj->method('stdWrapValue')->willReturnCallback(
+            static fn(string $key, array $config) => $config[$key] ?? ''
+        );
+        $subject = $this->getAccessibleMock(PageLinkBuilder::class, ['calculateGlobalQueryParameters'], [], '', false);
+        $subject->method('calculateGlobalQueryParameters')->willReturn('');
+        $subject->_set('contentObjectRenderer', $cObj);
+        $actualResult = $subject->_call('calculateQueryParameters', $conf, $linkDetails);
+        self::assertEquals($expectedResult, $actualResult);
+    }
+
+    public static function fallbackTargetFromConfigDataProvider(): \Generator
+    {
+        yield 'internal link applies config.intTarget' => [
+            ['intTarget' => '_top'],
+            [],
+            '_top',
+            false,
+        ];
+        yield 'external link applies config.extTarget' => [
+            ['extTarget' => '_blank'],
+            [],
+            '_blank',
+            true,
+        ];
+        yield 'typolink applies target stdWrap' => [
+            [],
+            ['target' => '_self', 'target.' => ['case' => 'upper']],
+            '_SELF',
+            false,
+        ];
+    }
+
+    #[DataProvider('fallbackTargetFromConfigDataProvider')]
+    #[Test]
+    public function fallbackTargetIsAppliedFromConfig(array $frontendTypoScriptConfig, array $linkConfiguration, string $expectedTarget, bool $treatAsExternalLink): void
+    {
+        $request = new ServerRequest('https://example.com');
+        $request = $request->withAttribute('frontend.typoscript', new class ($frontendTypoScriptConfig) {
+            public function __construct(private readonly array $frontendTypoScriptConfig) {}
+
+            public function getConfigArray(): array
+            {
+                return $this->frontendTypoScriptConfig;
+            }
+        });
+        $cObj = self::createStub(ContentObjectRenderer::class);
+        $cObj->method('getRequest')->willReturn($request);
+        $cObj->method('stdWrap')->willReturnCallback(
+            static fn(string $value, array $configuration) => ($configuration['case'] ?? '') === 'upper' ? strtoupper($value) : $value
+        );
+
+        $subject = $this->getAccessibleMock(PageLinkBuilder::class, null, [], '', false);
+        $subject->_set('contentObjectRenderer', $cObj);
+        $target = $subject->_call('calculateTargetAttribute', [], $linkConfiguration, $treatAsExternalLink, '');
+        self::assertSame($expectedTarget, $target);
     }
 
     /**

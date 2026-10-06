@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -15,123 +17,416 @@
 
 namespace TYPO3\CMS\Backend\Template\Components;
 
+use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Backend\Breadcrumb\BreadcrumbContext;
+use TYPO3\CMS\Backend\Breadcrumb\BreadcrumbFactory;
+use TYPO3\CMS\Backend\Dto\Breadcrumb\BreadcrumbNode;
+use TYPO3\CMS\Backend\Template\Components\Buttons\Action\ShortcutButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
 use TYPO3\CMS\Core\Resource\ResourceInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * DocHeader component class
+ * Document header component for backend modules.
+ *
+ * This component manages the header area of backend module views, providing:
+ * - Breadcrumb navigation (via BreadcrumbContext)
+ * - Button bar for action buttons (save, close, delete, etc.)
+ * - Drop-down menus for module-specific actions
+ *
+ * The component can be enabled or disabled to control visibility of the entire
+ * document header. It integrates with the ModuleTemplate to provide a consistent
+ * header across all backend modules.
+ *
+ * Usage in a controller:
+ *
+ * ```
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
+ *
+ * public function myAction(): ResponseInterface
+ * {
+ *     $view = $this->moduleTemplateFactory->create($request);
+ *     $docHeader = $view->getDocHeaderComponent();
+ *
+ *     // Set breadcrumb for a page
+ *     $docHeader->setPageBreadcrumb($pageInfo);
+ *
+ *     // Add action buttons using ComponentFactory
+ *     $buttonBar = $docHeader->getButtonBar();
+ *     $saveButton = $this->componentFactory->createSaveButton('editform');
+ *     $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ * }
+ * ```
  */
+#[Autoconfigure(public: true)]
 class DocHeaderComponent
 {
     /**
-     * MenuRegistry Object
+     * Button bar component for managing action buttons.
+     */
+    protected ButtonBar $buttonBar;
+
+    /**
+     * Breadcrumb component for rendering navigation trails.
+     */
+    protected Breadcrumb $breadcrumb;
+
+    /**
+     * Context information for breadcrumb rendering.
      *
-     * @var MenuRegistry
+     * Contains the main context (page, record, or resource) and optional suffix nodes
+     * for additional navigation elements.
      */
-    protected $menuRegistry;
+    protected ?BreadcrumbContext $breadcrumbContext = null;
 
     /**
-     * Meta information
-     *
-     * @var MetaInformation
+     * Whether the document header is enabled and should be rendered.
      */
-    protected $metaInformation;
+    protected bool $enabled = true;
 
     /**
-     * Registry Container for Buttons
-     *
-     * @var ButtonBar
+     * Language selector component.
      */
-    protected $buttonBar;
+    protected ?ComponentInterface $languageSelector = null;
 
     /**
-     * @var bool
+     * The automatic shortcut button instance, if configured.
      */
-    protected $enabled = true;
+    protected ?ShortcutButton $automaticShortcutButton = null;
 
     /**
-     * Sets up buttonBar and MenuRegistry
+     * Whether the automatic reload button should be added.
      */
-    public function __construct()
-    {
+    protected bool $automaticReloadButton = true;
+
+    public function __construct(
+        protected readonly MenuRegistry $menuRegistry,
+        protected readonly BreadcrumbFactory $breadcrumbFactory,
+        protected readonly ComponentFactory $componentFactory,
+    ) {
         $this->buttonBar = GeneralUtility::makeInstance(ButtonBar::class);
-        $this->menuRegistry = GeneralUtility::makeInstance(MenuRegistry::class);
-        $this->metaInformation = GeneralUtility::makeInstance(MetaInformation::class);
+        $this->breadcrumb = GeneralUtility::makeInstance(Breadcrumb::class);
     }
 
     /**
-     * Set page information
+     * Sets the breadcrumb context for rendering.
      *
-     * @param array $metaInformation Record array
+     * This is the main API for providing breadcrumb information.
+     *
+     * For common scenarios, use the convenience methods instead:
+     * - setPageBreadcrumb() for page records
+     * - setRecordBreadcrumb() for any record
+     * - setResourceBreadcrumb() for files or folders
+     *
+     * @param BreadcrumbContext|null $breadcrumbContext The breadcrumb context
      */
-    public function setMetaInformation(array $metaInformation)
+    public function setBreadcrumbContext(?BreadcrumbContext $breadcrumbContext): void
     {
-        $this->metaInformation->setRecordArray($metaInformation);
-    }
-
-    public function setMetaInformationForResource(ResourceInterface $resource): void
-    {
-        $this->metaInformation->setResource($resource);
+        $this->breadcrumbContext = $breadcrumbContext;
     }
 
     /**
-     * Get moduleMenuRegistry
+     * Sets breadcrumb from a page record array.
      *
-     * @return MenuRegistry
+     * Example:
+     *     $view->getDocHeaderComponent()->setPageBreadcrumb($pageInfo);
+     *
+     * @param array $pageRecord The page record array (must contain 'uid')
      */
-    public function getMenuRegistry()
+    public function setPageBreadcrumb(array $pageRecord): void
+    {
+        $this->breadcrumbContext = $this->breadcrumbFactory->forPageArray($pageRecord);
+    }
+
+    /**
+     * Sets breadcrumb for editing a record.
+     *
+     * Example:
+     *     $view->getDocHeaderComponent()->setRecordBreadcrumb('tt_content', 123);
+     *
+     * @param string $table The table name
+     * @param int $uid The record UID
+     */
+    public function setRecordBreadcrumb(string $table, int $uid): void
+    {
+        $this->breadcrumbContext = $this->breadcrumbFactory->forEditAction($table, $uid);
+    }
+
+    /**
+     * Sets breadcrumb for any resource (file or folder).
+     *
+     * Example:
+     *     $view->getDocHeaderComponent()->setResourceBreadcrumb($file);
+     *     $view->getDocHeaderComponent()->setResourceBreadcrumb($folder);
+     *
+     * @param ResourceInterface $resource The resource (file or folder)
+     */
+    public function setResourceBreadcrumb(ResourceInterface $resource): void
+    {
+        $this->breadcrumbContext = $this->breadcrumbFactory->forResource($resource);
+    }
+
+    /**
+     * Adds a suffix node to the current breadcrumb context.
+     *
+     * Suffix nodes are appended after the main breadcrumb trail and are useful for:
+     * - Indicating "Create New" actions
+     * - Showing "Edit Multiple" states
+     * - Adding custom contextual information
+     *
+     * Example:
+     *
+     *     $docHeader->setPageBreadcrumb($pageInfo);
+     *     $docHeader->addBreadcrumbSuffixNode(
+     *         new BreadcrumbNode(
+     *             identifier: 'new',
+     *             label: 'Create New Content Element',
+     *             icon: 'actions-add'
+     *         )
+     *     );
+     *
+     * Note: This creates or modifies the breadcrumb context. If you need to build
+     * a complete context, use BreadcrumbFactory instead.
+     *
+     * @param BreadcrumbNode $node The node to append
+     */
+    public function addBreadcrumbSuffixNode(BreadcrumbNode $node): void
+    {
+        if ($this->breadcrumbContext === null) {
+            $this->breadcrumbContext = new BreadcrumbContext(null, [$node]);
+        } else {
+            // Create new context with added suffix node
+            $existingSuffixNodes = $this->breadcrumbContext->suffixNodes;
+            $existingSuffixNodes[] = $node;
+            $this->breadcrumbContext = new BreadcrumbContext(
+                $this->breadcrumbContext->mainContext,
+                $existingSuffixNodes
+            );
+        }
+    }
+
+    /**
+     * Returns the menu registry for adding drop-down menus to the document header.
+     */
+    public function getMenuRegistry(): MenuRegistry
     {
         return $this->menuRegistry;
     }
 
     /**
-     * Get ButtonBar
+     * Returns the button bar for adding action buttons to the document header.
      *
-     * @return ButtonBar
+     * The button bar supports multiple button positions (left, right) and groups
+     * to organize buttons logically.
      */
-    public function getButtonBar()
+    public function getButtonBar(): ButtonBar
     {
         return $this->buttonBar;
     }
 
     /**
-     * Determines whether this components is enabled.
+     * Determines whether this component is enabled and should be rendered.
      *
-     * @return bool
+     * When disabled, the entire document header (including breadcrumbs, buttons,
+     * and menus) will not be displayed in the backend module.
      */
-    public function isEnabled()
+    public function isEnabled(): bool
     {
         return $this->enabled;
     }
 
     /**
-     * Sets the enabled property to TRUE.
+     * Enables this component for rendering.
      */
-    public function enable()
+    public function enable(): void
     {
         $this->enabled = true;
     }
 
     /**
-     * Sets the enabled property to FALSE (disabled).
+     * Disables this component to prevent rendering.
      */
-    public function disable()
+    public function disable(): void
     {
         $this->enabled = false;
     }
 
-    /**
-     * Returns the abstract content of the docHeader as an array
-     *
-     * @return array
-     */
-    public function docHeaderContent()
+    public function setLanguageSelector(?ComponentInterface $component): void
     {
+        $this->languageSelector = $component;
+    }
+
+    public function getLanguageSelector(): ?ComponentInterface
+    {
+        return $this->languageSelector;
+    }
+
+    /**
+     * Sets the context for the automatic shortcut button.
+     *
+     * Controllers can use this method to provide shortcut information without
+     * manually creating and adding the shortcut button. The button will be
+     * automatically added to the button bar in the correct position.
+     *
+     * Example:
+     *
+     *     $docHeader->setShortcutContext('site_configuration.edit', sprintf('Edit site: %s', $siteIdentifier), ['site' => $siteIdentifier]);
+     *
+     * @param string $routeIdentifier The route identifier for the shortcut
+     * @param string $displayName The display name shown in the bookmark list
+     * @param array $arguments Optional arguments to include in the shortcut URL
+     */
+    public function setShortcutContext(string $routeIdentifier, string $displayName, array $arguments = []): void
+    {
+        $this->automaticShortcutButton = $this->componentFactory->createShortcutButton()
+            ->setRouteIdentifier($routeIdentifier)
+            ->setDisplayName($displayName)
+            ->setArguments($arguments);
+    }
+
+    /**
+     * Disables the automatic reload button for this module.
+     *
+     * Use this if your module needs custom reload behavior or should not
+     * have a reload button at all.
+     */
+    public function disableAutomaticReloadButton(): void
+    {
+        $this->automaticReloadButton = false;
+    }
+
+    /**
+     * Disables the automatic shortcut button for this module.
+     *
+     * Use this if your module should not have a shortcut button.
+     */
+    public function disableAutomaticShortcutButton(): void
+    {
+        $this->automaticShortcutButton = null;
+    }
+
+    /**
+     * Returns the complete document header content as an array for rendering.
+     *
+     * This method aggregates all components (buttons, breadcrumbs) into
+     * a structured array that can be consumed by the Fluid template rendering
+     * the backend module layout.
+     *
+     * The returned array structure:
+     * - 'enabled': Whether the document header should be rendered
+     * - 'buttons': Array of button configurations from the button bar
+     * - 'breadcrumb': Breadcrumb trail data from the breadcrumb context
+     * - 'languageSelector': Language Selector
+     */
+    public function docHeaderContent(?ServerRequestInterface $request): array
+    {
+        // Process MenuRegistry and add any menus as dropdown buttons to the button bar
+        $moduleMenuButton = $this->processMenuRegistry();
+        if ($moduleMenuButton !== null) {
+            $this->buttonBar->addButton($moduleMenuButton, ButtonBar::BUTTON_POSITION_LEFT, 0);
+        }
+
+        // Add automatic buttons (reload, shortcut)
+        $this->addAutomaticButtons($request);
+
         return [
             'enabled' => $this->isEnabled(),
-            'buttons' => $this->buttonBar->getButtons(),
-            'menus' => $this->menuRegistry->getMenus(),
-            'metaInformation' => $this->metaInformation,
+            'buttons' => $this->buttonBar->getButtons($request),
+            'breadcrumb' => $this->breadcrumb->getBreadcrumb($request, $this->breadcrumbContext),
+            'languageSelector' => $this->getLanguageSelector(),
         ];
+    }
+
+    /**
+     * Adds automatic reload and shortcut buttons to the button bar.
+     *
+     * This method is called automatically by docHeaderContent() and handles:
+     * - Adding automatic reload button (if enabled)
+     * - Adding automatic shortcut button (if configured)
+     *
+     * The buttons are added to groups 90 and 91 on the right side, which are conventionally
+     * used for these system buttons. This ensures they appear at the end of the button bar
+     * while still allowing PSR-14 event listeners to modify or remove them via ModifyButtonBarEvent.
+     */
+    private function addAutomaticButtons(?ServerRequestInterface $request): void
+    {
+        if ($request === null) {
+            return;
+        }
+
+        // Add automatic reload button if enabled
+        if ($this->automaticReloadButton) {
+            $reloadButton = $this->componentFactory->createReloadButton(
+                $request->getAttribute('normalizedParams')->getRequestUri()
+            );
+            // Add to group 90 on the right (conventionally second-to-last position)
+            $this->buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT, 90);
+        }
+
+        // Add automatic shortcut button if configured
+        if ($this->automaticShortcutButton !== null) {
+            // Add to group 91 on the right (conventionally last position)
+            $this->buttonBar->addButton($this->automaticShortcutButton);
+        }
+    }
+
+    /**
+     * Processes registered menus from the MenuRegistry into a dropdown button component.
+     *
+     * Takes the first registered menu from the MenuRegistry and creates a dropdown button
+     * component that can be added to the button bar.
+     *
+     * @return ButtonInterface|null The dropdown button, or null if no menus registered
+     */
+    private function processMenuRegistry(): ?ButtonInterface
+    {
+        $menus = $this->menuRegistry->getMenus();
+
+        if ($menus === []) {
+            return null;
+        }
+
+        if (count($menus) > 1) {
+            throw new \RuntimeException('The menuRegistry should only contain one menu. '
+            . 'Multiple DocHeaderComponents can not be displayed - prefer to add distinct dropdown '
+            . 'buttons to add more view possibilities, or create actual submodules instead of secondary menus.', 1783447740);
+        }
+
+        // Use the first menu (most controllers only register one menu)
+        $menu = reset($menus);
+
+        // Hide menu if it's either empty or offers only one item
+        if (count($menu->getMenuItems()) < 2) {
+            return null;
+        }
+
+        $label = $menu->getLabel();
+        $dropdownButton = $this->componentFactory->createDropDownButton()
+            ->setShowActiveLabelText(true)
+            ->setShowLabelText(true);
+
+        foreach ($menu->getMenuItems() as $menuItem) {
+            if ($label === '') {
+                // Previously, the menu was rendered as a <select>, which meant the first or
+                // currently selected <option> acted as the visible label. The menu itself had
+                // no separate label. As a fallback, we now use the first menu item title as the
+                // button label, ensuring the DropDownButton is valid. The button will still
+                // always display the active item, because setShowActiveLabelText(true) is set.
+                $label = $menuItem->getTitle();
+            }
+            $dropdownItem = $this->componentFactory->createDropDownRadio()
+                ->setHref($menuItem->getHref())
+                ->setLabel($menuItem->getTitle())
+                ->setActive($menuItem->isActive());
+
+            $dropdownButton->addItem($dropdownItem);
+        }
+
+        $dropdownButton->setLabel($label);
+
+        return $dropdownButton;
     }
 }

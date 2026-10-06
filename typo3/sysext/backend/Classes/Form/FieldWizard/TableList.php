@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Form\FieldWizard;
 
 use TYPO3\CMS\Backend\Form\AbstractNode;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\Form\Utility\FormEngineUtility;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -61,7 +61,8 @@ class TableList extends AbstractNode
                 $allowedTablesHtml[] =  htmlspecialchars($label);
                 $allowedTablesHtml[] = '</span>';
             } else {
-                $label = $languageService->sL($GLOBALS['TCA'][$tableName]['ctrl']['title'] ?? '');
+                $tableSchema = $this->data['tcaSchemata']->has($tableName) ? $this->data['tcaSchemata']->get($tableName) : null;
+                $label = $languageService->sL($tableSchema?->getTitle() ?? '');
                 $icon = $this->iconFactory->getIconForRecord($tableName, [], IconSize::SMALL)->render();
                 if ((bool)($config['fieldControl']['elementBrowser']['disabled'] ?? false)) {
                     $allowedTablesHtml[] = '<span class="tablelist-item-nolink">';
@@ -71,9 +72,12 @@ class TableList extends AbstractNode
                 } else {
                     // Initialize attributes
                     $attributes = [
+                        'type' => 'button',
                         'class' => 'btn btn-default t3js-element-browser',
                         'data-mode' => $tableName === 'sys_file' ? 'file' : 'db',
-                        'data-params' => $itemName . '|||' . $tableName,
+                        'data-field-reference' => $itemName,
+                        'data-use-events' => 'true',
+                        'data-allowed-types' => $tableName,
                     ];
 
                     // Add the entry point - if found
@@ -125,7 +129,7 @@ class TableList extends AbstractNode
                 $entryPoint = (string)$this->data['site']->getRootPageId();
             } else {
                 // Check for special TSconfig marker
-                $TSconfig = BackendUtility::getTCEFORM_TSconfig($this->data['tableName'], ['pid' => $this->data['effectivePid']]);
+                $TSconfig = FormEngineUtility::getTCEFORM_TSconfig($this->data['tableName'], ['pid' => $this->data['effectivePid']]);
                 $keyword = substr($entryPoint, 3, -3);
                 if (str_starts_with($keyword, 'PAGE_TSCONFIG_')) {
                     $entryPoint = (string)($TSconfig[$this->data['fieldName']][$keyword] ?? '');

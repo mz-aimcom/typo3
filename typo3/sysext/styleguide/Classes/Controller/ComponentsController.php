@@ -20,8 +20,12 @@ namespace TYPO3\CMS\Styleguide\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Dto\Breadcrumb\BreadcrumbNode;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Core\Error\Http\StatusException;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
@@ -29,6 +33,7 @@ use TYPO3\CMS\Core\Pagination\ArrayPaginator;
 use TYPO3\CMS\Core\Pagination\SimplePagination;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Styleguide\DummyDumpContentProvider;
 use TYPO3\CMS\Styleguide\Service\KauderwelschService;
 
@@ -47,15 +52,21 @@ final class ComponentsController
         'componentsOverview',
         'avatar',
         'badges',
+        'breadcrumbs',
         'buttons',
         'cards',
         'checkboxes',
+        'comboboxes',
+        'contentNavigation',
+        'datetime',
         'developerTools',
         'dropdown',
+        'exception',
         'flashMessages',
         'form',
         'infobox',
         'input',
+        'listGroups',
         'modal',
         'navs',
         'notifications',
@@ -63,7 +74,9 @@ final class ComponentsController
         'panels',
         'progressIndicators',
         'progressTrackers',
+        'radio',
         'select',
+        'statusIndicators',
         'tab',
         'tables',
         'textarea',
@@ -73,6 +86,7 @@ final class ComponentsController
     public function __construct(
         private readonly ModuleTemplateFactory $moduleTemplateFactory,
         private readonly FlashMessageService $flashMessageService,
+        private readonly UriBuilder $uriBuilder,
     ) {}
 
     /**
@@ -87,14 +101,20 @@ final class ComponentsController
         return match ($queryAction) {
             'avatar' => $this->renderAvatarView($request),
             'badges' => $this->renderBadgesView($request),
+            'breadcrumbs' => $this->renderBreadcrumbsView($request),
             'buttons' => $this->renderButtonsView($request),
             'cards' => $this->renderCardsView($request),
             'checkboxes' => $this->renderCheckboxesView($request),
+            'comboboxes' => $this->renderComboboxesView($request),
+            'contentNavigation' => $this->renderContentNavigationView($request),
+            'datetime' => $this->renderDatetimeView($request),
             'developerTools' => $this->renderDeveloperToolsView($request),
             'dropdown' => $this->renderDropdownView($request),
+            'exception' => $this->renderExceptionView($request),
             'flashMessages' => $this->renderFlashMessagesView($request),
             'form' => $this->renderFormView($request),
             'infobox' => $this->renderInfoboxView($request),
+            'listGroups' => $this->renderListGroupsView($request),
             'input' => $this->renderInputView($request),
             'modal' => $this->renderModalView($request),
             'navs' => $this->renderNavsView($request),
@@ -103,7 +123,9 @@ final class ComponentsController
             'panels' => $this->renderPanelsView($request),
             'progressIndicators' => $this->renderProgressIndicatorsView($request),
             'progressTrackers' => $this->renderProgressTrackersView($request),
+            'radio' => $this->renderRadioView($request),
             'select' => $this->renderSelectView($request),
+            'statusIndicators' => $this->renderStatusIndicatorsView($request),
             'tab' => $this->renderTabView($request),
             'tables' => $this->renderTablesView($request),
             'textarea' => $this->renderTextareaView($request),
@@ -148,6 +170,62 @@ final class ComponentsController
         return $view->renderResponse('Backend/Components/Badges');
     }
 
+    private function renderBreadcrumbsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $breadcrumb = [];
+        $url = (string)$this->uriBuilder->buildUriFromRoute('styleguide_components', ['action' => 'breadcrumbs']);
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '0',
+            label: 'Root',
+            icon: 'apps-pagetree-root',
+            iconOverlay: null,
+            url: $url,
+        );
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '1',
+            label: 'Menu Entry Level 1',
+            icon: 'apps-pagetree-page',
+            iconOverlay: null,
+            url: $url,
+        );
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '2',
+            label: 'Menu Entry Level 2',
+            icon: 'apps-pagetree-page',
+            iconOverlay: null,
+            url: $url,
+        );
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '3',
+            label: 'Menu Entry Level 3',
+            icon: 'apps-pagetree-page',
+            iconOverlay: null,
+            url: $url,
+        );
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '4',
+            label: 'Menu Entry Level 4',
+            icon: 'apps-pagetree-page',
+            iconOverlay: null,
+            url: $url,
+        );
+        $breadcrumb[] = new BreadcrumbNode(
+            identifier: '5',
+            label: 'Menu Entry Level 5',
+            icon: 'apps-pagetree-page',
+            iconOverlay: null,
+        );
+
+        $view = $this->createModuleTemplate($request, 'breadcrumbs');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'breadcrumbs',
+            'routeIdentifier' => 'styleguide_components',
+            'breadcrumb' => $breadcrumb,
+        ]);
+        return $view->renderResponse('Backend/Components/Breadcrumbs');
+    }
+
     private function renderButtonsView(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->createModuleTemplate($request, 'buttons');
@@ -183,6 +261,17 @@ final class ComponentsController
         return $view->renderResponse('Backend/Components/Checkboxes');
     }
 
+    private function renderComboboxesView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'comboboxes');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'comboboxes',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/Comboboxes');
+    }
+
     private function renderDeveloperToolsView(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->createModuleTemplate($request, 'developerTools');
@@ -206,6 +295,13 @@ final class ComponentsController
         return $view->renderResponse('Backend/Components/Dropdown');
     }
 
+    private function renderExceptionView(ServerRequestInterface $request): ResponseInterface
+    {
+        // We're throwing an exception because it also needs to execute JavaScript, which in turn requires CSP disabled,
+        // which wouldn't work if we just execute `debugExceptionHandler->echoExceptionWeb($throwable)`.
+        throw new StatusException(HttpUtility::HTTP_STATUS_200, 'Dummy exception', 'An exception', 1786056622);
+    }
+
     private function renderFlashMessagesView(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->createModuleTemplate($request, 'flashMessages');
@@ -220,21 +316,21 @@ final class ComponentsController
         // Normal modules wouldn't usually do this and would let ModuleTemplate layout take care of rendering
         // at some appropriate position.
         $flashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier('styleguide.default');
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Title', ContextualFeedbackSeverity::NOTICE, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Title', ContextualFeedbackSeverity::NOTICE, true));
 
         $flashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier('styleguide.color');
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Notice', ContextualFeedbackSeverity::NOTICE, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Info', ContextualFeedbackSeverity::INFO, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Ok', ContextualFeedbackSeverity::OK, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Warning', ContextualFeedbackSeverity::WARNING, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Error', ContextualFeedbackSeverity::ERROR, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Notice', ContextualFeedbackSeverity::NOTICE, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Info', ContextualFeedbackSeverity::INFO, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Ok', ContextualFeedbackSeverity::OK, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Warning', ContextualFeedbackSeverity::WARNING, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Error', ContextualFeedbackSeverity::ERROR, true));
 
         $flashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier('styleguide.colorscheme');
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Notice', ContextualFeedbackSeverity::NOTICE, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Info', ContextualFeedbackSeverity::INFO, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Ok', ContextualFeedbackSeverity::OK, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Warning', ContextualFeedbackSeverity::WARNING, true));
-        $flashMessageQueue->enqueue(GeneralUtility::makeInstance(FlashMessage::class, $loremIpsum, 'Error', ContextualFeedbackSeverity::ERROR, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Notice', ContextualFeedbackSeverity::NOTICE, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Info', ContextualFeedbackSeverity::INFO, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Ok', ContextualFeedbackSeverity::OK, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Warning', ContextualFeedbackSeverity::WARNING, true));
+        $flashMessageQueue->enqueue(new FlashMessage($loremIpsum, 'Error', ContextualFeedbackSeverity::ERROR, true));
 
         return $view->renderResponse('Backend/Components/FlashMessages');
     }
@@ -248,6 +344,33 @@ final class ComponentsController
             'routeIdentifier' => 'styleguide_components',
         ]);
         return $view->renderResponse('Backend/Components/Form');
+    }
+
+    private function renderStatusIndicatorsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'statusIndicators');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'statusIndicators',
+            'routeIdentifier' => 'styleguide_components',
+            'states' => [
+                'primary',
+                'secondary',
+                'success',
+                'info',
+                'warning',
+                'danger',
+                'notice',
+                'default',
+            ],
+            'semanticStates' => [
+                'active',
+                'online',
+                'running',
+                'disabled',
+            ],
+        ]);
+        return $view->renderResponse('Backend/Components/StatusIndicators');
     }
 
     private function renderInfoboxView(ServerRequestInterface $request): ResponseInterface
@@ -272,6 +395,17 @@ final class ComponentsController
         return $view->renderResponse('Backend/Components/Input');
     }
 
+    private function renderListGroupsView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'listGroups');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'listGroups',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/ListGroups');
+    }
+
     private function renderModalView(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->createModuleTemplate($request, 'modal');
@@ -280,7 +414,8 @@ final class ComponentsController
             'currentAction' => 'modal',
             'routeIdentifier' => 'styleguide_components',
             'variants' => ['notice', 'info', 'ok', 'warning', 'error'],
-            'sizes' => ['small', 'default', 'medium', 'large', 'full'],
+            'sizes' => ['small', 'default', 'medium', 'large', 'full', 'expand'],
+            'positions' => ['center', 'top', 'end', 'bottom', 'start', 'sheet'],
         ]);
         return $view->renderResponse('Backend/Components/Modal');
     }
@@ -367,7 +502,7 @@ final class ComponentsController
             'actions' => $this->allowedActions,
             'currentAction' => 'panels',
             'routeIdentifier' => 'styleguide_components',
-            'variants' => ['primary', 'secondary', 'info', 'success', 'warning', 'danger', 'notice', 'default'],
+            'variants' => ['primary', 'secondary', 'info', 'success', 'warning', 'danger', 'notice', 'default', 'hidden', 'placeholder'],
         ]);
         return $view->renderResponse('Backend/Components/Panels');
     }
@@ -392,6 +527,91 @@ final class ComponentsController
             'routeIdentifier' => 'styleguide_components',
         ]);
         return $view->renderResponse('Backend/Components/ProgressTrackers');
+    }
+
+    private function renderRadioView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'radio');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'radio',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/Radio');
+    }
+
+    private function renderContentNavigationView(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->createModuleTemplate($request, 'contentNavigation');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'contentNavigation',
+            'routeIdentifier' => 'styleguide_components',
+        ]);
+        return $view->renderResponse('Backend/Components/ContentNavigation');
+    }
+
+    private function renderDatetimeView(ServerRequestInterface $request): ResponseInterface
+    {
+        $now = new \DateTimeImmutable();
+        $dateFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] ?? 'Y-m-d';
+        $timeFormat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'] ?? 'H:i';
+        $dateTimeFormat = $dateFormat . ' ' . $timeFormat;
+
+        $view = $this->createModuleTemplate($request, 'datetime');
+        $view->assignMultiple([
+            'actions' => $this->allowedActions,
+            'currentAction' => 'datetime',
+            'routeIdentifier' => 'styleguide_components',
+            'dateTimeFormat' => $dateTimeFormat,
+            'examples' => [
+                [
+                    'label' => '30 seconds',
+                    'timestamp' => $now->modify('-30 seconds')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '5 minutes',
+                    'timestamp' => $now->modify('-5 minutes')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '2 hours',
+                    'timestamp' => $now->modify('-2 hours')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '3 days, 3 hours',
+                    'timestamp' => $now->modify('-3 days')->modify('-3 hours')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '2 weeks',
+                    'timestamp' => $now->modify('-2 weeks')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '2 months',
+                    'timestamp' => $now->modify('-2 months')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '1 year',
+                    'timestamp' => $now->modify('-1 year')->format(\DateTimeInterface::ATOM),
+                ],
+                [
+                    'label' => '5 years',
+                    'timestamp' => $now->modify('-5 years')->format(\DateTimeInterface::ATOM),
+                ],
+            ],
+            // Unix timestamp examples
+            'unixExamples' => [
+                [
+                    'label' => 'Unix timestamp (seconds)',
+                    'timestamp' => (string)$now->modify('-1 hour')->getTimestamp(),
+                    'iso' => $now->modify('-1 hour')->format(\DateTimeInterface::ATOM),
+                ],
+            ],
+            // Separate timestamps for other examples
+            'nowTimestamp' => $now->format(\DateTimeInterface::ATOM),
+            'recentTimestamp' => $now->modify('-2 hours')->format(\DateTimeInterface::ATOM),
+            'oldTimestamp' => $now->modify('-5 years')->format(\DateTimeInterface::ATOM),
+        ]);
+        return $view->renderResponse('Backend/Components/Datetime');
     }
 
     private function renderSelectView(ServerRequestInterface $request): ResponseInterface
@@ -453,28 +673,23 @@ final class ComponentsController
     {
         $languageService = $this->getLanguageService();
         $view = $this->moduleTemplateFactory->create($request);
+        $view->setLayout(ModuleLayout::NORMAL);
         $view->setTitle(
             $languageService->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:styleguide'),
             $languageService->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:action.' . $action),
         );
         $view->setModuleClass('module-styleguide');
         $view->makeDocHeaderModuleMenu();
-        $this->addDocHeaderShortcutButton($view, $action);
-        return $view;
-    }
-
-    private function addDocHeaderShortcutButton(ModuleTemplate $moduleTemplate, string $action = ''): void
-    {
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setDisplayName(sprintf(
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'styleguide_components',
+            sprintf(
                 '%s - %s',
                 $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:styleguide'),
                 $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:action.' . $action)
-            ))
-            ->setRouteIdentifier('styleguide_components')
-            ->setArguments(['action' => $action]);
-        $buttonBar->addButton($shortcutButton);
+            ),
+            ['action' => $action]
+        );
+        return $view;
     }
 
     private function getLanguageService(): LanguageService

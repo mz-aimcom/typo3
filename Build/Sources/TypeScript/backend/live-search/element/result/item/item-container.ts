@@ -14,8 +14,8 @@
 import '@typo3/backend/element/spinner-element';
 import LiveSearchConfigurator from '@typo3/backend/live-search/live-search-configurator';
 import { css, html, LitElement, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators';
-import { until } from 'lit/directives/until';
+import { customElement, property } from 'lit/decorators.js';
+import { until } from 'lit/directives/until.js';
 import '../../provider/default-result-item';
 import { type Item, type ResultItemActionInterface, type ResultItemInterface } from './item';
 import type { InvokeActionEventData, RequestActionsEventData } from '@typo3/backend/live-search/element/result/result-container';
@@ -89,6 +89,7 @@ export class ItemContainer extends LitElement {
       innerResultItemComponent = html`<typo3-backend-live-search-result-item-default
         title="${resultItem.typeLabel}: ${resultItem.itemTitle}"
         .icon="${resultItem.icon}"
+        .language="${resultItem.language}"
         .itemTitle="${resultItem.itemTitle}"
         .typeLabel="${resultItem.typeLabel}"
         .extraData="${resultItem.extraData}">
@@ -97,7 +98,7 @@ export class ItemContainer extends LitElement {
 
     return html`<typo3-backend-live-search-result-item
       .resultItem="${resultItem}"
-      @click="${() => this.invokeAction(resultItem, resultItem.actions[0])}"
+      @click="${() => this.invokeAction(resultItem, resultItem.defaultAction)}"
       @focus="${() => this.requestActions(resultItem)}">
       ${innerResultItemComponent}
     </typo3-backend-live-search-result-item>`;

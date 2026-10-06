@@ -20,8 +20,6 @@ namespace TYPO3\CMS\Workspaces\Tests\Functional\EventListener;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\Event\AfterPageTreeItemsPreparedEvent;
 use TYPO3\CMS\Backend\Dto\Tree\Status\StatusInformation;
-use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Workspaces\EventListener\PageTreeItemsHighlighter;
@@ -122,6 +120,12 @@ final class PageTreeItemsHighlighterTest extends FunctionalTestCase
                 severity: ContextualFeedbackSeverity::WARNING
             ),
         ];
+        $expected[2]['statusInformation'] = [
+            new StatusInformation(
+                label: $languageService->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:status.contains_changes'),
+                severity: ContextualFeedbackSeverity::WARNING
+            ),
+        ];
         $expected[4]['statusInformation'] = [
             new StatusInformation(
                 label: $languageService->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:status.has_changes'),
@@ -136,7 +140,8 @@ final class PageTreeItemsHighlighterTest extends FunctionalTestCase
         ];
 
         $afterPageTreeItemsPreparedEvent = new AfterPageTreeItemsPreparedEvent(
-            new ServerRequest(new Uri('https://example.com')),
+            null,
+            null,
             $input
         );
         $this->get(PageTreeItemsHighlighter::class)($afterPageTreeItemsPreparedEvent);

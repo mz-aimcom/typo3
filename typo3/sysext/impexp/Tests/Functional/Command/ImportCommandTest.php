@@ -28,6 +28,13 @@ use TYPO3\CMS\Impexp\Tests\Functional\AbstractImportExportTestCase;
 
 final class ImportCommandTest extends AbstractImportExportTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // there is no request object available in the command context
+        unset($GLOBALS['TYPO3_REQUEST']);
+    }
+
     #[Test]
     public function importCommandRequiresFileArgument(): void
     {
@@ -62,9 +69,12 @@ final class ImportCommandTest extends AbstractImportExportTestCase
             ],
         ];
 
-        $importMock = $this->getAccessibleMock(Import::class, [
-            'setPid', 'setUpdate', 'setGlobalIgnorePid', 'setForceAllUids', 'setEnableLogging', 'loadFile', 'setImportMode',
-        ], [], '', false);
+        $importMock = $this->getMockBuilder(Import::class)
+            ->onlyMethods([
+                'setPid', 'setUpdate', 'setGlobalIgnorePid', 'setForceAllUids', 'setEnableLogging', 'loadFile', 'setImportMode',
+            ])
+            ->disableOriginalConstructor()
+            ->getMock();
 
         $importMock->expects($this->once())->method('setPid')->with(self::equalTo(3));
         $importMock->expects($this->once())->method('setUpdate')->with(self::equalTo(false));
@@ -85,42 +95,42 @@ final class ImportCommandTest extends AbstractImportExportTestCase
     {
         return [
             'path to not existing file' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/me_does_not_exist.xml',
                     '--force-uid' => true,
                 ],
                 'expected' => 'File not found: ',
             ],
             'unsupported file extension' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/unsupported.json',
                     '--force-uid' => true,
                 ],
                 'expected' => 'File extension "json" is not valid. Supported file extensions are "xml", "t3d".',
             ],
             'missing required extension' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/sys_category_table_with_news.xml',
                     '--force-uid' => true,
                 ],
                 'expected' => 'Prerequisites for file import are not met.',
             ],
             'missing required storage path' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/pages-and-ttcontent-with-image-with-invalid-storage.xml',
                     '--force-uid' => true,
                 ],
                 'expected' => 'Prerequisites for file import are not met.',
             ],
             'forcing uids of sys_file records not supported' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/pages-and-ttcontent-with-image-with-forced-uids.xml',
                     '--force-uid' => true,
                 ],
                 'expected' => 'The import has failed.',
             ],
             'import mode does not match associative array pattern of cli' => [
-                [
+                'input' => [
                     'file' => 'EXT:impexp/Tests/Functional/Fixtures/XmlImports/pages-and-ttcontent.xml',
                     '--import-mode' => [sprintf('pages:987:%s', Import::IMPORT_MODE_FORCE_UID)],
                 ],

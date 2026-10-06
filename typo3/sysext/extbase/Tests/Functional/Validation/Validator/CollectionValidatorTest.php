@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Functional\Validation\Validator;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
@@ -53,11 +54,10 @@ final class CollectionValidatorTest extends FunctionalTestCase
     #[Test]
     public function collectionValidatorValidatesEveryElementOfACollectionWithTheGivenElementValidator(): void
     {
-        $mockValidatorResolver = $this->getAccessibleMock(
-            ValidatorResolver::class,
-            ['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'],
-            [$this->get(ReflectionService::class)]
-        );
+        $mockValidatorResolver = $this->getMockBuilder(ValidatorResolver::class)
+            ->onlyMethods(['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'])
+            ->setConstructorArgs([$this->get(ReflectionService::class)])
+            ->getMock();
         /** @var ContainerBuilder $container */
         $container = $this->get('service_container');
         $container->set(ValidatorResolver::class, $mockValidatorResolver);
@@ -81,13 +81,14 @@ final class CollectionValidatorTest extends FunctionalTestCase
     }
 
     #[Test]
+    #[AllowMockObjectsWithoutExpectations]
     public function collectionValidatorValidatesNestedObjectStructuresWithoutEndlessLooping(): void
     {
-        $A = new class () {
+        $A = new class {
             public $b = [];
             public $integer = 5;
         };
-        $B = new class () {
+        $B = new class {
             public $a;
             public $c;
             public $integer = 'Not an integer';
@@ -106,15 +107,10 @@ final class CollectionValidatorTest extends FunctionalTestCase
         $subject->setOptions(['elementValidator' => 'Integer']);
         $integerValidator = new IntegerValidator();
         $integerValidator->setOptions([]);
-        $mockValidatorResolver = $this->getAccessibleMock(
-            ValidatorResolver::class,
-            ['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'],
-            [$this->get(ReflectionService::class)]
-        );
-        $mockValidatorResolver
-            ->method('createValidator')
-            ->with('Integer')
-            ->willReturn($integerValidator);
+        $mockValidatorResolver = $this->getMockBuilder(ValidatorResolver::class)
+            ->onlyMethods(['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'])
+            ->setConstructorArgs([$this->get(ReflectionService::class)])
+            ->getMock();
         // Add validators to properties
         $aValidator->addPropertyValidator('b', $subject);
         $aValidator->addPropertyValidator('integer', $integerValidator);
@@ -132,11 +128,10 @@ final class CollectionValidatorTest extends FunctionalTestCase
         $objectStorage->attach($entity);
         $aValidator = new GenericObjectValidator();
         $aValidator->setOptions([]);
-        $mockValidatorResolver = $this->getAccessibleMock(
-            ValidatorResolver::class,
-            ['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'],
-            [$this->get(ReflectionService::class)]
-        );
+        $mockValidatorResolver = $this->getMockBuilder(ValidatorResolver::class)
+            ->onlyMethods(['createValidator', 'buildBaseValidatorConjunction', 'getBaseValidatorConjunction'])
+            ->setConstructorArgs([$this->get(ReflectionService::class)])
+            ->getMock();
         $mockValidatorResolver->expects($this->never())->method('createValidator');
         $subject = $this->get(CollectionValidator::class);
         $subject->setOptions(['elementType' => $elementType]);

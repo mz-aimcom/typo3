@@ -371,15 +371,10 @@ class TcaRecordTitle implements FormDataProviderInterface
         return trim(strip_tags($value));
     }
 
-    protected function getRecordTitleForDatetimeType(mixed $value, array $fieldConfig): string
+    protected function getRecordTitleForDatetimeType(?\DateTimeInterface $datetime, array $fieldConfig): string
     {
-        try {
-            $datetime = DateTimeFactory::createFomDatabaseValueAndTCAConfig($value, $fieldConfig);
-            if ($datetime === null) {
-                return '';
-            }
-        } catch (\InvalidArgumentException) {
-            return (string)$value;
+        if ($datetime === null) {
+            return '';
         }
         $format = DateTimeFactory::getFormatFromTCAConfig($fieldConfig);
         if ($format === 'date') {
@@ -387,7 +382,7 @@ class TcaRecordTitle implements FormDataProviderInterface
             // Generate age suffix as long as not explicitly suppressed
             if (!($fieldConfig['disableAgeDisplay'] ?? false)) {
                 $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
-                $ageSuffix = sprintf(' (%s)', (new DateFormatter())->formatDateInterval(
+                $ageSuffix = sprintf(' (%s)', new DateFormatter()->formatDateInterval(
                     $now->diff($datetime),
                     $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
                 ));
@@ -403,7 +398,10 @@ class TcaRecordTitle implements FormDataProviderInterface
         if ($format === 'datetime') {
             return BackendUtility::datetime($datetime->getTimestamp());
         }
-        return (string)$value;
+        if ($format === 'datetimesec') {
+            return BackendUtility::datetimesec($datetime->getTimestamp());
+        }
+        return '';
     }
 
     /**

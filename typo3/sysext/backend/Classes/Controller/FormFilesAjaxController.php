@@ -31,6 +31,7 @@ use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\JavaScriptItems;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -42,7 +43,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
 #[AsController]
 readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
 {
-    private const FILE_REFERENCE_TABLE = 'sys_file_reference';
+    private const string FILE_REFERENCE_TABLE = 'sys_file_reference';
 
     public function __construct(
         private ResponseFactoryInterface $responseFactory,
@@ -51,6 +52,8 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
         private HashService $hashService,
         private NodeFactory $nodeFactory,
         private InlineStackProcessor $inlineStackProcessor,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private FlashMessageService $flashMessageService,
     ) {}
 
     /**
@@ -74,7 +77,7 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
             $fileId = (int)$arguments[1];
         }
 
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $this->tcaSchemaFactory->all());
         $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
         $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
@@ -140,7 +143,7 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
         $inlineFirstPid = $this->getInlineFirstPidFromDomObjectId($domObjectId);
         $parentConfig = $this->extractSignedParentConfigFromRequest((string)($arguments['context'] ?? ''));
 
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $this->tcaSchemaFactory->all());
         $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
         $fileReference = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure);
@@ -192,7 +195,7 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
         $type = $arguments[1] ?? null;
         $parentConfig = $this->extractSignedParentConfigFromRequest((string)($arguments['context'] ?? ''));
 
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $this->tcaSchemaFactory->all());
         $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         $inlineFirstPid = $this->getInlineFirstPidFromDomObjectId($domObjectId);
 
@@ -266,8 +269,7 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
 
             // Render error messages from DataHandler
             $tce->printLogErrorMessages();
-            $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-            $messages = $flashMessageService->getMessageQueueByIdentifier()->getAllMessagesAndFlush();
+            $messages = $this->flashMessageService->getMessageQueueByIdentifier()->getAllMessagesAndFlush();
             if (!empty($messages)) {
                 foreach ($messages as $message) {
                     $jsonArray['messages'][] = [
@@ -332,7 +334,7 @@ readonly class FormFilesAjaxController extends AbstractFormEngineAjaxController
     {
         [$domObjectId, $expand, $collapse] = $request->getParsedBody()['ajax'];
 
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $this->tcaSchemaFactory->all());
         $currentTable = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure)['table'];
         $top = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
         $stateArray = $this->getReferenceExpandCollapseStateArray();

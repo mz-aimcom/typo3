@@ -28,6 +28,7 @@ use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Page\JavaScriptItems;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Site\SiteLanguagePresets;
@@ -50,11 +51,10 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
         private HashService $hashService,
         private NodeFactory $nodeFactory,
         private InlineStackProcessor $inlineStackProcessor,
-    ) {
-        // Bring site TCA into global scope.
-        // @todo: We might be able to get rid of that later
-        $GLOBALS['TCA'] = array_merge($GLOBALS['TCA'], GeneralUtility::makeInstance(SiteTcaConfiguration::class)->getTca());
-    }
+        private TcaSchemaBuilder $tcaSchemaBuilder,
+        private SiteTcaConfiguration $siteTcaConfiguration,
+        private SiteFinder $siteFinder,
+    ) {}
 
     /**
      * Inline "create" new child of site configuration child records
@@ -71,8 +71,12 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
         if (isset($ajaxArguments[1]) && MathUtility::canBeInterpretedAsInteger($ajaxArguments[1])) {
             $childChildUid = (int)$ajaxArguments[1];
         }
+        $siteTca = $this->siteTcaConfiguration->getTca();
+        $fullTca = array_merge($GLOBALS['TCA'], $siteTca);
+        $tcaSchemata = $this->tcaSchemaBuilder->buildFromStructure($fullTca);
+
         // Parse the DOM identifier, add the levels to the structure stack
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $tcaSchemata);
         $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         $inlineTopMostParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, 0);
         // Parent, this table embeds the child table
@@ -147,6 +151,8 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
             'inlineTopMostParentUid' => $inlineTopMostParent['uid'],
             'inlineTopMostParentTableName' => $inlineTopMostParent['table'],
             'inlineTopMostParentFieldName' => $inlineTopMostParent['field'],
+            'tcaSchemata' => $tcaSchemata,
+            'fullTca' => $fullTca,
         ];
         if ($childChildUid) {
             $formDataCompilerInput['inlineChildChildUid'] = $childChildUid;
@@ -189,8 +195,11 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
         $inlineFirstPid = $this->getInlineFirstPidFromDomObjectId($domObjectId);
         $parentConfig = $this->extractSignedParentConfigFromRequest((string)$ajaxArguments['context']);
 
+        $siteTca = $this->siteTcaConfiguration->getTca();
+        $fullTca = array_merge($GLOBALS['TCA'], $siteTca);
+
         // Parse the DOM identifier, add the levels to the structure stack
-        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId);
+        $inlineStructure = $this->inlineStackProcessor->getStructureFromString($domObjectId, $this->tcaSchemaBuilder->buildFromStructure($fullTca));
         $inlineStructure = $this->inlineStackProcessor->addAjaxConfigurationToStructure($inlineStructure, $parentConfig);
         // Parent, this table embeds the child table
         $inlineParent = $this->inlineStackProcessor->getStructureLevelFromStructure($inlineStructure, -1);
@@ -220,8 +229,7 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
 
         // Child, a record from this table should be rendered
         $child = $this->inlineStackProcessor->getUnstableStructureFromStructure($inlineStructure);
-
-        $childData = $this->compileChild($request, $parentData, $parentFieldName, (int)$child['uid'], $inlineStructure);
+        $childData = $this->compileChild($request, $parentData, $parentFieldName, (int)$child['uid'], $inlineStructure, $siteTca);
 
         $childData['inlineParentUid'] = (int)$inlineParent['uid'];
         $childData['renderType'] = 'inlineRecordContainer';
@@ -251,7 +259,7 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
      * @todo: This clones methods compileChild from TcaInline Provider. Find a better abstraction
      * @todo: to also encapsulate the more complex scenarios with combination child and friends.
      */
-    protected function compileChild(ServerRequestInterface $request, array $parentData, string $parentFieldName, int $childUid, array $inlineStructure): array
+    protected function compileChild(ServerRequestInterface $request, array $parentData, string $parentFieldName, int $childUid, array $inlineStructure, array $siteTca): array
     {
         $parentConfig = $parentData['processedTca']['columns'][$parentFieldName]['config'];
 
@@ -262,6 +270,7 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
             throw new \RuntimeException('No unstable inline structure found', 1733754246);
         }
 
+        $fullTca = array_merge($GLOBALS['TCA'], $siteTca);
         $formDataCompilerInput = [
             'request' => $request,
             'command' => 'edit',
@@ -273,6 +282,8 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
             'inlineFirstPid' => $parentData['inlineFirstPid'],
             'inlineParentConfig' => $parentConfig,
             'isInlineAjaxOpeningContext' => true,
+            'tcaSchemata' => $this->tcaSchemaBuilder->buildFromStructure($fullTca),
+            'fullTca' => $fullTca,
 
             // values of the current parent element
             // it is always a string either an id or new...
@@ -379,7 +390,7 @@ readonly class SiteInlineAjaxController extends AbstractFormEngineAjaxController
      */
     protected function getLanguageById(int $languageId): ?SiteLanguage
     {
-        foreach (GeneralUtility::makeInstance(SiteFinder::class)->getAllSites() as $site) {
+        foreach ($this->siteFinder->getAllSites() as $site) {
             foreach ($site->getAllLanguages() as $language) {
                 if ($languageId === $language->getLanguageId()) {
                     return $language;

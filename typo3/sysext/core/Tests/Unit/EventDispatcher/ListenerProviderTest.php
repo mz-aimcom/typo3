@@ -17,18 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\EventDispatcher;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Container\ContainerInterface;
-use Psr\EventDispatcher\ListenerProviderInterface;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ListenerProviderTest extends UnitTestCase
 {
-    protected ContainerInterface&MockObject $containerMock;
-    protected ?ListenerProvider $listenerProvider;
+    private ContainerInterface&MockObject $containerMock;
+    private ListenerProvider $listenerProvider;
 
     protected function setUp(): void
     {
@@ -37,12 +38,6 @@ final class ListenerProviderTest extends UnitTestCase
         $this->listenerProvider = new ListenerProvider(
             $this->containerMock
         );
-    }
-
-    #[Test]
-    public function implementsPsrInterface(): void
-    {
-        self::assertInstanceOf(ListenerProviderInterface::class, $this->listenerProvider);
     }
 
     #[Test]
@@ -80,7 +75,7 @@ final class ListenerProviderTest extends UnitTestCase
         $event = new \stdClass();
         $event->invoked = 0;
 
-        $this->containerMock->method('get')->with('listener')->willReturn($listener);
+        $this->containerMock->expects($this->atLeastOnce())->method('get')->with('listener')->willReturn($listener);
         $this->listenerProvider->addListener(\stdClass::class, 'listener', $method);
 
         foreach ($this->listenerProvider->getListenersForEvent($event) as $listener) {
@@ -94,11 +89,11 @@ final class ListenerProviderTest extends UnitTestCase
     #[Test]
     public function associatesToEventParentClass($listener, ?string $method = null): void
     {
-        $extendedEvent = new class () extends \stdClass {
+        $extendedEvent = new class extends \stdClass {
             public int $invoked = 0;
         };
 
-        $this->containerMock->method('get')->with('listener')->willReturn($listener);
+        $this->containerMock->expects($this->atLeastOnce())->method('get')->with('listener')->willReturn($listener);
         $this->listenerProvider->addListener(\stdClass::class, 'listener', $method);
         foreach ($this->listenerProvider->getListenersForEvent($extendedEvent) as $listener) {
             $listener($extendedEvent);
@@ -111,7 +106,7 @@ final class ListenerProviderTest extends UnitTestCase
     #[Test]
     public function associatesToImplementedInterfaces($listener, ?string $method = null): void
     {
-        $eventImplementation = new class () implements \IteratorAggregate {
+        $eventImplementation = new class implements \IteratorAggregate {
             public int $invoked = 0;
 
             public function getIterator(): \Traversable
@@ -120,7 +115,7 @@ final class ListenerProviderTest extends UnitTestCase
             }
         };
 
-        $this->containerMock->method('get')->with('listener')->willReturn($listener);
+        $this->containerMock->expects($this->atLeastOnce())->method('get')->with('listener')->willReturn($listener);
         $this->listenerProvider->addListener(\IteratorAggregate::class, 'listener', $method);
         foreach ($this->listenerProvider->getListenersForEvent($eventImplementation) as $listener) {
             $listener($eventImplementation);
@@ -159,7 +154,7 @@ final class ListenerProviderTest extends UnitTestCase
         $this->expectExceptionCode(1549988537);
 
         $event = new \stdClass();
-        $this->containerMock->method('get')->with('listener')->willReturn(new \stdClass());
+        $this->containerMock->expects($this->atLeastOnce())->method('get')->with('listener')->willReturn(new \stdClass());
         $this->listenerProvider->addListener(\stdClass::class, 'listener');
         foreach ($this->listenerProvider->getListenersForEvent($event) as $listener) {
             $listener($event);
@@ -175,7 +170,7 @@ final class ListenerProviderTest extends UnitTestCase
         return [
             [
                 // Invokable
-                'listener' => new class () {
+                'listener' => new class {
                     public function __invoke(object $event): void
                     {
                         $event->invoked = 1;
@@ -185,7 +180,7 @@ final class ListenerProviderTest extends UnitTestCase
             ],
             [
                 // Class + method
-                'listener' => new class () {
+                'listener' => new class {
                     public function onEvent(object $event): void
                     {
                         $event->invoked = 1;

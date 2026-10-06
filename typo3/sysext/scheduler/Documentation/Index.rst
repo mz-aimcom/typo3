@@ -41,13 +41,11 @@ delivered by any extension.
     :titlesonly:
 
     Introduction/Index
-    Overview/Index
     Installation/Index
+    BasicTasks/Index
     Administration/Index
-    Installation/SchedulerShellScript/Index
     DevelopersGuide/Index
     KnownProblems/Index
-    AppendixA/Index
 
 ..  Meta Menu
 

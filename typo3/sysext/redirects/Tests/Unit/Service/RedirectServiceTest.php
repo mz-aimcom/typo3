@@ -17,21 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Redirects\Tests\Unit\Service;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Domain\Access\RecordAccessVoter;
+use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\LinkHandling\PageTypeLinkResolver;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
-use TYPO3\CMS\Core\Log\Logger;
+use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Page\PageLayoutResolver;
 use TYPO3\CMS\Core\Resource\Exception\InvalidPathException;
@@ -52,7 +58,6 @@ use TYPO3\CMS\Core\TypoScript\Tokenizer\LossyTokenizer;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Frontend\Page\PageInformationFactory;
-use TYPO3\CMS\Redirects\Repository\RedirectRepository;
 use TYPO3\CMS\Redirects\Service\RedirectCacheService;
 use TYPO3\CMS\Redirects\Service\RedirectService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -61,67 +66,70 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  * @todo: It looks as if these should be merged into existing functional RedirectServiceTest
  *        to avoid setUp() and mocking party.
  */
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class RedirectServiceTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected MockObject&RedirectCacheService $redirectCacheServiceMock;
-    protected MockObject&LinkService $linkServiceMock;
+    private Stub&RedirectCacheService $redirectCacheServiceStub;
+    private MockObject&LinkService $linkServiceMock;
 
-    protected RedirectService $redirectService;
+    private RedirectService $redirectService;
 
-    protected MockObject&SiteFinder $siteFinder;
-    protected MockObject&RedirectRepository $redirectRepository;
+    private Stub&SiteFinder $siteFinder;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->redirectCacheServiceMock = $this->getMockBuilder(RedirectCacheService::class)->disableOriginalConstructor()->getMock();
+        $this->redirectCacheServiceStub = self::createStub(RedirectCacheService::class);
         $this->linkServiceMock = $this->getMockBuilder(LinkService::class)->disableOriginalConstructor()->getMock();
-        $this->siteFinder = $this->getMockBuilder(SiteFinder::class)->disableOriginalConstructor()->getMock();
-        $this->redirectRepository = $this->getMockBuilder(RedirectRepository::class)->disableOriginalConstructor()->getMock();
+        $this->siteFinder = self::createStub(SiteFinder::class);
 
         $this->redirectService = new RedirectService(
-            $this->redirectCacheServiceMock,
+            $this->redirectCacheServiceStub,
             $this->linkServiceMock,
             $this->siteFinder,
             new NoopEventDispatcher(),
             new PageInformationFactory(
                 new Context(),
                 new NoopEventDispatcher(),
-                $this->createMock(Logger::class),
-                new RecordAccessVoter(new NoopEventDispatcher(), $this->createMock(TcaSchemaFactory::class)),
-                new ErrorController(),
-                new SysTemplateRepository(new NoopEventDispatcher(), $this->createMock(ConnectionPool::class), new Context()),
-                $this->createMock(PageLayoutResolver::class),
-                $this->createMock(TcaSchemaFactory::class),
+                self::createStub(LoggerInterface::class),
+                new RecordAccessVoter(new NoopEventDispatcher(), self::createStub(TcaSchemaFactory::class)),
+                self::createStub(ErrorController::class),
+                new SysTemplateRepository(new NoopEventDispatcher(), self::createStub(ConnectionPool::class), new Context()),
+                self::createStub(PageLayoutResolver::class),
+                self::createStub(TcaSchemaFactory::class),
+                self::createStub(PageTypeLinkResolver::class),
+                self::createStub(PageDoktypeRegistry::class),
+                self::createStub(PageRepository::class),
             ),
             new FrontendTypoScriptFactory(
-                $this->createMock(ContainerInterface::class),
+                self::createStub(ContainerInterface::class),
                 new NoopEventDispatcher(),
                 new SysTemplateTreeBuilder(
-                    $this->createMock(ConnectionPool::class),
-                    $this->createMock(PackageManager::class),
+                    self::createStub(ConnectionPool::class),
+                    self::createStub(PackageManager::class),
                     new Context(),
                     new TreeFromLineStreamBuilder(new FileNameValidator()),
-                    $this->createMock(SetRegistry::class),
+                    self::createStub(SetRegistry::class),
                 ),
                 new LossyTokenizer(),
                 new IncludeTreeTraverser(),
                 new ConditionVerdictAwareIncludeTreeTraverser(),
             ),
-            $this->createMock(PhpFrontend::class),
-            $this->createMock(LoggerInterface::class),
-            new TypoLinkCodecService(new NoopEventDispatcher())
+            self::createStub(PhpFrontend::class),
+            self::createStub(LoggerInterface::class),
+            new TypoLinkCodecService(new NoopEventDispatcher()),
+            new Locales(),
+            new Context(),
         );
-
-        $GLOBALS['SIM_ACCESS_TIME'] = 42;
     }
 
     #[Test]
     public function matchRedirectReturnsNullIfNoRedirectsExist(): void
     {
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             ['example.com', []],
             ['*', []],
         ]);
@@ -144,7 +152,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -203,7 +211,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -238,7 +246,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -273,7 +281,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -308,7 +316,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -353,13 +361,13 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
                     'flat' => [
-                        'special/page/' =>
-                            [
+                        'special/page/'
+                            => [
                                 1 => $row1,
                             ],
                     ],
@@ -403,7 +411,7 @@ final class RedirectServiceTest extends UnitTestCase
             'endtime' => '0',
         ];
 
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -444,7 +452,7 @@ final class RedirectServiceTest extends UnitTestCase
             'starttime' => '0',
             'endtime' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -487,7 +495,7 @@ final class RedirectServiceTest extends UnitTestCase
             'endtime' => '0',
             'disabled' => '0',
         ];
-        $this->redirectCacheServiceMock->method('getRedirects')->willReturnMap([
+        $this->redirectCacheServiceStub->method('getRedirects')->willReturnMap([
             [
                 'example.com',
                 [
@@ -513,7 +521,7 @@ final class RedirectServiceTest extends UnitTestCase
     #[Test]
     public function getTargetUrlReturnsNullIfUrlCouldNotBeResolved(): void
     {
-        $this->linkServiceMock->method('resolve')->with(self::anything())->willThrowException(new InvalidPathException('', 1516531195));
+        $this->linkServiceMock->method('resolve')->willThrowException(new InvalidPathException('', 1516531195));
         $result = $this->redirectService->getTargetUrl(['target' => 'invalid'], new ServerRequest(new Uri()));
         self::assertNull($result);
     }
@@ -530,7 +538,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_URL,
             'url' => 'https://example.com/',
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com');
         $request = new ServerRequest($source);
@@ -544,8 +552,8 @@ final class RedirectServiceTest extends UnitTestCase
     #[Test]
     public function getTargetUrlReturnsUrlForTypeFile(): void
     {
-        $fileMock = $this->getMockBuilder(File::class)->disableOriginalConstructor()->getMock();
-        $fileMock->method('getPublicUrl')->willReturn('https://example.com/file.txt');
+        $fileStub = self::createStub(File::class);
+        $fileStub->method('getPublicUrl')->willReturn('https://example.com/file.txt');
         $redirectTargetMatch = [
             'target' => 'https://example.com',
             'force_https' => '0',
@@ -553,9 +561,9 @@ final class RedirectServiceTest extends UnitTestCase
         ];
         $linkDetails = [
             'type' => LinkService::TYPE_FILE,
-            'file' => $fileMock,
+            'file' => $fileStub,
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com');
         $request = new ServerRequest($source);
@@ -569,19 +577,19 @@ final class RedirectServiceTest extends UnitTestCase
     #[Test]
     public function getTargetUrlReturnsUrlForTypeFolder(): void
     {
-        $folderMock = $this->getMockBuilder(Folder::class)->disableOriginalConstructor()->getMock();
-        $folderMock->method('getPublicUrl')->willReturn('https://example.com/folder/');
+        $folderStub = self::createStub(Folder::class);
+        $folderStub->method('getPublicUrl')->willReturn('https://example.com/folder/');
         $redirectTargetMatch = [
             'target' => 'https://example.com',
             'force_https' => '0',
             'keep_query_parameters' => '0',
         ];
-        $folder = $folderMock;
+        $folder = $folderStub;
         $linkDetails = [
             'type' => LinkService::TYPE_FOLDER,
             'folder' => $folder,
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com/');
         $request = new ServerRequest($source);
@@ -604,7 +612,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_URL,
             'url' => 'http://example.com',
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com');
         $request = new ServerRequest($source);
@@ -627,7 +635,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_URL,
             'url' => 'https://example.com/?foo=1&bar=2',
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com/?bar=2&baz=4&foo=1');
         $request = new ServerRequest($source);
@@ -642,44 +650,47 @@ final class RedirectServiceTest extends UnitTestCase
     #[Test]
     public function getTargetUrlRespectsAdditionalParametersFromTypolink(): void
     {
-        $redirectService = $this->getAccessibleMock(
-            RedirectService::class,
-            ['getUriFromCustomLinkDetails'],
-            [
-                $this->redirectCacheServiceMock,
+        $redirectService = $this->getMockBuilder(RedirectService::class)
+            ->onlyMethods(['getUriFromCustomLinkDetails'])
+            ->setConstructorArgs([
+                $this->redirectCacheServiceStub,
                 $this->linkServiceMock,
                 $this->siteFinder,
                 new NoopEventDispatcher(),
                 new PageInformationFactory(
                     new Context(),
                     new NoopEventDispatcher(),
-                    $this->createMock(Logger::class),
-                    new RecordAccessVoter(new NoopEventDispatcher(), $this->createMock(TcaSchemaFactory::class)),
-                    new ErrorController(),
-                    new SysTemplateRepository(new NoopEventDispatcher(), $this->createMock(ConnectionPool::class), new Context()),
-                    $this->createMock(PageLayoutResolver::class),
-                    $this->createMock(TcaSchemaFactory::class),
+                    self::createStub(LoggerInterface::class),
+                    new RecordAccessVoter(new NoopEventDispatcher(), self::createStub(TcaSchemaFactory::class)),
+                    self::createStub(ErrorController::class),
+                    new SysTemplateRepository(new NoopEventDispatcher(), self::createStub(ConnectionPool::class), new Context()),
+                    self::createStub(PageLayoutResolver::class),
+                    self::createStub(TcaSchemaFactory::class),
+                    self::createStub(PageTypeLinkResolver::class),
+                    self::createStub(PageDoktypeRegistry::class),
+                    self::createStub(PageRepository::class),
                 ),
                 new FrontendTypoScriptFactory(
-                    $this->createMock(ContainerInterface::class),
+                    self::createStub(ContainerInterface::class),
                     new NoopEventDispatcher(),
                     new SysTemplateTreeBuilder(
-                        $this->createMock(ConnectionPool::class),
-                        $this->createMock(PackageManager::class),
+                        self::createStub(ConnectionPool::class),
+                        self::createStub(PackageManager::class),
                         new Context(),
                         new TreeFromLineStreamBuilder(new FileNameValidator()),
-                        $this->createMock(SetRegistry::class),
+                        self::createStub(SetRegistry::class),
                     ),
                     new LossyTokenizer(),
                     new IncludeTreeTraverser(),
                     new ConditionVerdictAwareIncludeTreeTraverser(),
                 ),
-                $this->createMock(PhpFrontend::class),
-                $this->createMock(LoggerInterface::class),
+                self::createStub(PhpFrontend::class),
+                self::createStub(LoggerInterface::class),
                 new TypoLinkCodecService(new NoopEventDispatcher()),
-            ],
-            '',
-        );
+                new Locales(),
+                new Context(),
+            ])
+            ->getMock();
 
         $pageRecord = 't3://page?uid=13';
         $redirectTargetMatch = [
@@ -693,7 +704,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_PAGE,
             'typoLinkParameter' => $pageRecord,
         ];
-        $this->linkServiceMock->method('resolve')->with($pageRecord)->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($pageRecord)->willReturn($linkDetails);
 
         $queryParams = [];
         $queryParams['foo'] = 'bar';
@@ -705,7 +716,7 @@ final class RedirectServiceTest extends UnitTestCase
         $request = $request->withQueryParams($queryParams);
         $request = $request->withAttribute('site', $site);
         $request = $request->withAttribute('frontend.user', $frontendUserAuthentication);
-        $redirectService->method('getUriFromCustomLinkDetails')
+        $redirectService->expects($this->atLeastOnce())->method('getUriFromCustomLinkDetails')
             ->with($redirectTargetMatch, $site, $linkDetails, $queryParams, $request)
             ->willReturn($uri);
         $result = $redirectService->getTargetUrl($redirectTargetMatch, $request);
@@ -727,7 +738,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_URL,
             'url' => 'https://anotherdomain.com/$1',
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri('https://example.com/foo/bar');
         $request = new ServerRequest($source);
@@ -803,7 +814,7 @@ final class RedirectServiceTest extends UnitTestCase
             'url' => $redirectTarget,
             'query' => '',
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri($requestUri);
         $queryParams = [];
@@ -881,7 +892,7 @@ final class RedirectServiceTest extends UnitTestCase
             'type' => LinkService::TYPE_URL,
             'url' => $redirectTarget,
         ];
-        $this->linkServiceMock->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
+        $this->linkServiceMock->expects($this->atLeastOnce())->method('resolve')->with($redirectTargetMatch['target'])->willReturn($linkDetails);
 
         $source = new Uri($requestUri);
         $queryParams = [];

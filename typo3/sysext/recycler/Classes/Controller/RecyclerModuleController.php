@@ -20,17 +20,21 @@ namespace TYPO3\CMS\Recycler\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Recycler\Service\RecyclerService;
 
 /**
  * Backend Module for the 'recycler' extension.
@@ -41,9 +45,13 @@ use TYPO3\CMS\Core\Utility\MathUtility;
 readonly class RecyclerModuleController
 {
     public function __construct(
-        protected IconFactory $iconFactory,
         protected PageRenderer $pageRenderer,
-        protected ModuleTemplateFactory $moduleTemplateFactory
+        protected ModuleTemplateFactory $moduleTemplateFactory,
+        protected ComponentFactory $componentFactory,
+        protected RecyclerService $recyclerService,
+        protected SiteFinder $siteFinder,
+        protected IconFactory $iconFactory,
+        protected UriBuilder $uriBuilder,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -53,66 +61,143 @@ readonly class RecyclerModuleController
         $pageRecord = BackendUtility::readPageAccess($id, $backendUser->getPagePermsClause(Permission::PAGE_SHOW)) ?: [];
         $view = $this->moduleTemplateFactory->create($request);
 
-        // read configuration
         $recordsPageLimit = MathUtility::forceIntegerInRange((int)($backendUser->getTSConfig()['mod.']['recycler.']['recordsPageLimit'] ?? 25), 1);
         $allowDelete = $backendUser->isAdmin() || ($backendUser->getTSConfig()['mod.']['recycler.']['allowDelete'] ?? false);
-        $sessionData = $backendUser->uc['tx_recycler'] ?? [];
+        $moduleData = $request->getAttribute('moduleData');
+        $depthSelection = (int)$moduleData->get('depthSelection');
+        $tableSelection = (string)$moduleData->get('tableSelection');
+        $languageId = $id > 0 ? $this->addLanguageSwitcher($request, $backendUser, $view, $id) : null;
+
+        $tables = $this->recyclerService->getAvailableTables($id, $depthSelection, $languageId);
+        $result = $this->recyclerService->getDeletedRecords($id, $tableSelection, $depthSelection, '', 1, $recordsPageLimit, $languageId);
 
         $this->pageRenderer->addInlineSettingArray('Recycler', [
             'pagingSize' => $recordsPageLimit,
             'startUid' => $id,
             'deleteDisable' => !$allowDelete,
-            'depthSelection' => ($sessionData['depthSelection'] ?? false) ?: '0',
-            'tableSelection' => ($sessionData['tableSelection'] ?? false) ?: '',
+            'depthSelection' => (string)$depthSelection,
+            'tableSelection' => $tableSelection,
+            'totalItems' => $result['totalItems'],
+            'language' => $languageId,
         ]);
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:recycler/Resources/Private/Language/locallang.xlf');
         $this->pageRenderer->loadJavaScriptModule('@typo3/recycler/recycler.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/multi-record-selection.js');
 
-        if ($backendUser->workspace !== 0
-            && (($id && $pageRecord !== []) || (!$id && $backendUser->isAdmin()))
-        ) {
-            $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        if (($id && $pageRecord !== []) || (!$id && $backendUser->isAdmin())) {
+            $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         }
 
         $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:recycler/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
+            $this->getLanguageService()->translate('title', 'recycler.module'),
             $pageRecord['title'] ?? ''
         );
 
         $this->registerDocHeaderButtons($view, $id, $pageRecord);
 
         $view->assign('allowDelete', $allowDelete);
+        $view->assign('tables', $tables);
+        $view->assign('depthSelection', $depthSelection);
+        $view->assign('tableSelection', $tableSelection);
+        $view->assign('groupedRecords', $result['groupedRecords']);
+        $view->assign('totalItems', $result['totalItems']);
+        $view->assign('showTableHeader', empty($tableSelection));
+        $view->assign('showTableName', $backendUser->shallDisplayDebugInformation());
 
         return $view->renderResponse('RecyclerModule');
     }
 
-    /**
-     * Registers doc header buttons.
-     */
     protected function registerDocHeaderButtons(ModuleTemplate $view, int $id, array $pageRecord): void
     {
         $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-
         $shortcutTitle = sprintf(
             '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:recycler/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
+            $languageService->translate('title', 'recycler.module'),
             BackendUtility::getRecordTitle('pages', $pageRecord),
             $id
         );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('recycler')
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $id]);
-        $buttonBar->addButton($shortcutButton);
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'recycler',
+            $shortcutTitle,
+            ['id' => $id]
+        );
+    }
 
-        $reloadButton = $buttonBar->makeLinkButton()
-            ->setHref('#')
-            ->setDataAttributes(['action' => 'reload'])
-            ->setTitle($languageService->sL('LLL:EXT:recycler/Resources/Private/Language/locallang.xlf:button.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
+    /**
+     * Add a translation selection dropdown if the record is language aware.
+     * (Inspired by ElementHistoryController->addLanguageSwitcher, carrying similar logic)
+     * @todo Can this be unified? Code differs a bit for now.
+     */
+    protected function addLanguageSwitcher(
+        ServerRequestInterface $request,
+        BackendUserAuthentication $backendUser,
+        ModuleTemplate $view,
+        ?int $pageId,
+    ): ?int {
+        $languageDropDownButton = $this->componentFactory->createDropDownButton()
+            ->setLabel($this->getLanguageService()->sL('core.core:labels.language'))
+            ->setShowLabelText(true);
+
+        try {
+            $site = $this->siteFinder->getSiteByPageId($pageId);
+        } catch (SiteNotFoundException) {
+            $site = $request->getAttribute('site');
+        }
+
+        $availableLanguages = $site->getAvailableLanguages($backendUser, false, $pageId);
+
+        if (count($availableLanguages) < 2) {
+            // With only one language present, the dropdown is useless.
+            // Switch to present all unfiltered recycler records.
+            return null;
+        }
+
+        $parsedBody = $request->getParsedBody();
+        $queryParams = $request->getQueryParams();
+        // empty string -> "all languages".
+        $persistedLanguage = (string)$request->getAttribute('moduleData')->get('language', '');
+        $languageId = $persistedLanguage === '' ? null : (int)$persistedLanguage;
+        $returnUrl = GeneralUtility::sanitizeLocalUrl($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '', $request);
+
+        $allLanguagesLabel = $this->getLanguageService()->sL('core.general:LGL.allLanguages');
+        $allLanguagesItem = $this->componentFactory->createDropDownRadio()
+            ->setActive($languageId === null)
+            ->setIcon($this->iconFactory->getIcon('flags-multiple'))
+            ->setHref((string)$this->uriBuilder->buildUriFromRoute('recycler', [
+                'id' => $pageId,
+                'language' => '',
+                'returnUrl' => $returnUrl,
+            ]))
+            ->setLabel($allLanguagesLabel);
+        $languageDropDownButton->addItem($allLanguagesItem);
+        // Set "all languages" as default entry, in case the next check may
+        // not yield any valid language.
+        $languageDropDownButton->setLabel($allLanguagesLabel);
+        $languageDropDownButton->setIcon($this->iconFactory->getIcon('flags-multiple'));
+        $selectedLanguageWasFound = false;
+        foreach ($availableLanguages as $siteLanguage) {
+            $languageItem = $this->componentFactory->createDropDownRadio()
+                ->setActive($siteLanguage->getLanguageId() === $languageId)
+                ->setIcon($this->iconFactory->getIcon($siteLanguage->getFlagIdentifier()))
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('recycler', [
+                    'id' => $pageId,
+                    'language' => $siteLanguage->getLanguageId(),
+                    'returnUrl' => $returnUrl,
+                ]))
+                ->setLabel($siteLanguage->getTitle());
+            $languageDropDownButton->addItem($languageItem);
+
+            if ($languageItem->isActive()) {
+                $languageDropDownButton->setLabel($siteLanguage->getTitle());
+                $selectedLanguageWasFound = true;
+            }
+        }
+
+        $view->getDocHeaderComponent()->setLanguageSelector($languageDropDownButton);
+        if ($selectedLanguageWasFound) {
+            return $languageId;
+        }
+        // If no selected language was found we revert to "show all entries"
+        return null;
     }
 
     protected function getBackendUser(): BackendUserAuthentication

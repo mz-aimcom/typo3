@@ -31,7 +31,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  *
  * @internal Class and API may change any time.
  */
-class TcaMigration
+readonly class TcaMigration
 {
     /**
      * Run some general TCA validations, then migrate old TCA to new TCA.
@@ -91,11 +91,16 @@ class TcaMigration
         $tcaProcessingResult = $this->removeAllowLanguageSynchronizationFromColumnsOverrides($tcaProcessingResult);
         $tcaProcessingResult = $this->removeSubTypesConfiguration($tcaProcessingResult);
         $tcaProcessingResult = $this->addWorkspaceAwarenessToInlineChildren($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeAlwaysAllowLiveEditFromWorkspaceAwareTables($tcaProcessingResult);
         $tcaProcessingResult = $this->removeEvalYearFlag($tcaProcessingResult);
         $tcaProcessingResult = $this->removeIsStaticControlOption($tcaProcessingResult);
         $tcaProcessingResult = $this->removeFieldSearchConfigOptions($tcaProcessingResult);
         $tcaProcessingResult = $this->removeSearchFieldsControlOption($tcaProcessingResult);
         $tcaProcessingResult = $this->migrateSingleDataStructureConfiguration($tcaProcessingResult);
+        $tcaProcessingResult = $this->removeValuePickerMode($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateSysRedirectDefaultType($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateNumberFormat($tcaProcessingResult);
+        $tcaProcessingResult = $this->migrateUuidEnableCopyToClipboardToAppearance($tcaProcessingResult);
 
         return $tcaProcessingResult;
     }
@@ -139,6 +144,56 @@ class TcaMigration
                     $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('TCA table "' . $table . '" columns field "' . $fieldName . '"'
                         . ' had no mandatory "config" section. This has been added with default type "none":'
                         . ' TCA "' . $table . '[\'columns\'][\'' . $fieldName . '\'][\'config\'][\'type\'] = \'none\'"');
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Migrate number columns with format integer to scale 0
+     * Migrate number columns with format decimal to scale 2
+     */
+    protected function migrateNumberFormat(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
+                continue;
+            }
+            foreach ($tableDefinition['columns'] as $fieldName => &$fieldConfig) {
+                if (!((string)($fieldConfig['config']['type'] ?? '') === 'number')) {
+                    continue;
+                }
+                if (!isset($fieldConfig['config']['format'])) {
+                    continue;
+                }
+                // Unset format, if scale is already set
+                if (isset($fieldConfig['config']['scale'])) {
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA setting \'format\' has been removed  '
+                        . '  from table ' . $table . ' [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'format\'] as [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'scale\'] is already set.');
+
+                    unset($fieldConfig['config']['format']);
+                    continue;
+                }
+                if ($fieldConfig['config']['format'] === 'integer') {
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA setting \'format\' has been removed  '
+                        . ' from table ' . $table . ' [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'format\']=\'integer\' and has been replaced with [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'scale\'] = 0.');
+                    $fieldConfig['config']['scale'] = 0;
+                    unset($fieldConfig['config']['format']);
+                    continue;
+                }
+                if ($fieldConfig['config']['format'] === 'decimal') {
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA setting \'format\' has been removed  '
+                        . ' from table ' . $table . ' [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'format\']=\'decimal\' and has been replaced with [\'columns\']'
+                        . '[\'' . $fieldName . '\'][\'config\'][\'scale\'] = 2.');
+                    $fieldConfig['config']['scale'] = 2;
+                    unset($fieldConfig['config']['format']);
                 }
             }
         }
@@ -1651,6 +1706,27 @@ class TcaMigration
     }
 
     /**
+     * Live editing records of a workspace aware table within a workspace bypasses versioning,
+     * so "versioningWS_alwaysAllowLiveEdit" is removed from tables having "versioningWS" enabled.
+     */
+    protected function removeAlwaysAllowLiveEditFromWorkspaceAwareTables(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$configuration) {
+            if (!($configuration['ctrl']['versioningWS'] ?? false)
+                || !array_key_exists('versioningWS_alwaysAllowLiveEdit', $configuration['ctrl'])
+            ) {
+                continue;
+            }
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The \'' . $table . '\' TCA configuration'
+                . ' \'versioningWS_alwaysAllowLiveEdit\' inside the \'ctrl\' section can not be combined with'
+                . ' \'versioningWS\' and is therefore removed. Please adjust your TCA accordingly.');
+            unset($configuration['ctrl']['versioningWS_alwaysAllowLiveEdit']);
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
      * Removes [config][eval] = 'year'.
      * If [config][eval] becomes empty, it will be removed completely.
      */
@@ -1802,6 +1878,94 @@ class TcaMigration
                         . 'now contain the data strcuture directly, the corresponding configuration has been migrated. '
                         . 'Please adjust your TCA accordingly.'
                     );
+                }
+            }
+        }
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Removes [config][valuePicker][mode]
+     */
+    protected function removeValuePickerMode(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => $tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
+                continue;
+            }
+
+            foreach ($tableDefinition['columns'] as $fieldName => $fieldConfig) {
+                if (!isset($fieldConfig['config']['valuePicker']['mode'])) {
+                    continue;
+                }
+
+                unset($tca[$table]['columns'][$fieldName]['config']['valuePicker']['mode']);
+
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' defines'
+                    . ' a "mode" in its "valuePicker" configuration. This is not evaluated anymore and is therefore removed.'
+                    . ' Please adjust your TCA accordingly.');
+            }
+        }
+
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Migrates $TCA['sys_redirect']['types']['1'] to $TCA['sys_redirect']['types']['default']
+     */
+    protected function migrateSysRedirectDefaultType(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        if (isset($tca['sys_redirect']['types']['1'])) {
+            // Override each key from '1' into 'default'
+            foreach ($tca['sys_redirect']['types']['1'] as $key => $value) {
+                $tca['sys_redirect']['types']['default'][$key] = $value;
+            }
+            unset($tca['sys_redirect']['types']['1']);
+            $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages(
+                'The TCA table \'sys_redirect\' used to define the default type as \'1\', which has been migrated to \'default\'. '
+                . 'Please adjust your TCA accordingly by using $GLOBALS[\'TCA\'][\'sys_redirect\'][\'types\'][\'default\'] '
+                . 'instead of $GLOBALS[\'TCA\'][\'sys_redirect\'][\'types\'][\'1\'].'
+            );
+        }
+
+        return $tcaProcessingResult->withTca($tca);
+    }
+
+    /**
+     * Migrates [config][enableCopyToClipboard] of type uuid to [config][appearance][copyToClipboard]
+     */
+    protected function migrateUuidEnableCopyToClipboardToAppearance(TcaProcessingResult $tcaProcessingResult): TcaProcessingResult
+    {
+        $tca = $tcaProcessingResult->getTca();
+        foreach ($tca as $table => &$tableDefinition) {
+            if (!isset($tableDefinition['columns']) || !is_array($tableDefinition['columns'])) {
+                continue;
+            }
+            foreach ($tableDefinition['columns'] as $fieldName => &$fieldConfig) {
+                if (($fieldConfig['config']['type'] ?? '') !== 'uuid' || !array_key_exists('enableCopyToClipboard', $fieldConfig['config'])) {
+                    continue;
+                }
+                $fieldConfig['config']['appearance']['copyToClipboard'] ??= $fieldConfig['config']['enableCopyToClipboard'];
+                unset($fieldConfig['config']['enableCopyToClipboard']);
+                $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA field \'' . $fieldName . '\' of table \'' . $table . '\' uses '
+                    . '\'enableCopyToClipboard\', which has been migrated to [\'appearance\'][\'copyToClipboard\']. '
+                    . 'Please adjust your TCA accordingly.');
+            }
+            unset($fieldConfig);
+            foreach ($tableDefinition['types'] ?? [] as $typeName => $typeConfig) {
+                foreach ($typeConfig['columnsOverrides'] ?? [] as $columnOverride => $columnOverrideConfig) {
+                    $type = $columnOverrideConfig['config']['type'] ?? $tableDefinition['columns'][$columnOverride]['config']['type'] ?? '';
+                    if ($type !== 'uuid' || !array_key_exists('enableCopyToClipboard', $columnOverrideConfig['config'] ?? [])) {
+                        continue;
+                    }
+                    $overrideConfig = &$tableDefinition['types'][$typeName]['columnsOverrides'][$columnOverride]['config'];
+                    $overrideConfig['appearance']['copyToClipboard'] ??= $overrideConfig['enableCopyToClipboard'];
+                    unset($overrideConfig['enableCopyToClipboard'], $overrideConfig);
+                    $tcaProcessingResult = $tcaProcessingResult->withAdditionalMessages('The TCA column override \'' . $columnOverride . '\' of table \'' . $table . '\' uses '
+                        . '\'enableCopyToClipboard\', which has been migrated to [\'appearance\'][\'copyToClipboard\']. '
+                        . 'Please adjust your TCA accordingly.');
                 }
             }
         }

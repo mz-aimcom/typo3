@@ -20,13 +20,12 @@ namespace TYPO3\CMS\Redirects\EventListener;
 use TYPO3\CMS\Core\Attribute\AsEventListener;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
 use TYPO3\CMS\Core\Routing\RouterInterface;
 use TYPO3\CMS\Core\Routing\UnableToLinkToPageException;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Redirects\Event\SlugRedirectChangeItemCreatedEvent;
 use TYPO3\CMS\Redirects\RedirectUpdate\PageTypeSource;
 use TYPO3\CMS\Redirects\RedirectUpdate\PlainSlugReplacementRedirectSource;
@@ -40,15 +39,12 @@ use TYPO3\CMS\Redirects\RedirectUpdate\RedirectSourceInterface;
  *
  * @internal only to be used within redirects, not part of TYPO3 Core API.
  */
-final class AddPageTypeZeroSource
+final readonly class AddPageTypeZeroSource
 {
-    /**
-     * @var list<PageRepository::DOKTYPE_*>
-     */
-    private array $ignoredDokTypes = [
-        PageRepository::DOKTYPE_SPACER,
-        PageRepository::DOKTYPE_SYSFOLDER,
-    ];
+    public function __construct(
+        private PageDoktypeRegistry $pageDoktypeRegistry,
+        private Context $context,
+    ) {}
 
     #[AsEventListener(identifier: 'redirects-add-page-type-zero-source', after: 'redirects-add-plain-slug-replacement-source')]
     public function __invoke(SlugRedirectChangeItemCreatedEvent $event): void
@@ -56,7 +52,7 @@ final class AddPageTypeZeroSource
         // Create full resolved uri for page type zero.
         $changeItem = $event->getSlugRedirectChangeItem();
         // Do not create a redirect source for ignored doktypes
-        if (in_array((int)($changeItem->getOriginal()['doktype'] ?? 0), $this->ignoredDokTypes, true)) {
+        if (!$this->pageDoktypeRegistry->isPageTypeViewable((int)($changeItem->getOriginal()['doktype'] ?? 0))) {
             return;
         }
 
@@ -108,7 +104,7 @@ final class AddPageTypeZeroSource
                 0,
                 [],
             );
-        } catch (\InvalidArgumentException | InvalidRouteArgumentsException $e) {
+        } catch (\InvalidArgumentException|InvalidRouteArgumentsException $e) {
             throw new UnableToLinkToPageException(
                 sprintf(
                     'The link to the page with ID "%d" and type "%d" could not be generated: %s',
@@ -128,14 +124,11 @@ final class AddPageTypeZeroSource
      */
     private function getAdjustedContext(): Context
     {
-        $adjustedVisibility = new VisibilityAspect(
-            true,
-            true,
-            false,
-            true,
-        );
-        $originalContext = GeneralUtility::makeInstance(Context::class);
-        $context = clone $originalContext;
+        $adjustedVisibility = VisibilityAspect::create()
+            ->withIncludeHiddenPages(true)
+            ->withIncludeHiddenContent(true)
+            ->withIncludeScheduledRecords(true);
+        $context = clone $this->context;
         $context->setAspect('visibility', $adjustedVisibility);
         return $context;
     }

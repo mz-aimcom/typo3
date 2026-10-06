@@ -64,6 +64,34 @@ final class FluidEmailTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function customVariableAfterOpeningBodyTagIsRendered(): void
+    {
+        $layoutSource = file_get_contents(__DIR__ . '/../../../Resources/Private/Layouts/SystemEmail.fluid.html');
+        self::assertIsString($layoutSource);
+        $templateSource = str_replace(
+            ['<body>', '        p {', '</html>'],
+            ["<body>\n{customVariable}", "        /* {cssVariable} */\n        p {", "</html>\n<f:section name=\"Main\">Content</f:section>"],
+            $layoutSource,
+            $replacementCount,
+        );
+        self::assertSame(3, $replacementCount);
+
+        $subject = new FluidEmail();
+        $subject->getView()->getRenderingContext()->getTemplatePaths()->setTemplateSource($templateSource);
+        $subject
+            ->format(FluidEmail::FORMAT_HTML)
+            ->from('benniYYYY@typo3.org')
+            ->assign('customVariable', 'rendered-value')
+            ->assign('cssVariable', 'unexpected-css-value')
+            ->to('some-recipient@example.com');
+
+        $renderedBody = $subject->getBody()->bodyToString();
+        self::assertStringContainsString('rendered-value', $renderedBody);
+        self::assertStringContainsString('{cssVariable}', $renderedBody);
+        self::assertStringNotContainsString('<![CDATA[', $renderedBody);
+    }
+
+    #[Test]
     public function settingFormatWithTextAndHtmlGeneratesTwoBodies(): void
     {
         $subject = new FluidEmail();
@@ -304,7 +332,7 @@ final class FluidEmailTest extends FunctionalTestCase
     #[Test]
     public function bodiesAreNotRecreatedOnMultipleEnsureValidityCalls(): void
     {
-        $subject = new class () extends FluidEmail {
+        $subject = new class extends FluidEmail {
             public int $countRenderContentCalled = 0;
 
             protected function renderContent(string $format): string
@@ -330,7 +358,7 @@ final class FluidEmailTest extends FunctionalTestCase
     #[Test]
     public function bodiesAreRecreatedOnMultipleEnsureValidityCallsWithAssignUsedInBetween(): void
     {
-        $subject = new class () extends FluidEmail {
+        $subject = new class extends FluidEmail {
             public int $countRenderContentCalled = 0;
 
             protected function renderContent(string $format): string
@@ -368,7 +396,7 @@ final class FluidEmailTest extends FunctionalTestCase
     #[Test]
     public function bodiesAreRecreatedOnMultipleEnsureValidityCallsWithAssignMultipleUsedInBetween(): void
     {
-        $subject = new class () extends FluidEmail {
+        $subject = new class extends FluidEmail {
             public int $countRenderContentCalled = 0;
 
             protected function renderContent(string $format): string
@@ -406,7 +434,7 @@ final class FluidEmailTest extends FunctionalTestCase
     #[Test]
     public function bodiesAreNotRecreatedOnMultipleEnsureValidityCallsWithSetSubjectInBetween(): void
     {
-        $subject = new class () extends FluidEmail {
+        $subject = new class extends FluidEmail {
             public int $countRenderContentCalled = 0;
 
             protected function renderContent(string $format): string
@@ -440,7 +468,7 @@ final class FluidEmailTest extends FunctionalTestCase
     #[Test]
     public function bodiesAreNotRecreatedOnMultipleEnsureValidityCallsWithAssignedValuesButManualSetTextAndHtml(): void
     {
-        $subject = new class () extends FluidEmail {
+        $subject = new class extends FluidEmail {
             public int $countRenderContentCalled = 0;
 
             protected function renderContent(string $format): string

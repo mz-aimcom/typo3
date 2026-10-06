@@ -28,7 +28,7 @@ final class ElementBrowserRegistryTest extends UnitTestCase
     public function registrationRequiresInterface(): void
     {
         $elementBrowser = [
-            new class () {},
+            new class {},
             $this->getElementBrowser('valid-identifier'),
         ];
         $elementBrowserRegistry = new ElementBrowserRegistry($elementBrowser);
@@ -69,10 +69,10 @@ final class ElementBrowserRegistryTest extends UnitTestCase
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1647241086);
 
-        (new ElementBrowserRegistry([]))->getElementBrowser('non-existent-identifer');
+        new ElementBrowserRegistry([])->getElementBrowser('non-existent-identifer');
     }
 
-    protected function getElementBrowser(string $identifier = ''): ElementBrowserInterface
+    private function getElementBrowser(string $identifier = ''): ElementBrowserInterface
     {
         return new class ($identifier) implements ElementBrowserInterface {
             private string $identifier;

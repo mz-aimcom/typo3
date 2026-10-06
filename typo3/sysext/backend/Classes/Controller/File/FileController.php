@@ -106,7 +106,6 @@ class FileController
 
         // go and edit the new created file
         if ($request->getParsedBody()['edit'] ?? '') {
-            /** @var File $file */
             $file = $this->fileData['newfile'][0];
             if ($file !== null) {
                 $this->redirect = $this->getFileEditRedirect($file) ?? $this->redirect;
@@ -114,7 +113,7 @@ class FileController
         }
         if ($this->redirect) {
             return new RedirectResponse(
-                GeneralUtility::locationHeaderUrl($this->redirect),
+                GeneralUtility::locationHeaderUrl($this->redirect, $request),
                 303
             );
         }
@@ -196,11 +195,11 @@ class FileController
         $redirectUrl = (string)($parsedBody['redirect'] ?? $queryParams['redirect'] ?? '');
         if ($this->file === [] || $redirectUrl !== '') {
             // This in clipboard mode or when a new folder is created
-            $this->redirect = GeneralUtility::sanitizeLocalUrl($redirectUrl);
+            $this->redirect = GeneralUtility::sanitizeLocalUrl($redirectUrl, $request);
         } else {
             $mode = key($this->file);
             $elementKey = key($this->file[$mode]);
-            $this->redirect = GeneralUtility::sanitizeLocalUrl($this->file[$mode][$elementKey]['redirect'] ?? '');
+            $this->redirect = GeneralUtility::sanitizeLocalUrl($this->file[$mode][$elementKey]['redirect'] ?? '', $request);
         }
         $this->CB = (array)($parsedBody['CB'] ?? $queryParams['CB'] ?? []);
 

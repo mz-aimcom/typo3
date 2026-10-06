@@ -17,19 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Domain\Model;
 
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
 
 /**
  * Download Queue - storage for extensions to be downloaded
  * @internal This class is a specific domain model implementation and is not part of the Public TYPO3 API.
  */
-class DownloadQueue implements SingletonInterface
+class DownloadQueue
 {
     /**
      * Storage for extensions to be downloaded
      *
-     * @var array<string, array<string>>
+     * @var array<string, array<string, Extension>>
      */
     protected array $extensionStorage = [];
 
@@ -51,16 +50,16 @@ class DownloadQueue implements SingletonInterface
         if (!isset($this->extensionStorage[$stack])) {
             $this->extensionStorage[$stack] = [];
         }
-        if (array_key_exists($extension->getExtensionKey(), $this->extensionStorage[$stack])) {
-            if ($this->extensionStorage[$stack][$extension->getExtensionKey()] !== $extension) {
+        if (array_key_exists($extension->extensionKey, $this->extensionStorage[$stack])) {
+            if ($this->extensionStorage[$stack][$extension->extensionKey] !== $extension) {
                 throw new ExtensionManagerException(
-                    $extension->getExtensionKey() . ' was requested to be downloaded in different versions (' . $extension->getVersion()
-                        . ' and ' . $this->extensionStorage[$stack][$extension->getExtensionKey()]->getVersion() . ').',
+                    $extension->extensionKey . ' was requested to be downloaded in different versions (' . $extension->version
+                        . ' and ' . $this->extensionStorage[$stack][$extension->extensionKey]->version . ').',
                     1342432101
                 );
             }
         }
-        $this->extensionStorage[$stack][$extension->getExtensionKey()] = $extension;
+        $this->extensionStorage[$stack][$extension->extensionKey] = $extension;
     }
 
     public function getExtensionQueue(): array
@@ -78,10 +77,10 @@ class DownloadQueue implements SingletonInterface
         if (!in_array($stack, ['download', 'update'])) {
             throw new ExtensionManagerException('Stack has to be either "download" or "update"', 1342432104);
         }
-        if (array_key_exists($stack, $this->extensionStorage) && is_array($this->extensionStorage[$stack])) {
-            if (array_key_exists($extension->getExtensionKey(), $this->extensionStorage[$stack])) {
-                unset($this->extensionStorage[$stack][$extension->getExtensionKey()]);
-            }
+        if (array_key_exists($stack, $this->extensionStorage)
+            && array_key_exists($extension->extensionKey, $this->extensionStorage[$stack])
+        ) {
+            unset($this->extensionStorage[$stack][$extension->extensionKey]);
         }
     }
 
@@ -90,7 +89,7 @@ class DownloadQueue implements SingletonInterface
      */
     public function addExtensionToInstallQueue(Extension $extension): void
     {
-        $this->extensionInstallStorage[$extension->getExtensionKey()] = $extension;
+        $this->extensionInstallStorage[$extension->extensionKey] = $extension;
     }
 
     /**
@@ -140,5 +139,27 @@ class DownloadQueue implements SingletonInterface
         $this->extensionInstallStorage = [];
 
         return $storage;
+    }
+
+    /**
+     * Restores a previously retrieved download/update queue state, for example a state
+     * taken with {@see self::resetExtensionQueue()} before a temporary dependency check.
+     *
+     * @param array<string, array<string, Extension>> $extensionStorage
+     */
+    public function restoreExtensionQueue(array $extensionStorage): void
+    {
+        $this->extensionStorage = $extensionStorage;
+    }
+
+    /**
+     * Restores a previously retrieved install queue state, for example a state taken
+     * with {@see self::resetExtensionInstallStorage()} before a temporary dependency check.
+     *
+     * @param array<string, Extension> $extensionInstallStorage
+     */
+    public function restoreExtensionInstallStorage(array $extensionInstallStorage): void
+    {
+        $this->extensionInstallStorage = $extensionInstallStorage;
     }
 }

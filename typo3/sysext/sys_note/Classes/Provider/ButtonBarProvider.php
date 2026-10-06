@@ -17,10 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\SysNote\Provider;
 
-use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\Components\ModifyButtonBarEvent;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Attribute\AsEventListener;
@@ -38,16 +38,23 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @internal This is a specific listener implementation and is not considered part of the Public TYPO3 API.
  */
-final class ButtonBarProvider
+final readonly class ButtonBarProvider
 {
-    private const TABLE_NAME = 'sys_note';
-    private const ALLOWED_MODULES = [
+    private const string TABLE_NAME = 'sys_note';
+    private const array ALLOWED_MODULES = [
         'web_layout',
-        'web_list',
+        'records',
         'web_info_overview',
         'web_info_translations',
         'web_info_pagets',
     ];
+
+    public function __construct(
+        private IconFactory $iconFactory,
+        private UriBuilder $uriBuilder,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private ComponentFactory $componentFactory,
+    ) {}
 
     /**
      * Add a sys_note creation button to the button bar of defined modules
@@ -58,7 +65,7 @@ final class ButtonBarProvider
     public function __invoke(ModifyButtonBarEvent $event): void
     {
         $buttons = $event->getButtons();
-        $request = $this->getRequest();
+        $request = $event->getRequest();
 
         $id = (int)($request->getParsedBody()['id'] ?? $request->getQueryParams()['id'] ?? 0);
         $module = $request->getAttribute('module');
@@ -71,12 +78,12 @@ final class ButtonBarProvider
             || !empty($pageTSconfig['mod.']['SHARED.']['disableSysNoteButton'])
             || !$this->canCreateNewRecord($id)
             || !in_array($module->getIdentifier(), self::ALLOWED_MODULES, true)
-            || ($module->getIdentifier() === 'web_list' && !$this->isCreationAllowed($pageTSconfig['mod.']['web_list.'] ?? []))
+            || ($module->getIdentifier() === 'records' && !$this->isCreationAllowed($pageTSconfig['mod.']['web_list.'] ?? []))
         ) {
             return;
         }
 
-        $uri = (string)GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute(
+        $uri = (string)$this->uriBuilder->buildUriFromRoute(
             'record_edit',
             [
                 'edit' => [
@@ -84,14 +91,14 @@ final class ButtonBarProvider
                         $id => 'new',
                     ],
                 ],
+                'module' => $module->getIdentifier(),
                 'returnUrl' => $normalizedParams->getRequestUri(),
             ]
         );
 
-        $buttons[ButtonBar::BUTTON_POSITION_RIGHT][2][] = $event->getButtonBar()
-            ->makeLinkButton()
+        $buttons[ButtonBar::BUTTON_POSITION_RIGHT][2][] = $this->componentFactory->createLinkButton()
             ->setTitle(htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:sys_note/Resources/Private/Language/locallang.xlf:new_internal_note')))
-            ->setIcon(GeneralUtility::makeInstance(IconFactory::class)->getIcon('sysnote-type-0', IconSize::SMALL))
+            ->setIcon($this->iconFactory->getIcon('sysnote-type-0', IconSize::SMALL))
             ->setHref($uri);
 
         ksort($buttons[ButtonBar::BUTTON_POSITION_RIGHT]);
@@ -102,9 +109,9 @@ final class ButtonBarProvider
     /**
      * Check if the user is allowed to create a sys_note record
      */
-    protected function canCreateNewRecord(int $id): bool
+    private function canCreateNewRecord(int $id): bool
     {
-        $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get(self::TABLE_NAME);
+        $schema = $this->tcaSchemaFactory->get(self::TABLE_NAME);
         $pageRow = BackendUtility::getRecord('pages', $id);
         $backendUser = $this->getBackendUserAuthentication();
 
@@ -120,7 +127,7 @@ final class ButtonBarProvider
     /**
      * Check if creation is allowed / denied in web_list via mod TSconfig
      */
-    protected function isCreationAllowed(array $modTSconfig): bool
+    private function isCreationAllowed(array $modTSconfig): bool
     {
         $allowedNewTables = GeneralUtility::trimExplode(',', $modTSconfig['allowedNewTables'] ?? '', true);
         $deniedNewTables = GeneralUtility::trimExplode(',', $modTSconfig['deniedNewTables'] ?? '', true);
@@ -130,17 +137,12 @@ final class ButtonBarProvider
                 && ($allowedNewTables === [] || in_array(self::TABLE_NAME, $allowedNewTables)));
     }
 
-    protected function getRequest(): ServerRequestInterface
-    {
-        return $GLOBALS['TYPO3_REQUEST'];
-    }
-
-    protected function getBackendUserAuthentication(): BackendUserAuthentication
+    private function getBackendUserAuthentication(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

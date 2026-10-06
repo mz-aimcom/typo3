@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\DependencyInjection;
 
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Console\CommandRegistry;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -26,8 +27,11 @@ use TYPO3Tests\TestDi\Command\VisibleTestCommand;
 
 final class AsCommandAttributeTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $testExtensionsToLoad = [
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_di',
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_schedulable_command',
     ];
 
     #[Test]
@@ -81,5 +85,36 @@ final class AsCommandAttributeTest extends FunctionalTestCase
 
         self::assertEquals('This is a visible command.', $visibleCommand->getDescription());
         self::assertEquals('This is a hidden command.', $hiddenCommand->getDescription());
+    }
+
+    #[Test]
+    #[IgnoreDeprecations]
+    public function asCommandIsSchedulable(): void
+    {
+        $commandRegistry = $this->get(CommandRegistry::class);
+
+        $schedulableCommand = $commandRegistry->get('testschedulable:schedulable');
+        $nonSchedulableCommand = $commandRegistry->get('testschedulable:nonschedulable');
+
+        self::assertEquals('This is schedulable.', $schedulableCommand->getDescription());
+        self::assertEquals('This is not schedulable.', $nonSchedulableCommand->getDescription());
+
+        $collection = [];
+        foreach ($commandRegistry->getSchedulableCommands() as $command) {
+            $collection[$command->getName()] = true;
+        }
+
+        self::assertArrayHasKey('testschedulable:schedulable', $collection);
+        self::assertArrayNotHasKey('testschedulable:nonschedulable', $collection);
+    }
+
+    #[Test]
+    public function schedulableCommandConfigurationCanBeRetrieved(): void
+    {
+        $commandRegistry = $this->get(CommandRegistry::class);
+        $collection = $commandRegistry->getSchedulableCommandsConfiguration();
+
+        self::assertArrayHasKey('testschedulable:schedulable', $collection);
+        self::assertArrayNotHasKey('testschedulable:nonschedulable', $collection);
     }
 }

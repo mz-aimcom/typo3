@@ -6,14 +6,15 @@ use TYPO3\CMS\Workspaces\Controller\ReviewController;
  * Definitions for modules provided by EXT:workspaces
  */
 return [
-    'workspaces_admin' => [
-        'parent' => 'web',
-        'position' => ['before' => 'web_info'],
+    'workspaces_publish' => [
+        'parent' => 'content',
+        'position' => ['after' => 'page_preview'],
         'access' => 'user',
+        'workspaces' => 'offline',
         'path' => '/module/manage/workspaces',
         'iconIdentifier' => 'module-workspaces',
-        'labels' => 'LLL:EXT:workspaces/Resources/Private/Language/locallang_mod.xlf',
-        'aliases' => ['web_WorkspacesWorkspaces'],
+        'labels' => 'workspaces.module',
+        'aliases' => ['workspaces_admin', 'web_WorkspacesWorkspaces'],
         'routes' => [
             '_default' => [
                 'target' => ReviewController::class . '::handleRequest',

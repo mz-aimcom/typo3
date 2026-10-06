@@ -29,7 +29,7 @@ final class PublicPropertyDeprecationTraitTest extends UnitTestCase
      * @var object Test fixture (anonymous class)
      * @see PublicAccessDeprecationTraitTest::setUp()
      */
-    protected $fixture;
+    private $fixture;
 
     /**
      * Setup
@@ -40,7 +40,7 @@ final class PublicPropertyDeprecationTraitTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->fixture = new class () {
+        $this->fixture = new class {
             use PublicPropertyDeprecationTrait;
             private $deprecatedPublicProperties = [
                 'taggedProperty' => 'taggedProperty is deprecated',

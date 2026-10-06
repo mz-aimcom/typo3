@@ -47,6 +47,7 @@ abstract class BaseModule
     protected array $aliases = [];
     protected bool $inheritNavigationComponent = true;
     protected array $routeOptions = [];
+    protected bool $showSubmoduleOverview = false;
 
     final protected function __construct(string $identifier)
     {
@@ -65,6 +66,10 @@ abstract class BaseModule
 
     public function getIconIdentifier(): string
     {
+        if ($this->iconIdentifier === '' && $this->hasParentModule()) {
+            return $this->getParentModule()->getIconIdentifier();
+        }
+
         return $this->iconIdentifier;
     }
 
@@ -181,11 +186,35 @@ abstract class BaseModule
         return $this->aliases;
     }
 
+    public function hasSubmoduleOverview(): bool
+    {
+        return $this->showSubmoduleOverview;
+    }
+
     abstract public function getDefaultRouteOptions(): array;
 
     public function getDefaultModuleData(): array
     {
         return $this->defaultModuleData;
+    }
+
+    /**
+     * Promotes this module to a standalone top-level module, inheriting properties from its parent.
+     *
+     * @internal Only to be used by ModuleRegistry
+     */
+    public function promoteToStandalone(string $navigationComponent, array $position, array $additionalAliases): void
+    {
+        $this->standalone = true;
+        $this->parent = '';
+        $this->parentModule = null;
+        if ($this->getNavigationComponent() === '') {
+            $this->navigationComponent = $navigationComponent;
+        }
+        if ($this->position === []) {
+            $this->position = $position;
+        }
+        $this->aliases = array_merge($this->aliases, $additionalAliases);
     }
 
     public static function createFromConfiguration(string $identifier, array $configuration): static
@@ -212,15 +241,22 @@ abstract class BaseModule
             $obj->component = (string)$configuration['component'];
         }
 
-        if (is_array($configuration['labels'] ?? null)) {
-            $obj->title = (string)($configuration['labels']['title'] ?? '');
-            $obj->description = (string)($configuration['labels']['description'] ?? '');
-            $obj->shortDescription = (string)($configuration['labels']['shortDescription'] ?? '');
-        } elseif (str_starts_with((string)($configuration['labels'] ?? ''), 'LLL:')) {
-            $labelsFile = $configuration['labels'];
+        $labelInformation = $configuration['labels'] ?? false;
+        if (is_array($labelInformation)) {
+            $obj->title = (string)($labelInformation['title'] ?? '');
+            $obj->description = (string)($labelInformation['description'] ?? '');
+            $obj->shortDescription = (string)($labelInformation['shortDescription'] ?? '');
+        } elseif (str_starts_with((string)$labelInformation, 'LLL:')) {
+            $labelsFile = $labelInformation;
             $obj->title = $labelsFile . ':mlang_tabs_tab';
             $obj->description = $labelsFile . ':mlang_labels_tabdescr';
             $obj->shortDescription = $labelsFile . ':mlang_labels_tablabel';
+        } elseif (is_string($labelInformation) && !str_contains($labelInformation, ':') && str_contains($labelInformation, '.')) {
+            // New File Format. Uses "backend.modules.<modulename>" (for example "backend.modules.preview") as identifier,
+            // which results in "backend.modules.preview:title" etc.
+            $obj->title = $labelInformation . ':title';
+            $obj->description = $labelInformation . ':description';
+            $obj->shortDescription = $labelInformation . ':short_description';
         }
 
         if (is_array($configuration['position'] ?? false)) {
@@ -257,6 +293,10 @@ abstract class BaseModule
         }
         if (is_array($configuration['routeOptions'] ?? null)) {
             $obj->routeOptions = $configuration['routeOptions'];
+        }
+
+        if (isset($configuration['showSubmoduleOverview'])) {
+            $obj->showSubmoduleOverview = (bool)$configuration['showSubmoduleOverview'];
         }
 
         return $obj;

@@ -11,12 +11,18 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, LitElement, type TemplateResult, nothing } from 'lit';
-import { property, state, query } from 'lit/decorators';
-import { repeat } from 'lit/directives/repeat';
-import { styleMap } from 'lit/directives/style-map';
-import { ifDefined } from 'lit/directives/if-defined';
-import { TreeNodeCommandEnum, TreeNodePositionEnum, type TreeNodeInterface, type TreeNodeStatusInformation, type TreeNodeLabel } from './tree-node';
+import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from 'lit';
+import { property, query, state } from 'lit/decorators.js';
+import { repeat } from 'lit/directives/repeat.js';
+import { styleMap } from 'lit/directives/style-map.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import {
+  TreeNodeCommandEnum,
+  type TreeNodeInterface,
+  type TreeNodeLabel,
+  TreeNodePositionEnum,
+  type TreeNodeStatusInformation
+} from './tree-node';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Notification from '../notification';
 import { KeyTypesEnum as KeyTypes } from '../enum/key-types';
@@ -26,8 +32,12 @@ import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
 import Severity from '@typo3/backend/severity';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { DragTooltipMetadata } from '@typo3/backend/drag-tooltip';
+import miscLabels from '~labels/core.misc';
+import layoutLabels from '~labels/backend.layout';
+import { openPageWizardModal } from '@typo3/backend/page-wizard/helper/wizard-helper';
+import type { Position } from '@typo3/backend/tree/page-position-select';
 
-interface TreeNodeStatus {
+export interface TreeNodeStatus {
   expanded: boolean
 }
 
@@ -45,6 +55,56 @@ export interface TreeWrapper extends HTMLElement {
   tree?: Tree
 }
 
+export class TreeNodeMap<T extends TreeNodeInterface = TreeNodeInterface> {
+  private readonly treeNodes: T[];
+  private treeIdentifierIndex: Record<string, number>;
+
+  constructor(nodes: T[]) {
+    this.treeNodes = nodes;
+    this.updateIndexes();
+  }
+
+  public get length(): number {
+    return this.treeNodes.length;
+  }
+
+  public toArray(): ReadonlyArray<T> {
+    return this.treeNodes;
+  }
+
+  public splice(start: number, deleteCount?: number, ...items: T[]) {
+    this.treeNodes.splice(start, deleteCount, ...items);
+    this.updateIndexes();
+  }
+
+  public getNodeByTreeIdentifier(treeIdentifier: string): T|null {
+    const index = this.treeIdentifierIndex[treeIdentifier] ?? null;
+    return this.treeNodes[index] ?? null;
+  }
+
+  private updateIndexes(): void {
+    this.treeIdentifierIndex = Object.fromEntries(this.treeNodes.map((node, index) => ([node.__treeIdentifier, index])));
+  }
+}
+
+export class TreeFilterAppliedEvent extends CustomEvent<{searchTerm: string, resultCount: number}> {
+  static readonly eventName = 'typo3:tree:filter-applied';
+  constructor(searchTerm: string, resultCount: number) {
+    super(TreeFilterAppliedEvent.eventName, {
+      detail: { searchTerm, resultCount },
+      bubbles: true,
+      composed: true,
+    });
+  }
+}
+
+export class TreeFilterResetEvent extends Event {
+  static readonly eventName = 'typo3:tree:filter-reset';
+  constructor() {
+    super(TreeFilterResetEvent.eventName, { bubbles: true, composed: true });
+  }
+}
+
 export class Tree extends LitElement {
   @property({ type: Object }) setup?: {[keys: string]: any} = null;
   @state() settings: TreeSettings = {
@@ -58,10 +118,11 @@ export class Tree extends LitElement {
   };
 
   @query('.nodes-root') root: HTMLElement;
-  @state() nodes: TreeNodeInterface[] = [];
+  @state() nodeMap: TreeNodeMap = new TreeNodeMap([]);
   @state() currentScrollPosition: number = 0;
   @state() currentVisibleHeight: number = 0;
   @state() searchTerm: string|null = null;
+  @state() searchResults: number = 0;
   @state() loading: boolean = false;
 
   @state() hoveredNode: TreeNodeInterface|null = null;
@@ -85,8 +146,8 @@ export class Tree extends LitElement {
   protected unfilteredNodes: string = '';
   protected muteErrorNotifications: boolean = false;
 
-  protected networkErrorTitle: string = top.TYPO3.lang.tree_networkError;
-  protected networkErrorMessage: string = top.TYPO3.lang.tree_networkErrorDescription;
+  protected networkErrorTitle: string = miscLabels.get('tree_networkError');
+  protected networkErrorMessage: string = miscLabels.get('tree_networkErrorDescription');
 
   protected allowNodeEdit: boolean = false;
   protected allowNodeDrag: boolean = false;
@@ -96,9 +157,18 @@ export class Tree extends LitElement {
 
   private __loadFinished: () => void;
   private __loadPromise: Promise<void> = new Promise(res => this.__loadFinished = res);
+  private lastRenderScrollPosition: number = null;
 
   public get loadComplete(): Promise<void> {
     return this.__loadPromise;
+  }
+
+  public get nodes(): ReadonlyArray<TreeNodeInterface> {
+    return this.nodeMap.toArray();
+  }
+
+  public set nodes(nodes: TreeNodeInterface[]) {
+    this.nodeMap = new TreeNodeMap(nodes);
   }
 
   public getNodeFromElement(element: HTMLElement): TreeNodeInterface|null
@@ -141,7 +211,7 @@ export class Tree extends LitElement {
 
   public async loadData(): Promise<void> {
     this.loading = true;
-    this.nodes = this.prepareNodes(await this.fetchData());
+    this.nodeMap = new TreeNodeMap(this.prepareNodes(await this.fetchData()));
     this.__loadFinished();
     this.__loadPromise = new Promise(res => this.__loadFinished = res);
     this.loading = false;
@@ -216,7 +286,7 @@ export class Tree extends LitElement {
         }
         deleteCount++;
       }
-      this.nodes.splice(positionAfterParentNode, deleteCount, ...nodes);
+      this.nodeMap.splice(positionAfterParentNode, deleteCount, ...nodes);
       // @todo: do we need to "prepare" all nodes again?
 
       parentNode.__loading = false;
@@ -281,7 +351,7 @@ export class Tree extends LitElement {
 
     this.resetSelectedNodes();
     node.checked = true;
-    this.dispatchEvent(new CustomEvent('typo3:tree:node-selected', { detail: { node: node, propagate: propagate } }));
+    this.dispatchEvent(new CustomEvent('typo3:tree:node-selected', { detail: { node: node, propagate: propagate }, bubbles: true, composed: true }));
   }
 
   public async focusNode(node: TreeNodeInterface): Promise<void>
@@ -310,6 +380,19 @@ export class Tree extends LitElement {
           inputField.select();
         }
       });
+    }
+  }
+
+  public scrollNodeIntoViewIfNeeded(node: TreeNodeInterface): void {
+    // scrollIntoViewIfNeeded may fail due to race conditions or because the node element might not be
+    // queryable; use Y-coordinate ensures correct scrolling
+    const nodeTop = node.__y + (this.nodeHeight / 2);
+    const viewTop = this.root.scrollTop;
+    const viewBottom = viewTop + this.root.clientHeight;
+    const target = nodeTop - this.root.clientHeight / 2;
+
+    if (nodeTop < viewTop || nodeTop > viewBottom) {
+      this.root.scrollTop = target;
     }
   }
 
@@ -345,11 +428,19 @@ export class Tree extends LitElement {
       }
     }
 
-    if (position === TreeNodePositionEnum.INSIDE || position === TreeNodePositionEnum.AFTER) {
-      index++;
+    if (position === TreeNodePositionEnum.INSIDE) {
+      index += 1;
+    } else if (position === TreeNodePositionEnum.AFTER) {
+      const depth = target.depth;
+      let i = index + 1;
+      while (i < this.nodes.length && this.nodes[i].depth > depth) {
+        i++;
+      }
+
+      index = i;
     }
 
-    this.nodes.splice(index, 0, newNode);
+    this.nodeMap.splice(index, 0, newNode);
     this.handleNodeAdd(newNode, target, position);
   }
 
@@ -357,11 +448,11 @@ export class Tree extends LitElement {
     const index = this.nodes.indexOf(node);
     const parentNode = this.getParentNode(node);
     if (index > -1) {
-      this.nodes.splice(index, 1);
+      this.nodeMap.splice(index, 1);
     }
     this.requestUpdate();
     this.updateComplete.then(() => {
-      if (parentNode.__expanded && parentNode.hasChildren && this.getNodeChildren(parentNode).length === 0) {
+      if (parentNode?.__expanded && parentNode.hasChildren && this.getNodeChildren(parentNode).length === 0) {
         parentNode.hasChildren = false;
         parentNode.__expanded = false;
       }
@@ -381,11 +472,13 @@ export class Tree extends LitElement {
         .then((response: AjaxResponse) => response.resolve())
         .then((json) => {
           const nodes = Array.isArray(json) ? json : [];
+          this.searchResults = nodes.length;
           if (nodes.length > 0) {
             if (this.unfilteredNodes === '') {
               this.unfilteredNodes = JSON.stringify(this.nodes);
             }
-            this.nodes = this.enhanceNodes(nodes);
+            this.nodeMap = new TreeNodeMap(this.enhanceNodes(nodes));
+            this.searchResults = nodes.length;
           }
         })
         .catch((error: any) => {
@@ -399,34 +492,38 @@ export class Tree extends LitElement {
         }).then(() => {
           this.loading = false;
           this.currentFilterRequest = null;
+          this.dispatchEvent(new TreeFilterAppliedEvent(this.searchTerm, this.searchResults));
         });
     } else {
       // restore original state without filters
-      this.resetFilter();
-      this.loading = false;
+      this.resetFilter().then(() => {
+        this.loading = false;
+        this.dispatchEvent(new TreeFilterResetEvent());
+      });
     }
   }
 
-  public resetFilter(): void
+  public async resetFilter(): Promise<void>
   {
     this.searchTerm = '';
+    this.searchResults = 0;
     if (this.unfilteredNodes.length > 0) {
       const currentlySelected = this.getSelectedNodes()[0];
       if (typeof currentlySelected === 'undefined') {
-        this.loadData();
+        await this.loadData();
         return;
       }
-      this.nodes = this.enhanceNodes(JSON.parse(this.unfilteredNodes));
+      this.nodeMap = new TreeNodeMap(this.enhanceNodes(JSON.parse(this.unfilteredNodes)));
       this.unfilteredNodes = '';
       // re-select the node from the identifier because the nodes have been updated
       const currentlySelectedNode = this.getNodeByTreeIdentifier(currentlySelected.__treeIdentifier);
       if (currentlySelectedNode) {
         this.selectNode(currentlySelectedNode, false);
       } else {
-        this.loadData();
+        await this.loadData();
       }
     } else {
-      this.loadData();
+      await this.loadData();
     }
   }
 
@@ -456,9 +553,7 @@ export class Tree extends LitElement {
   }
 
   public getNodeByTreeIdentifier(treeIdentifier: string): TreeNodeInterface|null {
-    return this.nodes.find((node: TreeNodeInterface) => {
-      return node.__treeIdentifier === treeIdentifier;
-    });
+    return this.nodeMap.getNodeByTreeIdentifier(treeIdentifier);
   }
 
   public getNodeDragStatusIcon(): string
@@ -514,7 +609,7 @@ export class Tree extends LitElement {
    */
   protected enhanceNodes(nodes: TreeNodeInterface[]): TreeNodeInterface[] {
     const enhancedNodes = nodes.reduce((nodes: TreeNodeInterface[], node: TreeNodeInterface) => {
-      if (node.__processed === true) {
+      if (node?.__processed === true) {
         return [...nodes, node];
       }
 
@@ -576,6 +671,17 @@ export class Tree extends LitElement {
     return this;
   }
 
+  protected override shouldUpdate(changedProperties: PropertyValues<this>): boolean {
+    if (changedProperties.size === 1 &&
+        changedProperties.has('currentScrollPosition') &&
+        this.lastRenderScrollPosition !== null &&
+        Math.abs(this.currentScrollPosition - this.lastRenderScrollPosition) / this.nodeHeight < 20
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   protected override render(): TemplateResult {
     const loader = this.loading
       ? html`
@@ -607,21 +713,16 @@ export class Tree extends LitElement {
    * viewport (adding, modifying and removing nodes)
    */
   protected renderVisibleNodes(): TemplateResult {
-    const blacklist: string[] = [];
-    this.nodes.forEach((node: TreeNodeInterface): void => {
-      if (node.__expanded === false) {
-        blacklist.push(this.getNodeTreeIdentifier(node));
-      }
-    });
-
-    this.displayNodes = this.nodes.filter((node: TreeNodeInterface): boolean => {
-      return node.__hidden !== true && !node.__treeParents.some((parentTreeIdentifier: string) => Boolean(blacklist.indexOf(parentTreeIdentifier) !== -1));
-    });
+    this.displayNodes = this.nodes.filter(node => (
+      node.__hidden !== true &&
+      !node.__treeParents.some(parentTreeIdentifier => this.getNodeByTreeIdentifier(parentTreeIdentifier).__expanded === false)
+    ));
     this.displayNodes.forEach((node: TreeNodeInterface, i: number) => {
       node.__x = node.depth * this.indentWidth;
       node.__y = i * this.nodeHeight;
     });
 
+    this.lastRenderScrollPosition = this.currentScrollPosition;
     const visibleRows = Math.ceil(this.currentVisibleHeight / this.nodeHeight);
     const position = Math.floor(this.currentScrollPosition / this.nodeHeight);
     const visibleNodes = this.displayNodes.filter((node: TreeNodeInterface, index: number) => {
@@ -637,7 +738,7 @@ export class Tree extends LitElement {
       if (this.lastFocusedNode === node) {
         return true;
       }
-      return index + 2 >= position && index - 2 < position + visibleRows;
+      return index + 40 >= position && index - 40 < position + visibleRows;
     });
 
     return html`
@@ -649,7 +750,7 @@ export class Tree extends LitElement {
             draggable="true"
             title="${this.getNodeTitle(node)}"
             aria-owns="${ifDefined(node.hasChildren ? 'group-identifier-' + this.getNodeIdentifier(node) : null)}"
-            aria-expanded="${ifDefined(node.hasChildren ? (node.__expanded ? '1' : '0') : null)}"
+            aria-expanded="${ifDefined(node.hasChildren ? (node.__expanded ? 'true' : 'false') : null)}"
             aria-level="${(this.getNodeDepth(node) + 1)}"
             aria-setsize="${this.getNodeSetsize(node)}"
             aria-posinset="${this.getNodePositionInSet(node)}"
@@ -940,13 +1041,29 @@ export class Tree extends LitElement {
 
     if (event.dataTransfer.types.includes(DataTransferTypes.newTreenode)) {
       event.preventDefault();
-      const targetNode = this.getNodeFromDragEvent(event);
+      let targetNode = this.getNodeFromDragEvent(event);
       if (targetNode === null) {
         return false;
       }
-      const newNodeData = event.dataTransfer.getData(DataTransferTypes.newTreenode);
-      //if (this.nodeDragMode === TreeNodeCommandEnum.NEW) {
-      this.addNode(JSON.parse(newNodeData), targetNode, this.nodeDragPosition);
+      const newNodeData: { doktype: string } = JSON.parse(event.dataTransfer.getData(DataTransferTypes.newTreenode));
+
+      let insertPosition: Position = 'inside';
+      if (this.nodeDragPosition === TreeNodePositionEnum.AFTER) {
+        insertPosition = 'after';
+      } else if (this.nodeDragPosition === TreeNodePositionEnum.BEFORE) {
+        // convert 'before' to 'inside' or 'after'
+        const previousNode = this.getPreviousNode(targetNode);
+        insertPosition = previousNode.depth == targetNode.depth ? 'after' : 'inside';
+        targetNode = previousNode;
+      }
+
+      openPageWizardModal({
+        doktype: String(newNodeData.doktype),
+        positionData: {
+          pageUid: parseInt(targetNode.identifier, 10),
+          insertPosition: insertPosition
+        }
+      });
 
       this.nodeDragMode = null;
       this.nodeDragPosition = null;
@@ -1028,12 +1145,11 @@ export class Tree extends LitElement {
 
   protected createNodeToggle(node: TreeNodeInterface): TemplateResult|null
   {
-    const collapsedIconIdentifier = this.isRTL() ? 'actions-chevron-left' : 'actions-chevron-right';
     return node.hasChildren === true
       ? html `
           <span class="node-toggle" @click="${(event: PointerEvent) => { event.preventDefault(); event.stopImmediatePropagation(); this.handleNodeToggle(node); }}">
             <typo3-backend-icon
-              identifier="${(node.__expanded ? 'actions-chevron-down' : collapsedIconIdentifier)}"
+              identifier="${(node.__expanded ? 'actions-chevron-down' : 'actions-chevron-end')}"
               size="small"
             ></typo3-backend-icon>
           </span>
@@ -1073,22 +1189,28 @@ export class Tree extends LitElement {
 
   protected createNodeContentLabel(node: TreeNodeInterface): TemplateResult
   {
-    let label = (node.prefix || '') + node.name + (node.suffix || '');
-    // make a text node out of it, and strip out any HTML (this is because the return value uses html()
-    // instead of text() which is needed to avoid XSS in a page title
-    const labelNode = document.createElement('div');
-    labelNode.textContent = label;
-    label = labelNode.innerHTML;
-    if (this.searchTerm) {
+    const label = (node.prefix || '') + node.name + (node.suffix || '');
+    let nodeContent: Array<TemplateResult|string> | string = label;
+    // In case active search is happening, there are max 100 results, and the search term is at least 2 characters long
+    // or contains a number (which might indicate search for ids) > highlight the search term in the label.
+    // Note: This only works for default pages.
+    if (this.searchTerm && this.searchResults <= 100 && (this.searchTerm.length > 1 || /\d/.test(this.searchTerm))) {
       // Escape all meta characters of regular expressions: ( ) [ ] $ * + ? . { } / | ^ -
-      const regexp = new RegExp(this.searchTerm.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
-      label = label.replace(regexp, '<span class="node-highlight-text">$&</span>');
+      // Also wrap the search term in a capture group so the regex split retains the separator
+      const regexp = new RegExp(`(${this.searchTerm.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi');
+      const parts = label.split(regexp);
+      if (parts.length > 1) {
+        // grouped regex splits contain the match in every second spot, to keep things short we use a modulo-flip with the index
+        nodeContent = parts.map((part, index): TemplateResult | string =>
+          (index % 2 === 1) ? html`<span class="node-highlight-text">${part}</span>` : part
+        );
+      }
     }
 
     return html`
       <div class="node-contentlabel">
-      <div class="node-name" .innerHTML="${label}"></div>
-      ${node.note ? html`<div class="node-note">${node.note}</div>` : nothing }
+        <div class="node-name">${nodeContent}</div>
+        ${node.note ? html`<div class="node-note">${node.note}</div>` : nothing}
       </div>`;
   }
 
@@ -1105,9 +1227,8 @@ export class Tree extends LitElement {
     const overlayIconIdentifier = firstInformation.overlayIcon !== '' ? firstInformation.overlayIcon : undefined;
 
     return html`
-      <span class="node-information">
+      <span class="node-information node-information-${severityClass}">
         <typo3-backend-icon
-          class="text-${severityClass}"
           identifier=${iconIdentifier}
           overlay=${ifDefined(overlayIconIdentifier)}
           size="small"
@@ -1122,7 +1243,7 @@ export class Tree extends LitElement {
       ? html`
         <div class="node-dropzone-delete" data-tree-dropzone="delete">
           <typo3-backend-icon identifier="actions-delete" size="small"></typo3-backend-icon>
-          ${TYPO3.lang.deleteItem}
+          ${layoutLabels.get('deleteItem')}
         </div>
         `
       : html`${nothing}`;
@@ -1249,7 +1370,7 @@ export class Tree extends LitElement {
 
   protected getNodeLabels(node: TreeNodeInterface): TreeNodeLabel[] {
     let labels = node.labels;
-    if (labels.length > 0) {
+    if (labels?.length > 0) {
       labels = labels.sort((a, b) => {
         return b.priority - a.priority;
       });
@@ -1262,11 +1383,12 @@ export class Tree extends LitElement {
       return [];
     }
 
-    return this.getNodeLabels(parentNode);
+    // Inherit labels from parent, but only those that allow inheritance
+    return this.getNodeLabels(parentNode).filter(label => label.inheritByChildren);
   }
 
   protected getNodeStatusInformation(node: TreeNodeInterface): TreeNodeStatusInformation[] {
-    if (node.statusInformation.length === 0) {
+    if (!node.statusInformation?.length) {
       return [];
     }
 
@@ -1295,7 +1417,7 @@ export class Tree extends LitElement {
   }
 
   protected getNodeChildren(node: TreeNodeInterface): TreeNodeInterface[] {
-    if (!node.hasChildren) {
+    if (!node?.hasChildren) {
       return [];
     }
 
@@ -1397,13 +1519,6 @@ export class Tree extends LitElement {
     } else {
       this.showChildren(node);
     }
-  }
-
-  protected isRTL() {
-    const rootElementStyle = window.getComputedStyle(document.documentElement);
-    const direction = rootElementStyle.getPropertyValue('direction');
-
-    return direction === 'rtl';
   }
 
   /**

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Error;
 
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Information\Typo3Information;
 
 /**
@@ -33,10 +34,7 @@ class DebugExceptionHandler extends AbstractExceptionHandler
      */
     public function __construct()
     {
-        $callable = [$this, 'handleException'];
-        if (is_callable($callable)) {
-            set_exception_handler($callable);
-        }
+        set_exception_handler($this->handleException(...));
     }
 
     /**
@@ -51,6 +49,7 @@ class DebugExceptionHandler extends AbstractExceptionHandler
 
         $content = $this->getContent($exception);
         $css = $this->getStylesheet();
+        $js = $this->getJavascript();
 
         echo <<<HTML
 <!DOCTYPE html>
@@ -60,6 +59,7 @@ class DebugExceptionHandler extends AbstractExceptionHandler
         <title>TYPO3 Exception</title>
         <meta name="robots" content="noindex,nofollow" />
         <style>$css</style>
+        <script>$js</script>
     </head>
     <body>
         $content
@@ -116,6 +116,7 @@ HTML;
                             </p>
                             <p>
                                 <a href="$documentationLink" target="_blank" rel="noreferrer">Find a solution for this exception in the TYPO3 Documentation.</a>
+                                <span id="stacktrace-action-buttons"></span>
                             </p>
                         </div>
                     </div>
@@ -126,13 +127,27 @@ INFO;
 
         $typo3Logo = $this->getTypo3LogoAsSvg();
 
+        try {
+            // This outside dependency class is always loaded before the exception handler is setup.
+            // So it is safe to access without affecting the output of this handler.
+            $projectPath = Environment::getProjectPath() . DIRECTORY_SEPARATOR;
+        } catch (\Throwable) {
+            // just in case something goes wrong.
+            $projectPath = '';
+        }
+
+        $projectPathEscaped = $this->escapeHtml($projectPath);
+
         return <<<HTML
-            <div class="exception-page">
+            <div class="exception-page" data-project-path="$projectPathEscaped">
                 <div class="exception-summary">
                     <div class="container">
                         <div class="exception-message-wrapper">
                             <div class="exception-illustration hidden-xs-down">$typo3Logo</div>
-                            <h1 class="exception-message break-long-words">Whoops, looks like something went wrong.</h1>
+                            <h1 class="exception-message break-long-words">
+                                Whoops, looks like something went wrong.
+                            </h1>
+                            <span id="stacktrace-action-buttons"></span>
                         </div>
                     </div>
                 </div>
@@ -170,7 +185,7 @@ HTML;
             <div class="trace">
                 <div class="trace-head">
                     <h3 class="trace-class">
-                        <span class="text-body-secondary">({$index}/{$total})</span>
+                        <span class="text-variant">({$index}/{$total})</span>
                         <span class="exception-title">{$exceptionCode}{$exceptionTitle}</span>
                     </h3>
                     <p class="trace-message break-long-words">{$exceptionMessage}</p>
@@ -188,6 +203,9 @@ HTML;
     protected function getStylesheet(): string
     {
         return <<<STYLESHEET
+            :root {
+              color-scheme: light dark;
+            }
             html {
                 -webkit-text-size-adjust: 100%;
                 -ms-text-size-adjust: 100%;
@@ -200,8 +218,8 @@ HTML;
             }
 
             .exception-page {
-                background-color: #eaeaea;
-                color: #212121;
+                background-color: light-dark(#fcfcfd, #141316);
+                color: light-dark(#18181b, #e4e4e7);
                 font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";
                 font-weight: 400;
                 height: 100dvh;
@@ -240,7 +258,8 @@ HTML;
             }
 
             .exception-page pre {
-                background-color: #ffffff;
+                background-color: light-dark(#e5e5e6, #3b3942);
+
                 overflow-x: auto;
                 border: 1px solid rgba(0,0,0,0.125);
             }
@@ -256,14 +275,14 @@ HTML;
                 border-right: 1px solid #b9b9b9;
                 margin-right: 0.5em;
                 padding-right: 0.5em;
-                background-color: #f4f4f4;
+                background-color: light-dark(#f4f4f4, #262527);
                 width: 4em;
                 text-align: right;
-                color: #515151;
+                color: light-dark(#515151, #aca6a6);
             }
 
             .exception-page pre span.highlight {
-                background-color: #cce5ff;
+                background-color: light-dark(#acd5ec, #0e2e3e);
             }
 
             .exception-page .break-long-words {
@@ -278,9 +297,11 @@ HTML;
             .exception-page .callout {
                 padding: 1.5rem;
                 background-color: #fff;
+                background-color: light-dark(#f4f4f6, #1d1c21);
+                border: 1px solid light-dark(#cececf, #403f44);
+                border-radius: 0.75em;
+                overflow: hidden;
                 margin-bottom: 2em;
-                box-shadow: 0 2px 1px rgba(0,0,0,.15);
-                border-left: 3px solid #8c8c8c;
             }
 
             .exception-page .callout-title {
@@ -317,7 +338,7 @@ HTML;
             }
 
             .exception-page .exception-summary {
-                background: #000000;
+                background: #2b2640;
                 color: #fff;
                 padding: 1.5rem 0;
                 margin-bottom: 2rem;
@@ -327,18 +348,25 @@ HTML;
                 margin: 0;
             }
 
-            .exception-page .text-body-secondary {
-                opacity: 0.5;
+            .exception-page .text-variant {
+                opacity: 0.75;
             }
 
             .exception-page .trace {
-                background-color: #fff;
+                background-color: light-dark(#f4f4f6, #1d1c21);
+                border: 1px solid light-dark(#cececf, #403f44);
+                border-radius: 0.75em;
+                overflow: hidden;
                 margin-bottom: 2rem;
-                box-shadow: 0 2px 1px rgba(0,0,0,.15);
             }
 
             .exception-page .trace-arguments {
                 color: #8c8c8c;
+            }
+
+            .exception-page .trace-hint {
+                margin: 0 0 0.5rem 0;
+                text-align: center;
             }
 
             .exception-page .trace-body {
@@ -358,8 +386,8 @@ HTML;
             }
 
             .exception-page .trace-head {
-                color: #721c24;
-                background-color: #f8d7da;
+                color: light-dark(#721c24, #fafafa);
+                background-color: light-dark(#f5d6d8, #7a1f24);
                 padding: 1.5rem;
             }
 
@@ -386,13 +414,76 @@ HTML;
 
             .exception-page .trace-step:nth-child(even)
             {
-                background-color: #fafafa;
+                background-color: light-dark(#fafafa, #2c2a33);
             }
 
             .exception-page .trace-step:last-child {
                 border-bottom: none;
             }
+
+            .exception-page .copy-button {
+                cursor: pointer;
+                border: 0.1rem solid transparent;
+                background-color: transparent;
+                padding: 0;
+                margin-left: 1rem;
+            }
+
+            .exception-page .copy-button:hover {
+                border: 0.1rem solid #b9b9b9;
+            }
+
+            .exception-page #stacktrace-action-buttons {
+                display: inline-flex;
+                justify-content: center;
+                gap: 0.5rem;
+                margin-top: 1rem;
+            }
+
+            .exception-page .stacktrace-action-button {
+                cursor: pointer;
+                padding: 0.5rem;
+                -webkit-text-size-adjust: 100%;
+                -webkit-tap-highlight-color: rgba(0,0,0,0);
+                box-sizing: border-box;
+                background-color: color(srgb 0.97 0.97 0.97);
+                border: 1px solid color(srgb 0.75 0.75 0.75);
+                border-radius: .75em;
+                color: color(srgb 0.1 0.1 0.1);
+                display: inline-flex;
+                font-weight: 400;
+                gap: .35em;
+                justify-content: center;
+                outline-offset: 0;
+                text-decoration: none;
+                --typo3-transition-color: color .15s ease-in-out,background-color .15s ease-in-out,border-color .15s ease-in-out,box-shadow .15s ease-in-out,opacity .15s ease-in-out;
+                transition: var(--typo3-transition-color);
+                user-select: none;
+                vertical-align: middle;
+                white-space: nowrap;
+                margin-bottom: 0;
+                margin-top: 0;
+            }
+
+            pre.plaintextFallback {
+                margin: 2rem auto;
+                border: 1px solid black;
+                max-height: 250px;
+                font-size: 0.8em;
+                padding: 1rem;
+            }
+
 STYLESHEET;
+    }
+
+    /**
+     * Returns JavaScript functionality. Loaded from a TypeScript build.
+     * It is loaded inline, to not need to load additional URIs or build routes to assets.
+     * Also, it does not use ES6 module loading to be light-weight and dependency free.
+     */
+    protected function getJavascript(): string
+    {
+        return file_get_contents(__DIR__ . '/../../Resources/Public/JavaScript/utility/debug-exception-handler-service.js');
     }
 
     /**
@@ -479,8 +570,10 @@ STYLESHEET;
      */
     protected function formatPath(string $path, int $line): string
     {
+        // "data-lineno" is evaluated by debug-exception-handler-service.js
         return sprintf(
-            '<span class="block trace-file-path">in <strong>%s</strong>%s</span>',
+            '<span class="block trace-file-path">in <strong data-lineno="%s">%s</strong>%s</span>',
+            $line > 0 ? $line : 1,
             $this->escapeHtml($path),
             $line > 0 ? ' line ' . $line : ''
         );
@@ -509,7 +602,7 @@ STYLESHEET;
                 $formattedValue = str_replace("\n", '', $this->escapeHtml(var_export($item[1], true)));
             }
 
-            $result[] = \is_int($key) ? $formattedValue : sprintf("'%s' => %s", $this->escapeHtml($key), $formattedValue);
+            $result[] = is_int($key) ? $formattedValue : sprintf("'%s' => %s", $this->escapeHtml($key), $formattedValue);
         }
 
         return implode(', ', $result);

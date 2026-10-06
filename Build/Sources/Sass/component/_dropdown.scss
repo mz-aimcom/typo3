@@ -3,13 +3,15 @@
 //
 .dropdown {
     position: relative;
+    anchor-scope: --dropdown;
 }
 
-.dropdown-static {
-    position: static;
+:root {
+    --typo3-dropdown-anchor-offset: .125rem;
 }
 
 .dropdown-toggle {
+    anchor-name: --dropdown;
     white-space: nowrap;
     text-decoration: none;
 
@@ -18,8 +20,9 @@
         display: inline-block;
         background-color: currentColor;
         mask-image: var(--typo3-icons-chevron-down);
-        height: 16px;
-        width: 16px;
+        mask-repeat: no-repeat;
+        height: 1rem;
+        width: 1rem;
         margin: 0;
         vertical-align: middle;
         opacity: .75;
@@ -67,11 +70,9 @@
 }
 
 .dropdown-menu {
-    --typo3-dropdown-zindex: var(--typo3-zindex-dropdown);
     --typo3-dropdown-min-width: 10rem;
     --typo3-dropdown-padding-x: 2px;
     --typo3-dropdown-padding-y: 2px;
-    --typo3-dropdown-spacer: .125rem;
     --typo3-dropdown-font-size: var(--typo3-component-font-size);
     --typo3-dropdown-line-height: var(--typo3-component-line-height);
     --typo3-dropdown-color: var(--typo3-component-color);
@@ -98,16 +99,15 @@
     --typo3-dropdown-item-disabled-border-color: transparent;
     --typo3-dropdown-item-padding-x: var(--typo3-list-item-padding-x);
     --typo3-dropdown-item-padding-y: var(--typo3-list-item-padding-y);
-    --typo3-dropdown-headline-font-size: 16px;
+    --typo3-dropdown-headline-font-size: .875rem;
     --typo3-dropdown-headline-font-family: var(--typo3-header-font-family);
-    --typo3-dropdown-header-font-size: 14px;
+    --typo3-dropdown-header-font-size: .75rem;
     --typo3-dropdown-header-padding-x: var(--typo3-list-item-padding-x);
     --typo3-dropdown-header-padding-y: var(--typo3-list-item-padding-y);
     display: none;
-    position: absolute;
-    z-index: var(--typo3-dropdown-zindex);
     min-width: var(--typo3-dropdown-min-width);
-    max-width: calc(100dvw - 20px);
+    max-width: calc(100dvw - 1.25rem);
+    max-height: calc(100dvh - 1.25rem);
     padding: var(--typo3-dropdown-padding-y) var(--typo3-dropdown-padding-x);
     margin: 0;
     font-size: var(--typo3-dropdown-font-size);
@@ -116,41 +116,20 @@
     text-align: start;
     list-style: none;
     background-color: var(--typo3-dropdown-bg);
-    background-clip: padding-box;
     border: var(--typo3-dropdown-border-width) solid var(--typo3-dropdown-border-color);
     border-radius: var(--typo3-dropdown-border-radius);
     box-shadow: var(--typo3-dropdown-box-shadow);
+    position-anchor: --dropdown;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    overflow-y: auto;
 
-    &[data-bs-popper] {
-        top: 100%;
-        left: 0;
-        margin-top: var(--typo3-dropdown-spacer);
-    }
-
-    //
-    // @TODO:
-    // Remove this once Bootstrap's JavaScript handling for dropdowns
-    // is no longer required. This is currently necessary for correct
-    // placement, as it relies on hardcoded logic in Bootstrap.
-    //
-    // Once the Popover API and Anchor Positioning API are stable and
-    // widely supported, we will transition dropdown handling to use
-    // those APIs and eliminate the JavaScript dependency.
-    //
-    // See: https://developer.mozilla.org/en-US/docs/Web/API/Popover_API
-    // See: https://developer.mozilla.org/en-US/docs/Web/CSS/anchor
-    //
-    &-end {
-        --bs-position: end;
-
-        &[data-bs-popper] {
-            right: 0;
-            left: auto;
-        }
-    }
-
-    &.show {
+    &:popover-open {
         display: block;
+    }
+
+    &[popover] {
+        position-area: block-end span-inline-end;
+        margin-block: var(--typo3-dropdown-anchor-offset);
     }
 
     a:not([class]) {
@@ -163,6 +142,39 @@
 
     > li + li {
         margin-top: 1px;
+    }
+
+    //
+    // Nested submenus (multilevel dropdowns)
+    // A dropdown-menu containing a dropdown-toggle + dropdown-menu is a submenu.
+    //
+    > .dropdown,
+    > :has(> .dropdown-toggle) {
+        anchor-scope: --dropdown;
+
+        > .dropdown-toggle {
+            display: flex;
+            align-items: center;
+
+            &:after {
+                rotate: calc(-90deg * var(--typo3-position-modifier));
+                margin-inline-start: auto;
+            }
+        }
+
+        > .dropdown-menu[popover] {
+            position-area: inline-end span-block-start;
+            margin-inline: calc(var(--typo3-dropdown-item-padding-x) / 2 * -1);
+            margin-block: 0;
+        }
+    }
+
+    // Dim parent menu items when a child submenu is open
+    &:has(.dropdown-menu:popover-open) {
+        > :not(:has(> .dropdown-menu:popover-open)) {
+            opacity: .5;
+            transition: opacity .15s ease;
+        }
     }
 }
 
@@ -188,7 +200,11 @@
     overflow: hidden;
     outline-offset: -1px;
     white-space: unset;
+}
 
+a.dropdown-item,
+button.dropdown-item,
+.dropdown-item[role="button"] {
     &:hover {
         color: var(--typo3-dropdown-item-hover-color);
         background-color: var(--typo3-dropdown-item-hover-bg);
@@ -196,6 +212,7 @@
         text-decoration: none;
     }
 
+    &.focus,
     &:focus {
         color: var(--typo3-dropdown-item-focus-color);
         background-color: var(--typo3-dropdown-item-focus-bg);
@@ -204,19 +221,22 @@
 
     &.active,
     &:active {
+        --typo3-icons-accent: currentColor;
         color: var(--typo3-dropdown-item-active-color);
         background-color: var(--typo3-dropdown-item-active-bg);
         outline: 1px solid var(--typo3-dropdown-item-active-border-color);
     }
 
-    &:disabled,
+    &[disabled],
     &.disabled {
         color: var(--typo3-dropdown-item-disabled-color);
         background-color: var(--typo3-dropdown-item-disabled-bg);
         outline: 1px solid var(--typo3-dropdown-item-disabled-border-color);
         pointer-events: none;
     }
+}
 
+.dropdown-item {
     // Workaround for fileList and recordList
     // @TODO: Should be dropped as soon as we have the events adding buttons under control
     &-spaced {
@@ -340,7 +360,7 @@
 
         &[data-type="title"] {
             white-space: nowrap;
-            max-width: 160px;
+            max-width: 10rem;
             text-overflow: ellipsis;
             overflow: hidden;
         }
@@ -353,6 +373,11 @@
             .icon {
                 vertical-align: unset;
             }
+        }
+
+        &[data-type="status"] {
+            width: 0;
+            padding-inline-end: 0;
         }
 
         &[data-type="value"] {

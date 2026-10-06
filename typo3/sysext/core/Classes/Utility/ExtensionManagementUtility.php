@@ -21,6 +21,10 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Package\Exception as PackageException;
 use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolveSystemResourceIdentifierException;
+use TYPO3\CMS\Core\SystemResource\Exception\InvalidSystemResourceIdentifierException;
+use TYPO3\CMS\Core\SystemResource\Identifier\PackageResourceIdentifier;
+use TYPO3\CMS\Core\SystemResource\Identifier\SystemResourceIdentifierFactory;
 
 /**
  * Extension Management functions
@@ -31,6 +35,7 @@ use TYPO3\CMS\Core\Schema\Struct\SelectItem;
 class ExtensionManagementUtility
 {
     protected static PackageManager $packageManager;
+    private static SystemResourceIdentifierFactory $resourceIdentifierFactory;
 
     /**
      * Sets the package manager for all that backwards compatibility stuff,
@@ -41,6 +46,7 @@ class ExtensionManagementUtility
     public static function setPackageManager(PackageManager $packageManager): void
     {
         static::$packageManager = $packageManager;
+        self::$resourceIdentifierFactory = new SystemResourceIdentifierFactory($packageManager);
     }
 
     /**************************************
@@ -58,18 +64,32 @@ class ExtensionManagementUtility
     }
 
     /**
-     * Temporary helper method to resolve paths with the PackageManager.
+     * Temporary helper method to resolve system resource paths.
      *
      * The PackageManager is statically injected to this class already. This
-     * method will be removed without substitution in TYPO3 12 once a proper
-     * resource API is introduced.
+     * method will be removed without substitution in TYPO3 15 once
+     * GeneralUtility::getFileAbsFileName() is removed and usages of it replaced
+     * using the system resource API.
      *
-     * @throws PackageException
+     * @throws CanNotResolveSystemResourceIdentifierException
+     * @throws InvalidSystemResourceIdentifierException
      * @internal This method is only allowed to be called from GeneralUtility::getFileAbsFileName()! DONT'T introduce other usages!
      */
     public static function resolvePackagePath(string $path): string
     {
-        return static::$packageManager->resolvePackagePath($path);
+        if (!PathUtility::isExtensionPath($path, true)) {
+            throw new CanNotResolveSystemResourceIdentifierException(sprintf('"%s" is not a package resource identifier', $path), 1763402850);
+        }
+        $packageIdentifier = self::$resourceIdentifierFactory->create($path);
+        if (!$packageIdentifier instanceof PackageResourceIdentifier) {
+            // Identifier is of type URI or FAL, which is invalid for path resolving
+            throw new InvalidSystemResourceIdentifierException(sprintf('"%s" can not be resolved to a valid package resource', $path), 1763402808);
+        }
+        if (str_starts_with($packageIdentifier->givenIdentifier, 'PKG:')) {
+            trigger_error(sprintf('Resolving absolute file system path from a package resource is deprecated and will be removed in TYPO3 v14 LTS (identifier: "%s")', $packageIdentifier->givenIdentifier), E_USER_DEPRECATED);
+        }
+        // validity of path is evaluated on resource identifier creation already
+        return $packageIdentifier->getPackage()->getPackagePath() . $packageIdentifier->getRelativePath();
     }
 
     /**
@@ -137,7 +157,7 @@ class ExtensionManagementUtility
      * Adds an array with $GLOBALS['TCA'] column-configuration to the $GLOBALS['TCA']-entry for that table.
      * This function adds the configuration needed for rendering of the field in TCEFORMS - but it does NOT add the field names to the types lists!
      * So to have the fields displayed you must also call fx. addToAllTCAtypes or manually add the fields to the types list.
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php . Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param string $table The table name of a table already present in $GLOBALS['TCA'] with a columns section
      * @param array $columnArray The array with the additional columns (typical some fields an extension wants to add)
@@ -156,7 +176,7 @@ class ExtensionManagementUtility
      * Adds a string $string (comma separated list of field names) to all ["types"][xxx]["showitem"] entries for table $table (unless limited by $typeList)
      * This is needed to have new fields shown automatically in the TCEFORMS of a record from $table.
      * Typically this function is called after having added new columns (database fields) with the addTCAcolumns function
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param string $table Table name
      * @param string $newFieldsString Field list to add.
@@ -252,7 +272,7 @@ class ExtensionManagementUtility
      * Adds new fields to all palettes that is defined after an existing field.
      * If the field does not have a following palette yet, it's created automatically
      * and gets called "generatedFor-$field".
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * See unit tests for more examples and edge cases.
      *
@@ -337,7 +357,7 @@ class ExtensionManagementUtility
     /**
      * Adds new fields to a palette.
      * If the palette does not exist yet, it's created automatically.
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param string $table Name of the table
      * @param string $palette Name of the palette to be extended
@@ -363,7 +383,7 @@ class ExtensionManagementUtility
      * Warning: Do not use this method for radio or check types, especially not
      * with $relativeToField and $relativePosition parameters. This would shift
      * existing database data 'off by one'.
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * As an example, this can be used to add an item to tt_content CType select
      * drop-down after the existing 'mailform' field with these parameters:
@@ -391,6 +411,9 @@ class ExtensionManagementUtility
     public static function addTcaSelectItem(string $table, string $field, array|SelectItem $item, string $relativeToField = '', string $relativePosition = ''): void
     {
         $item = $item instanceof SelectItem ? $item->toArray() : $item;
+        if ($table === 'tt_content' && $field === 'CType' && ($item['group'] ?? null) === null) {
+            $item['group'] = 'default';
+        }
         if ($relativePosition !== '' && $relativePosition !== 'before' && $relativePosition !== 'after' && $relativePosition !== 'replace') {
             throw new \InvalidArgumentException('Relative position must be either empty or one of "before", "after", "replace".', 1303236967);
         }
@@ -427,8 +450,8 @@ class ExtensionManagementUtility
     }
 
     /**
-     * Adds an item group to a TCA select field, allows to add a group so addTcaSelectItem() can add a groupId
-     * with a label and its position within other groups.
+     * Adds an item group to a TCA select field. Allows to add a group so addTcaSelectItem()
+     * can add a groupId with a label and its position within other groups.
      *
      * @param string $table the table name in TCA - e.g. tt_content
      * @param string $field the field name in TCA - e.g. CType
@@ -451,8 +474,8 @@ class ExtensionManagementUtility
         if (str_contains($position, ':')) {
             [$position, $positionGroupId] = explode(':', $position, 2);
         }
-        // Referenced group was not not found, just append to the bottom
-        if (!isset($itemGroups[$positionGroupId])) {
+        // Referenced group was not found, just append to the bottom
+        if (($position === 'before' || $position === 'after') && !isset($itemGroups[$positionGroupId])) {
             $position = 'bottom';
         }
         switch ($position) {
@@ -487,16 +510,44 @@ class ExtensionManagementUtility
     }
 
     /**
-     * Adds a list of new fields to the TYPO3 USER SETTINGS configuration "showitem" list, the array with
-     * the new fields itself needs to be added additionally to show up in the user setup, like
-     * $GLOBALS['TYPO3_USER_SETTINGS']['columns'] += $tempColumns
+     * Adds a new field to the backend user settings configuration.
      *
-     * @param string $addFields List of fields to be added to the user settings
-     * @param string $insertionPosition Insert fields before (default) or after one
+     * The field configuration is stored in TCA at:
+     * $GLOBALS['TCA']['be_users']['columns']['user_settings']['columns'][$fieldName]
+     *
+     * FOR USE IN Configuration/TCA/Overrides/be_users.php FILES
+     *
+     * Example:
+     *   ExtensionManagementUtility::addUserSetting(
+     *       'myCustomSetting',
+     *       [
+     *           'label' => 'LLL:EXT:my_ext/Resources/Private/Language/locallang.xlf:myCustomSetting',
+     *           'config' => [
+     *               'type' => 'check',
+     *               'renderType' => 'checkboxToggle',
+     *           ],
+     *       ],
+     *       'after:emailMeAtLogin'
+     *   );
+     *
+     * @param string $fieldName The name of the field to add
+     * @param array $fieldConfiguration The TCA-style field configuration (label, config, etc.)
+     * @param string $insertionPosition Insert field before (default) or after an existing field (e.g., 'after:email')
      */
-    public static function addFieldsToUserSettings(string $addFields, string $insertionPosition = ''): void
+    public static function addUserSetting(string $fieldName, array $fieldConfiguration, string $insertionPosition = ''): void
     {
-        $GLOBALS['TYPO3_USER_SETTINGS']['showitem'] = self::executePositionedStringInsertion($GLOBALS['TYPO3_USER_SETTINGS']['showitem'] ?? '', $addFields, $insertionPosition);
+        if (!isset($GLOBALS['TCA']['be_users']['columns']['user_settings']['columns'])) {
+            $GLOBALS['TCA']['be_users']['columns']['user_settings']['columns'] = [];
+        }
+        $GLOBALS['TCA']['be_users']['columns']['user_settings']['columns'][$fieldName] = $fieldConfiguration;
+
+        // Add to showitem
+        $currentShowitem = $GLOBALS['TCA']['be_users']['columns']['user_settings']['showitem'] ?? '';
+        $GLOBALS['TCA']['be_users']['columns']['user_settings']['showitem'] = self::executePositionedStringInsertion(
+            $currentShowitem,
+            $fieldName,
+            $insertionPosition
+        );
     }
 
     /**
@@ -791,7 +842,7 @@ class ExtensionManagementUtility
      *
      * Can be used in favor of addPlugin() and addTcaSelectItem().
      *
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param array|SelectItem $item The item to add to the select field
      * @param string $showItemList A string containing all fields to be used / displayed in this type
@@ -820,8 +871,8 @@ class ExtensionManagementUtility
 
         $showItemList = trim($showItemList, ', ');
         // Add the extended tab if not already added manually at the very end.
-        if ($showItemList !== '' && !str_contains($showItemList, '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended')) {
-            $showItemList .= ',--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended';
+        if ($showItemList !== '' && !str_contains($showItemList, '--div--;core.form.tabs:extended') && !str_contains($showItemList, '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended')) {
+            $showItemList .= ',--div--;core.form.tabs:extended';
         }
         if ($showItemList !== '') {
             $showItemList .= ',';
@@ -844,7 +895,7 @@ class ExtensionManagementUtility
      * manually defining $GLOBALS['TCA']['tt_content']['types']['my_plugin'|['showitem'] or by calling further
      * helper methods, such as {@see ExtensionManagementUtility::addToAllTCAtypes()}.
      *
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param array|SelectItem $itemArray Numerical or assoc array: [0 or 'label'] => Plugin label, [1 or 'value'] => Plugin identifier / plugin key, ideally prefixed with an extension-specific name (e.g. "events2_list"), [2 or 'icon'] => Icon identifier or path to plugin icon, [3 or 'group'] => an optional "group" ID, falls back to "plugins"
      * @param string $flexForm The flex form (data structure) to be used for the plugin. Either a reference to a flex-form XML file (eg. "FILE:EXT:newloginbox/flexform_ds.xml") or the XML directly.
@@ -881,7 +932,7 @@ class ExtensionManagementUtility
             // Add flexform to showitem list
             self::addToAllTCAtypes(
                 'tt_content',
-                '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:plugin, pi_flexform',
+                '--div--;core.form.tabs:plugin, pi_flexform',
                 $selectItem->getValue(),
                 'after:palette:headers'
             );
@@ -889,34 +940,9 @@ class ExtensionManagementUtility
     }
 
     /**
-     * Adds an entry to the "ds" array of the tt_content field "pi_flexform".
-     * This is used by plugins to add a flexform XML reference / content for use when they are selected as plugin or content element.
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
-     *
-     * @param string $_ previously $piKeyToMatch but now unused since there is no plugin key anymore => plugins are proper record (content) types
-     * @param string $value Either a reference to a flex-form XML file (eg. "FILE:EXT:newloginbox/flexform_ds.xml") or the XML directly.
-     * @param string $CTypeToMatch Value of tt_content.CType (Content Type) to add the data structure
-     * @see addPlugin()
-     * @deprecated Will be removed in TYPO3 v15
-     */
-    public static function addPiFlexFormValue(string $_, string $value, string $CTypeToMatch = ''): void
-    {
-        trigger_error(
-            __METHOD__ . ' is deprecated and will be removed in TYPO3 v15. Define the data structure for you content type by adding it in the addPlugin() call or setting it via columnsOverrides directly.',
-            E_USER_DEPRECATED
-        );
-
-        if ($CTypeToMatch === '' || $value === '') {
-            return;
-        }
-
-        $GLOBALS['TCA']['tt_content']['types'][$CTypeToMatch]['columnsOverrides']['pi_flexform']['config']['ds'] = $value;
-    }
-
-    /**
      * Adds the $table tablename to the list of tables allowed to be includes by content element type "Insert records"
      * By using $content_table and $content_field you can also use the function for other tables.
-     * FOR USE IN files in Configuration/TCA/Overrides/*.php Use in ext_tables.php FILES may break the frontend.
+     * FOR USE IN files in Configuration/TCA/Overrides/*.php.
      *
      * @param string $table Table name to allow for "insert record
      * @param string $content_table Table name TO WHICH the $table name is applied. See $content_field as well.
@@ -931,7 +957,7 @@ class ExtensionManagementUtility
 
     /**
      * Call this method to add an entry in the static template list found in sys_templates
-     * FOR USE IN Configuration/TCA/Overrides/sys_template.php Use in ext_tables.php may break the frontend.
+     * FOR USE IN Configuration/TCA/Overrides/sys_template.php.
      *
      * @param string $extKey Is of course the extension key
      * @param string $path Is the path where the template files "constants.typoscript", "setup.typoscript", and "include_static_file.txt"
@@ -970,19 +996,35 @@ class ExtensionManagementUtility
      */
     public static function registerPageTSConfigFile(string $extKey, string $filePath, string $title): void
     {
-        if (!$extKey) {
-            throw new \InvalidArgumentException('No extension key given.', 1447789490);
-        }
-        if (!$filePath) {
-            throw new \InvalidArgumentException('No file path given.', 1447789491);
-        }
-        if (!is_array($GLOBALS['TCA']['pages']['columns'] ?? null)) {
-            throw new \InvalidArgumentException('No TCA definition for table "pages".', 1447789492);
-        }
+        self::registerTsConfig('pages', $extKey, $filePath, $title);
+    }
 
-        $value = str_replace(',', '', 'EXT:' . $extKey . '/' . $filePath);
-        $itemArray = ['label' => trim($title . ' (' . $extKey . ')'), 'value' => $value];
-        $GLOBALS['TCA']['pages']['columns']['tsconfig_includes']['config']['items'][] = $itemArray;
+    /**
+     * Call this method to add an entry in the User TSconfig list found in be_users
+     * FOR USE in Configuration/TCA/Overrides/be_users.php
+     *
+     * @param string $extKey The extension key
+     * @param string $filePath The path where the TSconfig file is located
+     * @param string $title The title in the selector box
+     * @throws \InvalidArgumentException
+     */
+    public static function registerUserTSConfigFile(string $extKey, string $filePath, string $title): void
+    {
+        self::registerTsConfig('be_users', $extKey, $filePath, $title);
+    }
+
+    /**
+     * Call this method to add an entry in the Usergroup TSconfig list found in be_groups
+     * FOR USE in Configuration/TCA/Overrides/be_groups.php
+     *
+     * @param string $extKey The extension key
+     * @param string $filePath The path where the TSconfig file is located
+     * @param string $title The title in the selector box
+     * @throws \InvalidArgumentException
+     */
+    public static function registerUserGroupTSConfigFile(string $extKey, string $filePath, string $title): void
+    {
+        self::registerTsConfig('be_groups', $extKey, $filePath, $title);
     }
 
     /**
@@ -1124,5 +1166,22 @@ class ExtensionManagementUtility
             throw new \RuntimeException('Extension not loaded', 1342345487);
         }
         static::$packageManager->deactivatePackage($extensionKey);
+    }
+
+    protected static function registerTsConfig(string $tableName, string $extKey, string $filePath, string $title): void
+    {
+        if (!$extKey) {
+            throw new \InvalidArgumentException('No extension key given.', 1447789490);
+        }
+        if (!$filePath) {
+            throw new \InvalidArgumentException('No file path given.', 1447789491);
+        }
+        if (!is_array($GLOBALS['TCA'][$tableName]['columns'] ?? null)) {
+            throw new \InvalidArgumentException(sprintf('No TCA definition for table "%s".', $tableName), 1447789492);
+        }
+
+        $value = str_replace(',', '', 'EXT:' . $extKey . '/' . $filePath);
+        $itemArray = ['label' => trim($title . ' (' . $extKey . ')'), 'value' => $value];
+        $GLOBALS['TCA'][$tableName]['columns']['tsconfig_includes']['config']['items'][] = $itemArray;
     }
 }

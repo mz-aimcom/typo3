@@ -1,29 +1,16 @@
 import { Page, expect, Locator } from '@playwright/test';
 
 export class PageTree {
-  private readonly page: Page;
-
-  readonly container: Locator;
   readonly toolbar: Locator;
+  readonly tree: Locator;
   readonly root: Locator;
+  private readonly page: Page;
 
   constructor(page: Page) {
     this.page = page;
-    this.container = this.page.locator('#typo3-pagetree');
-    this.toolbar = this.container.locator('#typo3-pagetree-toolbar');
-    this.root = this.container.locator('[identifier="apps-pagetree-root"]');
-  }
-
-  /**
-   * Create a new page using drag and drop
-   *
-   * @param targetElement The element to drag the new node on
-   * @param title The page title to be used
-   * @param nodeType Derived from data-node-type, defaults to 1 (Standard)
-   */
-  async create(targetElement: Locator, title, nodeType = 1) {
-    await this.dragNewPageTo(targetElement, nodeType);
-    await this.fill(title);
+    this.toolbar = this.page.locator('#typo3-pagetree-toolbar');
+    this.tree = this.page.locator('#typo3-pagetree-tree');
+    this.root = this.tree.locator('[identifier="apps-pagetree-root"]');
   }
 
   /**
@@ -33,19 +20,20 @@ export class PageTree {
    * @param nodeType Derived from data-node-type, defaults to 1 (Standard)
    */
   async dragNewPageTo(targetElement: Locator, nodeType = 1) {
-    await this.toolbar.locator(`[data-node-type="${nodeType}"]`).dragTo(targetElement)
+    await this.toolbar.locator(`[data-node-type="${nodeType}"]`).dragTo(targetElement);
   }
 
   /**
    * Wait for the page tree to be loaded, that means:
    * - No tree loading spinner overlay
-   * - NProgress has finished
+   * - typo3-backend-progress-bar has finished
    * - All icons are loaded
    */
   async isReady() {
-    await expect(this.container.locator('.nodes-loader-inner')).not.toBeAttached();
-    await expect(this.container.locator('[identifier="spinner-circle"]')).not.toBeAttached();
-    await expect(this.page.locator('.nprogress-busy')).not.toBeVisible();
+    // For some reason sometimes there are multiple loaders, just wait for the last to disappear
+    await expect(this.tree.locator('.nodes-loader-inner').last()).not.toBeAttached();
+    await expect(this.tree.locator('[identifier="spinner-circle"]')).not.toBeAttached();
+    await expect(this.page.locator('typo3-backend-progress-bar')).not.toBeVisible();
   }
 
   /**
@@ -58,32 +46,15 @@ export class PageTree {
   }
 
   /**
-   * Fill in the node currently in editing mode
-   *
-   * @param title
-   */
-  async fill(title: string) {
-    // Intercept "page create" request
-    const newPageProcessedResponse = this.page.waitForResponse(response =>
-      response.url().includes('/typo3/ajax/record/process') && response.status() === 200
-    );
-
-    const nodeEditLocator = this.page.locator('.node-edit');
-    await nodeEditLocator.fill(title);
-    await this.page.keyboard.press('Enter');
-
-    await newPageProcessedResponse;
-    await expect(nodeEditLocator).not.toBeAttached();
-  }
-
-  /**
    * Delete a page using drag&drop
    *
    * @param pageToDelete The element to be deleted
    */
   async dragDeletePage(pageToDelete: Locator) {
     const box = await pageToDelete.boundingBox();
-    if (!box) throw new Error('Unable to get bounding box for the page to delete');
+    if (!box) {
+      throw new Error('Unable to get bounding box for the page to delete');
+    }
     await pageToDelete.dragTo(pageToDelete, {
       sourcePosition: { x: 10, y: box.height / 2 },
       targetPosition: { x: box.width - 10, y: box.height / 2 }
@@ -105,30 +76,80 @@ export class PageTree {
    * @param pages Array of pages to open in tree
    * @return The last page in the array
    */
-  async open(...pages: Array<string>) {
-    let resultPage: Locator;
+  async open(...pages: Array<string>): Promise<Locator> {
+    await this.isReady();
+
     let level = 1;
-    let element = this.container.locator(`[aria-level="${level}"][data-tree-id*="0"]`);
 
     for (const page of pages) {
       level++;
 
       // Consider only pages on the current level to avoid naming conflicts.
-      // Does not work when 2 pages have the same name and are on the same tree level
-      element = this.container.locator(`[aria-level="${level}"]`, { hasText: page });
+      const element = this.tree.locator(`[aria-level="${level}"]`, {
+        has: this.page.locator('.node-contentlabel', { hasText: new RegExp(`^${page}$`) })
+      });
 
-      const isCollapsed = await element.locator('.node-toggle [identifier="actions-chevron-right"]').count() === 1;
-      if (isCollapsed) {
-        await element.locator('.node-toggle').click();
-      }
+      const targetElement = element.first();
 
-      if (page === pages[pages.length - 1]) {
-        await element.locator('.node-contentlabel').click();
+      // Wait for the element to be visible in the DOM
+      await expect(targetElement).toBeAttached();
+
+      // Check if this node needs to be expanded (not the last page in path)
+      if (page !== pages[pages.length - 1]) {
+        const toggleIcon = targetElement.locator('.node-toggle [identifier="actions-chevron-end"]');
+        const isCollapsed = await toggleIcon.count() === 1;
+
+        if (isCollapsed) {
+          // Set up event listener before clicking to expand
+          const expandEventPromise = this.page.evaluate(() => {
+            return new Promise<void>((resolve) => {
+              const tree = document.querySelector('typo3-backend-navigation-component-pagetree-tree');
+              if (tree) {
+                tree.addEventListener('typo3:tree:expand-toggle', () => resolve(), { once: true });
+              } else {
+                resolve();
+              }
+            });
+          });
+
+          await targetElement.locator('.node-toggle').click();
+          await expandEventPromise;
+          await this.isReady();
+        }
+      } else {
+        // This is the last page - click to select it
+        const contentLabel = targetElement.locator('.node-contentlabel').first();
+        await expect(contentLabel).toBeAttached({ timeout: 10000 });
+
+        // Set up event listener before clicking to select
+        const selectEventPromise = this.page.evaluate(() => {
+          return new Promise<void>((resolve) => {
+            const tree = document.querySelector('typo3-backend-navigation-component-pagetree-tree');
+            if (tree) {
+              tree.addEventListener('typo3:tree:node-selected', () => resolve(), { once: true });
+            } else {
+              resolve();
+            }
+          });
+        });
+
+        await contentLabel.click();
+        await selectEventPromise;
         await this.isReady();
-        await expect(element).toHaveClass(/node-selected/);
-        resultPage = element;
+
+        await expect(targetElement).toHaveClass(/node-selected/);
+
+        // Return a locator for the specific element by its unique data-id
+        // This ensures dragDeletePage checks the exact element, not another with same name
+        const dataId = await targetElement.getAttribute('data-id');
+        if (!dataId) {
+          throw new Error(`Could not get data-id for page "${page}"`);
+        }
+        return this.tree.locator(`[data-id="${dataId}"]`);
       }
     }
-    return resultPage;
+
+    // This should never be reached if pages array is not empty
+    throw new Error('No pages provided to open()');
   }
 }

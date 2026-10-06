@@ -32,17 +32,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class SelectMultipleSideBySideElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field controls for this element.
      *
      * @var array
@@ -97,8 +86,7 @@ class SelectMultipleSideBySideElement extends AbstractFormElement
      */
     protected function renderFieldControl(): array
     {
-        $alternativeResult =  [
-            'additionalHiddenFields' => [],
+        $alternativeResult = [
             'additionalInlineLanguageLabelFiles' => [],
             'stylesheetFiles' => [],
             'javaScriptModules' => [],
@@ -223,12 +211,10 @@ class SelectMultipleSideBySideElement extends AbstractFormElement
         }
 
         // Html stuff for filter and select filter on top of right side of multi select boxes
-        $filterTextfield[] = '<span class="input-group">';
-        $filterTextfield[] =    '<span class="input-group-text">';
-        $filterTextfield[] =        $this->iconFactory->getIcon('actions-filter', IconSize::SMALL)->render();
-        $filterTextfield[] =    '</span>';
-        $filterTextfield[] =    '<input class="t3js-formengine-multiselect-filter-textfield form-control" value="">';
-        $filterTextfield[] = '</span>';
+        $filterTextfieldId = StringUtility::getUniqueId('tceforms-multiselect-filter-');
+        $availableOptionsFieldId = StringUtility::getUniqueId('tceforms-multiselect-');
+        $filterItemsLabel = htmlspecialchars($languageService->translate('labels.filter_items', 'core.core'));
+        $filterTextfield[] = '<input type="search" id="' . $filterTextfieldId . '" placeholder="' . $filterItemsLabel . '" aria-label="' . $filterItemsLabel . '" autocomplete="off" class="t3js-formengine-multiselect-filter-textfield form-control" value="">';
 
         $filterDropDownOptions = [];
         if (isset($config['multiSelectFilterItems']) && is_array($config['multiSelectFilterItems']) && count($config['multiSelectFilterItems']) > 1) {
@@ -279,7 +265,6 @@ class SelectMultipleSideBySideElement extends AbstractFormElement
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldWizardResult, false);
 
         $selectedOptionsFieldId = StringUtility::getUniqueId('tceforms-multiselect-');
-        $availableOptionsFieldId = StringUtility::getUniqueId('tceforms-multiselect-');
 
         $html = [];
         $html[] = $this->renderLabel($selectedOptionsFieldId);
@@ -359,7 +344,7 @@ class SelectMultipleSideBySideElement extends AbstractFormElement
         $html[] =                   '</div>';
         $html[] =               '</div>';
         $html[] =               '<div class="form-multigroup-item">';
-        $html[] =                   '<label>';
+        $html[] =                   '<label for="' . $availableOptionsFieldId . '">';
         $html[] =                       htmlspecialchars($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.items'));
         $html[] =                   '</label>';
         $html[] =                   '<div class="form-wizards-wrap">';

@@ -22,6 +22,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Information\Typo3Information;
@@ -35,15 +36,15 @@ use TYPO3\CMS\Core\Package\PackageManager;
  * @internal This is a specific Backend Controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class AboutController
+readonly class AboutController
 {
     public function __construct(
-        protected readonly Typo3Version $version,
-        protected readonly Typo3Information $typo3Information,
-        protected readonly ModuleProvider $moduleProvider,
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly PackageManager $packageManager,
-        protected readonly ModuleTemplateFactory $moduleTemplateFactory,
+        protected Typo3Version $version,
+        protected Typo3Information $typo3Information,
+        protected ModuleProvider $moduleProvider,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected PackageManager $packageManager,
+        protected ModuleTemplateFactory $moduleTemplateFactory,
     ) {}
 
     /**
@@ -54,10 +55,12 @@ class AboutController
         $event = new Event\ModifyGenericBackendMessagesEvent();
         $event = $this->eventDispatcher->dispatch($event);
         $view = $this->moduleTemplateFactory->create($request);
+        $view->setLayout(ModuleLayout::NORMAL);
         $view->assignMultiple([
             'typo3Info' => $this->typo3Information,
             'typo3Version' => $this->version,
             'donationUrl' => $this->typo3Information::URL_DONATE,
+            'trademarkUrl' => $this->typo3Information::URL_TRADEMARK,
             'loadedExtensions' => $this->getLoadedExtensions(),
             'messages' => $event->getMessages(),
             'modules' => $this->moduleProvider->getModules($this->getBackendUser()),
@@ -78,7 +81,7 @@ class AboutController
             }
             $extensions[] = [
                 'key' => $package->getPackageKey(),
-                'title' => $package->getPackageMetaData()->getDescription(),
+                'title' => $package->getPackageMetaData()->getTitle(),
                 'authors' => $package->getValueFromComposerManifest('authors'),
             ];
         }

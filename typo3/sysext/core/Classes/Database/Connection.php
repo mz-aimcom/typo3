@@ -18,30 +18,40 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Database;
 
 use Doctrine\DBAL\ArrayParameterType;
-use Doctrine\DBAL\Configuration;
+use Doctrine\DBAL\Configuration as DoctrineConfiguration;
+use Doctrine\DBAL\Connection as DoctrineConnection;
+use Doctrine\DBAL\Connection\StaticServerVersionProvider;
 use Doctrine\DBAL\Driver;
 use Doctrine\DBAL\Driver\Connection as ConnectionInterface;
+use Doctrine\DBAL\Exception;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\MariaDBPlatform as DoctrineMariaDBPlatform;
 use Doctrine\DBAL\Platforms\MySQLPlatform as DoctrineMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Doctrine\DBAL\Result;
-use Doctrine\DBAL\Types\Type;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Doctrine\DBAL\ServerVersionProvider;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Database\Platform\PlatformInformation;
 use TYPO3\CMS\Core\Database\Query\BulkInsertQuery;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Database\Schema\SchemaInformation;
+use TYPO3\CMS\Core\Package\Cache\PackageDependentCacheIdentifier;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
-class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterface
+/**
+ * Note: This is a fragile base class. It owns no contract of its own and specializes Doctrine's
+ * concrete Connection by overriding quoting, insert/update/delete and connect behavior.
+ * Subclassing is forced on us though: Doctrine's DriverManager only accepts a `wrapperClass` that
+ * is a Doctrine\DBAL\Connection, and DBAL exposes no high-level connection interface to compose
+ * against, so a real composition decorator is not possible.
+ *
+ * Integrators may in turn point the `wrapperClass` connection option at a subclass of this
+ * class, but because of the fragility described above such subclasses are not covered by the
+ * backward-compatibility promise.
+ */
+class Connection extends DoctrineConnection
 {
-    use LoggerAwareTrait;
-
     /**
      * Represents a SQL NULL data type.
      */
@@ -79,19 +89,21 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
 
     private ExpressionBuilder $expressionBuilder;
     private array $prepareConnectionCommands = [];
-    public string $defaultRestrictionContainer = DefaultRestrictionContainer::class;
 
     /**
      * Initializes a new instance of the Connection class.
      *
      * @param array $params The connection parameters.
      * @param Driver $driver The driver to use.
-     * @param Configuration|null $config The configuration, optional.
+     * @param DoctrineConfiguration|null $config The configuration, optional.
      */
-    public function __construct(array $params, Driver $driver, ?Configuration $config = null)
+    public function __construct(#[\SensitiveParameter] array $params, Driver $driver, ?DoctrineConfiguration $config = null)
     {
         parent::__construct($params, $driver, $config);
-        $this->expressionBuilder = GeneralUtility::makeInstance(ExpressionBuilder::class, $this);
+        if (!$config instanceof Configuration) {
+            throw new \InvalidArgumentException('TYPO3 Connection expects the custom TYPO3 Configuration object to be given', 1782369775);
+        }
+        $this->expressionBuilder = GeneralUtility::makeInstance(ExpressionBuilder::class, $this, $config->getContainer());
     }
 
     /**
@@ -115,7 +127,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      */
     public function createQueryBuilder(): QueryBuilder
     {
-        return GeneralUtility::makeInstance(QueryBuilder::class, $this, GeneralUtility::makeInstance($this->defaultRestrictionContainer));
+        return GeneralUtility::makeInstance(QueryBuilder::class, $this);
     }
 
     /**
@@ -125,6 +137,12 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      *
      * Delimiting style depends on the underlying database platform that is being used.
      *
+     * Note that this does not call the parent implementation, because both
+     * Doctrine DBAL `Connection::quoteIdentifier()` and `AbstractPlatform::quoteIdentifier()`
+     * are deprecated and will be removed with Doctrine DBAL 5.0. The quoting is done
+     * here instead, identical to the removed implementation.
+     *
+     * @not-deprecated
      * @param string $identifier The name to be quoted.
      * @return string The quoted name.
      */
@@ -133,7 +151,11 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
         if ($identifier === '*') {
             return $identifier;
         }
-        return parent::quoteIdentifier($identifier);
+        $platform = $this->getDatabasePlatform();
+        if (!str_contains($identifier, '.')) {
+            return $platform->quoteSingleIdentifier($identifier);
+        }
+        return implode('.', array_map($platform->quoteSingleIdentifier(...), explode('.', $identifier)));
     }
 
     /**
@@ -188,6 +210,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      * @param array $data An associative array containing column-value pairs.
      * @param array $types Types of the inserted data.
      * @return int The number of affected rows.
+     * @throws Exception
      */
     public function insert(string $tableName, array $data, array $types = []): int
     {
@@ -276,6 +299,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      * @param array $identifier The update criteria. An associative array containing column-value pairs.
      * @param array $types Types of the merged $data and $identifier arrays in that order.
      * @return int The number of affected rows.
+     * @throws Exception
      */
     public function update(string $tableName, array $data, array $identifier = [], array $types = []): int
     {
@@ -353,7 +377,7 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
     public function getPlatformServerVersion(): string
     {
         $platform = $this->getDatabasePlatform();
-        $version = trim($this->getServerVersion());
+        $version = trim($this->typo3_getServerVersionProvider()->getServerVersion());
         if ($version !== '') {
             $version = ' ' . $version;
         }
@@ -413,23 +437,13 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      */
     protected function ensureDatabaseValueTypes(string $tableName, array &$data, array &$types): void
     {
-        // If types are incoming already (meaning they're hand over to insert() for instance), don't auto-set them.
-        $setAllTypes = $types === [];
-        $tableDetails = $this->getSchemaInformation()->introspectTable($tableName);
-        $databasePlatform = $this->getDatabasePlatform();
-        array_walk($data, function (mixed &$value, string $key) use ($tableDetails, $setAllTypes, &$types, $databasePlatform): void {
-            $typeName = ($types[$key] ?? '');
-            if (!$setAllTypes && is_string($typeName) && $typeName !== '' && Type::hasType($typeName)) {
-                $types[$key] = Type::getType($typeName)->getBindingType();
-            } elseif ($typeName instanceof Type) {
-                $types[$key] = $typeName->getBindingType();
-            }
-            if ($tableDetails->hasColumn($key)) {
-                $type = $tableDetails->getColumn($key)->getType();
-                if ($setAllTypes) {
-                    $types[$key] = $type->getBindingType();
-                }
-                $value = $type->convertToDatabaseValue($value, $databasePlatform);
+        $tableInfo = $this->getSchemaInformation()->getTableInfo($tableName);
+        array_walk($data, function (mixed &$value, string $key) use ($tableInfo, &$types): void {
+            // Use database schema field type in case no Type or ParameterType has been provided manually
+            // for field `$key`, falling back to ParameterType::STRING in case field does not exists in
+            // the schema, which is the default ParameterType used by doctrine anyway.
+            if (!isset($types[$key]) && $tableInfo->hasColumnInfo($key)) {
+                $types[$key] = $tableInfo->getColumnInfo($key)->getType();
             }
         });
     }
@@ -441,7 +455,9 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
     {
         return new SchemaInformation(
             $this,
-            GeneralUtility::makeInstance(CacheManager::class)->getCache('database_schema')
+            GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime'),
+            GeneralUtility::makeInstance(CacheManager::class)->getCache('database_schema'),
+            GeneralUtility::makeInstance(PackageDependentCacheIdentifier::class),
         );
     }
 
@@ -454,16 +470,37 @@ class Connection extends \Doctrine\DBAL\Connection implements LoggerAwareInterfa
      * the transaction is rolled back and the exception re-thrown.
      *
      * @param \Closure(self):T $func The function to execute transactionally.
-     *
      * @return T The value returned by $func
-     *
      * @throws \Throwable
-     *
      * @template T
      */
     public function transactional(\Closure $func): mixed
     {
-        /** @var \Closure(\Doctrine\DBAL\Connection):T $func Required to satisfy PHPStan. */
+        /** @var \Closure(DoctrineConnection):T $func Required to satisfy PHPStan. */
         return parent::transactional($func);
+    }
+
+    /**
+     * Returns the suitable `ServerVersionProvider`, which could be the connection itself or
+     * a `StaticServerVersionProvider` based on either of following configuration values:
+     *
+     * - $params['serverVersion']
+     * - $params['primary']['serverVersion']
+     *
+     * This is an extract from {@see \Doctrine\DBAL\Connection::getDatabasePlatform()} and handled as internal for
+     * now and will be tried to provide upstream making it API and is the reason why it is a prefixed method.
+     *
+     * It's currently only used in internal {@see self::getPlatformServerVersion()}.
+     *
+     * @internal only and not part of public API.
+     */
+    protected function typo3_getServerVersionProvider(): ServerVersionProvider
+    {
+        $params = $this->getParams();
+        return match (true) {
+            isset($params['serverVersion']) => new StaticServerVersionProvider($params['serverVersion']),
+            isset($params['primary']['serverVersion']) => new StaticServerVersionProvider($params['primary']['serverVersion']),
+            default => $this,
+        };
     }
 }

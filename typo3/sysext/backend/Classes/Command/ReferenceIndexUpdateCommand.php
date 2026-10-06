@@ -29,13 +29,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Core function to check/update the Reference Index
  */
-#[AsCommand('referenceindex:update', 'Update the reference index of TYPO3')]
+#[AsCommand('referenceindex:update', 'Updates the reference index of TYPO3')]
 class ReferenceIndexUpdateCommand extends Command
 {
     /**
      * Configure the command by defining the name, options and arguments
      */
-    public function configure()
+    protected function configure(): void
     {
         $this->addOption(
             'check',

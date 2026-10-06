@@ -20,10 +20,4 @@ use TYPO3\CMS\Core\Package\Exception;
 /**
  * A package cache unavailable exception
  */
-class PackageManagerCacheUnavailableException extends Exception
-{
-    // @TODO remove this comment once it is committed
-    // This comment is here to prevent false positive git rename detection
-    // It has to have a certain length to get around the 90% similarity limit.
-    // It can be removed at any time and all text is just here for that case.
-}
+class PackageManagerCacheUnavailableException extends Exception {}

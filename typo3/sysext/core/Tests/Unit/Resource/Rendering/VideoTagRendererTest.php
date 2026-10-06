@@ -26,31 +26,29 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class VideoTagRendererTest extends UnitTestCase
 {
     #[Test]
-    public function getPriorityReturnsCorrectValue(): void
-    {
-        $VideoTagRenderer = new VideoTagRenderer();
-
-        self::assertSame(1, $VideoTagRenderer->getPriority());
-    }
-
-    #[Test]
     public function canRenderReturnsTrueOnCorrectFile(): void
     {
         $VideoTagRenderer = new VideoTagRenderer();
 
-        $fileResourceMock1 = $this->createMock(File::class);
-        $fileResourceMock1->method('getMimeType')->willReturn('video/mp4');
-        $fileResourceMock2 = $this->createMock(File::class);
-        $fileResourceMock2->method('getMimeType')->willReturn('video/webm');
-        $fileResourceMock3 = $this->createMock(File::class);
-        $fileResourceMock3->method('getMimeType')->willReturn('video/ogg');
-        $fileResourceMock4 = $this->createMock(File::class);
-        $fileResourceMock4->method('getMimeType')->willReturn('application/ogg');
+        $fileResourceStub1 = self::createStub(File::class);
+        $fileResourceStub1->method('getMimeType')->willReturn('video/mp4');
+        $fileResourceStub2 = self::createStub(File::class);
+        $fileResourceStub2->method('getMimeType')->willReturn('video/webm');
+        $fileResourceStub3 = self::createStub(File::class);
+        $fileResourceStub3->method('getMimeType')->willReturn('video/ogg');
+        $fileResourceStub4 = self::createStub(File::class);
+        $fileResourceStub4->method('getMimeType')->willReturn('application/ogg');
+        $fileResourceStub5 = self::createStub(File::class);
+        $fileResourceStub5->method('getMimeType')->willReturn('video/mp4;codecs="avc1.42E01E, mp4a.40.2"');
+        $fileResourceStub6 = self::createStub(File::class);
+        $fileResourceStub6->method('getMimeType')->willReturn('Video/MP4');
 
-        self::assertTrue($VideoTagRenderer->canRender($fileResourceMock1));
-        self::assertTrue($VideoTagRenderer->canRender($fileResourceMock2));
-        self::assertTrue($VideoTagRenderer->canRender($fileResourceMock3));
-        self::assertTrue($VideoTagRenderer->canRender($fileResourceMock4));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub1));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub2));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub3));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub4));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub5));
+        self::assertTrue($VideoTagRenderer->canRender($fileResourceStub6));
     }
 
     #[Test]
@@ -58,10 +56,10 @@ final class VideoTagRendererTest extends UnitTestCase
     {
         $VideoTagRenderer = new VideoTagRenderer();
 
-        $fileResourceMock = $this->createMock(File::class);
-        $fileResourceMock->method('getMimeType')->willReturn('audio/mpeg');
+        $fileResourceStub = self::createStub(File::class);
+        $fileResourceStub->method('getMimeType')->willReturn('audio/mpeg');
 
-        self::assertFalse($VideoTagRenderer->canRender($fileResourceMock));
+        self::assertFalse($VideoTagRenderer->canRender($fileResourceStub));
     }
 
     /**
@@ -99,6 +97,16 @@ final class VideoTagRendererTest extends UnitTestCase
                 '//:path/myVideoFile',
                 ['additionalAttributes' => ['muted' => 'muted', 'foo' => 'bar']],
                 '<video muted="muted" foo="bar" width="300" height="200" controls><source src="//:path/myVideoFile" type="video/mp4"></video>',
+            ],
+            [
+                '//:path/myVideoFile',
+                ['additionalAttributes' => ['muted' => '', 'poster' => null, 'loop' => false, 'foo' => 'bar']],
+                '<video muted="" foo="bar" width="300" height="200" controls><source src="//:path/myVideoFile" type="video/mp4"></video>',
+            ],
+            [
+                '//:path/myVideoFile',
+                ['additionalAttributes' => ['playsinline' => true, 'poster' => '/a.jpg', 'controls' => false]],
+                '<video playsinline poster="/a.jpg" width="300" height="200"><source src="//:path/myVideoFile" type="video/mp4"></video>',
             ],
             [
                 '//:path/myVideoFile',
@@ -164,13 +172,13 @@ final class VideoTagRendererTest extends UnitTestCase
     {
         $VideoTagRenderer = new VideoTagRenderer();
 
-        $fileResourceMock = $this->createMock(File::class);
-        $fileResourceMock->method('getMimeType')->willReturn('video/mp4');
-        $fileResourceMock->method('getPublicUrl')->willReturn($url);
+        $fileResourceStub = self::createStub(File::class);
+        $fileResourceStub->method('getMimeType')->willReturn('video/mp4');
+        $fileResourceStub->method('getPublicUrl')->willReturn($url);
 
         self::assertSame(
             $expected,
-            $VideoTagRenderer->render($fileResourceMock, '300m', '200', $arguments)
+            $VideoTagRenderer->render($fileResourceStub, '300m', '200', $arguments)
         );
     }
 }

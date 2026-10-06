@@ -3,7 +3,7 @@ mod.linkvalidator {
   # specify fields to be crawled
   searchFields {
     # pages.media: forward compatibility, not yet supported (type=file not as softref), but may be in the future
-    pages = url, media, canonical_link
+    pages = link, media, canonical_link
     # tt_content.records: forward compatibility, not yet supported (type=group not as softref), but may be in the future
     tt_content = bodytext, header_link, records
     sys_file_reference = link
@@ -13,7 +13,7 @@ mod.linkvalidator {
   # specify link types to be crawled
   #   !!! external link types are currently not checked by default, see "Known problems" in documentation
   #   https://docs.typo3.org/c/typo3/cms-linkvalidator/main/en-us/KnownProblems/Index.html
-  linktypes = db,file
+  linktypes = db,file,record
 
   linktypesConfig {
     external {
@@ -44,6 +44,10 @@ mod.linkvalidator {
   }
 
   checkhidden = 0
+
+  # report links to hidden, not yet started or expired records as broken (record link type)
+  reportHiddenRecords = 1
+
   showCheckLinkTab = 1
   # recheck | setNeedsRecheck
   actionAfterEditRecord = recheck

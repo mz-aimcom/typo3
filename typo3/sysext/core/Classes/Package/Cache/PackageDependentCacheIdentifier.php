@@ -36,7 +36,7 @@ class PackageDependentCacheIdentifier
 
     public function __construct(PackageManager $packageManager)
     {
-        $this->baseIdentifier = (new Typo3Version())->getVersion() . Environment::getProjectPath() . ($packageManager->getCacheIdentifier() ?? '');
+        $this->baseIdentifier = new Typo3Version()->getVersion() . Environment::getProjectPath() . ($packageManager->getCacheIdentifier() ?? '');
     }
 
     public function toString(): string
@@ -46,17 +46,11 @@ class PackageDependentCacheIdentifier
 
     public function withPrefix(string $prefix): self
     {
-        $newIdentifier = clone $this;
-        $newIdentifier->prefix = $prefix . '_';
-
-        return $newIdentifier;
+        return clone($this, ['prefix' => $prefix . '_']);
     }
 
     public function withAdditionalHashedIdentifier(string $additionalIdentifier): self
     {
-        $newIdentifier = clone $this;
-        $newIdentifier->additionalIdentifier = $additionalIdentifier;
-
-        return $newIdentifier;
+        return clone($this, ['additionalIdentifier' => $additionalIdentifier]);
     }
 }

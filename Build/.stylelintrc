@@ -91,7 +91,21 @@
     "number-leading-zero": "never",
     "number-no-trailing-zeros": true,
     "property-case": "lower",
-    "property-no-unknown": true,
+    "property-no-unknown": [
+      true,
+      {
+        "ignoreProperties": [
+          "animation-timeline",
+          "animation-range",
+          "position-anchor",
+          "position-area",
+          "position-try-fallbacks",
+          "position-try-order",
+          "anchor-scope",
+          "anchor-name"
+        ]
+      }
+    ],
     "rule-empty-line-before": [
       "always-multi-line",
       {
@@ -113,7 +127,14 @@
     "selector-list-comma-space-before": "never",
     "selector-max-empty-lines": 0,
     "selector-pseudo-class-case": "lower",
-    "selector-pseudo-class-no-unknown": true,
+    "selector-pseudo-class-no-unknown": [
+      true,
+      {
+        "ignorePseudoClasses": [
+          "popover-open"
+        ]
+      }
+    ],
     "selector-pseudo-class-parentheses-space-inside": "never",
     "selector-pseudo-element-case": "lower",
     "selector-pseudo-element-colon-notation": "single",

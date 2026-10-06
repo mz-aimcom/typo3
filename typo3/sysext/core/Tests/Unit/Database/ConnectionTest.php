@@ -17,15 +17,17 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Database;
 
-use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Driver\AbstractMySQLDriver;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Result;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Container\ContainerInterface;
 use Symfony\Component\DependencyInjection\Container;
+use TYPO3\CMS\Core\Database\Configuration;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
@@ -34,14 +36,15 @@ use TYPO3\CMS\Core\Tests\Unit\Database\Mocks\MockPlatform\MockSQLitePlatform;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ConnectionTest extends UnitTestCase
 {
     #[Test]
     #[DoesNotPerformAssertions]
     public function createQueryBuilderWorks(): void
     {
-        $this->addGeneralUtilityTcaSchemaFactoryInstances();
-        $this->createConnectionMock()->createQueryBuilder();
+        $container = $this->createContainerWithTcaSchemaFactoryInstance();
+        $this->createConnectionMock(null, [], $container)->createQueryBuilder();
     }
 
     public static function quoteIdentifierDataProvider(): array
@@ -310,8 +313,8 @@ final class ConnectionTest extends UnitTestCase
                     1,
                     10,
                 ],
-                'SELECT "aField", "anotherField" FROM "aTable" WHERE "aField" = :dcValue1 ' .
-                'GROUP BY "anotherField" ORDER BY "aField" ASC LIMIT 1 OFFSET 10',
+                'SELECT "aField", "anotherField" FROM "aTable" WHERE "aField" = :dcValue1 '
+                . 'GROUP BY "anotherField" ORDER BY "aField" ASC LIMIT 1 OFFSET 10',
                 ['dcValue1' => 'aValue'],
             ],
         ];
@@ -321,9 +324,9 @@ final class ConnectionTest extends UnitTestCase
     #[Test]
     public function selectQueries(array $args, string $expectedQuery, array $expectedParameters): void
     {
-        $this->addGeneralUtilityTcaSchemaFactoryInstances();
-        $resultStatement = $this->createMock(Result::class);
-        $connectionMock = $this->createConnectionMock();
+        $container = $this->createContainerWithTcaSchemaFactoryInstance();
+        $resultStatement = self::createStub(Result::class);
+        $connectionMock = $this->createConnectionMock(null, [], $container);
         $connectionMock->expects($this->once())
             ->method('executeQuery')
             ->with($expectedQuery, $expectedParameters)
@@ -365,12 +368,12 @@ final class ConnectionTest extends UnitTestCase
     #[Test]
     public function countQueries(array $args, string $expectedQuery, array $expectedParameters): void
     {
-        $this->addGeneralUtilityTcaSchemaFactoryInstances();
+        $container = $this->createContainerWithTcaSchemaFactoryInstance();
         $resultStatement = $this->createMock(Result::class);
         $resultStatement->expects($this->once())
             ->method('fetchOne')
             ->willReturn(false);
-        $connectionMock = $this->createConnectionMock();
+        $connectionMock = $this->createConnectionMock(null, [], $container);
         $connectionMock->expects($this->once())
             ->method('executeQuery')
             ->with($expectedQuery, $expectedParameters)
@@ -409,9 +412,35 @@ final class ConnectionTest extends UnitTestCase
         self::assertSame('Mock 5.7.11', $connectionMock->getPlatformServerVersion());
     }
 
-    private function createConnectionMock(?AbstractPlatform $platform = null): Connection&MockObject
+    #[Test]
+    public function getPlatformServerVersionPrefersServerVersionFromParams(): void
     {
+        $connectionMock = $this->createConnectionMock(null, ['serverVersion' => '10.11.16-MariaDB-ubu2204']);
+        $connectionMock
+            ->method('getServerVersion')
+            ->willReturn('10.6.0');
+        self::assertSame('Mock 10.11.16-MariaDB-ubu2204', $connectionMock->getPlatformServerVersion());
+    }
+
+    #[Test]
+    public function getPlatformServerVersionPrefersPrimaryServerVersionFromParams(): void
+    {
+        $connectionMock = $this->createConnectionMock(null, ['primary' => ['serverVersion' => '10.11.16-MariaDB-ubu2204']]);
+        $connectionMock
+            ->method('getServerVersion')
+            ->willReturn('10.6.0');
+        self::assertSame('Mock 10.11.16-MariaDB-ubu2204', $connectionMock->getPlatformServerVersion());
+    }
+
+    private function createConnectionMock(
+        ?AbstractPlatform $platform = null,
+        array $params = [],
+        ?ContainerInterface $container = null,
+    ): Connection&MockObject {
         $platform ??= new MockPlatform();
+        $container ??= self::createStub(ContainerInterface::class);
+        $configuration = new Configuration();
+        $configuration->setContainer($container);
         $connectionMock = $this->getMockBuilder(Connection::class)
             ->onlyMethods(
                 [
@@ -426,11 +455,11 @@ final class ConnectionTest extends UnitTestCase
                     'getServerVersion',
                 ]
             )
-            ->setConstructorArgs([[], $this->createMock(AbstractMySQLDriver::class), new Configuration(), null])
+            ->setConstructorArgs([$params, self::createStub(AbstractMySQLDriver::class), $configuration, null])
             ->getMock();
         $connectionMock
             ->method('getExpressionBuilder')
-            ->willReturn(GeneralUtility::makeInstance(ExpressionBuilder::class, $connectionMock));
+            ->willReturn(GeneralUtility::makeInstance(ExpressionBuilder::class, $connectionMock, $container));
         $connectionMock
             ->method('connect');
         $connectionMock
@@ -439,10 +468,10 @@ final class ConnectionTest extends UnitTestCase
         return $connectionMock;
     }
 
-    private function addGeneralUtilityTcaSchemaFactoryInstances(?TcaSchemaFactory $tcaSchemaFactory = null): void
+    private function createContainerWithTcaSchemaFactoryInstance(?TcaSchemaFactory $tcaSchemaFactory = null): ContainerInterface
     {
         $container = new Container();
-        $container->set(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
-        GeneralUtility::setContainer($container);
+        $container->set(TcaSchemaFactory::class, self::createStub(TcaSchemaFactory::class));
+        return $container;
     }
 }

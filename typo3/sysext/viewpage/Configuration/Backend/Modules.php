@@ -7,20 +7,17 @@ use TYPO3\CMS\Viewpage\Controller\ViewModuleController;
  */
 return [
     'page_preview' => [
-        'parent' => 'web',
-        'position' => ['after' => 'web_layout'],
+        'parent' => 'content',
+        'position' => ['after' => 'records'],
         'access' => 'user',
-        'path' => '/module/web/viewpage',
+        'path' => '/module/page-preview',
         'iconIdentifier' => 'module-viewpage',
-        'labels' => 'LLL:EXT:viewpage/Resources/Private/Language/locallang_mod.xlf',
+        'labels' => 'viewpage.module',
         'aliases' => ['web_ViewpageView'],
         'routes' => [
             '_default' => [
                 'target' => ViewModuleController::class . '::handleRequest',
             ],
-        ],
-        'moduleData' => [
-            'language' => 0,
         ],
     ],
 ];

@@ -20,9 +20,12 @@ namespace TYPO3\CMS\Install\Controller;
 use Doctrine\DBAL\DriverManager;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Routing\RouteRedirect;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Core\Authentication\CommandLineUserCreation;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
+use TYPO3\CMS\Core\Core\BootService;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -30,24 +33,26 @@ use TYPO3\CMS\Core\Database\Schema\Exception\StatementException;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\JsonResponse;
-use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Middleware\VerifyHostHeader;
-use TYPO3\CMS\Core\Package\FailsafePackageManager;
-use TYPO3\CMS\Core\Page\ImportMap;
+use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Configuration\Behavior;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Middleware\PolicyBag;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Scope;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Type\Map;
 use TYPO3\CMS\Core\View\ViewInterface;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\CMS\Fluid\View\FluidViewAdapter;
+use TYPO3\CMS\Install\Factory\ImportMapFactory;
 use TYPO3\CMS\Install\FolderStructure\DefaultFactory;
 use TYPO3\CMS\Install\Service\EnableFileService;
 use TYPO3\CMS\Install\Service\Exception\ConfigurationDirectoryDoesNotExistException;
-use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\SetupDatabaseService;
 use TYPO3\CMS\Install\Service\SetupService;
 use TYPO3\CMS\Install\SystemEnvironment\Check;
@@ -61,20 +66,27 @@ use TYPO3Fluid\Fluid\View\TemplateView as FluidTemplateView;
  * @internal This class is a specific controller implementation and is not considered part of the Public TYPO3 API.
  * @phpstan-import-type Params from DriverManager
  */
-final class InstallerController
+#[Autoconfigure(public: true)]
+final readonly class InstallerController
 {
     use ControllerTrait;
 
     public function __construct(
-        private readonly LateBootService $lateBootService,
-        private readonly ConfigurationManager $configurationManager,
-        private readonly FailsafePackageManager $packageManager,
-        private readonly VerifyHostHeader $verifyHostHeader,
-        private readonly FormProtectionFactory $formProtectionFactory,
-        private readonly SetupService $setupService,
-        private readonly SetupDatabaseService $setupDatabaseService,
-        private readonly HashService $hashService,
-        private readonly IconRegistry $iconRegistry,
+        private BootService $bootService,
+        private ConfigurationManager $configurationManager,
+        private PackageManager $packageManager,
+        private VerifyHostHeader $verifyHostHeader,
+        private FormProtectionFactory $formProtectionFactory,
+        private SetupService $setupService,
+        private SetupDatabaseService $setupDatabaseService,
+        private ImportMapFactory $importMapFactory,
+        private HashService $hashService,
+        private IconRegistry $iconRegistry,
+        private DirectiveHashCollection $directiveHashCollection,
+        private CommandLineUserCreation $commandLineUserCreation,
+        private UriBuilder $uriBuilder,
+        private RenderingContextFactory $renderingContextFactory,
+        private ConnectionPool $connectionPool,
     ) {}
 
     /**
@@ -86,15 +98,10 @@ final class InstallerController
         if (!Environment::getContext()->isDevelopment()) {
             $bust = $this->hashService->hmac((new Typo3Version()) . Environment::getProjectPath(), self::class);
         }
-        $packages = [
-            $this->packageManager->getPackage('core'),
-            $this->packageManager->getPackage('backend'),
-            $this->packageManager->getPackage('install'),
-        ];
-        $importMap = new ImportMap($this->hashService, $packages);
         $sitePath = $request->getAttribute('normalizedParams')->getSitePath();
-        $initModule = $sitePath . $importMap->resolveImport('@typo3/install/init-installer.js');
-        $view = $this->initializeView();
+        $importMap = $this->importMapFactory->create($sitePath);
+        $initModule = $importMap->resolveImport('@typo3/install/init-installer.js', true, $sitePath);
+        $view = $this->initializeView($request);
         $view->assign('bust', $bust);
         $view->assign('initModule', $initModule);
         $view->assign('iconCacheIdentifier', sha1($this->iconRegistry->getBackendIconsCacheIdentifier()));
@@ -105,7 +112,7 @@ final class InstallerController
             $view->render('Installer/Init'),
             200,
             [
-                'Content-Security-Policy' => $this->createContentSecurityPolicy()->compile($nonce),
+                'Content-Security-Policy' => $this->createContentSecurityPolicy()->compile(new PolicyBag(Scope::backend(), new Map(), new Behavior(), $nonce, $this->directiveHashCollection)),
                 'Cache-Control' => 'no-cache, no-store',
                 'Pragma' => 'no-cache',
             ]
@@ -117,7 +124,7 @@ final class InstallerController
      */
     public function mainLayoutAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         return new JsonResponse([
             'success' => true,
             'html' => $view->render('Installer/MainLayout'),
@@ -127,9 +134,9 @@ final class InstallerController
     /**
      * Render "FIRST_INSTALL file need to exist" view
      */
-    public function showInstallerNotAvailableAction(): ResponseInterface
+    public function showInstallerNotAvailableAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         return new JsonResponse([
             'success' => true,
             'html' => $view->render('Installer/ShowInstallerNotAvailable'),
@@ -151,17 +158,17 @@ final class InstallerController
      */
     public function showEnvironmentAndFoldersAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         $systemCheckMessageQueue = new FlashMessageQueue('install');
-        $checkMessages = (new Check())->getStatus();
+        $checkMessages = new Check()->getStatus();
         foreach ($checkMessages as $message) {
             $systemCheckMessageQueue->enqueue($message);
         }
-        $setupCheckMessages = (new SetupCheck())->getStatus();
+        $setupCheckMessages = new SetupCheck()->getStatus();
         foreach ($setupCheckMessages as $message) {
             $systemCheckMessageQueue->enqueue($message);
         }
-        $folderStructureFactory = GeneralUtility::makeInstance(DefaultFactory::class);
+        $folderStructureFactory = new DefaultFactory();
         $structureFacade = $folderStructureFactory->getStructure(WebserverType::fromRequest($request));
         $structureMessageQueue = $structureFacade->getStatus();
         return new JsonResponse([
@@ -237,7 +244,7 @@ final class InstallerController
      */
     public function showDatabaseConnectAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
 
         $driverOptions = $this->setupDatabaseService->getDriverOptions();
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
@@ -279,7 +286,7 @@ final class InstallerController
      */
     public function showDatabaseSelectAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $errors = [];
         try {
@@ -350,7 +357,7 @@ final class InstallerController
         if ($success === false) {
             // remove the database again if we created it
             if ($request->getParsedBody()['install']['values']['type'] === 'new') {
-                $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+                $connection = $this->connectionPool
                     ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
                 $connection
                     ->createSchemaManager()
@@ -439,10 +446,10 @@ final class InstallerController
      */
     public function checkDatabaseDataAction(): ResponseInterface
     {
-        $existingTables = GeneralUtility::makeInstance(ConnectionPool::class)
+        $existingTables = $this->connectionPool
             ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME)
             ->createSchemaManager()
-            ->listTableNames();
+            ->introspectTableNames();
         return new JsonResponse([
             'success' => !empty($existingTables),
         ]);
@@ -453,7 +460,7 @@ final class InstallerController
      */
     public function showDatabaseDataAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $view->assignMultiple([
             'executeDatabaseDataToken' => $formProtection->generateToken('installTool', 'executeDatabaseData'),
@@ -521,6 +528,7 @@ final class InstallerController
             ]);
         }
 
+        $this->commandLineUserCreation->ensureCliUserExists();
         $this->setupService->createUser($username, $password, $email);
         $this->setupService->setInstallToolPassword($password);
 
@@ -531,14 +539,20 @@ final class InstallerController
     }
 
     /**
-     * Show last "create empty site / install distribution"
+     * Show last "create site with theme / install distribution"
      */
     public function showDefaultConfigurationAction(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->initializeView();
+        $view = $this->initializeView($request);
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
+        $distributions = [];
+        if ($this->packageManager->isPackageActive('impexp')) {
+            $distributions = $this->setupService->getAvailableDistributions();
+        }
         $view->assignMultiple([
             'composerMode' => Environment::isComposerMode(),
+            'offerToCreateBasicSite' => $this->packageManager->isPackageActive('fluid_styled_content'),
+            'distributions' => $distributions,
             'executeDefaultConfigurationToken' => $formProtection->generateToken('installTool', 'executeDefaultConfiguration'),
         ]);
         return new JsonResponse([
@@ -552,31 +566,29 @@ final class InstallerController
      */
     public function executeDefaultConfigurationAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
-        // Use the container here instead of makeInstance() to use the factory of the container for building the UriBuilder
-        $uriBuilder = $container->get(UriBuilder::class);
-        $nextStepUrl = $uriBuilder->buildUriFromRoute('login');
         // Let the admin user redirect to the distributions page on first login
-        if ($request->getParsedBody()['install']['values']['sitesetup'] === 'createsite') {
-            // Create a page with UID 1 and PID1 and fluid_styled_content for page TS config, respect ownership
-            $pageUid = $this->setupService->createSite();
-            $normalizedParams = $request->getAttribute('normalizedParams');
-            if (!($normalizedParams instanceof NormalizedParams)) {
-                $normalizedParams = NormalizedParams::createFromRequest($request);
-            }
-            // Check for siteUrl, despite there currently is no UI to provide it,
-            // to allow TYPO3 Console (for TYPO3 v10) to set this value to something reasonable,
-            // because on cli there is no way to find out which hostname the site is supposed to have.
-            // In the future this controller should be refactored to a generic service, where site URL is
-            // just one input argument.
-            $siteUrl = $request->getParsedBody()['install']['values']['siteUrl'] ?? $normalizedParams->getSiteUrl();
-            $this->setupService->createSiteConfiguration('main', (int)$pageUid, $siteUrl);
-        } elseif ($request->getParsedBody()['install']['values']['sitesetup'] === 'loaddistribution'
+        $siteSetup = $request->getParsedBody()['install']['values']['sitesetup'] ?? '';
+        $selectedDistribution = '';
+        if (str_starts_with($siteSetup, 'createsite:')) {
+            $selectedDistribution = substr($siteSetup, strlen('createsite:'));
+            $siteSetup = 'activateDistribution';
+        }
+        // It is crucial to activate the package *before* loading the container
+        if ($siteSetup === 'activateDistribution') {
+            // Distribution handles all site creation (pages, content, site configuration)
+            $this->setupService->activateDistributionPackage($selectedDistribution);
+        }
+        $nextStepUrl = $this->uriBuilder->buildUriFromRoute('login');
+
+        if ($siteSetup === 'createsite') {
+            $siteUrl = $request->getAttribute('normalizedParams')->getSiteUrl();
+            $this->setupService->createSite('main', $siteUrl);
+        } elseif ($siteSetup === 'loaddistribution'
             && !Environment::isComposerMode()
             && $this->packageManager->isPackageActive('extensionmanager')
         ) {
             // Update the URL to redirect after login to the extension manager distributions list
-            $nextStepUrl = $uriBuilder->buildUriWithRedirect(
+            $nextStepUrl = $this->uriBuilder->buildUriWithRedirect(
                 'login',
                 [],
                 RouteRedirect::create(
@@ -587,11 +599,20 @@ final class InstallerController
                 )
             );
         }
+
         if (($request->getParsedBody()['install']['values']['backendgroups'] ?? '') === 'creategroups') {
             $this->setupService->createBackendUserGroups();
         }
+
+        $this->bootService->unsetInternalContainerInstance();
+        $container = $this->bootService->loadExtLocalconfDatabase(true);
+
         // Mark upgrade wizards as done
         $this->setupDatabaseService->markWizardsDone($container);
+
+        // Set up all installed extensions
+        // (includes e.g. publishing of assets, importing distribution data)
+        $this->setupService->setupExtensions($container);
 
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         $formProtection->clean();
@@ -607,12 +628,12 @@ final class InstallerController
     /**
      * Helper method to initialize a standalone view instance.
      */
-    protected function initializeView(): ViewInterface
+    private function initializeView(ServerRequestInterface $request): ViewInterface
     {
         $templatePaths = [
             'templateRootPaths' => ['EXT:install/Resources/Private/Templates'],
         ];
-        $renderingContext = GeneralUtility::makeInstance(RenderingContextFactory::class)->create($templatePaths);
+        $renderingContext = $this->renderingContextFactory->create($templatePaths, $request);
         $fluidView = new FluidTemplateView($renderingContext);
         return new FluidViewAdapter($fluidView);
     }

@@ -19,12 +19,14 @@ namespace TYPO3\CMS\Backend\Form\Utility;
 
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Cache\CacheManager;
-use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
  * This is a static, internal and intermediate helper class for various
@@ -53,7 +55,7 @@ class FormEngineUtility
         'password' => ['size', 'readOnly'],
         'datetime' => ['size', 'readOnly'],
         'color' => ['size', 'readOnly'],
-        'uuid' => ['size', 'enableCopyToClipboard'],
+        'uuid' => ['size', 'appearance', 'enableCopyToClipboard'],
         'text' => ['cols', 'rows', 'wrap', 'max', 'readOnly'],
         'json' => ['cols', 'rows', 'readOnly'],
         'check' => ['cols', 'readOnly'],
@@ -82,6 +84,15 @@ class FormEngineUtility
         if (is_array($TSconfig)) {
             $TSconfig = GeneralUtility::removeDotsFromTS($TSconfig);
             $type = $fieldConfig['type'] ?? '';
+            if ($type === 'uuid' && isset($TSconfig['config']['enableCopyToClipboard'])) {
+                trigger_error(
+                    'TSconfig option "config.enableCopyToClipboard" of TCA type "uuid" has been moved to'
+                    . ' "config.appearance.copyToClipboard" and will stop working in TYPO3 v16.0.',
+                    E_USER_DEPRECATED
+                );
+                $TSconfig['config']['appearance']['copyToClipboard'] = $TSconfig['config']['enableCopyToClipboard'];
+                unset($TSconfig['config']['enableCopyToClipboard']);
+            }
             if (isset($TSconfig['config']) && is_array($TSconfig['config']) && is_array(static::$allowOverrideMatrix[$type] ?? null)) {
                 // Check if the keys in TSconfig['config'] are allowed to override TCA field config:
                 foreach ($TSconfig['config'] as $key => $_) {
@@ -114,13 +125,51 @@ class FormEngineUtility
         $cache = $runtimeCache->get('formEngineUtilityTsConfigForTableRow') ?: [];
         $cacheIdentifier = $table . ':' . $row['uid'];
         if (!isset($cache[$cacheIdentifier])) {
-            $cache[$cacheIdentifier] = BackendUtility::getTCEFORM_TSconfig($table, $row);
+            $cache[$cacheIdentifier] = self::getTCEFORM_TSconfig($table, $row);
             $runtimeCache->set('formEngineUtilityTsConfigForTableRow', $cache);
         }
         if ($field && isset($cache[$cacheIdentifier][$field])) {
             return $cache[$cacheIdentifier][$field];
         }
         return $cache[$cacheIdentifier];
+    }
+
+    /**
+     * Returns TSConfig for the TCEFORM object in page TSconfig.
+     * Used in TCEFORMs
+     *
+     * @param string $table Table name present in TCA
+     * @param array $row Row from table
+     */
+    public static function getTCEFORM_TSconfig(string $table, array $row): array
+    {
+        $res = [];
+        $uid = $row['uid'] ?? 0;
+        $pid = $row['pid'] ?? 0;
+        // Get main config for the table
+        // If pid is negative (referring to another record) the pid of the other record is fetched and returned.
+        $cPid = BackendUtility::getTSconfig_pidValue($table, $uid, $pid);
+        // $TScID is the id of $table = pages, else it's the pid of the record.
+        $TScID = $table === 'pages' && MathUtility::canBeInterpretedAsInteger($uid) ? $uid : $cPid;
+        if ($TScID >= 0) {
+            $tsConfig = BackendUtility::getPagesTSconfig($TScID)['TCEFORM.'][$table . '.'] ?? [];
+            $typeVal = BackendUtility::getTCAtypeValue($table, $row, true);
+            foreach ($tsConfig as $key => $val) {
+                if (is_array($val)) {
+                    $fieldN = substr($key, 0, -1);
+                    $res[$fieldN] = $val;
+                    unset($res[$fieldN]['types.']);
+                    if ($typeVal !== null && is_array($val['types.'][$typeVal . '.'] ?? false)) {
+                        $res[$fieldN] = array_replace_recursive($res[$fieldN], $val['types.'][$typeVal . '.']);
+                    }
+                }
+            }
+        }
+        $res['_CURRENT_PID'] = $cPid;
+        $res['_THIS_UID'] = $row['uid'] ?? 0;
+        // So the row will be passed to foreign_table_where_query()
+        $res['_THIS_ROW'] = $row;
+        return $res;
     }
 
     /**
@@ -135,24 +184,23 @@ class FormEngineUtility
     public static function getIconHtml($icon, $alt = '', $title = '')
     {
         $icon = (string)$icon;
-        if (PathUtility::isAbsolutePath($icon)) {
-            $absoluteFilePath = $icon;
-        } else {
-            $absoluteFilePath = GeneralUtility::getFileAbsFileName($icon);
-        }
-        if (!empty($absoluteFilePath) && (is_file($absoluteFilePath)) || is_file(Environment::getPublicPath() . $absoluteFilePath)) {
+        try {
+            $resourceFactory = GeneralUtility::makeInstance(SystemResourceFactory::class);
+            $resource = $resourceFactory->createPublicResource($icon);
+            $resourcePublisher = GeneralUtility::makeInstance(SystemResourcePublisherInterface::class);
+            $iconUri = $resourcePublisher->generateUri($resource, null);
             return '<img'
                 . ' loading="lazy" '
-                . ' src="' . htmlspecialchars(PathUtility::getAbsoluteWebPath($absoluteFilePath)) . '"'
+                . ' src="' . htmlspecialchars((string)$iconUri) . '"'
                 . ' alt="' . htmlspecialchars($alt) . '" '
                 . ($title ? 'title="' . htmlspecialchars($title) . '"' : '')
                 . ' />';
+        } catch (SystemResourceException) {
+            $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
+            return $iconFactory
+                ->getIcon($icon, IconSize::SMALL)
+                ->setTitle($title)
+                ->render('inline');
         }
-
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
-        return $iconFactory
-            ->getIcon($icon, IconSize::SMALL)
-            ->setTitle($title)
-            ->render('inline');
     }
 }

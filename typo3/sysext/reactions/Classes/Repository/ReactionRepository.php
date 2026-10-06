@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Reactions\Repository;
 
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
@@ -34,6 +35,10 @@ use TYPO3\CMS\Reactions\Model\ReactionInstruction;
  */
 class ReactionRepository
 {
+    public function __construct(
+        private readonly ConnectionPool $connectionPool,
+    ) {}
+
     public function findAll(): array
     {
         return $this->map($this->getQueryBuilder()
@@ -43,7 +48,7 @@ class ReactionRepository
 
     public function countAll(?ReactionDemand $demand = null): int
     {
-        $qb = $demand ? $this->getQueryBuilderForDemand($demand) : $this->getQueryBuilder();
+        $qb = $demand ? $this->getQueryBuilderForDemand($demand, false) : $this->getQueryBuilder(false);
         return (int)$qb
             ->count('*')
             ->executeQuery()
@@ -78,6 +83,21 @@ class ReactionRepository
         return null;
     }
 
+    /**
+     * Used within the backend module, so hidden and scheduled reactions are found as well.
+     */
+    public function getReactionRecordByUid(int $uid): ?ReactionInstruction
+    {
+        $queryBuilder = $this->getQueryBuilder(false);
+        $result = $queryBuilder
+            ->where(
+                $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT))
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+        return $result !== false ? $this->mapSingleRow($result) : null;
+    }
+
     public function findByDemand(ReactionDemand $demand): array
     {
         return $this->map($this->getQueryBuilderForDemand($demand)
@@ -87,16 +107,18 @@ class ReactionRepository
             ->fetchAllAssociative());
     }
 
-    protected function getQueryBuilderForDemand(ReactionDemand $demand): QueryBuilder
+    protected function getQueryBuilderForDemand(ReactionDemand $demand, bool $addOrderBy = true): QueryBuilder
     {
         $queryBuilder = $this->getQueryBuilder(false);
-        $queryBuilder->orderBy(
-            $demand->getOrderField(),
-            $demand->getOrderDirection()
-        );
-        // Ensure deterministic ordering.
-        if ($demand->getOrderField() !== 'uid') {
-            $queryBuilder->addOrderBy('uid', 'asc');
+        if ($addOrderBy) {
+            $queryBuilder->orderBy(
+                $demand->getOrderField(),
+                $demand->getOrderDirection()
+            );
+            // Ensure deterministic ordering.
+            if ($demand->getOrderField() !== 'uid') {
+                $queryBuilder->addOrderBy('uid', 'asc');
+            }
         }
 
         $constraints = [];
@@ -137,9 +159,7 @@ class ReactionRepository
 
     protected function getQueryBuilder(bool $addDefaultOrderByClause = true): QueryBuilder
     {
-        // @todo ConnectionPool could be injected
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable('sys_reaction');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_reaction');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class));

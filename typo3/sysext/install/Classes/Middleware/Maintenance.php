@@ -24,12 +24,10 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
 use TYPO3\CMS\Core\Configuration\Features;
-use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\JsonResponse;
-use TYPO3\CMS\Core\Http\Security\ReferrerEnforcer;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Package\FailsafePackageManager;
@@ -43,6 +41,7 @@ use TYPO3\CMS\Install\Controller\LoginController;
 use TYPO3\CMS\Install\Controller\MaintenanceController;
 use TYPO3\CMS\Install\Controller\SettingsController;
 use TYPO3\CMS\Install\Controller\UpgradeController;
+use TYPO3\CMS\Install\Http\Security\ReferrerEnforcer;
 use TYPO3\CMS\Install\Service\EnableFileService;
 use TYPO3\CMS\Install\Service\SessionService;
 
@@ -87,6 +86,9 @@ class Maintenance implements MiddlewareInterface
         if (($GLOBALS['TYPO3_CONF_VARS']['BE']['installToolPassword'] ?? '') === '') {
             return new HtmlResponse('$GLOBALS[\'TYPO3_CONF_VARS\'][\'BE\'][\'installToolPassword\'] must not be empty.', 500);
         }
+        // This is required for icon API, that still has no way to pass
+        // a request/ normalizedParams to the icon URL generation
+        $GLOBALS['TYPO3_REQUEST'] = $request;
 
         $controllerName = $request->getQueryParams()['install']['controller'] ?? 'layout';
         $actionName = $request->getParsedBody()['install']['action'] ?? $request->getQueryParams()['install']['action'] ?? 'init';
@@ -119,7 +121,7 @@ class Maintenance implements MiddlewareInterface
             return $controller->showLoginAction($request);
         }
 
-        $this->sessionService->installSessionHandler();
+        $this->sessionService->installSessionHandler($request);
         // the backend user has an active session but the admin / maintainer
         // rights have been revoked or the user was disabled or deleted in the meantime
         if ($this->sessionService->isAuthorizedBackendUserSession($request) && !$this->sessionService->hasActiveBackendUserRoleAndSession()) {
@@ -310,20 +312,7 @@ class Maintenance implements MiddlewareInterface
      */
     protected function checkIfEssentialConfigurationExists(): bool
     {
-        if (file_exists($this->configurationManager->getSystemConfigurationFileLocation())) {
-            return true;
-        }
-        // Check can be removed with TYPO3 v14.0
-        if (file_exists($this->configurationManager->getLocalConfigurationFileLocation())) {
-            mkdir(dirname($this->configurationManager->getSystemConfigurationFileLocation()), 02775, true);
-            rename($this->configurationManager->getLocalConfigurationFileLocation(), $this->configurationManager->getSystemConfigurationFileLocation());
-            if (file_exists(Environment::getLegacyConfigPath() . '/AdditionalConfiguration.php')) {
-                rename(Environment::getLegacyConfigPath() . '/AdditionalConfiguration.php', $this->configurationManager->getAdditionalConfigurationFileLocation());
-            }
-
-            return file_exists($this->configurationManager->getSystemConfigurationFileLocation());
-        }
-        return false;
+        return file_exists($this->configurationManager->getSystemConfigurationFileLocation());
     }
 
     /**
@@ -333,11 +322,11 @@ class Maintenance implements MiddlewareInterface
      */
     protected function enforceReferrer(ServerRequestInterface $request): ?ResponseInterface
     {
-        if (!(new Features())->isFeatureEnabled('security.backend.enforceReferrer')) {
+        if (!new Features()->isFeatureEnabled('security.backend.enforceReferrer')) {
             return null;
         }
-        return (new ReferrerEnforcer())->handle($request, [
-            'flags' => ['refresh-always'],
+        return new ReferrerEnforcer()->handle($request, [
+            'flags' => ['required', 'refresh-always'],
             'subject' => 'Install Tool',
         ]);
     }

@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\Tests\Functional\Utility\File;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Resource\File;
@@ -40,11 +41,11 @@ final class ExtendedFileUtilityTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/Fixtures/DataSet/sys_file.csv');
         $this->importCSVDataSet(__DIR__ . '/../../Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
 
         // ensure, temporary uploaded files are purged again
         // @todo move this to the testing framework (which only reinitialized files for the first run)
-        $fileCommandsPath = $this->instancePath . '/fileadmin/file-commands';
+        $fileCommandsPath = Environment::getPublicPath() . '/fileadmin/file-commands';
         if (is_dir($fileCommandsPath)) {
             GeneralUtility::rmdir($fileCommandsPath, true);
         }
@@ -261,7 +262,7 @@ final class ExtendedFileUtilityTest extends FunctionalTestCase
     {
         return array_map(
             static fn(array $actionResult): array => array_map(
-                static fn(null|array|File $fileResult): null|array|string => is_array($fileResult)
+                static fn(array|File|null $fileResult): array|string|null => is_array($fileResult)
                     ? array_map(static fn(File $file): string => $file->getCombinedIdentifier(), $fileResult)
                     : $fileResult?->getCombinedIdentifier(),
                 $actionResult

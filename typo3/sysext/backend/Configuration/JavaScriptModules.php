@@ -4,11 +4,6 @@ return [
     'dependencies' => [
         'core',
     ],
-    'tags' => [
-        'backend.module',
-        'backend.form',
-        'backend.navigation-component',
-    ],
     'imports' => [
         '@typo3/backend/' => [
             'path' => 'EXT:backend/Resources/Public/JavaScript/',
@@ -16,6 +11,7 @@ return [
                 'EXT:backend/Resources/Public/JavaScript/Contrib/',
             ],
         ],
+        'bootstrap' => 'EXT:backend/Resources/Public/JavaScript/Contrib/bootstrap.js',
         'crelt' => 'EXT:backend/Resources/Public/JavaScript/Contrib/crelt.js',
         'style-mod' => 'EXT:backend/Resources/Public/JavaScript/Contrib/style-mod.js',
         'w3c-keyname' => 'EXT:backend/Resources/Public/JavaScript/Contrib/w3c-keyname.js',
@@ -61,5 +57,7 @@ return [
         'alwan' => 'EXT:backend/Resources/Public/JavaScript/Contrib/alwan.js',
         'lodash-es' => 'EXT:backend/Resources/Public/JavaScript/Contrib/lodash-es.js',
         'select-pure' => 'EXT:backend/Resources/Public/JavaScript/Contrib/select-pure.js',
+        // Note: The prefix 'VIRTUAL:' is an @internal placeholder and not meant for public usage
+        '~labels/' => 'VIRTUAL:labels/',
     ],
 ];

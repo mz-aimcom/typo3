@@ -23,6 +23,8 @@ use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Html\DefaultSanitizerBuilder;
 use TYPO3\CMS\Core\Html\SanitizerBuilderFactory;
 use TYPO3\CMS\Core\Html\SanitizerInitiator;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Log\LogRecord;
 use TYPO3\CMS\Core\Tests\Functional\Fixtures\Log\DummyWriter;
 use TYPO3\CMS\Core\Tests\Functional\Html\Fixtures\ExtendedSanitizerBuilder;
@@ -159,6 +161,10 @@ final class DefaultSanitizerBuilderTest extends FunctionalTestCase
                 '<?xml >s<img src=x onerror=alert(1)> ?>',
                 '&lt;?xml &gt;s&lt;img src=x onerror=alert(1)&gt; ?&gt;',
             ],
+            '#942' => [
+                '<div xmlns:x="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;">text</div>',
+                '<div xmlns:x="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;">text</div>',
+            ],
             '#951' => [
                 '<span class="icon"><svg class="icon__svg" role="img" aria-hidden="true"><use href="#icon"></use></svg></span>',
                 '<span class="icon"><svg class="icon__svg" role="img" aria-hidden="true"><use href="#icon" /></svg></span>',
@@ -174,6 +180,8 @@ final class DefaultSanitizerBuilderTest extends FunctionalTestCase
     #[Test]
     public function isSanitized(string $payload, string $expectation): void
     {
+        $request = new ServerRequest('http://localhost/', 'GET', 'php://input', [], ['HTTP_HOST' => 'localhost']);
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
         $factory = new SanitizerBuilderFactory();
         $builder = $factory->build('default');
         $sanitizer = $builder->build();
@@ -214,7 +222,7 @@ final class DefaultSanitizerBuilderTest extends FunctionalTestCase
     public function incidentIsLogged(): void
     {
         $trace = bin2hex(random_bytes(8));
-        $sanitizer = (new DefaultSanitizerBuilder())->build();
+        $sanitizer = new DefaultSanitizerBuilder()->build();
         $sanitizer->sanitize('<script>alert(1)</script>', new SanitizerInitiator($trace));
         $logItemDataExpectation = [
             'behavior' => 'default',
@@ -230,10 +238,10 @@ final class DefaultSanitizerBuilderTest extends FunctionalTestCase
 
     private function resolveBehaviorFromSanitizer(Sanitizer $sanitizer): Behavior
     {
-        $visitor = (new \ReflectionObject($sanitizer))
+        $visitor = new \ReflectionObject($sanitizer)
             ->getProperty('visitors')
             ->getValue($sanitizer)[0];
-        return (new \ReflectionObject($visitor))
+        return new \ReflectionObject($visitor)
             ->getProperty('behavior')
             ->getValue($visitor);
     }

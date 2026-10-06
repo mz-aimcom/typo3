@@ -1,0 +1,67 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Before">
+    <f:asset.module identifier="@typo3/linkvalidator/linkvalidator.js"/>
+    <f:asset.module identifier="@typo3/linkvalidator/linkvalidator-modal.js"/>
+</f:section>
+
+<f:section name="Content">
+    <f:if condition="{pageUid}">
+        <f:then>
+            <f:if condition="{pageTitle}">
+                <f:then>
+                    <h1>
+                        <f:translate
+                            key="LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:overview.headlineWithPageTitle"
+                            arguments="{
+                                0: '{pageTitle}'
+                            }"
+                        />
+                    </h1>
+                </f:then>
+                <f:else>
+                    <h1><f:translate key="LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:overview.headline" /></h1>
+                </f:else>
+            </f:if>
+
+            <f:if condition="{checkFormEnabled}">
+                <h2><f:translate key="LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:list.check.headline" /></h2>
+                <f:render partial="CheckForm" arguments="{_all}" />
+            </f:if>
+
+            <h2><f:translate key="LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:list.header" /></h2>
+
+            <form method="post" id="linkValidatorReportController">
+                <f:render partial="ReportFilterOptions" arguments="{_all}" />
+
+                <f:if condition="{brokenLinks -> f:count()}">
+                    <f:then>
+                        <f:render partial="ReportTable" arguments="{_all}" />
+                    </f:then>
+                    <f:else>
+                        <f:be.infobox
+                            title="{f:translate(key: 'LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:list.no.broken.links.title')}"
+                            message="{f:translate(key: 'LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:list.no.broken.links')}"
+                            state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::OK')}"
+                        />
+                    </f:else>
+                </f:if>
+            </form>
+        </f:then>
+        <f:else>
+            <h1><f:translate key="LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:overview.headline" /></h1>
+            <f:be.infobox
+                message="{f:translate(key:'LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang.xlf:info.noPageSelected.message')}"
+                state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}"
+            />
+        </f:else>
+    </f:if>
+
+</f:section>
+
+</html>

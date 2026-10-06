@@ -23,7 +23,6 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -86,7 +85,7 @@ final readonly class PageTsConfigIncludesController
             }
             $siteSettingsNode = new SiteInclude();
             $siteSettingsNode->setName('Site constants settings of site "' . $site->getIdentifier() . '"');
-            $siteSettingsNode->setLineStream((new LosslessTokenizer())->tokenize($siteConstants));
+            $siteSettingsNode->setLineStream(new LosslessTokenizer()->tokenize($siteConstants));
             $siteSettingsTree->addChild($siteSettingsNode);
             $siteSettingsTree->setIdentifier('pageTsConfig-siteSettingsTree');
         }
@@ -113,7 +112,7 @@ final readonly class PageTsConfigIncludesController
         if (!empty($userTsConfigPageOverrides)) {
             $includeNode = new TsConfigInclude();
             $includeNode->setName('pageTsConfig-overrides-by-userTsConfig');
-            $includeNode->setLineStream((new LosslessTokenizer())->tokenize($userTsConfigPageOverrides));
+            $includeNode->setLineStream(new LosslessTokenizer()->tokenize($userTsConfigPageOverrides));
             $pageTsConfigTree->addChild($includeNode);
         }
         $pageTsConfigTree->setIdentifier('pageTsConfig-pageTsConfigTree');
@@ -126,8 +125,18 @@ final readonly class PageTsConfigIncludesController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title'] ?? $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ?? '');
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
+        $shortcutTitle = sprintf(
+            '%s: %s [%d]',
+            $languageService->translate('title', 'backend.modules.pagetsconfig_includes'),
+            BackendUtility::getRecordTitle('pages', $pageRecord),
+            $pageUid
+        );
+        $view->getDocHeaderComponent()->setShortcutContext(
+            $currentModuleIdentifier,
+            $shortcutTitle,
+            ['id' => $pageUid]
+        );
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -163,7 +172,7 @@ final readonly class PageTsConfigIncludesController
                 }
                 $siteSettingsNode = new SiteInclude();
                 $siteSettingsNode->setName('Site constants settings of site "' . $site->getIdentifier() . '"');
-                $siteSettingsNode->setLineStream((new LosslessTokenizer())->tokenize($siteConstants));
+                $siteSettingsNode->setLineStream(new LosslessTokenizer()->tokenize($siteConstants));
                 $includeTree->addChild($siteSettingsNode);
                 $includeTree->setIdentifier('pageTsConfig-siteSettingsTree');
             }
@@ -190,7 +199,7 @@ final readonly class PageTsConfigIncludesController
             if (!empty($userTsConfigPageOverrides)) {
                 $includeNode = new TsConfigInclude();
                 $includeNode->setName('pageTsConfig-overrides-by-userTsConfig');
-                $includeNode->setLineStream((new LosslessTokenizer())->tokenize($userTsConfigPageOverrides));
+                $includeNode->setLineStream(new LosslessTokenizer()->tokenize($userTsConfigPageOverrides));
                 $includeTree->addChild($includeNode);
             }
             $includeTree->setIdentifier('pageTsConfig-pageTsConfigTree');
@@ -234,7 +243,7 @@ final readonly class PageTsConfigIncludesController
                 }
                 $siteSettingsNode = new SiteInclude();
                 $siteSettingsNode->setName('Site constants settings of site "' . $site->getIdentifier() . '"');
-                $siteSettingsNode->setLineStream((new LosslessTokenizer())->tokenize($siteConstants));
+                $siteSettingsNode->setLineStream(new LosslessTokenizer()->tokenize($siteConstants));
                 $includeTree->addChild($siteSettingsNode);
                 $includeTree->setIdentifier('pageTsConfig-siteSettingsTree');
             }
@@ -261,7 +270,7 @@ final readonly class PageTsConfigIncludesController
             if (!empty($userTsConfigPageOverrides)) {
                 $includeNode = new TsConfigInclude();
                 $includeNode->setName('pageTsConfig-overrides-by-userTsConfig');
-                $includeNode->setLineStream((new LosslessTokenizer())->tokenize($userTsConfigPageOverrides));
+                $includeNode->setLineStream(new LosslessTokenizer()->tokenize($userTsConfigPageOverrides));
                 $includeTree->addChild($includeNode);
             }
             $includeTree->setIdentifier('pageTsConfig-pageTsConfigTree');
@@ -277,23 +286,6 @@ final readonly class PageTsConfigIncludesController
             ->createResponse()
             ->withHeader('Content-Type', 'text/plain')
             ->withBody($this->streamFactory->createStream($source));
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_pagetsconfig.xlf:module.pagetsconfig_includes'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
     }
 
     private function getLanguageService(): LanguageService

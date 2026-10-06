@@ -22,39 +22,19 @@ use TYPO3\CMS\Core\Resource\FileInterface;
 class CropVariant
 {
     /**
-     * @var string
-     */
-    protected $id;
-
-    /**
-     * @var string
-     */
-    protected $title;
-
-    /**
-     * @var Area
-     */
-    protected $cropArea;
-
-    /**
      * @var Ratio[]
      */
-    protected $allowedAspectRatios;
+    protected array $allowedAspectRatios = [];
 
-    /**
-     * @var string
-     */
-    protected $selectedRatio;
-
-    /**
-     * @var Area|null
-     */
-    protected $focusArea;
+    protected string $selectedRatio = '';
+    protected ?Area $focusArea = null;
 
     /**
      * @var Area[]|null
      */
-    protected $coverAreas;
+    protected ?array $coverAreas = null;
+
+    protected bool $excludeFromSync = false;
 
     /**
      * @param Ratio[] $allowedAspectRatios
@@ -64,17 +44,15 @@ class CropVariant
      * @throws InvalidConfigurationException
      */
     public function __construct(
-        string $id,
-        string $title,
-        Area $cropArea,
+        protected string $id,
+        protected string $title,
+        protected Area $cropArea,
         ?array $allowedAspectRatios = null,
         ?string $selectedRatio = null,
         ?Area $focusArea = null,
-        ?array $coverAreas = null
+        ?array $coverAreas = null,
+        bool $excludeFromSync = false
     ) {
-        $this->id = $id;
-        $this->title = $title;
-        $this->cropArea = $cropArea;
         if ($allowedAspectRatios) {
             $this->setAllowedAspectRatios(...$allowedAspectRatios);
             if ($selectedRatio && isset($this->allowedAspectRatios[$selectedRatio])) {
@@ -87,6 +65,7 @@ class CropVariant
         if ($coverAreas !== null) {
             $this->setCoverAreas(...$coverAreas);
         }
+        $this->excludeFromSync = $excludeFromSync;
     }
 
     /**
@@ -102,7 +81,8 @@ class CropVariant
                 isset($config['allowedAspectRatios']) ? Ratio::createMultipleFromConfiguration($config['allowedAspectRatios']) : null,
                 $config['selectedRatio'] ?? null,
                 isset($config['focusArea']) ? Area::createFromConfiguration($config['focusArea']) : null,
-                isset($config['coverAreas']) ? Area::createMultipleFromConfiguration($config['coverAreas']) : null
+                isset($config['coverAreas']) ? Area::createMultipleFromConfiguration($config['coverAreas']) : null,
+                isset($config['excludeFromSync']) ? filter_var($config['excludeFromSync'], FILTER_VALIDATE_BOOLEAN) : false,
             );
         } catch (\Throwable $throwable) {
             throw new InvalidConfigurationException(sprintf('Invalid type in configuration for crop variant: %s', $throwable->getMessage()), 1485278693, $throwable);
@@ -116,7 +96,7 @@ class CropVariant
     {
         $coverAreasAsArray = null;
         $allowedAspectRatiosAsArray = [];
-        foreach ($this->allowedAspectRatios ?? [] as $id => $allowedAspectRatio) {
+        foreach ($this->allowedAspectRatios as $id => $allowedAspectRatio) {
             $allowedAspectRatiosAsArray[$id] = $allowedAspectRatio->asArray();
         }
         if ($this->coverAreas !== null) {
@@ -131,8 +111,9 @@ class CropVariant
             'cropArea' => $this->cropArea->asArray(),
             'allowedAspectRatios' => $allowedAspectRatiosAsArray,
             'selectedRatio' => $this->selectedRatio,
-            'focusArea' => $this->focusArea ? $this->focusArea->asArray() : null,
+            'focusArea' => $this->focusArea?->asArray(),
             'coverAreas' => $coverAreasAsArray ?? null,
+            'excludeFromSync' => $this->excludeFromSync,
         ];
     }
 
@@ -146,10 +127,7 @@ class CropVariant
         return $this->cropArea;
     }
 
-    /**
-     * @return Area|null
-     */
-    public function getFocusArea()
+    public function getFocusArea(): ?Area
     {
         return $this->focusArea;
     }
@@ -169,7 +147,7 @@ class CropVariant
     /**
      * @throws InvalidConfigurationException
      */
-    protected function setAllowedAspectRatios(Ratio ...$ratios)
+    protected function setAllowedAspectRatios(Ratio ...$ratios): void
     {
         $this->allowedAspectRatios = [];
         foreach ($ratios as $ratio) {
@@ -180,7 +158,7 @@ class CropVariant
     /**
      * @throws InvalidConfigurationException
      */
-    protected function addAllowedAspectRatio(Ratio $ratio)
+    protected function addAllowedAspectRatio(Ratio $ratio): void
     {
         if (isset($this->allowedAspectRatios[$ratio->getId()])) {
             throw new InvalidConfigurationException(sprintf('Ratio with with duplicate ID (%s) is configured. Make sure all configured ratios have different ids.', $ratio->getId()), 1485274618);
@@ -188,10 +166,7 @@ class CropVariant
         $this->allowedAspectRatios[$ratio->getId()] = $ratio;
     }
 
-    /**
-     * @throws InvalidConfigurationException
-     */
-    protected function setCoverAreas(Area ...$areas)
+    protected function setCoverAreas(Area ...$areas): void
     {
         $this->coverAreas = [];
         foreach ($areas as $area) {
@@ -199,11 +174,18 @@ class CropVariant
         }
     }
 
-    /**
-     * @throws InvalidConfigurationException
-     */
-    protected function addCoverArea(Area $area)
+    protected function addCoverArea(Area $area): void
     {
         $this->coverAreas[] = $area;
+    }
+
+    public function isExcludeFromSync(): bool
+    {
+        return $this->excludeFromSync;
+    }
+
+    public function setExcludeFromSync(bool $excludeFromSync): void
+    {
+        $this->excludeFromSync = $excludeFromSync;
     }
 }

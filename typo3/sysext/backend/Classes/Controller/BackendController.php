@@ -21,14 +21,19 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Backend\Bookmark\BookmarkService;
 use TYPO3\CMS\Backend\Controller\Event\AfterBackendPageRenderEvent;
-use TYPO3\CMS\Backend\Module\MenuModule;
+use TYPO3\CMS\Backend\Controller\Event\BeforeBackendPageRenderEvent;
+use TYPO3\CMS\Backend\Date\DateConfigurationFactory;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\Router;
 use TYPO3\CMS\Backend\Routing\RouteRedirect;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Sidebar\Sidebar;
+use TYPO3\CMS\Backend\Sidebar\SidebarComponentContext;
+use TYPO3\CMS\Backend\Sidebar\SidebarFactory;
 use TYPO3\CMS\Backend\Template\PageRendererBackendSetupTrait;
 use TYPO3\CMS\Backend\Toolbar\RequestAwareToolbarItemInterface;
 use TYPO3\CMS\Backend\Toolbar\ToolbarItemInterface;
@@ -38,7 +43,6 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Information\Typo3Version;
-use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
@@ -46,11 +50,14 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
+use TYPO3\CMS\Core\SystemResource\Type\SystemResourceInterface;
+use TYPO3\CMS\Core\SystemResource\Type\UriResource;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Type\File\ImageInfo;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\View\ViewInterface;
 
 /**
@@ -58,29 +65,27 @@ use TYPO3\CMS\Core\View\ViewInterface;
  * This is the backend outer main frame with topbar and module menu.
  */
 #[AsController]
-class BackendController
+readonly class BackendController
 {
     use PageRendererBackendSetupTrait;
 
-    /**
-     * @var ModuleInterface[]
-     */
-    protected array $modules;
-
     public function __construct(
-        protected readonly Typo3Version $typo3Version,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly PageRenderer $pageRenderer,
-        protected readonly ModuleProvider $moduleProvider,
-        protected readonly ToolbarItemsRegistry $toolbarItemsRegistry,
-        protected readonly ExtensionConfiguration $extensionConfiguration,
-        protected readonly BackendViewFactory $viewFactory,
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly FlashMessageService $flashMessageService,
-        protected readonly BackendEntryPointResolver $backendEntryPointResolver,
-    ) {
-        $this->modules = $this->moduleProvider->getModulesForModuleMenu($this->getBackendUser());
-    }
+        protected Typo3Version $typo3Version,
+        protected UriBuilder $uriBuilder,
+        protected PageRenderer $pageRenderer,
+        protected ModuleProvider $moduleProvider,
+        protected ToolbarItemsRegistry $toolbarItemsRegistry,
+        protected SidebarFactory $sidebarFactory,
+        protected ExtensionConfiguration $extensionConfiguration,
+        protected BackendViewFactory $viewFactory,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected FlashMessageService $flashMessageService,
+        protected BackendEntryPointResolver $backendEntryPointResolver,
+        protected BookmarkService $bookmarkService,
+        protected DateConfigurationFactory $dateConfigurationFactory,
+        protected SystemResourceFactory $systemResourceFactory,
+        protected SystemResourcePublisherInterface $systemResourcePublisher,
+    ) {}
 
     /**
      * Main function generating the BE scaffolding.
@@ -112,6 +117,9 @@ class BackendController
             JavaScriptModuleInstruction::create('@typo3/backend/broadcast-service.js')->invoke('listen')
         );
         $javaScriptRenderer->addJavaScriptModuleInstruction(
+            JavaScriptModuleInstruction::create('@typo3/backend/hotkeys/negotiator.js')
+        );
+        $javaScriptRenderer->addJavaScriptModuleInstruction(
             JavaScriptModuleInstruction::create('@typo3/backend/hotkeys.js')
         );
         $javaScriptRenderer->addJavaScriptModuleInstruction(
@@ -122,9 +130,13 @@ class BackendController
             JavaScriptModuleInstruction::create('@typo3/backend/storage/persistent.js')
                 ->invoke('load', $backendUser->uc)
         );
-        $javaScriptRenderer->addJavaScriptModuleInstruction(
-            JavaScriptModuleInstruction::create('@typo3/backend/key-bindings.js')
-        );
+        // Initialize bookmark store with server data if bookmarks are enabled
+        if ($this->bookmarkService->isEnabled()) {
+            $javaScriptRenderer->addJavaScriptModuleInstruction(
+                JavaScriptModuleInstruction::create('@typo3/backend/bookmark/bookmark-store.js')
+                    ->invoke('initialize', $this->bookmarkService->getBookmarks(), $this->bookmarkService->getGroups())
+            );
+        }
         $javaScriptRenderer->addGlobalAssignment([
             'TYPO3' => [
                 'configuration' => [
@@ -133,8 +145,7 @@ class BackendController
                 ],
             ],
         ]);
-        $javaScriptRenderer->includeTaggedImports('backend.module');
-        $javaScriptRenderer->includeTaggedImports('backend.navigation-component');
+        $javaScriptRenderer->includeAllImports();
 
         // @todo: This loads a ton of labels into JS. This should be reviewed what is really needed.
         //        This could happen when the localization API gets an overhaul.
@@ -143,7 +154,6 @@ class BackendController
         $pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_layout.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf');
         $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf');
-        $pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/wizard.xlf');
 
         // @todo: We can not put this into the template since PageRendererViewHelper does not deal with namespace in addInlineSettings argument
         $pageRenderer->addInlineSetting('ShowItem', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('show_item'));
@@ -156,33 +166,34 @@ class BackendController
         $pageRenderer->addInlineSetting('Clipboard', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('clipboard_process'));
         $pageRenderer->addInlineSetting('Wizards', 'elementBrowserUrl', (string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser'));
 
-        // Needed for FormEngine manipulation (date picker)
-        $formatter = new DateFormatter();
-        $dateFormat = [];
-        $dateFormat[0] = $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] ?? 'Y-m-d');
-        $dateFormat[1] = $dateFormat[0] . ' ' . $formatter->convertPhpFormatToLuxon($GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'] ?? 'H:i');
-        $pageRenderer->addInlineSetting('DateTimePicker', 'DateFormat', $dateFormat);
+        // Needed for FormEngine manipulation (date picker) and DateTime components
+        $pageRenderer->addInlineSetting(null, 'DateConfiguration', $this->dateConfigurationFactory->getConfiguration('javascript'));
 
         $typo3Version = 'TYPO3 CMS ' . $this->typo3Version->getVersion();
         $title = $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ? $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] . ' [' . $typo3Version . ']' : $typo3Version;
         $pageRenderer->setTitle($title);
 
+        $sidebarContext = new SidebarComponentContext($request, $backendUser);
+        $sidebar = $this->sidebarFactory->create($sidebarContext);
         $view = $this->viewFactory->create($request);
-        $this->assignTopbarDetailsToView($request, $view);
+        $this->assignTopbarDetailsToView($request, $view, $sidebar);
+        $startupModule = $this->getStartupModule($request);
+        $noModuleAccess = $startupModule[0] === null && empty($this->moduleProvider->getModulesForModuleMenu($backendUser));
         $view->assignMultiple([
-            'modules' => $this->modules,
-            'modulesCollapsed' => $this->getCollapseStateOfMenu(),
-            'modulesInformation' => GeneralUtility::jsonEncodeForHtmlAttribute($this->getModulesInformation(), false),
-            'startupModule' => $this->getStartupModule($request),
+            'startupModule' => $startupModule,
+            'noModuleAccess' => $noModuleAccess,
+            'workspaceAccessDenied' => $noModuleAccess && $backendUser->workspace === -99,
             'entryPoint' => $this->backendEntryPointResolver->getPathFromRequest($request),
             'stateTracker' => (string)$this->uriBuilder->buildUriFromRoute('state-tracker'),
             'sitename' => $title,
             'sitenameFirstInBackendTitle' => ($backendUser->uc['backendTitleFormat'] ?? '') === 'sitenameFirst',
+            'sidebar' => $sidebar->render(),
         ]);
+        $this->eventDispatcher->dispatch(new BeforeBackendPageRenderEvent($view, $javaScriptRenderer, $pageRenderer));
         $content = $view->render('Backend/Main');
         $content = $this->eventDispatcher->dispatch(new AfterBackendPageRenderEvent($content, $view))->getContent();
         $pageRenderer->addBodyContent('<body>' . $content);
-        return $pageRenderer->renderResponse();
+        return $pageRenderer->renderResponse($request);
     }
 
     /**
@@ -192,12 +203,9 @@ class BackendController
      */
     public function getModuleMenu(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->viewFactory->create($request);
-        $view->assignMultiple([
-            'modulesInformation' => GeneralUtility::jsonEncodeForHtmlAttribute($this->getModulesInformation(), false),
-            'modules' => $this->modules,
-        ]);
-        return new JsonResponse(['menu' => $view->render('Backend/ModuleMenu')]);
+        $sidebarContext = new SidebarComponentContext($request, $this->getBackendUser());
+        $component = $this->sidebarFactory->create($sidebarContext)->getComponentByIdentifier('module-menu');
+        return new JsonResponse(['menu' => $component?->getResult($sidebarContext)->html]);
     }
 
     /**
@@ -206,50 +214,58 @@ class BackendController
      */
     public function getTopbar(ServerRequestInterface $request): ResponseInterface
     {
+        $sidebar = $this->sidebarFactory->create(new SidebarComponentContext($request, $this->getBackendUser()));
         $view = $this->viewFactory->create($request);
-        $this->assignTopbarDetailsToView($request, $view);
+        $this->assignTopbarDetailsToView($request, $view, $sidebar);
         return new JsonResponse(['topbar' => $view->render('Backend/Topbar')]);
     }
 
     /**
      * Renders the topbar, containing the backend logo, sitename etc.
      */
-    protected function assignTopbarDetailsToView(ServerRequestInterface $request, ViewInterface $view): void
+    protected function assignTopbarDetailsToView(ServerRequestInterface $request, ViewInterface $view, Sidebar $sidebar): void
     {
         // Extension Configuration to find the TYPO3 logo in the left corner
         $extConf = $this->extensionConfiguration->get('backend');
-        $logoPath = '';
+        $logoResource = null;
+        $logoWidth = 22;
+        $logoHeight = 22;
         if (!empty($extConf['backendLogo'])) {
-            $customBackendLogo = GeneralUtility::getFileAbsFileName(ltrim($extConf['backendLogo'], '/'));
-            if (!empty($customBackendLogo)) {
-                $logoPath = $customBackendLogo;
+            $configuredLogo = ltrim($extConf['backendLogo'], '/');
+            try {
+                $logoResource = $this->systemResourceFactory->createPublicResource($configuredLogo);
+                if ($logoResource instanceof SystemResourceInterface) {
+                    $dimensions = $logoResource->getImageDimension();
+                    $logoWidth = $dimensions->getWidth();
+                    $logoHeight = $dimensions->getHeight();
+                    // High-resolution?
+                    if (str_contains($configuredLogo, '@2x.')) {
+                        $logoWidth /= 2;
+                        $logoHeight /= 2;
+                    }
+                }
+                if ($logoResource instanceof UriResource) {
+                    // Despite being a valid resource, external URLs are not allowed here
+                    // because it is not reasonably possible to determine the width and height
+                    // which is required for this asset
+                    $logoResource = null;
+                }
+            } catch (SystemResourceException) {
+                // Invalid, missing, unreadable logo or non image file configured, the default logo is used below.
+                $logoResource = null;
             }
         }
         // if no custom logo was set or the path is invalid, use the original one
-        if (empty($logoPath) || !file_exists($logoPath)) {
-            $logoPath = GeneralUtility::getFileAbsFileName('EXT:backend/Resources/Public/Images/typo3_logo_orange.svg');
-            $logoWidth = 22;
-            $logoHeight = 22;
-        } else {
-            // set width/height for custom logo
-            $imageInfo = GeneralUtility::makeInstance(ImageInfo::class, $logoPath);
-            $logoWidth = $imageInfo->getWidth() ?: 22;
-            $logoHeight = $imageInfo->getHeight() ?: 22;
-
-            // High-resolution?
-            if (str_contains($logoPath, '@2x.')) {
-                $logoWidth /= 2;
-                $logoHeight /= 2;
-            }
+        if ($logoResource === null) {
+            $logoResource = $this->systemResourceFactory->createPublicResource('EXT:backend/Resources/Public/Images/typo3_logo_orange.svg');
         }
-        $view->assign('hasModules', (bool)$this->modules);
-        $view->assign('logoUrl', PathUtility::getAbsoluteWebPath($logoPath));
+        $view->assign('sidebar', $sidebar);
+        $view->assign('logoUrl', (string)$this->systemResourcePublisher->generateUri($logoResource, $request));
         $view->assign('logoWidth', $logoWidth);
         $view->assign('logoHeight', $logoHeight);
         $view->assign('applicationVersion', $this->typo3Version->getVersion());
         $view->assign('siteName', $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename']);
         $view->assign('toolbarItems', $this->getToolbarItems($request));
-        $view->assign('isInWorkspace', $this->getBackendUser()->workspace > 0);
         $view->assign('isImpersonated', $this->getBackendUser()->getOriginalUserIdWhenInSwitchUserMode() !== null);
     }
 
@@ -271,6 +287,8 @@ class BackendController
 
     /**
      * Sets the startup module from either "redirect" GET parameters or user configuration.
+     *
+     * @return array{?string, ?string}
      */
     protected function getStartupModule(ServerRequestInterface $request): array
     {
@@ -349,35 +367,6 @@ class BackendController
             }
         }
         return [null, null];
-    }
-
-    /**
-     * Returns information for each registered and allowed module. Used by various JS components.
-     */
-    protected function getModulesInformation(): array
-    {
-        $modules = [];
-        foreach ($this->moduleProvider->getModules(user: $this->getBackendUser(), grouped: false) as $identifier => $module) {
-            $menuModule = new MenuModule(clone $module);
-            $modules[$identifier] = [
-                'name' => $identifier,
-                'aliases' => $module->getAliases(),
-                'component' => $menuModule->getComponent(),
-                'navigationComponentId' => $menuModule->getNavigationComponent(),
-                'parent' => $menuModule->hasParentModule() ? $menuModule->getParentIdentifier() : '',
-                'link' => $menuModule->getShouldBeLinked() ? (string)$this->uriBuilder->buildUriFromRoute($module->getIdentifier()) : '',
-            ];
-        }
-
-        return $modules;
-    }
-
-    protected function getCollapseStateOfMenu(): bool
-    {
-        $backendUser = $this->getBackendUser();
-        $uc = json_decode((string)json_encode($backendUser->uc), true);
-        $collapseState = $uc['BackendComponents']['States']['typo3-module-menu']['collapsed'] ?? false;
-        return $collapseState === true || $collapseState === 'true';
     }
 
     protected function enqueueRedirectMessage(ModuleInterface $requestedModule, ModuleInterface $redirectedModule): void

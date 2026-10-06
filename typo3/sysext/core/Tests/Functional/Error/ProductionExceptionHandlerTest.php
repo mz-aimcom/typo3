@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Error;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -24,11 +25,14 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\LoggerTrait;
 use TYPO3\CMS\Core\Error\Http\StatusException;
 use TYPO3\CMS\Core\Error\ProductionExceptionHandler;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ProductionExceptionHandlerTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     private ProductionExceptionHandler&MockObject $subject;
 
     protected function setUp(): void
@@ -69,7 +73,7 @@ final class ProductionExceptionHandlerTest extends FunctionalTestCase
     public function echoExceptionWebEscapesExceptionTitle(): void
     {
         $title = '<b>b</b><script>alert(1);</script>';
-        $exception = $this->createMock(StatusException::class);
+        $exception = self::createStub(StatusException::class);
         $exception->method('getTitle')->willReturn($title);
         ob_start();
         $this->subject->echoExceptionWeb($exception);
@@ -114,7 +118,7 @@ final class ProductionExceptionHandlerTest extends FunctionalTestCase
     public function logEntriesContainAnonymousTokens(string $originalUrl, string $expectedUrl): void
     {
         $subject = new ProductionExceptionHandler();
-        $logger = new class () implements LoggerInterface {
+        $logger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -128,8 +132,13 @@ final class ProductionExceptionHandlerTest extends FunctionalTestCase
         };
         $subject->setLogger($logger);
 
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_URL', $originalUrl);
         $GLOBALS['BE_USER'] = null;
+
+        $urlParts = parse_url($originalUrl);
+        $_SERVER['HTTP_HOST'] = $urlParts['host'] ?? 'localhost';
+        $_SERVER['REQUEST_URI'] = ($urlParts['path'] ?? '/') . (isset($urlParts['query']) ? '?' . $urlParts['query'] : '');
+        $_SERVER['SCRIPT_NAME'] = $urlParts['path'] ?? '/';
+        $_SERVER['HTTPS'] = ($urlParts['scheme'] ?? 'http') === 'https' ? 'on' : '';
 
         $exception = new \Exception('message', 1476049365);
         ob_start();
@@ -139,5 +148,59 @@ final class ProductionExceptionHandlerTest extends FunctionalTestCase
 
         self::assertEquals('critical', $logger->records[0]['level']);
         self::assertEquals($expectedUrl, $logger->records[0]['context']['request_url']);
+    }
+
+    #[Test]
+    public function echoExceptionWebDisplays500ForGenericException(): void
+    {
+        ob_start();
+        $this->subject->echoExceptionWeb(new \Exception('test', 1234567890));
+        $output = ob_get_clean();
+        self::assertMatchesRegularExpression('/class="typo3-error-page-statuscode">\s*500\s*</', $output);
+    }
+
+    #[Test]
+    public function echoExceptionWebDisplays500ForInternalServerErrorException(): void
+    {
+        $exception = new StatusException(
+            [HttpUtility::HTTP_STATUS_500],
+            'Internal Server Error',
+            'Internal Server Error (500)',
+            1234567891
+        );
+        ob_start();
+        $this->subject->echoExceptionWeb($exception);
+        $output = ob_get_clean();
+        self::assertMatchesRegularExpression('/class="typo3-error-page-statuscode">\s*500\s*</', $output);
+    }
+
+    #[Test]
+    public function echoExceptionWebDisplays404ForNotFoundException(): void
+    {
+        $exception = new StatusException(
+            [HttpUtility::HTTP_STATUS_404],
+            'Page Not Found',
+            'Page Not Found (404)',
+            1234567892
+        );
+        ob_start();
+        $this->subject->echoExceptionWeb($exception);
+        $output = ob_get_clean();
+        self::assertMatchesRegularExpression('/class="typo3-error-page-statuscode">\s*404\s*</', $output);
+    }
+
+    #[Test]
+    public function echoExceptionWebDisplays403ForForbiddenException(): void
+    {
+        $exception = new StatusException(
+            [HttpUtility::HTTP_STATUS_403],
+            'Forbidden',
+            'Forbidden (403)',
+            1234567893
+        );
+        ob_start();
+        $this->subject->echoExceptionWeb($exception);
+        $output = ob_get_clean();
+        self::assertMatchesRegularExpression('/class="typo3-error-page-statuscode">\s*403\s*</', $output);
     }
 }

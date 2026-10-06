@@ -29,8 +29,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class MfaAjaxControllerTest extends FunctionalTestCase
 {
-    protected MfaAjaxController $subject;
-    protected ServerRequest $request;
+    private MfaAjaxController $subject;
+    private ServerRequest $request;
 
     protected function setUp(): void
     {
@@ -41,7 +41,7 @@ final class MfaAjaxControllerTest extends FunctionalTestCase
 
         $this->subject = new MfaAjaxController($this->get(MfaProviderRegistry::class));
 
-        $this->request = (new ServerRequest())
+        $this->request = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
     }
 
@@ -149,7 +149,7 @@ final class MfaAjaxControllerTest extends FunctionalTestCase
         ];
     }
 
-    protected function parseResponse(ResponseInterface $response): array
+    private function parseResponse(ResponseInterface $response): array
     {
         $response = json_decode($response->getBody()->getContents(), true);
 

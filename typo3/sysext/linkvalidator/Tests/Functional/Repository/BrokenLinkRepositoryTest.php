@@ -26,7 +26,7 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class BrokenLinkRepositoryTest extends FunctionalTestCase
 {
-    private const beusers = [
+    private const array beusers = [
         'admin' => [
             'fixture' => __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/be_users.csv',
             'uid' => 1,
@@ -71,8 +71,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
 
     public static function getLinkCountsForPagesAndLinktypesReturnsCorrectCountForUserDataProvider(): ?\Generator
     {
-        yield 'Admin user should see all broken links' =>
-        [
+        yield 'Admin user should see all broken links'
+        => [
             self::beusers['admin'], // backend user
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv', // input file for DB
             [1], // pids
@@ -83,8 +83,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 'total' => 4,
             ],
         ];
-        yield 'User with no group should see none' =>
-        [
+        yield 'User with no group should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv',
             [1],
@@ -92,8 +92,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 'total' => 0,
             ],
         ];
-        yield 'User with permission to pages but not to specific tables should see none' =>
-        [
+        yield 'User with permission to pages but not to specific tables should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_2.csv',
             [1],
@@ -101,8 +101,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 'total' => 0,
             ],
         ];
-        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links' =>
-        [
+        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links'
+        => [
             self::beusers['group 1'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_3.csv',
             [1],
@@ -113,8 +113,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 'total' => 3,
             ],
         ];
-        yield 'User with permission to pages, specific tables and exclude fields should see all broken links' =>
-        [
+        yield 'User with permission to pages, specific tables and exclude fields should see all broken links'
+        => [
             self::beusers['group 2'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_4.csv',
             [1],
@@ -125,8 +125,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 'total' => 4,
             ],
         ];
-        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records' =>
-        [
+        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records'
+        => [
             self::beusers['group 6'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_6_explicit_allow.csv',
             [1],
@@ -136,8 +136,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
             ],
         ];
 
-        yield 'User has write permission only for default language and should see only 1 of 2 broken links' =>
-        [
+        yield 'User has write permission only for default language and should see only 1 of 2 broken links'
+        => [
             self::beusers['group 3'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_5.csv',
             [1],
@@ -178,7 +178,7 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
         $linkAnalyzer = $this->get(LinkAnalyzer::class);
         $linkAnalyzer->init($searchFields, $pidList, $tsConfig);
         $linkAnalyzer->getLinkStatistics($linkTypes);
-        $result = (new BrokenLinkRepository())->getNumberOfBrokenLinksForRecordsOnPages(
+        $result = new BrokenLinkRepository()->getNumberOfBrokenLinksForRecordsOnPages(
             $pidList,
             $searchFields
         );
@@ -188,52 +188,52 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
 
     public static function getAllBrokenLinksForPagesReturnsCorrectCountForUserDataProvider(): ?\Generator
     {
-        yield 'Admin user should see all broken links' =>
-        [
+        yield 'Admin user should see all broken links'
+        => [
             self::beusers['admin'], // backend user
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv', // input file for DB
             [1], // pids
             4, // count
         ];
 
-        yield 'User with no group should see none' =>
-        [
+        yield 'User with no group should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv',
             [1],
             0,
         ];
-        yield 'User with permission to pages but not to specific tables should see none' =>
-        [
+        yield 'User with permission to pages but not to specific tables should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_2.csv',
             [1],
             0,
         ];
-        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links' =>
-        [
+        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links'
+        => [
             self::beusers['group 1'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_3.csv',
             [1],
             3,
         ];
-        yield 'User with permission to pages, specific tables and exclude fields should see all broken links' =>
-        [
+        yield 'User with permission to pages, specific tables and exclude fields should see all broken links'
+        => [
             self::beusers['group 2'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_4.csv',
             [1],
             4,
         ];
-        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records' =>
-        [
+        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records'
+        => [
             self::beusers['group 6'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_6_explicit_allow.csv',
             [1],
             1,
         ];
 
-        yield 'User has write permission only for default language and should see only 1 of 2 broken links' =>
-        [
+        yield 'User has write permission only for default language and should see only 1 of 2 broken links'
+        => [
             self::beusers['group 3'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_5.csv',
             [1],
@@ -272,7 +272,7 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
         $linkAnalyzer->init($searchFields, $pidList, $tsConfig);
         $linkAnalyzer->getLinkStatistics($linkTypes);
 
-        $results = (new BrokenLinkRepository())->getAllBrokenLinksForPages(
+        $results = new BrokenLinkRepository()->getAllBrokenLinksForPages(
             $pidList,
             $linkTypes,
             $searchFields
@@ -283,8 +283,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
 
     public static function getAllBrokenLinksForPagesReturnsCorrectValuesForUserDataProvider(): ?\Generator
     {
-        yield 'Admin user should see all broken links' =>
-        [
+        yield 'Admin user should see all broken links'
+        => [
             self::beusers['admin'], // backend user
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv', // input file for DB
             [1], // pids
@@ -344,22 +344,22 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
             ],
         ];
 
-        yield 'User with no group should see none' =>
-        [
+        yield 'User with no group should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input.csv',
             [1],
             [],
         ];
-        yield 'User with permission to pages but not to specific tables should see none' =>
-        [
+        yield 'User with permission to pages but not to specific tables should see none'
+        => [
             self::beusers['no group'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_2.csv',
             [1],
             [],
         ];
-        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links' =>
-        [
+        yield 'User with permission to pages and to specific tables, but no exclude fields should see 3 of 4 broken links'
+        => [
             self::beusers['group 1'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_3.csv',
             [1],
@@ -405,8 +405,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 ],
             ],
         ];
-        yield 'User with permission to pages, specific tables and exclude fields should see all broken links' =>
-        [
+        yield 'User with permission to pages, specific tables and exclude fields should see all broken links'
+        => [
             self::beusers['group 2'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_4.csv',
             [1],
@@ -465,8 +465,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
                 ],
             ],
         ];
-        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records' =>
-        [
+        yield 'User has write permission only for Ctype textmedia and text, should see only broken links from textmedia records'
+        => [
             self::beusers['group 6'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_6_explicit_allow.csv',
             [1],
@@ -487,8 +487,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
             ],
         ];
 
-        yield 'User has write permission only for default language and should see only 1 of 2 broken links' =>
-        [
+        yield 'User has write permission only for default language and should see only 1 of 2 broken links'
+        => [
             self::beusers['group 3'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_permissions_user_5.csv',
             [1],
@@ -541,7 +541,7 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
         $linkAnalyzer->init($searchFields, $pidList, $tsConfig);
         $linkAnalyzer->getLinkStatistics($linkTypes);
 
-        $results = (new BrokenLinkRepository())->getAllBrokenLinksForPages(
+        $results = new BrokenLinkRepository()->getAllBrokenLinksForPages(
             $pidList,
             $linkTypes,
             $searchFields
@@ -557,8 +557,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
 
     public static function getAllBrokenLinksForPagesRespectsGivenLanguagesDataProvider(): ?\Generator
     {
-        yield 'All languages should be returend' =>
-        [
+        yield 'All languages should be returend'
+        => [
             self::beusers['admin'], // backend user
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_languages.csv', // input file for DB
             [1, 2, 3], // pids
@@ -603,8 +603,8 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
             ],
         ];
 
-        yield 'Only defined languages should be returend' =>
-        [
+        yield 'Only defined languages should be returend'
+        => [
             self::beusers['admin'],
             __DIR__ . '/Fixtures/BrokenLinkRepositoryTest/input_languages.csv',
             [1, 2, 3],
@@ -668,7 +668,7 @@ final class BrokenLinkRepositoryTest extends FunctionalTestCase
         $linkAnalyzer->init($searchFields, $pidList, $tsConfig);
         $linkAnalyzer->getLinkStatistics($linkTypes);
 
-        $results = (new BrokenLinkRepository())->getAllBrokenLinksForPages(
+        $results = new BrokenLinkRepository()->getAllBrokenLinksForPages(
             $pidList,
             $linkTypes,
             $searchFields,

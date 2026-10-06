@@ -15,14 +15,17 @@
 
 namespace TYPO3\CMS\Scheduler\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use TYPO3\CMS\Core\Attribute\AsNonSchedulableCommand;
 use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Scheduler\Domain\Repository\SchedulerTaskRepository;
+use TYPO3\CMS\Scheduler\Exception\InvalidTaskException;
 use TYPO3\CMS\Scheduler\Scheduler;
 use TYPO3\CMS\Scheduler\Service\TaskService;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
@@ -33,6 +36,8 @@ use TYPO3\CMS\Scheduler\Validation\Validator\TaskValidator;
  *
  * @internal Specific command implementation, not part of TYPO3 API.
  */
+#[AsCommand('scheduler:run', 'Starts the TYPO3 Scheduler from the command line.')]
+#[AsNonSchedulableCommand]
 class SchedulerCommand extends Command
 {
     /**
@@ -70,7 +75,7 @@ class SchedulerCommand extends Command
     /**
      * Configure the command by defining the name, options and arguments
      */
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->setHelp('If no parameter is given, the scheduler executes any tasks that are overdue to run.
@@ -196,7 +201,7 @@ Call it like this: typo3/sysext/core/bin/typo3 scheduler:run --task=13 -f')
                     // The exception message has been recorded to the database anyway
                     continue;
                 }
-            } catch (\UnexpectedValueException $e) {
+            } catch (InvalidTaskException|\UnexpectedValueException $e) {
                 $this->io->getErrorStyle()->error($e->getMessage());
                 $hasError = true;
                 continue;
@@ -213,6 +218,7 @@ Call it like this: typo3/sysext/core/bin/typo3 scheduler:run --task=13 -f')
      *
      * Without the --task option we ask the scheduler for the next task with pending execution.
      *
+     * @throws InvalidTaskException
      * @throws \UnexpectedValueException When no task is found by the provided UID or the task is not marked for execution.
      */
     protected function fetchNextTask(): ?AbstractTask
@@ -227,7 +233,7 @@ Call it like this: typo3/sysext/core/bin/typo3 scheduler:run --task=13 -f')
 
         $taskUid = (int)array_shift($this->overwrittenTaskList);
         $task = $this->getTask($taskUid);
-        if (!(new TaskValidator())->isValid($task)) {
+        if (!new TaskValidator()->isValid($task)) {
             throw new \UnexpectedValueException(
                 sprintf('The task #%d is not scheduled for execution or does not exist.', $taskUid),
                 1547675557

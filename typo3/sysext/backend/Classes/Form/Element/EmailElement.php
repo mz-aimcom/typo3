@@ -28,17 +28,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class EmailElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -108,7 +97,7 @@ class EmailElement extends AbstractFormElement
         // Get filtered eval list, while always adding "trim"
         $evalList = array_merge(array_filter(
             GeneralUtility::trimExplode(',', $config['eval'] ?? '', true),
-            static fn(string $value): bool => in_array($value, ['unique', 'uniqueInPid'], true)
+            static fn(string $value): bool => in_array($value, ['unique', 'uniqueInPid', 'lower'], true)
         ), ['trim']);
 
         if ($config['nullable'] ?? false) {
@@ -119,11 +108,6 @@ class EmailElement extends AbstractFormElement
             'value' => '',
             'id' => $fieldId,
             'maxlength' => '254',
-            'class' => implode(' ', [
-                'form-control',
-                'form-control-clearable',
-                't3js-clearable',
-            ]),
             'data-formengine-validation-rules' => $this->getValidationDataAsJsonString($config),
             'data-formengine-input-params' => (string)json_encode([
                 'field' => $itemName,
@@ -139,31 +123,6 @@ class EmailElement extends AbstractFormElement
             $attributes['autocomplete'] = empty($config['autocomplete']) ? 'new-' . $fieldName : 'on';
         }
 
-        $valuePickerHtml = [];
-        if (is_array($config['valuePicker']['items'] ?? false)) {
-            $valuePickerConfiguration = [
-                'mode' => $config['valuePicker']['mode'] ?? 'replace',
-                'linked-field' => '[data-formengine-input-name="' . $itemName . '"]',
-            ];
-            $valuePickerAttributes = array_merge(
-                [
-                    'class' => 'form-select form-control-adapt',
-                ],
-                $this->getOnFieldChangeAttrs('change', $parameterArray['fieldChangeFunc'] ?? [])
-            );
-
-            $valuePickerHtml[] = '<typo3-formengine-valuepicker ' . GeneralUtility::implodeAttributes($valuePickerConfiguration, true) . '>';
-            $valuePickerHtml[] = '<select ' . GeneralUtility::implodeAttributes($valuePickerAttributes, true) . '>';
-            $valuePickerHtml[] = '<option></option>';
-            foreach ($config['valuePicker']['items'] as $item) {
-                $valuePickerHtml[] = '<option value="' . htmlspecialchars((string)$item['value']) . '">' . htmlspecialchars($languageService->sL($item['label'])) . '</option>';
-            }
-            $valuePickerHtml[] = '</select>';
-            $valuePickerHtml[] = '</typo3-formengine-valuepicker>';
-
-            $resultArray['javaScriptModules'][] = JavaScriptModuleInstruction::create('@typo3/backend/form-engine/field-wizard/value-picker.js');
-        }
-
         $fieldControlResult = $this->renderFieldControl();
         $fieldControlHtml = $fieldControlResult['html'];
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldControlResult, false);
@@ -176,13 +135,30 @@ class EmailElement extends AbstractFormElement
         $mainFieldHtml[] = '<div class="form-control-wrap" style="max-width: ' . $width . 'px">';
         $mainFieldHtml[] =  '<div class="form-wizards-wrap">';
         $mainFieldHtml[] =      '<div class="form-wizards-item-element">';
-        $mainFieldHtml[] =          '<input type="email" ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
+
+        if (is_array($config['valuePicker']['items'] ?? false)) {
+            $attributes['class'] = 'form-control';
+            $mainFieldHtml[] = '<typo3-backend-combobox>';
+            $mainFieldHtml[] = '<input type="email" ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
+            foreach ($config['valuePicker']['items'] as $item) {
+                $mainFieldHtml[] = '<typo3-backend-combobox-choice value="' . htmlspecialchars($item['value']) . '">' . htmlspecialchars($languageService->sL($item['label'])) . '</typo3-backend-combobox-choice>';
+            }
+            $mainFieldHtml[] = '</typo3-backend-combobox>';
+            $resultArray['javaScriptModules'][] = JavaScriptModuleInstruction::create('@typo3/backend/element/combobox-element.js');
+        } else {
+            $attributes['class'] = implode(' ', [
+                'form-control',
+                'form-control-clearable',
+                't3js-clearable',
+            ]);
+            $mainFieldHtml[] = '<input type="email" ' . GeneralUtility::implodeAttributes($attributes, true) . ' />';
+        }
+
         $mainFieldHtml[] =          '<input type="hidden" name="' . $itemName . '" value="' . htmlspecialchars((string)$itemValue) . '" />';
         $mainFieldHtml[] =      '</div>';
-        if (!empty($valuePickerHtml) || !empty($fieldControlHtml)) {
+        if (!empty($fieldControlHtml)) {
             $mainFieldHtml[] =      '<div class="form-wizards-item-aside form-wizards-item-aside--field-control">';
             $mainFieldHtml[] =          '<div class="btn-group">';
-            $mainFieldHtml[] =              implode(LF, $valuePickerHtml);
             $mainFieldHtml[] =              $fieldControlHtml;
             $mainFieldHtml[] =          '</div>';
             $mainFieldHtml[] =      '</div>';

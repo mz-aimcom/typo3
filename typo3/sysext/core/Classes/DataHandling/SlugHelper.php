@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\DataHandling;
 
+use TYPO3\CMS\Backend\Domain\Repository\Localization\LocalizationRepository;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Database\Connection;
@@ -29,6 +30,7 @@ use TYPO3\CMS\Core\DataHandling\Model\RecordStateFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Slug\SlugNormalizer;
@@ -145,7 +147,7 @@ class SlugHelper
             if ($schema->isLanguageAware()) {
                 $languageFieldName = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
             }
-            $languageId = (int)($recordData[$languageFieldName] ?? 0);
+            $languageId = (int)($recordData[$languageFieldName ?? ''] ?? 0);
             $parentPageRecord = $this->resolveParentPageRecord($pid, $languageId);
             if (is_array($parentPageRecord)) {
                 // If the parent page has a slug, use that instead of "re-generating" the slug from the parents' page title
@@ -206,7 +208,20 @@ class SlugHelper
             $slug = $prefix . $slug;
         }
 
-        // Hook for alternative ways of filling/modifying the slug data
+        return $this->sanitize($this->applyPostModifiers($slug, $recordData, $pid, $prefix));
+    }
+
+    /**
+     * Applies the "postModifiers" of the field configuration, the hook for alternative ways of
+     * filling/modifying the slug data.
+     *
+     * Slugs are not always built by the generator alone: EXT:redirects rebuilds the slugs of sub
+     * pages when the slug of a parent page changes, and has to apply the modifiers as well.
+     *
+     * @internal Only to be used by TYPO3 Core, may change without further notice.
+     */
+    public function applyPostModifiers(string $slug, array $recordData, int $pid, string $prefix = ''): string
+    {
         foreach ($this->configuration['generatorOptions']['postModifiers'] ?? [] as $funcName) {
             $hookParameters = [
                 'slug' => $slug,
@@ -220,7 +235,7 @@ class SlugHelper
             ];
             $slug = GeneralUtility::callUserFunction($funcName, $hookParameters, $this);
         }
-        return $this->sanitize($slug);
+        return $slug;
     }
 
     /**
@@ -379,7 +394,7 @@ class SlugHelper
      */
     public function buildSlugForUniqueInSite(string $slug, RecordState $state): string
     {
-        return $this->buildSlug($slug, $state, [$this, 'isUniqueInSite']);
+        return $this->buildSlug($slug, $state, $this->isUniqueInSite(...));
     }
 
     /**
@@ -389,7 +404,7 @@ class SlugHelper
      */
     public function buildSlugForUniqueInPid(string $slug, RecordState $state): string
     {
-        return $this->buildSlug($slug, $state, [$this, 'isUniqueInPid']);
+        return $this->buildSlug($slug, $state, $this->isUniqueInPid(...));
     }
 
     /**
@@ -400,7 +415,7 @@ class SlugHelper
      */
     public function buildSlugForUniqueInTable(string $slug, RecordState $state): string
     {
-        return $this->buildSlug($slug, $state, [$this, 'isUniqueInTable']);
+        return $this->buildSlug($slug, $state, $this->isUniqueInTable(...));
     }
 
     protected function createPreparedQueryBuilder(): QueryBuilder
@@ -455,7 +470,7 @@ class SlugHelper
         if (!$schema->isLanguageAware()) {
             return;
         }
-        if ($languageId === -1) {
+        if ($languageId === LanguageMarker::ALL_LANGUAGES) {
             // if language is -1 "all languages" we need to check against all languages, thus not adding
             // any kind of language constraints.
             return;
@@ -471,7 +486,7 @@ class SlugHelper
                 ),
                 $queryBuilder->expr()->eq(
                     $languageFieldName,
-                    $queryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
+                    $queryBuilder->createNamedParameter(LanguageMarker::ALL_LANGUAGES, Connection::PARAM_INT)
                 )
             )
         );
@@ -548,8 +563,8 @@ class SlugHelper
                     if (!is_array($record)) {
                         return null;
                     }
-                    if (VersionState::tryFrom($record['t3ver_state'] ?? 0) ===
-                        VersionState::DELETE_PLACEHOLDER) {
+                    if (VersionState::tryFrom($record['t3ver_state'] ?? 0)
+                        === VersionState::DELETE_PLACEHOLDER) {
                         return null;
                     }
                     return $record;
@@ -585,14 +600,16 @@ class SlugHelper
                 // no site or requested language available - move on
             }
 
+            /** @var LocalizationRepository $localizationRepository */
+            $localizationRepository = GeneralUtility::makeInstance(LocalizationRepository::class);
             foreach ($languageIds as $languageId) {
-                $localizedParentPageRecord = BackendUtility::getRecordLocalization(
-                    'pages',
+                $localizedParentPageRecord = $localizationRepository->getPageTranslations(
                     $parentPageRecord['uid'],
-                    $languageId
+                    [$languageId],
+                    $this->workspaceId
                 );
-                if (!empty($localizedParentPageRecord)) {
-                    $parentPageRecord = reset($localizedParentPageRecord);
+                if ($localizedParentPageRecord !== []) {
+                    $parentPageRecord = reset($localizedParentPageRecord)->toArray();
                     break;
                 }
             }

@@ -28,11 +28,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Filters result by a given search term, respecting search fields defined in search demand or in TCA.
  */
-class SearchTermRestriction implements QueryRestrictionInterface
+readonly class SearchTermRestriction implements QueryRestrictionInterface
 {
     public function __construct(
-        private readonly FileSearchDemand $searchDemand,
-        private readonly QueryBuilder $queryBuilder,
+        private FileSearchDemand $searchDemand,
+        private QueryBuilder $queryBuilder,
     ) {}
 
     public function buildExpression(array $queriedTables, ExpressionBuilder $expressionBuilder): CompositeExpression
@@ -73,7 +73,20 @@ class SearchTermRestriction implements QueryRestrictionInterface
                 foreach ($fieldsToSearchWithin as $fieldName => $field) {
                     $constraintsForParts[] = $this->queryBuilder->expr()->and(
                         $this->queryBuilder->expr()->comparison(
-                            'LOWER(' . $this->queryBuilder->quoteIdentifier($tableAlias . '.' . $fieldName) . ')',
+                            sprintf(
+                                'LOWER(%s)',
+                                // Ensure to cast `$fieldName` to a text value, otherwise picky databases like
+                                // postgres would complain about trying to use `LOWER()` on incompatible field
+                                // like integer fields, something MariaDB/MySQL is silently allowed and hidden
+                                // away from the consumer. We avoid doing database field type checks here for
+                                // all or specific database and adding a value conversion by default for all
+                                // fields to be on the safe side.
+                                //
+                                // The lower() construct here is used to enforce "case-insensitive" search for
+                                // all database vendors unrelated to charset/collation configurations on field
+                                // level.
+                                $this->queryBuilder->expr()->castText($this->queryBuilder->quoteIdentifier($tableAlias . '.' . $fieldName))
+                            ),
                             'LIKE',
                             $this->queryBuilder->createNamedParameter(mb_strtolower($like))
                         )

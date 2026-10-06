@@ -20,13 +20,12 @@ namespace TYPO3\CMS\Tstemplate\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 
 /**
- * This class displays the Info/Modify screen of the Web > Template module
+ * This class displays the Info/Modify screen of the Sites > TypoScript module
  *
  * @internal This is a specific Backend Controller implementation and is not considered part of the Public TYPO3 API.
  */
@@ -82,8 +81,9 @@ class InfoModifyController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewButtonToDocHeader($view, $pageRecord);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_info.xlf:submodule.title'));
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -133,9 +133,9 @@ class InfoModifyController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewButtonToDocHeader($view, $pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_info.xlf:submodule.title'));
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -146,22 +146,5 @@ class InfoModifyController extends AbstractTemplateModuleController
             'numberOfSetupLines' => trim((string)($currentTemplateRecord['config'] ?? '')) ? count(explode(LF, (string)$currentTemplateRecord['config'])) : 0,
         ]);
         return $view->renderResponse('InfoModifyMain');
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_info.xlf:submodule.title'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
     }
 }

@@ -17,7 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Utility;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Package\PackageManager;
@@ -25,10 +27,13 @@ use TYPO3\CMS\Core\Service\Archive\ZipService;
 use TYPO3\CMS\Core\Service\OpcodeCacheService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
+use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
 use TYPO3\CMS\Extensionmanager\Utility\EmConfUtility;
 use TYPO3\CMS\Extensionmanager\Utility\FileHandlingUtility;
+use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FileHandlingUtilityTest extends UnitTestCase
 {
     /**
@@ -40,7 +45,9 @@ final class FileHandlingUtilityTest extends UnitTestCase
 
     protected function setUp(): void
     {
-        $this->testRoot = Environment::getVarPath() . '/tests/';
+        // The unique sub directory keeps the files of other test cases, which use
+        // the same root, out of the cleanup below.
+        $this->testRoot = Environment::getVarPath() . '/tests/' . StringUtility::getUniqueId('fileHandling_') . '/';
         GeneralUtility::mkdir_deep($this->testRoot);
         $this->testFilesToDelete[] = $this->testRoot;
         parent::setUp();
@@ -99,7 +106,7 @@ final class FileHandlingUtilityTest extends UnitTestCase
         $extDirPath = $this->testRoot . StringUtility::getUniqueId('test-extensions-');
         @mkdir($extDirPath);
         $subject = $this->getAccessibleMock(FileHandlingUtility::class, null, [], '', false);
-        $subject->_call('removeDirectory', $extDirPath);
+        $subject->removeDirectory($extDirPath);
         self::assertDirectoryDoesNotExist($extDirPath);
     }
 
@@ -111,11 +118,12 @@ final class FileHandlingUtilityTest extends UnitTestCase
         touch($absoluteFilePath);
         symlink($absoluteFilePath, $absoluteSymlinkPath);
         $subject = new FileHandlingUtility(
-            $this->createMock(PackageManager::class),
-            $this->createMock(EmConfUtility::class),
-            $this->createMock(OpcodeCacheService::class),
-            $this->createMock(ZipService::class),
-            $this->createMock(LanguageServiceFactory::class)
+            self::createStub(PackageManager::class),
+            self::createStub(EmConfUtility::class),
+            self::createStub(OpcodeCacheService::class),
+            self::createStub(ZipService::class),
+            self::createStub(LanguageServiceFactory::class),
+            new NullLogger(),
         );
         $subject->removeDirectory($absoluteSymlinkPath);
         self::assertFalse(is_link($absoluteSymlinkPath));
@@ -131,14 +139,77 @@ final class FileHandlingUtilityTest extends UnitTestCase
         touch($absoluteDirectoryPath . $relativeFilePath);
         symlink($absoluteDirectoryPath, $absoluteSymlinkPath);
         $subject = new FileHandlingUtility(
-            $this->createMock(PackageManager::class),
-            $this->createMock(EmConfUtility::class),
-            $this->createMock(OpcodeCacheService::class),
-            $this->createMock(ZipService::class),
-            $this->createMock(LanguageServiceFactory::class)
+            self::createStub(PackageManager::class),
+            self::createStub(EmConfUtility::class),
+            self::createStub(OpcodeCacheService::class),
+            self::createStub(ZipService::class),
+            self::createStub(LanguageServiceFactory::class),
+            new NullLogger(),
         );
         $subject->removeDirectory($absoluteSymlinkPath);
         self::assertTrue(is_file($absoluteDirectoryPath . $relativeFilePath));
+    }
+
+    /**
+     * Both unpacking routines have to leave the same state behind: a package that
+     * is already installed keeps its old metadata in the PackageManager and its
+     * old bytecode in the opcode cache otherwise, so an update of it stays
+     * invisible on installations running opcache.validate_timestamps=0.
+     */
+    #[Test]
+    public function unzipExtensionFromFileReloadsThePackageInformationOfAnInstalledExtension(): void
+    {
+        $extensionKey = 'test';
+        $packageManager = $this->createMock(PackageManager::class);
+        $packageManager->method('isPackageAvailable')->willReturn(true);
+        $packageManager->expects($this->once())->method('reloadPackageInformation')->with($extensionKey);
+        $opcodeCacheService = $this->createMock(OpcodeCacheService::class);
+        $opcodeCacheService->expects($this->once())->method('clearAllActive');
+        $zipService = $this->createMock(ZipService::class);
+        $zipService->method('verify')->willReturn(true);
+
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            ['makeAndClearExtensionDir', 'enrichComposerJsonWithComposerCapableFields'],
+            [
+                $packageManager,
+                new EmConfUtility(),
+                $opcodeCacheService,
+                $zipService,
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->method('makeAndClearExtensionDir')->willReturn('my_path/');
+
+        $subject->unzipExtensionFromFile('archive.zip', $extensionKey);
+    }
+
+    #[Test]
+    public function unpackExtensionFromExtensionDataArrayReloadsThePackageInformationOfAnInstalledExtension(): void
+    {
+        $extensionKey = 'test';
+        $packageManager = $this->createMock(PackageManager::class);
+        $packageManager->method('isPackageAvailable')->willReturn(true);
+        $packageManager->expects($this->once())->method('reloadPackageInformation')->with($extensionKey);
+        $opcodeCacheService = $this->createMock(OpcodeCacheService::class);
+        $opcodeCacheService->expects($this->once())->method('clearAllActive');
+
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            ['makeAndClearExtensionDir', 'writeEmConfToFile', 'enrichComposerJsonWithComposerCapableFields'],
+            [
+                $packageManager,
+                new EmConfUtility(),
+                $opcodeCacheService,
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->method('makeAndClearExtensionDir')->willReturn('my_path/');
+
+        $subject->unpackExtensionFromExtensionDataArray($extensionKey, [], '1.0.0');
     }
 
     #[Test]
@@ -150,6 +221,7 @@ final class FileHandlingUtilityTest extends UnitTestCase
             [
                 'makeAndClearExtensionDir',
                 'writeEmConfToFile',
+                'enrichComposerJsonWithComposerCapableFields',
                 'extractDirectoriesFromExtensionData',
                 'createDirectoriesForExtensionFiles',
                 'writeExtensionFiles',
@@ -161,7 +233,7 @@ final class FileHandlingUtilityTest extends UnitTestCase
         );
         $subject->expects($this->once())->method('extractDirectoriesFromExtensionData')->willReturn([]);
         $subject->expects($this->once())->method('makeAndClearExtensionDir')->with($extensionKey)->willReturn('my_path');
-        $subject->unpackExtensionFromExtensionDataArray($extensionKey, []);
+        $subject->unpackExtensionFromExtensionDataArray($extensionKey, [], '1.0.0');
     }
 
     #[Test]
@@ -219,6 +291,7 @@ final class FileHandlingUtilityTest extends UnitTestCase
             [
                 'makeAndClearExtensionDir',
                 'writeEmConfToFile',
+                'enrichComposerJsonWithComposerCapableFields',
                 'extractDirectoriesFromExtensionData',
                 'createDirectoriesForExtensionFiles',
                 'writeExtensionFiles',
@@ -233,7 +306,7 @@ final class FileHandlingUtilityTest extends UnitTestCase
         $subject->expects($this->once())->method('makeAndClearExtensionDir')->with($extensionData['extKey'])->willReturn('my_path');
         $subject->expects($this->once())->method('writeExtensionFiles')->with($cleanedFiles);
         $subject->expects($this->once())->method('reloadPackageInformation')->with('test');
-        $subject->unpackExtensionFromExtensionDataArray('test', $extensionData);
+        $subject->unpackExtensionFromExtensionDataArray('test', $extensionData, '1.0.0');
     }
 
     #[Test]
@@ -326,6 +399,260 @@ final class FileHandlingUtilityTest extends UnitTestCase
         self::assertDirectoryExists($rootPath . 'mod/doc/');
     }
 
+    /**
+     * A version an ext_emconf.php declares is not read anymore: the file is not
+     * evaluated in classic mode. Without a version from the caller or the
+     * manifest the extension could not be loaded, so the upload is refused
+     * instead of leaving an extension behind that silently disappears.
+     */
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsRefusesToGuessTheVersionFromExtEmConf(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+            'extra' => [
+                'typo3/cms' => [
+                    'extension-key' => $extKey,
+                ],
+            ],
+        ]));
+        file_put_contents($rootPath . 'ext_emconf.php', '<?php $EM_CONF[$_EXTKEY] = ["version" => "2.3.4"];');
+        $subject = $this->createSubjectWithRealEnrichment();
+
+        $this->expectException(ExtensionManagerException::class);
+        $this->expectExceptionCode(1789399167);
+
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath);
+    }
+
+    #[Test]
+    public function unzipExtensionFromFileReportsAnArchiveWithoutComposerJson(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        $zipService = $this->createMock(ZipService::class);
+        $zipService->method('verify')->willReturn(true);
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            ['makeAndClearExtensionDir'],
+            [
+                $this->createMock(PackageManager::class),
+                new EmConfUtility(),
+                $this->createMock(OpcodeCacheService::class),
+                $zipService,
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->method('makeAndClearExtensionDir')->willReturn($rootPath);
+
+        $this->expectException(ExtensionManagerException::class);
+        $this->expectExceptionCode(1789399168);
+
+        $subject->unzipExtensionFromFile('archive.zip', $extKey, '1.0.0');
+    }
+
+    private function createSubjectWithRealEnrichment(): FileHandlingUtility&AccessibleObjectInterface
+    {
+        return $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            null,
+            [
+                $this->createMock(PackageManager::class),
+                new EmConfUtility(),
+                $this->createMock(OpcodeCacheService::class),
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsDoesNotOverwriteExistingValues(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+            'version' => '1.0.0',
+            'extra' => [
+                'typo3/cms' => [
+                    'extension-key' => $extKey,
+                    'Package' => [
+                        'providesPackages' => ['some/package' => ''],
+                    ],
+                ],
+            ],
+        ]));
+        file_put_contents($rootPath . 'ext_emconf.php', '<?php $EM_CONF[$_EXTKEY] = ["version" => "2.3.4"];');
+        $emConfUtility = new EmConfUtility();
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            null,
+            [
+                $this->createMock(PackageManager::class),
+                $emConfUtility,
+                $this->createMock(OpcodeCacheService::class),
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath);
+        $composerJson = json_decode(file_get_contents($rootPath . 'composer.json'), true);
+        self::assertSame('1.0.0', $composerJson['version']);
+        self::assertArrayNotHasKey('version', $composerJson['extra']['typo3/cms']);
+        self::assertSame(['some/package' => ''], $composerJson['extra']['typo3/cms']['Package']['providesPackages']);
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsDoesNotOverwriteExistingExtraVersion(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+            'extra' => [
+                'typo3/cms' => [
+                    'extension-key' => $extKey,
+                    'version' => '3.0.0',
+                ],
+            ],
+        ]));
+        file_put_contents($rootPath . 'ext_emconf.php', '<?php $EM_CONF[$_EXTKEY] = ["version" => "2.3.4"];');
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            null,
+            [
+                $this->createMock(PackageManager::class),
+                new EmConfUtility(),
+                $this->createMock(OpcodeCacheService::class),
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath);
+        $composerJson = json_decode(file_get_contents($rootPath . 'composer.json'), true);
+        self::assertArrayNotHasKey('version', $composerJson);
+        self::assertSame('3.0.0', $composerJson['extra']['typo3/cms']['version']);
+        self::assertSame([], (array)$composerJson['extra']['typo3/cms']['Package']['providesPackages']);
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsRefusesAnArchiveWhoseVersionIsUnknown(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+        ]));
+        $subject = $this->createSubjectWithRealEnrichment();
+
+        $this->expectException(ExtensionManagerException::class);
+        $this->expectExceptionCode(1789399167);
+
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath);
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsAddsProvidesPackagesToAManifestWithoutThem(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+        ]));
+        $subject = $this->createSubjectWithRealEnrichment();
+
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath, '1.0.0');
+
+        $composerJson = json_decode(file_get_contents($rootPath . 'composer.json'), true);
+        self::assertArrayNotHasKey('version', $composerJson);
+        self::assertSame('1.0.0', $composerJson['extra']['typo3/cms']['version']);
+        self::assertSame([], (array)$composerJson['extra']['typo3/cms']['Package']['providesPackages']);
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsUsesProvidedVersion(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+        ]));
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            null,
+            [
+                $this->createMock(PackageManager::class),
+                new EmConfUtility(),
+                $this->createMock(OpcodeCacheService::class),
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath, '5.0.0');
+        $composerJson = json_decode(file_get_contents($rootPath . 'composer.json'), true);
+        self::assertArrayNotHasKey('version', $composerJson);
+        self::assertSame('5.0.0', $composerJson['extra']['typo3/cms']['version']);
+        self::assertSame([], (array)$composerJson['extra']['typo3/cms']['Package']['providesPackages']);
+    }
+
+    #[Test]
+    public function enrichComposerJsonWithComposerCapableFieldsDerivesProvidesPackagesFromRequirements(): void
+    {
+        $extKey = $this->createFakeExtension();
+        $rootPath = $this->fakedExtensions[$extKey]['packagePath'];
+        file_put_contents($rootPath . 'composer.json', json_encode([
+            'name' => 'vendor/' . $extKey,
+            'type' => 'typo3-cms-extension',
+            'require' => [
+                'typo3/cms-core' => '^14.4',
+                'php' => '^8.2',
+                'vendor/bundled-library' => '^2.0',
+            ],
+            'suggest' => [
+                'vendor/optional-library' => 'For additional features',
+            ],
+        ]));
+        $packageManager = $this->createMock(PackageManager::class);
+        $packageManager->method('isFrameworkPackage')->willReturnCallback(
+            static fn(string $packageName): bool => $packageName === 'typo3/cms-core'
+        );
+        $packageManager->method('isComposerDependency')->willReturnCallback(
+            static fn(string $packageName): bool => $packageName === 'php'
+        );
+        $subject = $this->getAccessibleMock(
+            FileHandlingUtility::class,
+            null,
+            [
+                $packageManager,
+                new EmConfUtility(),
+                $this->createMock(OpcodeCacheService::class),
+                $this->createMock(ZipService::class),
+                $this->createMock(LanguageServiceFactory::class),
+                new NullLogger(),
+            ]
+        );
+        $subject->_call('enrichComposerJsonWithComposerCapableFields', $extKey, $rootPath, '5.0.0');
+        $composerJson = json_decode(file_get_contents($rootPath . 'composer.json'), true);
+        self::assertSame(
+            ['vendor/bundled-library' => '', 'vendor/optional-library' => ''],
+            $composerJson['extra']['typo3/cms']['Package']['providesPackages']
+        );
+    }
+
     #[Test]
     public function writeEmConfWritesEmConfFile(): void
     {
@@ -340,11 +667,12 @@ final class FileHandlingUtilityTest extends UnitTestCase
             FileHandlingUtility::class,
             ['makeAndClearExtensionDir'],
             [
-                $this->createMock(PackageManager::class),
+                self::createStub(PackageManager::class),
                 new EmConfUtility(),
-                $this->createMock(OpcodeCacheService::class),
-                $this->createMock(ZipService::class),
-                $this->createMock(LanguageServiceFactory::class),
+                self::createStub(OpcodeCacheService::class),
+                self::createStub(ZipService::class),
+                self::createStub(LanguageServiceFactory::class),
+                new NullLogger(),
             ]
         );
         $subject->_call('writeEmConfToFile', $extKey, $emConfData, $rootPath);

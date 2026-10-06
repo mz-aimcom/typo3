@@ -23,8 +23,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownHeader;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownRadio;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Tree\View\PageTreeView;
@@ -51,9 +50,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 #[AsController]
 class PermissionController
 {
-    private const SESSION_PREFIX = 'tx_Beuser_';
-    private const DEPTH_LEVELS = [1, 2, 3, 4, 10];
-    private const RECURSIVE_LEVELS = 10;
+    private const string SESSION_PREFIX = 'tx_Beuser_';
+    private const array DEPTH_LEVELS = [1, 2, 3, 4, 10];
+    private const int RECURSIVE_LEVELS = 10;
 
     protected int $id = 0;
     protected string $returnUrl = '';
@@ -61,12 +60,14 @@ class PermissionController
     protected array $pageInfo = [];
 
     public function __construct(
+        protected readonly ComponentFactory $componentFactory,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly PageRenderer $pageRenderer,
         protected readonly IconFactory $iconFactory,
         protected readonly UriBuilder $uriBuilder,
         protected readonly ResponseFactoryInterface $responseFactory,
         protected readonly BackendViewFactory $backendViewFactory,
+        protected readonly FlashMessageService $flashMessageService,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -92,7 +93,7 @@ class PermissionController
             $this->id = 0;
         }
 
-        $this->returnUrl = GeneralUtility::sanitizeLocalUrl((string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? ''));
+        $this->returnUrl = GeneralUtility::sanitizeLocalUrl((string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? ''), $request);
         $this->pageInfo = BackendUtility::readPageAccess($this->id, ' 1=1') ?: [
             'title' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'],
             'uid' => 0,
@@ -116,13 +117,13 @@ class PermissionController
         }
         $this->registerDocHeaderButtons($view, $action);
         $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:beuser/Resources/Private/Language/locallang_mod_permission.xlf:mlang_tabs_tab'),
+            $this->getLanguageService()->translate('title', 'beuser.modules.permissions'),
             $this->id !== 0 && !empty($this->pageInfo['title']) ? $this->pageInfo['title'] : ''
         );
-        $view->getDocHeaderComponent()->setMetaInformation($this->pageInfo);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($this->pageInfo);
 
         if ($action === 'edit') {
-            return $this->editAction($view, $request);
+            return $this->editAction($view);
         }
         return $this->indexAction($view, $request);
     }
@@ -306,7 +307,7 @@ class PermissionController
         return $view->renderResponse('Permission/Index');
     }
 
-    public function editAction(ModuleTemplate $view, ServerRequestInterface $request): ResponseInterface
+    public function editAction(ModuleTemplate $view): ResponseInterface
     {
         $lang = $this->getLanguageService();
         $selectNone = $lang->sL('LLL:EXT:beuser/Resources/Private/Language/locallang_mod_permission.xlf:selectNone');
@@ -389,37 +390,28 @@ class PermissionController
 
     protected function registerDocHeaderButtons(ModuleTemplate $view, string $action): void
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
         $lang = $this->getLanguageService();
 
         if ($action === 'edit') {
             // CLOSE button:
             if ($this->returnUrl !== '') {
-                $closeButton = $buttonBar->makeLinkButton()
-                    ->setHref($this->returnUrl)
-                    ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
-                    ->setShowLabelText(true)
-                    ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-                $buttonBar->addButton($closeButton);
+                $view->addButtonToButtonBar($this->componentFactory->createCloseButton($this->returnUrl));
             }
 
             // SAVE button:
-            $saveButton = $buttonBar->makeInputButton()
+            $saveButton = $this->componentFactory
+                ->createSaveButton('PermissionControllerEdit')
                 ->setName('_save')
-                ->setValue('1')
-                ->setForm('PermissionControllerEdit')
-                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.saveCloseDoc'))
-                ->setShowLabelText(true)
-                ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL));
-            $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.saveCloseDoc'));
+            $view->addButtonToButtonBar($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
         }
 
         if ($action === 'index' && count($this->getDepthOptions()) > 0) {
             $viewModeItems = [];
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownHeader::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownHeader()
                 ->setLabel($lang->sL('LLL:EXT:beuser/Resources/Private/Language/locallang_mod_permission.xlf:Depth'));
             foreach ($this->getDepthOptions() as $value => $label) {
-                $viewModeItems[] = GeneralUtility::makeInstance(DropDownRadio::class)
+                $viewModeItems[] = $this->componentFactory->createDropDownRadio()
                     ->setActive($this->depth === $value)
                     ->setLabel($label)
                     ->setHref((string)$this->uriBuilder->buildUriFromRoute('permissions_pages', [
@@ -427,20 +419,21 @@ class PermissionController
                         'depth' => $value,
                     ]));
             }
-            $viewModeButton = $buttonBar->makeDropDownButton()
+            $viewModeButton = $this->componentFactory->createDropDownButton()
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
+                ->setIcon($this->iconFactory->getIcon('actions-cog'))
                 ->setShowLabelText(true);
             foreach ($viewModeItems as $viewModeItem) {
                 $viewModeButton->addItem($viewModeItem);
             }
-            $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+            $view->addButtonToButtonBar($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
         }
 
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('permissions_pages')
-            ->setDisplayName($this->getShortcutTitle())
-            ->setArguments(['id' => $this->id, 'action' => $action]);
-        $buttonBar->addButton($shortcutButton);
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'permissions_pages',
+            $this->getShortcutTitle(),
+            ['id' => $this->id, 'action' => $action]
+        );
     }
 
     protected function getTree(): array
@@ -504,8 +497,8 @@ class PermissionController
                     }
                     $lKey = self::RECURSIVE_LEVELS - $a + 1;
                     $pagesCount = count($theIdListArr);
-                    $options[implode(',', $theIdListArr)] = $labelRecursive . ' ' . $lKey . ' ' . ($lKey === 1 ? $labelLevel : $labelLevels) .
-                        ' (' . $pagesCount . ' ' . ($pagesCount === 1 ? $labelPageAffected : $labelPagesAffected) . ')';
+                    $options[implode(',', $theIdListArr)] = $labelRecursive . ' ' . $lKey . ' ' . ($lKey === 1 ? $labelLevel : $labelLevels)
+                        . ' (' . $pagesCount . ' ' . ($pagesCount === 1 ? $labelPageAffected : $labelPagesAffected) . ')';
                 }
             }
         }
@@ -517,9 +510,8 @@ class PermissionController
      */
     protected function addFlashMessage(string $message, string $title = '', ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::INFO): void
     {
-        $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $title, $severity, true);
-        $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-        $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+        $flashMessage = new FlashMessage($message, $title, $severity, true);
+        $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
         $defaultFlashMessageQueue->enqueue($flashMessage);
     }
 
@@ -530,7 +522,7 @@ class PermissionController
     {
         return sprintf(
             '%s: %s [%d]',
-            $this->getLanguageService()->sL('LLL:EXT:beuser/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
+            $this->getLanguageService()->translate('title', 'beuser.modules.permissions'),
             BackendUtility::getRecordTitle('pages', $this->pageInfo),
             $this->id
         );

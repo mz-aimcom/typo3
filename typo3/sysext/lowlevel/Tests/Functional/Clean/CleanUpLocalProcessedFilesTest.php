@@ -22,6 +22,7 @@ use Symfony\Component\Console\Helper\HelperSet;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Tester\CommandTester;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Lowlevel\Command\CleanUpLocalProcessedFilesCommand;
@@ -30,9 +31,7 @@ use TYPO3\TestingFramework\Core\Testbase;
 
 final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
 {
-    protected ?CleanUpLocalProcessedFilesCommand $subject = null;
-
-    protected ?CommandTester $commandTester = null;
+    private ?CommandTester $commandTester = null;
 
     protected array $coreExtensionsToLoad = ['lowlevel'];
 
@@ -54,13 +53,13 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
 
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/DataSet/sys_file_processedfile.csv');
-        $this->subject = $this->get(CleanUpLocalProcessedFilesCommand::class);
+        $cleanUpLocalProcessedFilesCommand = $this->get(CleanUpLocalProcessedFilesCommand::class);
 
         $helperSet = new HelperSet();
         $helperSet->set(new QuestionHelper(), 'question');
 
-        $this->subject->setHelperSet($helperSet);
-        $this->commandTester = new CommandTester($this->subject);
+        $cleanUpLocalProcessedFilesCommand->setHelperSet($helperSet);
+        $this->commandTester = new CommandTester($cleanUpLocalProcessedFilesCommand);
         $this->setUpBackendUser(1);
 
         // create fileadmin (1) and an additional absolute local storage (2)
@@ -72,7 +71,7 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
         );
         $subject->createLocalStorage(
             'another-storage',
-            $this->instancePath . '/local-storage/',
+            Environment::getPublicPath() . '/local-storage/',
             'absolute'
         );
 
@@ -85,10 +84,10 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
     protected function tearDown(): void
     {
         // Some tests in this testcase deletes provided files. To avoid false-positive with changed orders we need to
-        // ensure that they are re-provided. We are doing this on a test case basis, to avoid unneded disk io if not
+        // ensure that they are re-provided. We are doing this on a test case basis, to avoid unneeded disk io if not
         // really needed.
         $testbase = new Testbase();
-        $testbase->providePathsInTestInstance($this->instancePath, $this->pathsToProvideInTestInstance);
+        $testbase->providePathsInTestInstance(Environment::getPublicPath(), $this->pathsToProvideInTestInstance);
 
         parent::tearDown();
     }
@@ -110,8 +109,6 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
         self::assertFileDoesNotExist(GeneralUtility::getFileAbsFileName('fileadmin/_processed_/1/b/FileWithoutProcessedFileRecord.png'));
         self::assertFileDoesNotExist(GeneralUtility::getFileAbsFileName('local-storage/_processed_/0/a/NotReferencedImage2.png'));
         self::assertFileDoesNotExist(GeneralUtility::getFileAbsFileName('local-storage/_processed_/1/b/FileWithoutProcessedFileRecord2.png'));
-        self::assertFileDoesNotExist(GeneralUtility::getFileAbsFileName('local-storage/_processed_/1/a/ReferencedImage.png'));
-        self::assertFileDoesNotExist(GeneralUtility::getFileAbsFileName('local-storage/_processed_/1/a/ReferencedImage2.png'));
         self::assertFileExists(GeneralUtility::getFileAbsFileName('fileadmin/image.png'));
     }
 
@@ -148,8 +145,8 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
 
         self::assertStringContainsString('[RECORD] Would delete /_processed_/a/SomeMissingFile.png', $output);
         self::assertStringContainsString('Are you sure you want to delete these processed files and records', $output);
-        self::assertStringContainsString('Deleted 3 processed records', $output);
-        self::assertStringContainsString('Deleted 6 processed files', $output);
+        self::assertStringContainsString('Deleted 1 processed records', $output);
+        self::assertStringContainsString('Deleted 4 processed files', $output);
     }
 
     #[Test]
@@ -166,7 +163,7 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
         self::assertStringContainsString('[RECORD] Would delete /_processed_/a/SomeMissingFile.png', $output);
         self::assertStringContainsString('Are you sure you want to delete these processed files and records', $output);
         self::assertStringContainsString('Deleted 5 processed records', $output);
-        self::assertStringContainsString('Failed to delete 5 records', $output);
+        self::assertStringNotContainsString('Failed to delete', $output);
         self::assertStringContainsString('Deleted 6 processed files', $output);
     }
 
@@ -214,4 +211,26 @@ final class CleanUpLocalProcessedFilesTest extends FunctionalTestCase
         $this->assertCSVDataSet(__DIR__ . '/../Fixtures/Modify/allDeleted.csv');
     }
 
+    #[Test]
+    public function databaseRecordsOfNonLocalStoragesAreKeptWithAllOption(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('sys_file_storage')->insert(
+            'sys_file_storage',
+            ['uid' => 3, 'pid' => 0, 'name' => 'remote-storage', 'driver' => 'Remote', 'configuration' => '']
+        );
+        $this->getConnectionPool()->getConnectionForTable('sys_file_processedfile')->insert(
+            'sys_file_processedfile',
+            ['uid' => 6, 'storage' => 3, 'original' => 83, 'identifier' => '/_processed_/remote.png', 'name' => 'remote.png']
+        );
+        $this->get(StorageRepository::class)->flush();
+
+        $this->commandTester->execute(['--force' => true, '--all' => true]);
+
+        $remainingUids = $this->getConnectionPool()->getQueryBuilderForTable('sys_file_processedfile')
+            ->select('uid')
+            ->from('sys_file_processedfile')
+            ->executeQuery()
+            ->fetchFirstColumn();
+        self::assertSame([6], array_map(intval(...), $remainingUids));
+    }
 }

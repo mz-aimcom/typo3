@@ -46,8 +46,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
  */
 final class CheckboxValidationTest extends FunctionalTestCase
 {
-    protected const PAGE_ID = 200;
-    protected const PAGE_ID_OTHER = 300;
+    protected const int PAGE_ID = 200;
+    protected const int PAGE_ID_OTHER = 300;
 
     protected array $testExtensionsToLoad = [
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_datahandler',
@@ -55,7 +55,7 @@ final class CheckboxValidationTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = ['workspaces'];
 
-    protected BackendUserAuthentication $backendUserAuthentication;
+    private BackendUserAuthentication $backendUserAuthentication;
 
     protected function setUp(): void
     {
@@ -129,7 +129,7 @@ final class CheckboxValidationTest extends FunctionalTestCase
     {
         $actionService = new ActionService();
         $this->backendUserAuthentication->workspace = 1;
-        (new Context())->setAspect('workspace', new WorkspaceAspect(1));
+        new Context()->setAspect('workspace', new WorkspaceAspect(1));
         $map = $actionService->createNewRecord('tt_content', self::PAGE_ID, [
             'tx_testdatahandler_checkbox_with_eval' => 1,
         ]);
@@ -144,7 +144,7 @@ final class CheckboxValidationTest extends FunctionalTestCase
     {
         $actionService = new ActionService();
         $this->backendUserAuthentication->workspace = 1;
-        (new Context())->setAspect('workspace', new WorkspaceAspect(1));
+        new Context()->setAspect('workspace', new WorkspaceAspect(1));
         $map = $actionService->createNewRecord('tt_content', self::PAGE_ID_OTHER, [
             'tx_testdatahandler_checkbox_with_eval' => 1,
         ]);

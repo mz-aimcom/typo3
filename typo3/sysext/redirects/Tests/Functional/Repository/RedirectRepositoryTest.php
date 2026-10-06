@@ -20,23 +20,57 @@ namespace TYPO3\CMS\Redirects\Tests\Functional\Repository;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Resource\StorageRepository;
+use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Redirects\Repository\Demand;
 use TYPO3\CMS\Redirects\Repository\RedirectRepository;
+use TYPO3\CMS\Redirects\Tests\Functional\Repository\Fixtures\DemandFixture;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class RedirectRepositoryTest extends FunctionalTestCase
 {
+    use SiteBasedTestTrait;
+
+    protected const array LANGUAGE_PRESETS = [
+        'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en-US'],
+    ];
+
     protected array $coreExtensionsToLoad = ['redirects'];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->importCSVDataSet(dirname(__DIR__) . '/Fixtures/be_users.csv');
+        $this->importCSVDataSet(dirname(__DIR__) . '/Fixtures/pages.csv');
+
+        $this->setUpBackendUser(1);
+
+        $this->writeSiteConfiguration(
+            'bar',
+            $this->buildSiteConfiguration(13, 'https://bar.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', 'https://bar.com/'),
+            ],
+        );
+
+        $this->writeSiteConfiguration(
+            'foo',
+            $this->buildSiteConfiguration(14, 'https://foo.com/'),
+            [
+                $this->buildDefaultLanguageConfiguration('EN', 'https://foo.com/'),
+            ],
+        );
+    }
 
     public static function demandProvider(): array
     {
-        $allRecordCount = 6;
+        $allRecordCount = 7;
         return [
             'default demand' => [
                 self::getDemand(),
                 $allRecordCount,
-                $allRecordCount - 4,
+                $allRecordCount - 5,
             ],
             'configuration with hitCount' => [
                 self::getDemand(2),
@@ -46,12 +80,12 @@ final class RedirectRepositoryTest extends FunctionalTestCase
             'configuration with statusCode 302' => [
                 self::getDemand(0, [302]),
                 $allRecordCount,
-                $allRecordCount - 1,
+                $allRecordCount - 2,
             ],
             'demand with statusCode 302, 303' => [
                 self::getDemand(0, [302, 303]),
                 $allRecordCount,
-                $allRecordCount - 2,
+                $allRecordCount - 3,
             ],
             'demand with domain' => [
                 self::getDemand(0, [], ['foo.com']),
@@ -71,7 +105,7 @@ final class RedirectRepositoryTest extends FunctionalTestCase
             'demand with path starts with' => [
                 self::getDemand(0, [], [], '/foo%'),
                 $allRecordCount,
-                $allRecordCount - 3,
+                $allRecordCount - 4,
             ],
             'demand with path ends with' => [
                 self::getDemand(0, [], [], '%/foo'),
@@ -81,12 +115,12 @@ final class RedirectRepositoryTest extends FunctionalTestCase
             'demand with path in the middle' => [
                 self::getDemand(0, [], [], '%foo%'),
                 $allRecordCount,
-                $allRecordCount - 3,
+                $allRecordCount - 4,
             ],
             'demand with creation type "manually created"' => [
                 self::getDemand(0, [], [], '', 1),
                 $allRecordCount,
-                $allRecordCount - 1,
+                $allRecordCount - 2,
             ],
         ];
     }
@@ -96,12 +130,11 @@ final class RedirectRepositoryTest extends FunctionalTestCase
     public function removeByDemandWorks(Demand $demand, int $redirectBeforeCleanup, int $redirectAfterCleanup): void
     {
         self::assertSame(0, $this->getRedirectCount());
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/RedirectRepositoryTest_redirects.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
 
         self::assertSame($redirectBeforeCleanup, $this->getRedirectCount());
-        $repository = new RedirectRepository(
-            $this->get(TcaSchemaFactory::class)
-        );
+        $repository = $this->get(RedirectRepository::class);
         $repository->removeByDemand($demand);
         self::assertSame($redirectAfterCleanup, $this->getRedirectCount());
     }
@@ -110,7 +143,7 @@ final class RedirectRepositoryTest extends FunctionalTestCase
     {
         yield 'default demand' => [
             new Demand(),
-            6,
+            7,
         ];
 
         yield 'configuration with hitCount' => [
@@ -120,12 +153,12 @@ final class RedirectRepositoryTest extends FunctionalTestCase
 
         yield 'configuration with statusCode 302' => [
             new Demand(statusCodes: [302]),
-            1,
+            2,
         ];
 
         yield 'demand with statusCode 302, 303' => [
             new Demand(statusCodes: [302, 303]),
-            2,
+            3,
         ];
 
         yield 'demand with domain' => [
@@ -140,12 +173,96 @@ final class RedirectRepositoryTest extends FunctionalTestCase
 
         yield 'demand with path' => [
             new Demand(sourcePath: '/foo'),
-            5,
+            6,
         ];
 
         yield 'demand with target' => [
             new Demand(target: 'https://example.com/bar'),
-            5,
+            4,
+        ];
+        yield 'demand with creation type "manually created"' => [
+            new Demand(creationType: 1),
+            2,
+        ];
+        yield 'demand with protected state' => [
+            new Demand(protected: 1),
+            1,
+        ];
+        yield 'demand with creator' => [
+            new Demand(createdBy: 2),
+            2,
+        ];
+        yield 'demand with deleted creator' => [
+            new Demand(createdBy: 3),
+            1,
+        ];
+        yield 'demand with creator, which does not exist' => [
+            new Demand(createdBy: 99),
+            1,
+        ];
+        yield 'demand with untracked creator' => [
+            new Demand(createdBy: 0),
+            1,
+        ];
+        yield 'demand with all creators without a backend user record' => [
+            new Demand(createdBy: Demand::CREATOR_NOT_FOUND),
+            2,
+        ];
+    }
+
+    #[DataProvider('countRedirectsByDemandCountsCorrectlyDataProvider')]
+    #[Test]
+    public function countRedirectsByDemandCountsCorrectly(Demand $demand, int $expectedCount): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
+
+        $repository = $this->get(RedirectRepository::class);
+        $redirectsCount = $repository->countRedirectsByDemand($demand);
+
+        self::assertSame($expectedCount, $redirectsCount);
+    }
+
+    public static function countRedirectsByDemandRespectsUserPermissionsDataProvider(): iterable
+    {
+        yield 'default demand' => [
+            new Demand(),
+            4,
+        ];
+
+        yield 'configuration with hitCount' => [
+            new Demand(maxHits: 2),
+            3,
+        ];
+
+        yield 'configuration with statusCode 302' => [
+            new Demand(statusCodes: [302]),
+            1,
+        ];
+
+        yield 'demand with statusCode 302, 303' => [
+            new Demand(statusCodes: [302, 303]),
+            1,
+        ];
+
+        yield 'demand with domain' => [
+            new Demand(sourceHosts: ['bar.com']),
+            2,
+        ];
+
+        yield 'demand with domains' => [
+            new Demand(sourceHosts: ['foo.com', 'bar.com']),
+            2,
+        ];
+
+        yield 'demand with path' => [
+            new Demand(sourcePath: '/foo'),
+            3,
+        ];
+
+        yield 'demand with target' => [
+            new Demand(target: 'https://example.com/bar'),
+            2,
         ];
         yield 'demand with creation type "manually created"' => [
             new Demand(creationType: 1),
@@ -155,20 +272,113 @@ final class RedirectRepositoryTest extends FunctionalTestCase
             new Demand(protected: 1),
             1,
         ];
+        yield 'demand with creator' => [
+            new Demand(createdBy: 2),
+            1,
+        ];
+        yield 'demand with untracked creator' => [
+            new Demand(createdBy: 0),
+            1,
+        ];
     }
 
-    #[DataProvider('countRedirectsByDemandCountsCorrectlyDataProvider')]
+    #[DataProvider('countRedirectsByDemandRespectsUserPermissionsDataProvider')]
     #[Test]
-    public function countRedirectsByDemandCountsCorrectly(Demand $demand, int $expectedCount): void
+    public function countRedirectsByDemandRespectsUserPermissions(Demand $demand, int $expectedCount): void
     {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/RedirectRepositoryTest_redirects.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
 
-        $repository = new RedirectRepository(
-            $this->get(TcaSchemaFactory::class)
-        );
-        $redirectsCount = $repository->countRedirectsByByDemand($demand);
+        $this->get(StorageRepository::class)->getStorageObject(1)->setEvaluatePermissions(true);
+        $backendUser = $this->setUpBackendUser(2);
+        $backendUser->userGroupsUID = [1];
+        $backendUser->groupData['webmounts'] = '13';
+
+        $repository = $this->get(RedirectRepository::class);
+        $redirectsCount = $repository->countRedirectsByDemand($demand);
 
         self::assertSame($expectedCount, $redirectsCount);
+    }
+
+    public static function filteredRedirectsArePaginatedCorrectlyDataProvider(): iterable
+    {
+        yield 'first page' => [
+            new DemandFixture(page: 1)->setLimit(2),
+            [1, 2],
+        ];
+        // the second page skips uids 3 and 4, as they are not in web-mount 13
+        yield 'second page' => [
+            new DemandFixture(page: 2)->setLimit(2),
+            [5, 6],
+        ];
+        // the third page does not have any more redirects in web-mount 13
+        yield 'third page' => [
+            new DemandFixture(page: 3)->setLimit(2),
+            [],
+        ];
+    }
+
+    #[DataProvider('filteredRedirectsArePaginatedCorrectlyDataProvider')]
+    #[Test]
+    public function filteredRedirectsArePaginatedCorrectly(Demand $demand, array $expectation): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
+
+        $this->get(StorageRepository::class)->getStorageObject(1)->setEvaluatePermissions(true);
+        $backendUser = $this->setUpBackendUser(2);
+        $backendUser->userGroupsUID = [1];
+        $backendUser->groupData['webmounts'] = '13';
+
+        $repository = $this->get(RedirectRepository::class);
+        $redirects = $repository->findRedirectsByDemand($demand);
+        $redirectUids = array_column($redirects, 'uid');
+        self::assertSame($expectation, $redirectUids);
+    }
+
+    #[Test]
+    public function findCreatorsDoesNotResolveDeletedOrUnknownBackendUsers(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
+
+        $creators = $this->get(RedirectRepository::class)->findCreators();
+
+        // Uid 3 has been deleted, uid 99 never existed and uid 0 is the untracked creator
+        self::assertSame([1, 2, 3, 99, 0], array_keys($creators));
+        self::assertSame('admin', $creators[1]['username']);
+        self::assertSame('editor', $creators[2]['username']);
+        self::assertSame([[], [], []], [$creators[3], $creators[99], $creators[0]]);
+    }
+
+    #[Test]
+    public function findCreatorsRespectsUserPermissions(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
+
+        $this->get(StorageRepository::class)->getStorageObject(1)->setEvaluatePermissions(true);
+        $backendUser = $this->setUpBackendUser(2);
+        $backendUser->userGroupsUID = [1];
+        $backendUser->groupData['webmounts'] = '13';
+
+        $creators = $this->get(RedirectRepository::class)->findCreators();
+
+        self::assertSame([1, 2, 0], array_keys($creators));
+        self::assertSame([], $creators[0]);
+    }
+
+    #[Test]
+    public function redirectsCanBeSortedByCreationDate(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_file.csv');
+
+        $redirects = $this->get(RedirectRepository::class)->findRedirectsByDemand(
+            new Demand(orderField: 'createdon', orderDirection: 'desc')
+        );
+
+        self::assertSame([1, 6], array_slice(array_column($redirects, 'uid'), 0, 2));
     }
 
     private function getRedirectCount(): int
@@ -193,6 +403,7 @@ final class RedirectRepositoryTest extends FunctionalTestCase
             1,
             '',
             '',
+            Demand::DEFAULT_REDIRECT_TYPE,
             $domains,
             $path,
             '',

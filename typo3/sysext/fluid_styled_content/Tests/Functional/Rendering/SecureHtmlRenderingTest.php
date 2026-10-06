@@ -31,9 +31,9 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    private const TYPE_PLAIN = 'plain';
-    private const TYPE_DISABLE_HTML_SANITIZE = 'disable-htmlSanitize';
-    protected const LANGUAGE_PRESETS = [
+    private const string TYPE_PLAIN = 'plain';
+    private const string TYPE_DISABLE_HTML_SANITIZE = 'disable-htmlSanitize';
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -54,7 +54,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
         });
     }
 
-    protected function setUpDatabase(): void
+    private function setUpDatabase(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $backendUser = $this->setUpBackendUser(1);
@@ -269,7 +269,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
     {
         $sourcePageId = 1100;
 
-        $request = (new InternalRequest('https://acme.us/'))
+        $request = new InternalRequest('https://acme.us/')
             ->withPageId($sourcePageId)
             ->withInstructions(
                 [
@@ -286,7 +286,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
 
     private function createDefaultInstruction(): TypoScriptInstruction
     {
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'config.' => [
                     'no_cache' => 1,
@@ -304,7 +304,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
     private function createTextContentObjectWithDefaultParseFuncRteInstruction(string $value): TypoScriptInstruction
     {
         // default configuration as shipped in ext:fluid_styled_content
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'page.' => [
                     '10' => 'TEXT',
@@ -321,7 +321,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
         // basically considered "insecure setup"
         // + no explicit htmlSanitize
         // + no HTMLparser + HTMLparser.htmlSpecialChars
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'page.' => [
                     '10' => 'TEXT',
@@ -359,7 +359,7 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
 
     private function createDisableHtmlSanitizeInstruction(): TypoScriptInstruction
     {
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'lib.' => [
                     'parseFunc_RTE.' => [
@@ -371,12 +371,12 @@ final class SecureHtmlRenderingTest extends FunctionalTestCase
 
     private function createFluidTemplateContentObject(string $type, string $payload): TypoScriptInstruction
     {
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'page.' => [
                     '10' => 'FLUIDTEMPLATE',
                     '10.' => [
-                        'file' => 'EXT:fluid_styled_content/Tests/Functional/Rendering/Fixtures/FluidTemplate.html',
+                        'file' => 'EXT:fluid_styled_content/Tests/Functional/Rendering/Fixtures/FluidTemplate.fluid.html',
                         'variables.' => [
                             'type' => 'TEXT',
                             'type.' => [

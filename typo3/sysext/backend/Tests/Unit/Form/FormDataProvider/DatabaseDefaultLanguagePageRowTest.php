@@ -17,21 +17,35 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseDefaultLanguagePageRow;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Schema\FieldTypeFactory;
+use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\SchemaCollection;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
 {
-    protected DatabaseDefaultLanguagePageRow&MockObject $subject;
+    private DatabaseDefaultLanguagePageRow&MockObject $subject;
+    private SchemaCollection $schemaCollection;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $GLOBALS['TCA']['pages']['ctrl']['languageField'] = 'sys_language_uid';
         $GLOBALS['TCA']['pages']['ctrl']['transOrigPointerField'] = 'l10n_parent';
+        $GLOBALS['TCA']['pages']['columns']['l10n_parent'] = ['config' => ['type' => 'language']];
+        $GLOBALS['TCA']['pages']['columns']['sys_language_uid'] = ['config' => ['type' => 'language']];
+        $this->schemaCollection = $this->getSchemaCollection($GLOBALS['TCA']);
         $this->subject = $this->getMockBuilder(DatabaseDefaultLanguagePageRow::class)
             ->onlyMethods(['getDatabaseRow'])
             ->getMock();
@@ -47,6 +61,7 @@ final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
                 'l10n_parent' => 13,
                 'sys_language_uid' => 23,
             ],
+            'tcaSchemata' => $this->schemaCollection,
         ];
         $result = $this->subject->addData($input);
 
@@ -63,6 +78,7 @@ final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
                 'l10n_parent' => 0,
                 'sys_language_uid' => 0,
             ],
+            'tcaSchemata' => $this->schemaCollection,
         ];
         $result = $this->subject->addData($input);
         self::assertSame($input, $result);
@@ -71,7 +87,7 @@ final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
     #[Test]
     public function addDataDoesApplyToATranslatedPagesTable(): void
     {
-        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, self::createStub(TcaSchemaFactory::class));
 
         $input = [
             'tableName' => 'pages',
@@ -81,6 +97,7 @@ final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
                 'l10n_parent' => 13,
                 'sys_language_uid' => 8,
             ],
+            'tcaSchemata' => $this->schemaCollection,
         ];
 
         $defaultLanguagePageRow = [
@@ -97,5 +114,14 @@ final class DatabaseDefaultLanguagePageRowTest extends UnitTestCase
 
         $result = $this->subject->addData($input);
         self::assertEquals($defaultLanguagePageRow, $result['defaultLanguagePageRow']);
+    }
+
+    private function getSchemaCollection(array $tca): SchemaCollection
+    {
+        $tcaSchemaFactory = new TcaSchemaBuilder(
+            new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+            new FieldTypeFactory()
+        );
+        return $tcaSchemaFactory->buildFromStructure($tca);
     }
 }

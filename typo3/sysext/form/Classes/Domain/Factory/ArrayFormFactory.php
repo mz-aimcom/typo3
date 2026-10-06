@@ -21,7 +21,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Domain\Factory;
 
-use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -42,10 +41,6 @@ use TYPO3\CMS\Form\Event\BeforeRenderableIsAddedToFormEvent;
 #[Autoconfigure(public: true, shared: false)]
 class ArrayFormFactory extends AbstractFormFactory
 {
-    public function __construct(
-        private readonly EventDispatcherInterface $eventDispatcher,
-    ) {}
-
     /**
      * Build a form definition, depending on some configuration.
      *
@@ -62,12 +57,18 @@ class ArrayFormFactory extends AbstractFormFactory
         }
         $persistenceIdentifier = $configuration['persistenceIdentifier'] ?? null;
 
+        // Get prototype configuration once and reuse it
+        $prototypeConfiguration = GeneralUtility::makeInstance(ConfigurationService::class)
+            ->getPrototypeConfiguration($prototypeName);
+
+        // Get RTE property paths for proper sanitization
+        $rtePropertyPaths = $this->getFormDefinitionConversionService()->extractRtePropertyPaths($prototypeConfiguration);
+
+        $configuration = $this->getFormDefinitionConversionService()->sanitizeHtml($configuration, $rtePropertyPaths);
+
         if ($configuration['invalid'] ?? false) {
             throw new RenderingException($configuration['label'], 1529710560);
         }
-
-        $prototypeConfiguration = GeneralUtility::makeInstance(ConfigurationService::class)
-            ->getPrototypeConfiguration($prototypeName);
 
         $form = GeneralUtility::makeInstance(
             FormDefinition::class,
@@ -76,6 +77,13 @@ class ArrayFormFactory extends AbstractFormFactory
             'Form',
             $persistenceIdentifier
         );
+        // Set renderingOptions before processing renderables, so that options
+        // like 'previewMode' are available during initializeFormElement().
+        if (isset($configuration['renderingOptions'])) {
+            foreach ($configuration['renderingOptions'] as $key => $value) {
+                $form->setRenderingOption($key, $value);
+            }
+        }
         if (isset($configuration['renderables'])) {
             foreach ($configuration['renderables'] as $pageConfiguration) {
                 $this->addNestedRenderable($pageConfiguration, $form, $request);
@@ -88,10 +96,9 @@ class ArrayFormFactory extends AbstractFormFactory
         unset($configuration['type']);
         unset($configuration['identifier']);
         $form->setOptions($configuration);
+        $form->setRequest($request);
 
-        $this->triggerFormBuildingFinished($form);
-
-        return $form;
+        return $this->triggerFormBuildingFinished($form);
     }
 
     /**
@@ -120,11 +127,9 @@ class ArrayFormFactory extends AbstractFormFactory
             throw new UnknownCompositRenderableException('Unknown composit renderable "' . get_class($parentRenderable) . '"', 1479593622);
         }
 
-        if (isset($nestedRenderableConfiguration['renderables']) && is_array($nestedRenderableConfiguration['renderables'])) {
-            $childRenderables = $nestedRenderableConfiguration['renderables'];
-        } else {
-            $childRenderables = [];
-        }
+        $childRenderables = is_array($nestedRenderableConfiguration['renderables'] ?? null)
+            ? $nestedRenderableConfiguration['renderables']
+            : [];
 
         unset($nestedRenderableConfiguration['type']);
         unset($nestedRenderableConfiguration['identifier']);

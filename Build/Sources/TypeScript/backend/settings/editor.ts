@@ -12,7 +12,7 @@
  */
 
 import { html, LitElement, type TemplateResult, nothing, type PropertyValues } from 'lit';
-import { customElement, property, state } from 'lit/decorators';
+import { customElement, property, state } from 'lit/decorators.js';
 import { live } from 'lit/directives/live.js';
 import '@typo3/backend/element/spinner-element';
 import '@typo3/backend/element/icon-element';
@@ -20,11 +20,12 @@ import Notification from '@typo3/backend/notification';
 import DomHelper from '@typo3/backend/utility/dom-helper';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { copyToClipboard } from '@typo3/backend/copy-to-clipboard';
-import { lll } from '@typo3/core/lit-helper';
 import { markdown } from '@typo3/core/directive/markdown';
 import '@typo3/backend/settings/editor/editable-setting';
 import { SettingsMode, sanitizeSettingsMode } from '@typo3/backend/settings/enum/settings-mode.enum';
 import '@typo3/backend/element/icon-element';
+import labels from '~labels/backend.settingseditor';
+import copyToClipboardLabels from '~labels/backend.copytoclipboard';
 
 // preload known/common types
 import '@typo3/backend/settings/type/bool';
@@ -135,15 +136,25 @@ export class SettingsEditorElement extends LitElement {
     if (container) {
       const scrollableParentRect = scrollableParent.getBoundingClientRect();
       const navigationRect = settingsNavigationElement.getBoundingClientRect();
-      const startPosition = settingsSearchElement?.getBoundingClientRect().bottom ?? Math.max(scrollableParentRect.top, container.getBoundingClientRect().top);
-      const maxHeight = scrollableParentRect.bottom - Math.max(0, scrollableParentRect.bottom - navigationRect.bottom) - startPosition;
+
+      // For sticky elements, getBoundingClientRect() returns the actual visual position
+      // which is what we need for calculating available space
+      const startPosition = settingsSearchElement?.getBoundingClientRect().bottom ??
+        Math.max(scrollableParentRect.top, container.getBoundingClientRect().top);
+
+      // When scrollableParent is document.documentElement, its bottom can exceed viewport height
+      // We need to consider both the viewport height and how much of the navigation is visible
+      const viewportConstrainedBottom = Math.min(scrollableParentRect.bottom, window.innerHeight);
+      const availableBottomSpace = Math.max(0, viewportConstrainedBottom - navigationRect.bottom);
+      const maxHeight = viewportConstrainedBottom - startPosition - availableBottomSpace;
+
       container.style.maxHeight = `${maxHeight}px`;
     }
   }
 
   protected override firstUpdated(): void {
-    const scrollableParent = DomHelper.scrollableParent(this);
-    scrollableParent.addEventListener('scroll', () => {
+    const scrollTarget = DomHelper.scrollEventTarget(this);
+    scrollTarget.addEventListener('scroll', () => {
       this.adjustNavigationSize();
     });
   }
@@ -153,6 +164,7 @@ export class SettingsEditorElement extends LitElement {
       this.observer?.disconnect();
       this.observer = null;
     } else if (changedProperties.has('mode') && this.mode !== SettingsMode.minimal) {
+      const scrollableParent = DomHelper.scrollableParent(this);
       this.observer = new IntersectionObserver(
         (entries) => {
           entries.forEach(entry => {
@@ -166,7 +178,8 @@ export class SettingsEditorElement extends LitElement {
           }
         },
         {
-          root: DomHelper.scrollableParent(this),
+          // IntersectionObserver expects null for viewport, not document.documentElement
+          root: scrollableParent === document.documentElement ? null : scrollableParent,
           threshold: 0.1,
         }
       );
@@ -194,8 +207,6 @@ export class SettingsEditorElement extends LitElement {
   }
 
   protected renderCategoryTree(categories: FilteredCategory[], level: number): TemplateResult {
-    const fallbackIcon = DomHelper.isRTL() ? 'actions-chevron-left' : 'actions-chevron-right';
-
     return html`
       <ul data-level=${level}>
         ${categories.map(category => html`
@@ -206,7 +217,7 @@ export class SettingsEditorElement extends LitElement {
               class="settings-navigation-item ${this.activeCategory === category.key ? 'active' : ''}"
             >
                 <span class="settings-navigation-item-icon">
-                  <typo3-backend-icon identifier=${category.icon ? category.icon : fallbackIcon} size="small"></typo3-backend-icon>
+                  <typo3-backend-icon identifier=${category.icon ? category.icon : 'actions-chevron-end'} size="small"></typo3-backend-icon>
                 </span>
               <span class="settings-navigation-item-label">${category.label}</span>
             </button>
@@ -305,7 +316,7 @@ export class SettingsEditorElement extends LitElement {
         copyToClipboard(result.yaml);
       } else {
         console.warn('Value can not be copied to clipboard.', typeof result.yaml);
-        Notification.error(lll('copyToClipboard.error'));
+        Notification.error(copyToClipboardLabels.get('copyToClipboard.error'));
       }
     }
   }
@@ -335,13 +346,14 @@ export class SettingsEditorElement extends LitElement {
           ${this.mode !== SettingsMode.minimal ? html`
             <div class="settings-search">
               <label for="settings-search" class="visually-hidden">
-                ${lll('settingseditor.search.searchTermVisuallyHiddenLabel')}
+                ${labels.get('settingseditor.search.searchTermVisuallyHiddenLabel')}
               </label>
               <input
                 type="search"
+                autocomplete="off"
                 id="settings-search"
                 class="form-control"
-                placeholder=${lll('settingseditor.search.searchTermPlaceholder')}
+                placeholder=${labels.get('settingseditor.search.searchTermPlaceholder')}
                 .value=${live(this.searchTerm)}
                 @change=${(e: Event) => this.onSearch(e)}
                 @input=${(e: Event) => this.onSearch(e)}>
@@ -374,14 +386,14 @@ export class SettingsEditorElement extends LitElement {
               </span>
             </div>
             <div class="callout-content">
-              <div class="callout-title">${lll('settingseditor.search.noResultsTitle')}</div>
+              <div class="callout-title">${labels.get('settingseditor.search.noResultsTitle')}</div>
               <div class="callout-body">
-                <p>${lll('settingseditor.search.noResultsMessage')}</p>
+                <p>${labels.get('settingseditor.search.noResultsMessage')}</p>
                 <button
                     type="button"
                     class="btn btn-default"
                     @click=${() => this.searchTerm = ''}
-                  >${lll('settingseditor.search.noResultsResetButtonLabel')}</button>
+                  >${labels.get('settingseditor.search.noResultsResetButtonLabel')}</button>
               </div>
             </div>
           </div>

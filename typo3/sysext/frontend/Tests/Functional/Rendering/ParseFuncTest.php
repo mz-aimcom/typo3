@@ -31,7 +31,7 @@ final class ParseFuncTest extends FunctionalTestCase
     /**
      * @var array Used by buildDefaultLanguageConfiguration() of SiteBasedTestTrait
      */
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -61,14 +61,14 @@ final class ParseFuncTest extends FunctionalTestCase
         $this->createTypoScriptTemplate($fluidTemplateSource);
 
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(1)
+            new InternalRequest()->withPageId(1)
         );
         self::assertStringContainsString($expected, (string)$response->getBody());
     }
 
     private function createTypoScriptTemplate(string $fluidTemplateSource): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')
             ->insert(
                 'sys_template',
                 [

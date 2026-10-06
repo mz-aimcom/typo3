@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Persistence\Generic;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -36,13 +37,12 @@ use TYPO3\CMS\Extbase\Persistence\QueryResultInterface;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class QueryTest extends UnitTestCase
 {
-    protected Query&MockObject&AccessibleObjectInterface $query;
-    protected QuerySettingsInterface $querySettings;
-    protected PersistenceManagerInterface $persistenceManager;
-    protected DataMapFactory $dataMapFactory;
-    protected ContainerInterface $container;
+    private Query&MockObject&AccessibleObjectInterface $query;
+    private PersistenceManagerInterface&MockObject $persistenceManager;
+    private ContainerInterface&MockObject $container;
 
     /**
      * Sets up this test case
@@ -51,12 +51,10 @@ final class QueryTest extends UnitTestCase
     {
         parent::setUp();
         $this->query = $this->getAccessibleMock(Query::class, ['getSelectorName'], [], '', false);
-        $this->querySettings = $this->createMock(QuerySettingsInterface::class);
-        $this->query->_set('querySettings', $this->querySettings);
+        $this->query->_set('querySettings', self::createStub(QuerySettingsInterface::class));
         $this->persistenceManager = $this->createMock(PersistenceManagerInterface::class);
         $this->query->_set('persistenceManager', $this->persistenceManager);
-        $this->dataMapFactory = $this->createMock(DataMapFactory::class);
-        $this->query->_set('dataMapFactory', $this->dataMapFactory);
+        $this->query->_set('dataMapFactory', self::createStub(DataMapFactory::class));
         $this->container = $this->createMock(ContainerInterface::class);
         $this->query->_set('container', $this->container);
     }
@@ -64,7 +62,7 @@ final class QueryTest extends UnitTestCase
     #[Test]
     public function executeReturnsQueryResultInstanceAndInjectsItself(): void
     {
-        $queryResult = $this->createMock(QueryResult::class);
+        $queryResult = self::createStub(QueryResult::class);
         $this->container->expects($this->once())->method('get')->with(QueryResultInterface::class)->willReturn($queryResult);
         $actualResult = $this->query->execute();
         self::assertSame($queryResult, $actualResult);
@@ -84,6 +82,7 @@ final class QueryTest extends UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1245071870);
+        /** @phpstan-ignore-next-line argument.type */
         $this->query->setLimit(1.5);
     }
 
@@ -122,6 +121,7 @@ final class QueryTest extends UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1245071872);
+        /** @phpstan-ignore-next-line argument.type */
         $this->query->setOffset(1.5);
     }
 
@@ -164,10 +164,10 @@ final class QueryTest extends UnitTestCase
     public function logicalAndSupportsMultipleConstraintsAsMethodArguments(): void
     {
         $subject = new Query(
-            $this->createMock(DataMapFactory::class),
-            $this->createMock(PersistenceManagerInterface::class),
+            self::createStub(DataMapFactory::class),
+            self::createStub(PersistenceManagerInterface::class),
             new QueryObjectModelFactory(),
-            $this->createMock(ContainerInterface::class)
+            self::createStub(ContainerInterface::class)
         );
 
         $constraint1 = new Comparison(new PropertyValue('propertyName1'), QueryInterface::OPERATOR_EQUAL_TO, 'value1');
@@ -185,10 +185,10 @@ final class QueryTest extends UnitTestCase
     public function logicalOrSupportsMultipleConstraintsAsMethodArguments(): void
     {
         $subject = new Query(
-            $this->createMock(DataMapFactory::class),
-            $this->createMock(PersistenceManagerInterface::class),
+            self::createStub(DataMapFactory::class),
+            self::createStub(PersistenceManagerInterface::class),
             new QueryObjectModelFactory(),
-            $this->createMock(ContainerInterface::class)
+            self::createStub(ContainerInterface::class)
         );
 
         $constraint1 = new Comparison(new PropertyValue('propertyName1'), QueryInterface::OPERATOR_EQUAL_TO, 'value1');

@@ -48,13 +48,13 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  *
  * @internal
  */
-class BackendModuleValidator implements MiddlewareInterface
+readonly class BackendModuleValidator implements MiddlewareInterface
 {
     public function __construct(
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly ModuleProvider $moduleProvider,
-        protected readonly FlashMessageService $flashMessageService,
-        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected UriBuilder $uriBuilder,
+        protected ModuleProvider $moduleProvider,
+        protected FlashMessageService $flashMessageService,
+        protected TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -87,8 +87,8 @@ class BackendModuleValidator implements MiddlewareInterface
 
         // If on a second level module with further sub modules, jump to the third-level modules
         // (either the last used or the first in the list) and store this selection for the user.
-        /** @var $module ModuleInterface */
-        if ($module->getParentModule() && $module->hasSubModules()) {
+        // Skip this automatic redirection if the module should show a submodule overview instead.
+        if ($module->getParentModule() && $module->hasSubModules() && !$module->hasSubmoduleOverview()) {
             // Note: "action" is a special setting, which is evaluated here individually
             $subModuleIdentifier = (string)($backendUser->getModuleData($module->getIdentifier())['action'] ?? '');
             if ($module->hasSubModule($subModuleIdentifier)) {

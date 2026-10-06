@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\BlogExample\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation\Validate;
+use TYPO3\CMS\Extbase\Attribute\Validate;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 
 /**
@@ -27,13 +27,13 @@ class Comment extends AbstractEntity
 {
     protected \DateTime $date;
 
-    #[Validate(['validator' => 'NotEmpty'])]
+    #[Validate(validator: 'NotEmpty')]
     protected string $author = '';
 
-    #[Validate(['validator' => 'EmailAddress'])]
+    #[Validate(validator: 'EmailAddress')]
     protected string $email = '';
 
-    #[Validate(['validator' => 'StringLength', 'options' => ['maximum' => 500]])]
+    #[Validate(validator: 'StringLength', options: ['maximum' => 500])]
     protected string $content = '';
 
     public function __construct()
@@ -92,7 +92,7 @@ class Comment extends AbstractEntity
      */
     public function __toString(): string
     {
-        return $this->author . ' (' . $this->email . ') said on ' . $this->date->format('Y-m-d') . ':' . chr(10) .
-            $this->content . chr(10);
+        return $this->author . ' (' . $this->email . ') said on ' . $this->date->format('Y-m-d') . ':' . chr(10)
+            . $this->content . chr(10);
     }
 }

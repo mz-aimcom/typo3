@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Html;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Html\Event\AfterTransformTextForPersistenceEvent;
@@ -42,10 +41,8 @@ use TYPO3\HtmlSanitizer\Builder\BuilderInterface;
  * This means: RteHtmlParser always returns CRLFs to be maximum compatible with all formats.
  */
 #[Autoconfigure(public: true)]
-class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
+class RteHtmlParser extends HtmlParser
 {
-    use LoggerAwareTrait;
-
     /**
      * List of elements that are not wrapped into a "p" tag while doing the transformation.
      */
@@ -78,7 +75,7 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
 
     /**
      * A list of HTML attributes for <p> tags. Because <p> tags are wrapped currently in a special handling,
-     * they have a special place for configuration via 'proc.keepPDIVattribs'
+     * they are configured via the processing option 'allowAttributes'
      */
     protected array $allowedAttributesForParagraphTags = [
         'class',
@@ -114,7 +111,9 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
     ];
 
     public function __construct(
-        protected readonly EventDispatcherInterface $eventDispatcher
+        protected readonly EventDispatcherInterface $eventDispatcher,
+        protected readonly LoggerInterface $logger,
+        protected readonly LinkService $linkService,
     ) {}
 
     /**
@@ -145,7 +144,9 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
 
         // Define which attributes are allowed on <p> tags
         if (isset($this->procOptions['allowAttributes.'])) {
-            $this->allowedAttributesForParagraphTags = $this->procOptions['allowAttributes.'];
+            $this->allowedAttributesForParagraphTags = (array)$this->procOptions['allowAttributes.'];
+        } elseif (!empty($this->procOptions['allowAttributes'])) {
+            $this->allowedAttributesForParagraphTags = GeneralUtility::trimExplode(',', strtolower($this->procOptions['allowAttributes']), true);
         }
         // Override tags which are allowed outside of <p> tags
         if (isset($this->procOptions['allowTagsOutside'])) {
@@ -332,15 +333,14 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
             if ($k % 2) {
                 [$tagAttributes] = $this->get_tag_attributes($this->getFirstTag($v), true);
 
-                // Anchors would not have an href attribute
+                // Anchors would not have a href attribute
                 if (!isset($tagAttributes['href'])) {
                     continue;
                 }
-                $linkService = GeneralUtility::makeInstance(LinkService::class);
                 // Store the link as <a> tag as default by TYPO3, with the link service syntax
                 try {
-                    $linkInformation = $linkService->resolve($tagAttributes['href'] ?? '');
-                    $tagAttributes['href'] = $linkService->asString($linkInformation);
+                    $linkInformation = $this->linkService->resolve($tagAttributes['href']);
+                    $tagAttributes['href'] = $this->linkService->asString($linkInformation);
                 } catch (UnknownLinkHandlerException $e) {
                     $tagAttributes['href'] = $linkInformation['href'] ?? $tagAttributes['href'];
                 }
@@ -620,9 +620,10 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
                     $paragraphBlocks[$k] = $this->processContentWithinParagraph($subLines, $paragraphBlocks[$k]);
                 }
                 // If it turns out the line is just blank (containing a &nbsp; possibly) then just make it pure blank.
-                // But, prevent filtering of lines that are blank in sense above, but whose tags contain attributes.
-                // Those attributes should have been filtered before; if they are still there they must be considered as possible content.
-                if (trim(strip_tags($paragraphBlocks[$k])) === '&nbsp;' && !preg_match('/\\<(img)(\\s[^>]*)?\\/?>/si', $paragraphBlocks[$k]) && !preg_match('/\\<([^>]*)?( align| class| style| id| title| dir| lang| xml:lang)([^>]*)?>/si', trim($paragraphBlocks[$k]))) {
+                // But, prevent filtering of lines that are blank in sense above, but contain embedded content like images or media,
+                // or whose tags contain attributes. Those attributes should have been filtered before; if they are still there
+                // they must be considered as possible content.
+                if (trim(strip_tags($paragraphBlocks[$k])) === '&nbsp;' && !preg_match('/\\<(img|picture|source|audio|video|iframe|embed|object|svg|canvas)(\\s[^>]*)?\\/?>/si', $paragraphBlocks[$k]) && !preg_match('/\\<([^>]*)?( align| class| style| id| title| dir| lang| xml:lang)([^>]*)?>/si', trim($paragraphBlocks[$k]))) {
                     $paragraphBlocks[$k] = '';
                 }
             } else {
@@ -654,7 +655,7 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
         // First, setting configuration for the HTMLcleaner function. This will process each line between the <div>/<p> section on their way to the RTE
         $keepTags = $this->getKeepTags('rte');
         // Divide the content into lines
-        $parts = explode(LF, $value);
+        $parts = $this->divideIntoLinesOutsideOfParagraphs($value);
         foreach ($parts as $k => $v) {
             // Processing of line content:
             // If the line is blank, set it to &nbsp;
@@ -681,6 +682,33 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
         }
         // Implode result:
         return implode(LF, $parts);
+    }
+
+    /**
+     * Splits content into lines, but only at line breaks that are actually located between
+     * two elements. A line break inside a <p> or <div> element is insignificant whitespace
+     * and does not start a new line - splitting there would cut the element in half and leave
+     * both halves to be wrapped into paragraphs of their own by setDivTags().
+     *
+     * @param string $value Value to split
+     * @return string[] The lines
+     * @see setDivTags()
+     */
+    protected function divideIntoLinesOutsideOfParagraphs(string $value): array
+    {
+        $lines = [''];
+        foreach ($this->splitIntoBlock('p,div', $value) as $key => $part) {
+            if ($key % 2) {
+                // Inside a <p> or <div> element, so it belongs to the line that is currently open
+                $lines[array_key_last($lines)] .= $part;
+            } else {
+                $partLines = explode(LF, $part);
+                // The first one continues the line that is currently open, the rest are new lines
+                $lines[array_key_last($lines)] .= array_shift($partLines);
+                array_push($lines, ...$partLines);
+            }
+        }
+        return $lines;
     }
 
     /**
@@ -783,7 +811,6 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
     protected function markBrokenLinks(string $content): string
     {
         $blocks = $this->splitIntoBlock('A', $content);
-        $linkService = GeneralUtility::makeInstance(LinkService::class);
         foreach ($blocks as $position => $value) {
             if ($position % 2 === 0) {
                 continue;
@@ -794,7 +821,7 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
             }
 
             try {
-                $hrefInformation = $linkService->resolve($attributes['href']);
+                $hrefInformation = $this->linkService->resolve($attributes['href']);
 
                 $brokenLinkAnalysis = new BrokenLinkAnalysisEvent($hrefInformation['type'], $hrefInformation);
                 $this->eventDispatcher->dispatch($brokenLinkAnalysis);
@@ -808,8 +835,8 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
             }
 
             // Always rewrite the block to allow the nested calling even if a page is found
-            $blocks[$position] =
-                '<a ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>'
+            $blocks[$position]
+                = '<a ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>'
                 . $this->markBrokenLinks($this->removeFirstAndLastTag($blocks[$position]))
                 . '</a>';
         }
@@ -843,8 +870,8 @@ class RteHtmlParser extends HtmlParser implements LoggerAwareInterface
                     unset($attributes['style']);
                 }
             }
-            $blocks[$position] =
-                '<a ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>'
+            $blocks[$position]
+                = '<a ' . GeneralUtility::implodeAttributes($attributes, true, true) . '>'
                 . $this->removeBrokenLinkMarkers($this->removeFirstAndLastTag($blocks[$position]))
                 . '</a>';
         }

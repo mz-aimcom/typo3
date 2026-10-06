@@ -13,15 +13,19 @@
 
 import { BroadcastMessage, type BroadcastEvent } from '@typo3/backend/broadcast-message';
 import BroadcastService from '@typo3/backend/broadcast-service';
+import Persistent from '@typo3/backend/storage/persistent';
+import Modal, { type ModalElement } from '@typo3/backend/modal';
+import { SeverityEnum } from '@typo3/backend/enum/severity';
+import labels from '~labels/backend.messages';
 
 enum Identifier {
   colorSchemeSwitch = 'typo3-backend-color-scheme-switch',
 }
 
 export type ColorScheme = 'auto' | 'light' | 'dark';
-export type Theme = 'modern' | 'classic';
+export type Theme = 'modern' | 'classic' | 'fresh';
 export type TitleFormat = 'titleFirst' | 'sitenameFirst';
-export type Direction = 'rtl' | null;
+export type DayOfWeek = '' | '1' | '2' | '3' | '4' | '5' | '6' | '7'; // 1=Sunday, 2=Monday, ... 7=Saturday
 
 // Event for typo3:color-scheme:update and typo3:color-scheme:broadcast
 export interface ColorSchemeUpdateEventData {
@@ -38,10 +42,20 @@ export interface TitleFormatUpdateEventData {
   format: TitleFormat;
 }
 
+// Event for typo3:date-time-first-day-of-week:update and typo3:date-time-first-day-of-week:broadcast
+export interface DateTimeFirstDayOfWeekUpdateEventData {
+  dow: DayOfWeek;
+}
+
 // Event for typo3:backend-language:update and typo3:backend-language:broadcast
 export interface BackendLanguageUpdateEventData {
   language: string;
-  direction: Direction;
+}
+
+// Event for typo3:persistent:update and typo3:persistent:broadcast
+export interface PersistentUpdateEventData {
+  fieldName: string;
+  value: string;
 }
 
 class UserSettingsManager {
@@ -56,12 +70,16 @@ class UserSettingsManager {
     document.addEventListener('typo3:title-format:update', e => this.onTitleFormatUpdate(e.detail));
     //  triggered by user setup module (via BackendUtility::setUpdateSignal('updateBackendLanguage', …))
     document.addEventListener('typo3:backend-language:update', e => this.onBackendLanguageFormatUpdate(e.detail));
-
+    //  triggered by user setup module (via BackendUtility::setUpdateSignal('updatePersistent', …))
+    document.addEventListener('typo3:persistent:update', e => this.onPersistentUpdate(e.detail));
+    //  triggered by user setup module (via BackendUtility::setUpdateSignal('updateDateTimeFirstDayOfWeek', …))
+    document.addEventListener('typo3:date-time-first-day-of-week:update', e => this.onDateTimeFirstDayOfWeekUpdate(e.detail));
     // broadcast message by other instances
     document.addEventListener('typo3:color-scheme:broadcast', e => this.activateColorScheme(e.detail.payload.colorScheme));
     document.addEventListener('typo3:theme:broadcast', e => this.activateTheme(e.detail.payload.theme));
     document.addEventListener('typo3:title-format:broadcast', e => this.activateTitleFormat(e.detail.payload.format));
-    document.addEventListener('typo3:backend-language:broadcast', e => this.updateBackendLanguage(e.detail.payload.language, e.detail.payload.direction));
+    document.addEventListener('typo3:backend-language:broadcast', () => this.requestBackendLanguageRefresh());
+    document.addEventListener('typo3:persistent:broadcast', e => this.updatePersistent(e.detail.payload.fieldName, e.detail.payload.value));
   }
 
   private onColorSchemeUpdate(data: ColorSchemeUpdateEventData) {
@@ -88,12 +106,28 @@ class UserSettingsManager {
     BroadcastService.post(new BroadcastMessage<TitleFormatUpdateEventData>('title-format', 'broadcast', { format }));
   }
 
-  private onBackendLanguageFormatUpdate(data: BackendLanguageUpdateEventData) {
-    const { language, direction } = data;
-    this.updateBackendLanguage(language, direction);
+  private onDateTimeFirstDayOfWeekUpdate(data: DateTimeFirstDayOfWeekUpdateEventData) {
+    const { dow } = data;
+    this.activateDateTimeFirstDayOfWeek(dow);
 
     // broadcast to other instances
-    BroadcastService.post(new BroadcastMessage<BackendLanguageUpdateEventData>('language-update', 'broadcast', { language, direction }));
+    BroadcastService.post(new BroadcastMessage<DateTimeFirstDayOfWeekUpdateEventData>('date-time-first-day-of-week', 'broadcast', { dow }));
+  }
+
+  private onBackendLanguageFormatUpdate(data: BackendLanguageUpdateEventData) {
+    const { language } = data;
+    this.requestBackendLanguageRefresh();
+
+    // broadcast to other instances
+    BroadcastService.post(new BroadcastMessage<BackendLanguageUpdateEventData>('backend-language', 'broadcast', { language }));
+  }
+
+  private onPersistentUpdate(data: PersistentUpdateEventData) {
+    const { fieldName, value } = data;
+    this.updatePersistent(fieldName, value);
+
+    // broadcast to other instances
+    BroadcastService.post(new BroadcastMessage<PersistentUpdateEventData>('personalization', 'broadcast', { fieldName: fieldName, value }));
   }
 
   private activateColorScheme(colorScheme: ColorScheme) {
@@ -116,19 +150,42 @@ class UserSettingsManager {
     }
   }
 
-  private updateBackendLanguage(language: string, direction: Direction): void {
-    const rootEl = document.documentElement;
-    const frame = window.frames.list_frame?.document.documentElement;
+  private activateDateTimeFirstDayOfWeek(dow: DayOfWeek) {
+    this.updatePersistent('dateTimeFirstDayOfWeek', dow);
+  }
 
-    rootEl.setAttribute('lang', language);
-    frame?.setAttribute('lang', language);
-    if (direction !== null) {
-      rootEl.setAttribute('dir', direction);
-      frame?.setAttribute('dir', direction);
-    } else {
-      rootEl.removeAttribute('dir');
-      frame?.removeAttribute('dir');
+  private requestBackendLanguageRefresh(): void {
+    const className = 't3js-request-backend-language-refresh';
+    if (Modal.currentModal?.querySelector('dialog')?.classList.contains(className)) {
+      // Prevent opening multiple modals if the language
+      // is switched multiple times in another tab
+      return;
     }
+    Modal.confirm(
+      labels.get('userSettings.requestBackendLanguageRefresh.title'),
+      labels.get('userSettings.requestBackendLanguageRefresh.message'),
+      SeverityEnum.notice,
+      [
+        {
+          text: labels.get('userSettings.requestBackendLanguageRefresh.buttonCancel'),
+          btnClass: 'btn-default',
+          trigger: (e: Event, modal: ModalElement) => modal.hideModal(),
+          name: 'cancel',
+        },
+        {
+          text: labels.get('userSettings.requestBackendLanguageRefresh.buttonReload'),
+          active: true,
+          btnClass: 'btn-primary',
+          trigger: () => top.window.location.reload(),
+          name: 'ok',
+        },
+      ],
+      [className],
+    );
+  }
+
+  private updatePersistent(fieldName: string, value: string) {
+    Persistent.set(fieldName, value);
   }
 
   private async setStyleChangingDocumentAttribute(attributeName: string, attributeValue: string) {
@@ -185,5 +242,9 @@ declare global {
     'typo3:title-format:broadcast': BroadcastEvent<TitleFormatUpdateEventData>;
     'typo3:backend-language:update': CustomEvent<BackendLanguageUpdateEventData>;
     'typo3:backend-language:broadcast': BroadcastEvent<BackendLanguageUpdateEventData>;
+    'typo3:persistent:update': CustomEvent<PersistentUpdateEventData>;
+    'typo3:persistent:broadcast': BroadcastEvent<PersistentUpdateEventData>;
+    'typo3:date-time-first-day-of-week:update': CustomEvent<DateTimeFirstDayOfWeekUpdateEventData>;
+    'typo3:date-time-first-day-of-week:broadcast': BroadcastEvent<DateTimeFirstDayOfWeekUpdateEventData>;
   }
 }

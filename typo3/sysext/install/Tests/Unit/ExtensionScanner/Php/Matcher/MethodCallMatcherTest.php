@@ -31,7 +31,7 @@ final class MethodCallMatcherTest extends UnitTestCase
     #[Test]
     public function hitsFromFixtureAreFound(): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $fixtureFile = __DIR__ . '/Fixtures/MethodCallMatcherFixture.php';
         $statements = $parser->parse(file_get_contents($fixtureFile));
 
@@ -83,7 +83,7 @@ class foo
 }
 EOC;
 
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $statements = $parser->parse($phpCode);
 
         $traverser = new NodeTraverser();
@@ -299,6 +299,37 @@ EOC;
                     ],
                 ],
             ],
+            // Regression test for issue #108413: dynamic method calls must not crash
+            'no match for dynamic method call with method call expression' => [
+                [
+                    'Foo->aMethod' => [
+                        'numberOfMandatoryArguments' => 0,
+                        'maximumNumberOfArguments' => 2,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                $someVar->{$this->getMethod()}();',
+                [], // no match, must not crash
+            ],
+            // Regression test for issue #108413: $object->$var() syntax must not crash
+            'no match for dynamic method call with variable' => [
+                [
+                    'Foo->aMethod' => [
+                        'numberOfMandatoryArguments' => 0,
+                        'maximumNumberOfArguments' => 2,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                $methodName = "someMethod";
+                $someVar->$methodName();',
+                [], // no match, must not crash
+            ],
         ];
     }
 
@@ -306,7 +337,7 @@ EOC;
     #[Test]
     public function matchesReturnsExpectedRestFiles(array $configuration, string $phpCode, array $expected): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $statements = $parser->parse($phpCode);
 
         $subject = new MethodCallMatcher($configuration);

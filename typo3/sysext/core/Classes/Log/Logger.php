@@ -24,7 +24,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Logger to log events and data for different components.
  */
-class Logger implements LoggerInterface
+final class Logger implements LoggerInterface
 {
     use LoggerTrait;
 
@@ -36,11 +36,6 @@ class Logger implements LoggerInterface
      * core.t3lib.cache.manager, core.backend.workspaces or extension.news
      */
     protected string $name = '';
-
-    /**
-     * Unique ID of the request
-     */
-    protected string $requestId = '';
 
     /**
      * Minimum log level, anything below this level will be ignored.
@@ -61,12 +56,10 @@ class Logger implements LoggerInterface
      * Constructor.
      *
      * @param string $name A name for the logger.
-     * @param string $requestId Unique ID of the request
      */
-    public function __construct(string $name, string $requestId = '')
+    public function __construct(string $name)
     {
         $this->name = $name;
-        $this->requestId = $requestId;
         $this->minimumLogLevel = LogLevel::normalizeLevel(LogLevel::EMERGENCY);
     }
 
@@ -76,7 +69,6 @@ class Logger implements LoggerInterface
     public function __wakeup()
     {
         $newLogger = GeneralUtility::makeInstance(LogManager::class)->getLogger($this->name);
-        $this->requestId = $newLogger->requestId;
         $this->minimumLogLevel = $newLogger->minimumLogLevel;
         $this->writers = $newLogger->writers;
         $this->processors = $newLogger->processors;
@@ -199,7 +191,7 @@ class Logger implements LoggerInterface
         if ($level > $this->minimumLogLevel) {
             return;
         }
-        $record = GeneralUtility::makeInstance(LogRecord::class, $this->name, LogLevel::getInternalName($level), $message, $data, $this->requestId);
+        $record = new LogRecord($this->name, LogLevel::getInternalName($level), $message, $data);
         $record = $this->callProcessors($record);
         $this->writeLog($record);
     }

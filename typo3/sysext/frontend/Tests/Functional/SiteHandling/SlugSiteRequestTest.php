@@ -342,8 +342,15 @@ final class SlugSiteRequestTest extends AbstractTestCase
         );
     }
 
+    public static function unconfiguredPageTypeReturnsExpectedStatusCodeDataProvider(): \Generator
+    {
+        yield 'missing mandatory default type' => ['type=0', 500, 'No page configured for type=0.'];
+        yield 'unconfigured non-zero type' => ['type=13', 404, 'No page configured for type=13.'];
+    }
+
+    #[DataProvider('unconfiguredPageTypeReturnsExpectedStatusCodeDataProvider')]
     #[Test]
-    public function unconfiguredTypeNumResultsIn500Error(): void
+    public function unconfiguredPageTypeReturnsExpectedStatusCode(string $query, int $expectedStatus, string $expectedMessage): void
     {
         $this->writeSiteConfiguration(
             'website-local',
@@ -351,20 +358,18 @@ final class SlugSiteRequestTest extends AbstractTestCase
             [
                 $this->buildDefaultLanguageConfiguration('EN', '/en-en/'),
             ],
-            $this->buildErrorHandlingConfiguration('Fluid', [500])
+            $this->buildErrorHandlingConfiguration('Fluid', [404, 500])
+        );
+        // Replace the default template with one that defines no default PAGE (typeNum=0).
+        $this->setUpFrontendRootPage(
+            1000,
+            ['EXT:frontend/Tests/Functional/SiteHandling/Fixtures/NoDefaultPage.typoscript']
         );
 
-        $uri = 'https://website.local/en-en/?type=13';
-        $response = $this->executeFrontendSubRequest(new InternalRequest($uri));
+        $response = $this->executeFrontendSubRequest(new InternalRequest('https://website.local/en-en/?' . $query));
 
-        self::assertSame(
-            500,
-            $response->getStatusCode()
-        );
-        self::assertStringContainsString(
-            'message: No page configured for type=13.',
-            (string)$response->getBody()
-        );
+        self::assertSame($expectedStatus, $response->getStatusCode());
+        self::assertStringContainsString($expectedMessage, (string)$response->getBody());
     }
 
     public static function pageIsRenderedWithPathsDataProvider(): array
@@ -648,7 +653,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $responseStructure = ResponseContent::fromString(
             (string)$response->getBody()
@@ -684,7 +689,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $responseStructure = ResponseContent::fromString(
             (string)$response->getBody()
@@ -731,7 +736,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -760,7 +765,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -793,7 +798,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -823,7 +828,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -866,7 +871,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -895,7 +900,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -928,7 +933,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -958,7 +963,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -1000,7 +1005,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -1133,9 +1138,9 @@ final class SlugSiteRequestTest extends AbstractTestCase
         // '4408d27a916d51e624b69af3554f516dbab61037a9f7b9fd6f81b4d3bedeccb6'
         $queries = [
             // @todo Currently fails since cHash is verified after(!) redirect to page 1100
-            // '?cHash=7d1f13fa91159dac7feb3c824936b39d',
-            // '?cHash=7d1f13fa91159dac7feb3c824936b39d',
-            'welcome?cHash=f42b850e435f0cedd366f5db749fc1af',
+            // '?cHash=76796a848e61a31b6cf1f1ae696e12409189abfc7a06364e8a971c7a2eb40922',
+            // '?cHash=76796a848e61a31b6cf1f1ae696e12409189abfc7a06364e8a971c7a2eb40922',
+            'welcome?cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31',
         ];
         $customQueries = [
             '&testing[value]=1',
@@ -1273,7 +1278,7 @@ final class SlugSiteRequestTest extends AbstractTestCase
         );
         $response = $this->executeFrontendSubRequest(
             (new InternalRequest($url)),
-            (new InternalRequestContext())
+            new InternalRequestContext()
                 ->withWorkspaceId($backendUserId !== 0 ? $workspaceId : 0)
                 ->withBackendUserId($backendUserId)
         );

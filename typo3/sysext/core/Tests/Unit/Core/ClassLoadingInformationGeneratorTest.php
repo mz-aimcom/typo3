@@ -358,13 +358,37 @@ final class ClassLoadingInformationGeneratorTest extends UnitTestCase
         }
     }
 
-    private function createPackageMock(array $packageManifest): PackageInterface
+    #[Test]
+    public function autoloadFilesKeepPsr4PathsOfAllPackagesUsingTheSamePrefix(): void
     {
-        $packageMock = $this->createMock(PackageInterface::class);
-        $packageMock->method('getPackagePath')->willReturn(__DIR__ . '/Fixtures/test_extension/');
-        $packageMock->method('getValueFromComposerManifest')->willReturn(
+        $packageManifest = [
+            'autoload' => [
+                'psr-4' => [
+                    'TYPO3\\CMS\\TestExtension\\' => 'Classes/',
+                ],
+            ],
+        ];
+        $generator = new ClassLoadingInformationGenerator();
+        $files = $generator->buildAutoloadInformationFiles(false, __DIR__, [
+            $this->createPackageMock($packageManifest),
+            $this->createPackageMock($packageManifest, __DIR__ . '/Fixtures/test_extension_two/'),
+        ]);
+
+        self::assertStringContainsString(
+            '\'TYPO3\\\\CMS\\\\TestExtension\\\\\' => array('
+            . '$typo3InstallDir . \'/Fixtures/test_extension/Classes\','
+            . '$typo3InstallDir . \'/Fixtures/test_extension_two/Classes\')',
+            $files['psr-4File']
+        );
+    }
+
+    private function createPackageMock(array $packageManifest, ?string $packagePath = null): PackageInterface
+    {
+        $packageStub = self::createStub(PackageInterface::class);
+        $packageStub->method('getPackagePath')->willReturn($packagePath ?? __DIR__ . '/Fixtures/test_extension/');
+        $packageStub->method('getValueFromComposerManifest')->willReturn(
             json_decode(json_encode($packageManifest))
         );
-        return $packageMock;
+        return $packageStub;
     }
 }

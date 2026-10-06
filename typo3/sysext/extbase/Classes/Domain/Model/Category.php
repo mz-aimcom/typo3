@@ -17,26 +17,21 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Attribute as Extbase;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
-use TYPO3\CMS\Extbase\Persistence\Generic\LazyLoadingProxy;
 
 /**
  * This model represents a category (for anything).
  */
 class Category extends AbstractEntity
 {
-    /**
-     * @Extbase\Validate("NotEmpty")
-     */
+    #[Extbase\Validate(validator: 'NotEmpty')]
     protected string $title = '';
 
     protected string $description = '';
 
-    /**
-     * @Extbase\ORM\Lazy
-     */
-    protected Category|LazyLoadingProxy|null $parent = null;
+    #[Extbase\ORM\Lazy]
+    protected ?Category $parent = null;
 
     public function getTitle(): string
     {
@@ -60,9 +55,6 @@ class Category extends AbstractEntity
 
     public function getParent(): ?Category
     {
-        if ($this->parent instanceof LazyLoadingProxy) {
-            $this->parent->_loadRealInstance();
-        }
         return $this->parent;
     }
 

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Mvc\View;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
@@ -27,6 +28,7 @@ use TYPO3\CMS\Extbase\Persistence\Generic\PersistenceManager;
 use TYPO3\CMS\Extbase\Reflection\ReflectionService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class JsonViewTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -168,12 +170,8 @@ final class JsonViewTest extends UnitTestCase
     public static function recursiveDataProvider(): array
     {
         $object = new class ('foo') {
-            private $value1 = '';
             private $child;
-            public function __construct($value1)
-            {
-                $this->value1 = $value1;
-            }
+            public function __construct(private $value1) {}
             public function getValue1(): string
             {
                 return $this->value1;
@@ -219,13 +217,9 @@ final class JsonViewTest extends UnitTestCase
         $output[] = [$object, $configuration, $expected, 'testData', 'Recursive rendering of defined property should be possible.'];
 
         $object = new class ('foo') {
-            private $value1 = '';
             private $children = [];
             private $secret = 'secret';
-            public function __construct($value1)
-            {
-                $this->value1 = $value1;
-            }
+            public function __construct(private $value1) {}
             public function getValue1(): string
             {
                 return $this->value1;
@@ -327,7 +321,7 @@ final class JsonViewTest extends UnitTestCase
         $jsonView = $this->getAccessibleMock(JsonView::class, null, [], '', false);
         $jsonView->_set('configuration', $configuration);
         $jsonView->_set('variablesToRender', [$variableToRender]);
-        $jsonView->_call('assign', $variableToRender, $object);
+        $jsonView->assign($variableToRender, $object);
         $actual = $jsonView->_call('renderArray');
 
         self::assertSame($expected, $actual, $description);

@@ -17,45 +17,22 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Session;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Session\Backend\DatabaseSessionBackend;
-use TYPO3\CMS\Core\Session\Backend\SessionBackendInterface;
+use Psr\Container\ContainerInterface;
 use TYPO3\CMS\Core\Session\SessionManager;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class SessionManagerTest extends UnitTestCase
 {
-    #[Test]
-    public function getSessionBackendUsesDefaultBackendFromConfiguration(): void
-    {
-        $subject = new SessionManager();
-        self::assertInstanceOf(DatabaseSessionBackend::class, $subject->getSessionBackend('BE'));
-    }
-
-    #[Test]
-    public function getSessionBackendReturnsExpectedSessionBackendBasedOnConfiguration(): void
-    {
-        $backendMock = $this->createMock(SessionBackendInterface::class);
-        $backendClassName = get_class($backendMock);
-        $GLOBALS['TYPO3_CONF_VARS']['SYS']['session']['myidentifier'] = [
-            'backend'  => $backendClassName,
-            'options' => [],
-        ];
-        $backendMock->expects($this->atLeastOnce())->method('initialize')->with(self::anything());
-        $backendMock->expects($this->atLeastOnce())->method('validateConfiguration');
-        GeneralUtility::addInstance($backendClassName, $backendMock);
-        $subject = new SessionManager();
-        self::assertInstanceOf($backendClassName, $subject->getSessionBackend('myidentifier'));
-    }
-
     #[Test]
     public function getSessionBackendThrowsExceptionForMissingConfiguration(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1482234750);
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['session']['myNewIdentifier'] = 'I am not an array';
-        $subject = new SessionManager();
+        $subject = new SessionManager(self::createStub(ContainerInterface::class));
         $subject->getSessionBackend('myNewidentifier');
     }
 
@@ -68,6 +45,6 @@ final class SessionManagerTest extends UnitTestCase
             'backend'  => \stdClass::class,
             'options' => [],
         ];
-        (new SessionManager())->getSessionBackend('myidentifier');
+        new SessionManager(self::createStub(ContainerInterface::class))->getSessionBackend('myidentifier');
     }
 }

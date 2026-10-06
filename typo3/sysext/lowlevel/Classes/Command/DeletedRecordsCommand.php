@@ -47,7 +47,7 @@ class DeletedRecordsCommand extends Command
     /**
      * Configure the command by defining the name, options and arguments
      */
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->setHelp('Traverse page tree and find and flush deleted records. If you want to get more detailed information, use the --verbose option.')
@@ -230,7 +230,7 @@ class DeletedRecordsCommand extends Command
                     'uid,t3ver_wsid,' . $deletedField,
                     null,
                     true
-                ) ?: [];
+                );
                 if (is_array($versions)) {
                     foreach ($versions as $verRec) {
                         // Mark as deleted
@@ -267,7 +267,7 @@ class DeletedRecordsCommand extends Command
                 'uid,t3ver_oid,t3ver_wsid',
                 null,
                 true
-            ) ?: [];
+            );
             if (is_array($versions)) {
                 foreach ($versions as $verRec) {
                     if (!($verRec['_CURRENT_VERSION'] ?? false)) {

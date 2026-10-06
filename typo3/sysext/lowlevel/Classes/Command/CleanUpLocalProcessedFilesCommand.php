@@ -28,7 +28,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Lowlevel\Service\CleanUpLocalProcessedFilesService;
 
-#[AsCommand('cleanup:localprocessedfiles', 'Delete processed files and their database records.')]
+#[AsCommand('cleanup:localprocessedfiles', 'Deletes processed files and their database records.')]
 class CleanUpLocalProcessedFilesCommand extends Command
 {
     public function __construct(
@@ -41,8 +41,8 @@ class CleanUpLocalProcessedFilesCommand extends Command
     {
         $this
             ->setDescription(
-                'Deletes local processed files from local storage that are no longer referenced and ' .
-                'deletes references to processed files that do no longer exist. Also allows to reset ALL files.'
+                'Deletes local processed files from local storage that are no longer referenced and '
+                . 'deletes references to processed files that do no longer exist. Also allows to reset ALL files.'
             )
             ->setHelp('If you want to get more detailed information, use the --verbose option.')
             ->addOption(
@@ -71,7 +71,7 @@ class CleanUpLocalProcessedFilesCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $files = $this->cleanProcessedFilesService->getFilesToClean(0, $input->getOption('all'));
+        $files = $this->cleanProcessedFilesService->getFilesToClean($input->getOption('all'));
         $records = $this->cleanProcessedFilesService->getRecordsToClean($input->getOption('all'));
 
         if ($output->isVerbose()) {
@@ -81,7 +81,7 @@ class CleanUpLocalProcessedFilesCommand extends Command
 
             /** @var \SplFileInfo $file */
             foreach ($files as $file) {
-                $path = PathUtility::stripPathSitePrefix($file->getRealPath());
+                $path = PathUtility::stripPathSitePrefix($file->getPathname());
                 $output->writeln('[FILE] Would delete ' . $path);
             }
         }
@@ -155,8 +155,8 @@ class CleanUpLocalProcessedFilesCommand extends Command
         $success = [];
 
         foreach ($files as $file) {
-            $path = PathUtility::stripPathSitePrefix($file->getRealPath());
-            if (unlink($file->getRealPath()) === false) {
+            $path = PathUtility::stripPathSitePrefix($file->getPathname());
+            if (unlink($file->getPathname()) === false) {
                 $error[] = $file;
                 $isVerbose ? $output->writeln('[FILE] Failed to delete ' . $path) : $progressBar->advance();
             } else {

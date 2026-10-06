@@ -1,0 +1,123 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:sg="http://typo3.org/ns/TYPO3/CMS/Styleguide/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+
+    <f:render
+        partial="Backend/Navigation"
+        arguments="{
+            currentAction: currentAction,
+            actions: actions,
+            route: routeIdentifier
+        }"
+    />
+
+    <div class="styleguide-content">
+        <h1><f:translate key="styles.colorTokens.headline" domain="styleguide.messages" /></h1>
+        <p>
+            <f:sanitize.html><f:translate key="styles.colorTokens.introtext" domain="styleguide.messages" /></f:sanitize.html>
+        </p>
+
+        <f:asset.css identifier="styleguide-shadow-demo">
+            .color-palettes {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 1.5rem;
+                padding: 1.5rem 0;
+            }
+
+            .color-palettes-neutral .color-palette {
+                max-width: 43.5rem;
+            }
+
+            .color-palettes-state .color-palette {
+                max-width: 43.5rem;
+            }
+
+            .color-palette {
+                display: flex;
+                flex-wrap: wrap;
+                gap: .25rem;
+                max-width: 20rem;
+            }
+
+            .color-palette-item {
+                width: 6rem;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: .5rem;
+            }
+
+            .color-palette-item-plate {
+                height: 100px;
+                width: 100%;
+                border-radius: .25rem;
+            }
+        </f:asset.css>
+
+
+        <h2>Neutral</h2>
+        <sg:colorScheme>
+
+            <div class="color-palettes color-palettes-neutral">
+                <f:for each="{neutralColors}" as="color">
+                    <div class="color-palette color-palette-{color}">
+                        <f:for each="{neutralSteps}" as="step">
+                            <div class="color-palette-item">
+                                <div class="color-palette-item-plate" style="background: var(--token-color-{color}-{step});"></div>
+                                <div class="color-palette-item-label">{color}-{step}</div>
+                            </div>
+                        </f:for>
+                    </div>
+                </f:for>
+            </div>
+
+        </sg:colorScheme>
+
+        <h2>State</h2>
+        <sg:colorScheme>
+
+            <div class="color-palettes color-palettes-state">
+                <f:for each="{stateColors}" as="color">
+                    <div class="color-palette color-palette-{color}">
+                        <f:for each="{stateSteps}" as="step">
+                            <div class="color-palette-item">
+                                <div class="color-palette-item-plate" style="background: var(--token-color-{color}-{step});"></div>
+                                <div class="color-palette-item-label">{color}-{step}</div>
+                            </div>
+                        </f:for>
+                    </div>
+                </f:for>
+            </div>
+
+        </sg:colorScheme>
+
+        <h2>Base Colors</h2>
+        <sg:colorScheme>
+
+            <div class="color-palettes">
+                <f:for each="{baseColors}" as="color">
+                    <div class="color-palette color-palette-{color}">
+                        <f:for each="{baseSteps}" as="step">
+                            <div class="color-palette-item">
+                                <div class="color-palette-item-plate" style="background: var(--token-color-{color}-{step});"></div>
+                                <div class="color-palette-item-label">{color}-{step}</div>
+                            </div>
+                        </f:for>
+                    </div>
+                </f:for>
+            </div>
+
+        </sg:colorScheme>
+    </div>
+
+</f:section>
+
+</html>

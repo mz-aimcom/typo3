@@ -18,8 +18,12 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Persistence\Generic\Storage;
 
 use Doctrine\DBAL\Exception as DBALException;
+use Doctrine\DBAL\ParameterType;
+use Doctrine\DBAL\Types\Exception\TypesException;
+use Doctrine\DBAL\Types\Type;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Event\AddCacheTagEvent;
@@ -34,7 +38,6 @@ use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 use TYPO3\CMS\Extbase\DomainObject\AbstractDomainObject;
@@ -56,7 +59,8 @@ use TYPO3\CMS\Frontend\Cache\CacheLifetimeCalculator;
  * A Storage backend
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
+#[Autoconfigure(public: true)]
+readonly class Typo3DbBackend implements BackendInterface
 {
     public function __construct(
         protected CacheService $cacheService,
@@ -67,6 +71,7 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
         protected TcaSchemaFactory $tcaSchemaFactory,
         #[Autowire(expression: 'service("features").isFeatureEnabled("frontend.cache.autoTagging")')]
         protected bool $autoTagging,
+        protected PageRepository $pageRepository,
     ) {}
 
     /**
@@ -85,7 +90,7 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
         }
         try {
             $connection = $this->connectionPool->getConnectionForTable($tableName);
-            $connection->insert($tableName, $fieldValues);
+            $connection->insert($tableName, $fieldValues, $this->getTypesForDataset($tableName, $fieldValues));
         } catch (DBALException $e) {
             throw new SqlErrorException($e->getMessage(), 1470230766, $e);
         }
@@ -119,7 +124,7 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
 
         try {
             $connection = $this->connectionPool->getConnectionForTable($tableName);
-            $connection->update($tableName, $fieldValues, ['uid' => $uid]);
+            $connection->update($tableName, $fieldValues, ['uid' => $uid], $this->getTypesForDataset($tableName, $fieldValues));
         } catch (DBALException $e) {
             throw new SqlErrorException($e->getMessage(), 1470230767, $e);
         }
@@ -162,7 +167,12 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
         }
 
         try {
-            $this->connectionPool->getConnectionForTable($tableName)->update($tableName, $fieldValues, $where);
+            $this->connectionPool->getConnectionForTable($tableName)->update(
+                $tableName,
+                $fieldValues,
+                $where,
+                $this->getTypesForDataset($tableName, $fieldValues),
+            );
         } catch (DBALException $e) {
             throw new SqlErrorException($e->getMessage(), 1470230768, $e);
         }
@@ -197,14 +207,34 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
     public function getObjectDataByQuery(QueryInterface $query): array
     {
         $statement = $query->getStatement();
+        $querySettings = $query->getQuerySettings();
         // A custom query is needed for the language, so a custom context is cloned
         /** @var Context $context */
         $context = clone GeneralUtility::makeInstance(Context::class);
-        $context->setAspect('language', $query->getQuerySettings()->getLanguageAspect());
-        // todo: remove instanceof checks as soon as getStatement() strictly returns Qom\Statement only
-        if ($statement instanceof Statement
-            && !$statement->getStatement() instanceof QueryBuilder
-        ) {
+        $context->setAspect('language', $querySettings->getLanguageAspect());
+        if ($querySettings->getIgnoreEnableFields()) {
+            // The language overlay is fetched by PageRepository, which applies the frontend restrictions based on
+            // the visibility aspect. Ignored enable fields must therefore be mirrored into that aspect, otherwise a
+            // hidden or scheduled translation is never found and the default language record is dropped or kept
+            // untranslated. An empty list of enable fields means "ignore all of them".
+            $ignoredEnableFields = $querySettings->getEnableFieldsToBeIgnored();
+            $ignoreAll = $ignoredEnableFields === [];
+            $includeHidden = $ignoreAll || in_array('disabled', $ignoredEnableFields, true);
+            $includeScheduled = $ignoreAll
+                || in_array('starttime', $ignoredEnableFields, true)
+                || in_array('endtime', $ignoredEnableFields, true);
+            $visibility = $context->getAspect('visibility');
+            if ($includeHidden) {
+                $visibility = $visibility
+                    ->withIncludeHiddenPages(true)
+                    ->withIncludeHiddenContent(true);
+            }
+            if ($includeScheduled) {
+                $visibility = $visibility->withIncludeScheduledRecords(true);
+            }
+            $context->setAspect('visibility', $visibility);
+        }
+        if ($statement instanceof Statement && !$statement->getStatement() instanceof QueryBuilder) {
             $rows = $this->getObjectDataByRawQuery($statement);
         } else {
             $queryParser = GeneralUtility::makeInstance(Typo3DbQueryParser::class);
@@ -428,7 +458,7 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
     {
         $workspaceUid = (int)$context->getPropertyFromAspect('workspace', 'id');
 
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $context);
+        $pageRepository = $this->pageRepository->withContext($context);
         if ($source instanceof SelectorInterface) {
             $tableName = $source->getSelectorName();
             $rows = $this->resolveMovedRecordsInWorkspace($tableName, $rows, $workspaceUid);
@@ -585,9 +615,16 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
                     $row['uid'] = $row[$translationParentPointerField];
                     $row[$languageField] = 0;
                 }
-                // Currently this needs to return the default record (OVERLAYS_MIXED) if no translation is found
-                //however this is a hack and should actually use the overlay functionality as given in the original LanguageAspect.
-                $customLanguageAspect = new LanguageAspect($languageUid, $languageUid, LanguageAspect::OVERLAYS_MIXED, $languageAspect->getFallbackChain());
+                // The overlay type (and fallback chain) of the language aspect is respected, so translation
+                // behavior is consistent with the regular page / content rendering. The content language
+                // however may have been adjusted above to the language of the actually fetched record
+                // (see Note #1 and the respectSysLanguage handling), so a custom aspect is passed here.
+                $customLanguageAspect = new LanguageAspect(
+                    $languageAspect->getId(),
+                    $languageUid,
+                    $languageAspect->getOverlayType(),
+                    $languageAspect->getFallbackChain()
+                );
                 $row = $pageRepository->getLanguageOverlay($tableName, $row, $customLanguageAspect);
             }
         } elseif (is_array($row)) {
@@ -651,5 +688,36 @@ readonly class Typo3DbBackend implements BackendInterface, SingletonInterface
                 )
             );
         }
+    }
+
+    /**
+     * @param array<string, mixed> $fieldValues
+     * @return array<string, Type|ParameterType>
+     */
+    private function getTypesForDataset(string $tableName, array $fieldValues): array
+    {
+        $connection = $this->connectionPool->getConnectionForTable($tableName);
+        $tableInfo = $connection->getSchemaInformation()->getTableInfo($tableName);
+        $types = [];
+        foreach ($fieldValues as $key => $value) {
+            if (!$tableInfo->hasColumnInfo($key)) {
+                // Field is not part of the database schema information, therefore no type is set here and
+                // Doctrine DBAL handles the value with its default binding type (ParameterType::STRING).
+                continue;
+            }
+            try {
+                // `ColumnInfo->getType()` returns the Doctrine type (e.g. JsonType), which carries the
+                // `PHP value <-> database value` conversion methods applied by Doctrine DBAL. Each Doctrine
+                // type maps to a plain binding type (e.g. ParameterType::STRING for VARCHAR/CHAR/TEXT/...),
+                // which binds the value as-is without applying any conversion. Extbase already performs that
+                // conversion itself, which is why the plain binding type is enforced here. This additionally
+                // prevents `Connection::ensureDatabaseValueTypes()` from adding the Doctrine type looked up
+                // from the database schema.
+                $types[$key] = $tableInfo->getColumnInfo($key)->getType()->getBindingType();
+            } catch (TypesException) {
+                // Ignore, no type to be set
+            }
+        }
+        return $types;
     }
 }

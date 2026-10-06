@@ -20,8 +20,6 @@ namespace TYPO3\CMS\Fluid\ViewHelpers\Be;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
@@ -29,19 +27,13 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
  *
  * ```
  *   <f:be.infobox title="Message title">your box content</f:be.infobox>
- *   <f:be.infobox title="Error!" state="{f:constant(name: 'TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper::STATE_ERROR')}" iconName="check">your box content</f:be.infobox>
+ *   <f:be.infobox title="Error!" state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::ERROR')}" iconName="check">your box content</f:be.infobox>
  * ```
  *
  * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-be-infobox
  */
 final class InfoboxViewHelper extends AbstractViewHelper
 {
-    public const STATE_NOTICE = -2;
-    public const STATE_INFO = -1;
-    public const STATE_OK = 0;
-    public const STATE_WARNING = 1;
-    public const STATE_ERROR = 2;
-
     /**
      * As this ViewHelper renders HTML, the output must not be escaped.
      *
@@ -49,48 +41,54 @@ final class InfoboxViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly IconFactory $iconFactory
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('message', 'string', 'The message of the info box, if NULL tag content is used');
         $this->registerArgument('title', 'string', 'The title of the info box');
-        $this->registerArgument('state', 'int', 'The state of the box, InfoboxViewHelper::STATE_*', false, self::STATE_NOTICE);
+        $this->registerArgument('state', 'mixed', 'The state of the box, accepts ContextualFeedbackSeverity enum or integer value', false, ContextualFeedbackSeverity::NOTICE);
         $this->registerArgument('iconName', 'string', 'Identifier of the icon as registered in the Icon Registry. NULL sets default icon');
         $this->registerArgument('disableIcon', 'bool', 'If set to TRUE, the icon is not rendered.', false, false);
     }
 
     public function render(): string
     {
-        $iconFactory = GeneralUtility::makeInstance(IconFactory::class);
         $title = (string)$this->arguments['title'];
         $message = (string)$this->renderChildren();
         $state = $this->arguments['state'];
-        $isInRange = MathUtility::isIntegerInRange($state, -2, 2);
-        if (!$isInRange) {
-            $state = -2;
+
+        // The state argument accepts both a ContextualFeedbackSeverity enum and a raw integer value
+        if ($state instanceof ContextualFeedbackSeverity) {
+            $severity = $state;
+        } else {
+            $state = (int)$state;
+            $severity = ContextualFeedbackSeverity::from($state);
         }
-        $severity = ContextualFeedbackSeverity::from($state);
         $disableIcon = $this->arguments['disableIcon'];
         $icon = $this->arguments['iconName'] ?? $severity->getIconIdentifier();
         $iconTemplate = '';
         if (!$disableIcon) {
-            $iconTemplate = '' .
-                '<div class="callout-icon">' .
-                    '<span class="icon-emphasized">' .
-                        $iconFactory->getIcon($icon, IconSize::SMALL)->render() .
-                    '</span>' .
-                '</div>';
+            $iconTemplate = ''
+                . '<div class="callout-icon">'
+                    . '<span class="icon-emphasized">'
+                        . $this->iconFactory->getIcon($icon, IconSize::SMALL)->render()
+                    . '</span>'
+                . '</div>';
         }
         $titleTemplate = '';
-        if ($title !== null) {
+        if ($title !== '') {
             $titleTemplate = '<div class="callout-title">' . htmlspecialchars($title) . '</div>';
         }
-        return '<div class="callout callout-' . htmlspecialchars($severity->getCssClass()) . '">' .
-                $iconTemplate .
-                '<div class="callout-content">' .
-                    $titleTemplate .
-                    '<div class="callout-body">' . $message . '</div>' .
-                '</div>' .
-            '</div>';
+        return '<div class="callout callout-' . htmlspecialchars($severity->getCssClass()) . '">'
+                . $iconTemplate
+                . '<div class="callout-content">'
+                    . $titleTemplate
+                    . '<div class="callout-body">' . $message . '</div>'
+                . '</div>'
+            . '</div>';
     }
 
     /**

@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\Rendering;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -27,31 +28,37 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
+    ];
+
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/frontend/Tests/Functional/Fixtures/Extensions/test_resource_rendering',
     ];
 
     /**
      * @var string[]
      */
     private array $definedResources = [
-        'forceOnTopCSS'         => '/path/to/forceOnTop.css',
-        'forceOnTopJS'          => '/path/to/forceOnTop.js',
-        'forceOnTopCSSLib'      => '/path/to/forceOnTopLib.css',
-        'forceOnTopJSLib'       => '/path/to/forceOnTopLib.js',
-        'forceOnTopJSLibFooter' => '/path/to/forceOnTopLibFooter.js',
+        'forceOnTopCSS'         => 'EXT:test_resource_rendering/Resources/Public/forceOnTop.css',
+        'forceOnTopJS'          => 'EXT:test_resource_rendering/Resources/Public/forceOnTop.js',
+        'forceOnTopCSSLib'      => 'EXT:test_resource_rendering/Resources/Public/forceOnTopLib.css',
+        'forceOnTopJSLib'       => 'EXT:test_resource_rendering/Resources/Public/forceOnTopLib.js',
+        'forceOnTopJSLibFooter' => 'EXT:test_resource_rendering/Resources/Public/forceOnTopLibFooter.js',
 
-        'alternateCSS'          => '/path/to/alternate.css',
-        'alternateJS'           => '/path/to/alternate.js',
-        'alternateCSSLib'       => '/path/to/alternateLib.css',
-        'alternateJSLib'        => '/path/to/alternateLib.js',
-        'alternateJSLibFooter'  => '/path/to/alternateLibFooter.js',
+        'alternateCSS'          => 'EXT:test_resource_rendering/Resources/Public/alternate.css',
+        'alternateJS'           => 'EXT:test_resource_rendering/Resources/Public/alternate.js',
+        'alternateCSSLib'       => 'EXT:test_resource_rendering/Resources/Public/alternateLib.css',
+        'alternateJSLib'        => 'EXT:test_resource_rendering/Resources/Public/alternateLib.js',
+        'alternateJSLibFooter'  => 'EXT:test_resource_rendering/Resources/Public/alternateLibFooter.js',
 
-        'dataCSS'               => '/path/to/data.css',
-        'dataJS'                => '/path/to/data.js',
-        'dataCSSLib'            => '/path/to/dataLib.css',
-        'dataJSLib'             => '/path/to/dataLib.js',
-        'dataJSLibFooter'       => '/path/to/dataLibFooter.js',
+        'dataCSS'                 => 'EXT:test_resource_rendering/Resources/Public/data.css',
+        'absoluteUrlCSS'          => 'https://www.example.com/styles/absoluteUrlCSS.css',
+        'relativeUriCSS'          => 'URI:/styles/relativeUriCSS.css',
+        'dataJS'                  => 'EXT:test_resource_rendering/Resources/Public/data.js',
+        'dataCSSLib'              => 'EXT:test_resource_rendering/Resources/Public/dataLib.css',
+        'dataJSLib'               => 'EXT:test_resource_rendering/Resources/Public/dataLib.js',
+        'dataJSLibFooter'         => 'EXT:test_resource_rendering/Resources/Public/dataLibFooter.js',
     ];
 
     protected function setUp(): void
@@ -84,30 +91,35 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
     public function scriptAndLinkTagsRemoveUnneededAdditionalParameters(): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withQueryParameters([
+            new InternalRequest()->withQueryParameters([
                 'id' => 1,
             ])
         );
         $content = (string)$response->getBody();
+        // remove cache busting `?1774699233` from markup
+        $content = preg_replace('/\?\d{10,}(?=")/', '', $content);
 
+        $assetPath = (string)PathUtility::getSystemResourceUri('EXT:test_resource_rendering/Resources/Public/');
         $expectations = [
-            'forceOnTopCSS'         => '<link rel="stylesheet" href="/path/to/forceOnTop.css" media="all">',
-            'forceOnTopCSSLib'      => '<link rel="stylesheet" href="/path/to/forceOnTopLib.css" media="all">',
-            'forceOnTopJS'          => '<script src="/path/to/forceOnTop.js"></script>',
-            'forceOnTopJSLib'       => '<script src="/path/to/forceOnTopLib.js"></script>',
-            'forceOnTopJSLibFooter' => '<script src="/path/to/forceOnTopLibFooter.js"></script>',
+            'forceOnTopCSS'         => '<link rel="stylesheet" href="' . $assetPath . 'forceOnTop.css" media="all">',
+            'forceOnTopCSSLib'      => '<link rel="stylesheet" href="' . $assetPath . 'forceOnTopLib.css" media="all">',
+            'forceOnTopJS'          => '<script src="' . $assetPath . 'forceOnTop.js"></script>',
+            'forceOnTopJSLib'       => '<script src="' . $assetPath . 'forceOnTopLib.js"></script>',
+            'forceOnTopJSLibFooter' => '<script src="' . $assetPath . 'forceOnTopLibFooter.js"></script>',
 
-            'alternateCSS'          => '<link rel="alternate stylesheet" href="/path/to/alternate.css" media="print" title="Dummy">',
-            'alternateCSSLib'       => '<link rel="alternate stylesheet" href="/path/to/alternateLib.css" media="print" title="Dummy">',
-            'alternateJS'           => '<script src="/path/to/alternate.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="4711" crossorigin="example.com"></script>',
-            'alternateJSLib'        => '<script src="/path/to/alternateLib.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="4711" crossorigin="example.com"></script>',
-            'alternateJSLibFooter'  => '<script src="/path/to/alternateLibFooter.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="4711" crossorigin="example.com"></script>',
+            'alternateCSS'          => '<link rel="alternate stylesheet" href="' . $assetPath . 'alternate.css" media="print" title="Dummy" integrity="sha256-7Op3Y+qrb1U9n1iebx5IvOIeBikAsR+QEoEuKerZDUU=" crossorigin="anonymous">',
+            'alternateCSSLib'       => '<link rel="alternate stylesheet" href="' . $assetPath . 'alternateLib.css" media="print" title="Dummy" integrity="4711" crossorigin="example.com">',
+            'alternateJS'           => '<script src="' . $assetPath . 'alternate.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="sha256-lXecaELOga5RF43SGiSETJfbXRDMJs4VepZRfLWFD2c=" crossorigin="anonymous"></script>',
+            'alternateJSLib'        => '<script src="' . $assetPath . 'alternateLib.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="4711" crossorigin="example.com"></script>',
+            'alternateJSLibFooter'  => '<script src="' . $assetPath . 'alternateLibFooter.js" type="text/plain" defer="defer" nomodule="nomodule" integrity="4711" crossorigin="example.com"></script>',
 
-            'dataCSS'               => '<link rel="stylesheet" href="/path/to/data.css" media="all" somethingcustom="someValue" data-attribute="value">',
-            'dataCSSLib'            => '<link rel="stylesheet" href="/path/to/dataLib.css" media="all" somethingcustom="someValue" data-attribute="value">',
-            'dataJS'                => '<script src="/path/to/data.js" data-attribute="value"></script>',
-            'dataJSLib'             => '<script src="/path/to/dataLib.js" somethingcustom="someValue" data-attribute="value"></script>',
-            'dataJSLibFooter'       => '<script src="/path/to/dataLibFooter.js" somethingcustom="someValue" data-attribute="value"></script>',
+            'dataCSS'                 => '<link rel="stylesheet" href="' . $assetPath . 'data.css" media="all" somethingcustom="someValue" data-attribute="value">',
+            'absoluteUrlCSS'          => '<link rel="stylesheet" href="https://www.example.com/styles/absoluteUrlCSS.css" media="all">',
+            'relativeUriCSS'          => '<link rel="stylesheet" href="/styles/relativeUriCSS.css" media="all">',
+            'dataCSSLib'              => '<link rel="stylesheet" href="' . $assetPath . 'dataLib.css" media="all" somethingcustom="someValue" data-attribute="value">',
+            'dataJS'                  => '<script src="' . $assetPath . 'data.js" data-attribute="value"></script>',
+            'dataJSLib'               => '<script src="' . $assetPath . 'dataLib.js" somethingcustom="someValue" data-attribute="value"></script>',
+            'dataJSLibFooter'         => '<script src="' . $assetPath . 'dataLibFooter.js" somethingcustom="someValue" data-attribute="value"></script>',
         ];
 
         foreach ($expectations as $expectationHtml) {
@@ -118,7 +130,7 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
     /**
      * Adds TypoScript constants snippet to the existing template record
      */
-    protected function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
+    private function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
     {
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_template');
 
@@ -135,7 +147,7 @@ final class ScriptAndLinkTagRenderingTest extends FunctionalTestCase
         );
     }
 
-    protected function compileTypoScriptConstants(array $constants): string
+    private function compileTypoScriptConstants(array $constants): string
     {
         $lines = [];
         foreach ($constants as $constantName => $constantValue) {

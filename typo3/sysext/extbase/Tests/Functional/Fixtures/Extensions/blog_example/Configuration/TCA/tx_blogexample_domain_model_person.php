@@ -18,6 +18,9 @@ return [
         'enablecolumns' => [
             'disabled' => 'hidden',
         ],
+        'extbase' => [
+            'enableHistoryTracking' => false,
+        ],
         'iconfile' => 'EXT:blog_example/Resources/Public/Icons/icon_tx_blogexample_domain_model_person.gif',
     ],
     'columns' => [
@@ -58,6 +61,24 @@ return [
         'salutation' => [
             'config' => [
                 'type' => 'passthrough',
+            ],
+        ],
+        'age_group' => [
+            'exclude' => true,
+            'label' => 'Age group',
+            'config' => [
+                'type' => 'number',
+                'nullable' => true,
+                'default' => null,
+            ],
+        ],
+        'age' => [
+            'exclude' => true,
+            'label' => 'Age',
+            'config' => [
+                'type' => 'number',
+                'nullable' => true,
+                'default' => null,
             ],
         ],
         'tags' => [

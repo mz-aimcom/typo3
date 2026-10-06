@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\DataHandling;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -31,111 +31,43 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * NOTE: The 'default' entry array is the 'base' for all types, and for every type the
  * entries simply overrides the entries in the 'default' type!
  *
- * You can fully use this once TCA is properly loaded (e.g. in ext_tables.php).
+ * You can fully use this once TCA is properly loaded.
  */
 #[Autoconfigure(public: true)]
-class PageDoktypeRegistry
+readonly class PageDoktypeRegistry
 {
-    protected array $pageTypes = [
-        PageRepository::DOKTYPE_BE_USER_SECTION => [
-            'allowedTables' => '*',
-        ],
-        //  Doktype 254 is a 'Folder' - a general purpose storage folder for whatever you like.
-        // In CMS context it's NOT a viewable page. Can contain any element.
-        PageRepository::DOKTYPE_SYSFOLDER => [
-            'allowedTables' => '*',
-        ],
-        PageRepository::DOKTYPE_MOUNTPOINT => [
-        ],
-        // Even though both options look contradictory, the "allowedTables" key is used for other $pageTypes
-        // that have no custom definitions. So "allowedTables" works as a fallback for additional page types.
-        'default' => [
-            'allowedTables' => 'pages,sys_category,sys_file_reference,sys_file_collection',
-            'onlyAllowedTables' => false,
-        ],
-    ];
-
-    /**
-     * @todo Using this to keep track of the initialization is just an intermediate solution.
-     *       TCA should be extended so the add() and addAllowedRecordTypes() methods can be removed.
-     */
-    private bool $tcaHasBeenInitialized = false;
-
-    public function __construct(protected readonly TcaSchemaFactory $tcaSchemaFactory) {}
-
-    /**
-     * Adds a specific configuration for a doktype. By default, it is NOT restricted to only allow tables that
-     * have been explicitly added via addAllowedRecordTypes().
-     */
-    public function add(int $dokType, array $configuration): void
-    {
-        $this->initializeTca();
-        $this->pageTypes[$dokType] = array_replace(['onlyAllowedTables' => false], $configuration);
-    }
-
-    public function addAllowedRecordTypes(array $recordTypes, ?int $doktype = null): void
-    {
-        if ($recordTypes === []) {
-            return;
-        }
-        $this->initializeTca();
-        $doktype ??= 'default';
-        if (!isset($this->pageTypes[$doktype]['allowedTables'])) {
-            $this->pageTypes[$doktype]['allowedTables'] = '';
-        }
-        $this->pageTypes[$doktype]['allowedTables'] .= ',' . implode(',', $recordTypes);
-    }
+    public function __construct(protected TcaSchemaFactory $tcaSchemaFactory) {}
 
     /**
      * Check if a record can be added on a page with a given $doktype.
      */
-    public function isRecordTypeAllowedForDoktype(string $type, ?int $doktype): bool
+    public function isRecordTypeAllowedForDoktype(string $type, int $doktype): bool
     {
-        $this->initializeTca();
-        $doktype ??= 'default';
-        $allowedTableList = $this->pageTypes[$doktype]['allowedTables'] ?? $this->pageTypes['default']['allowedTables'];
-        return str_contains($allowedTableList, '*') || GeneralUtility::inList($allowedTableList, $type);
-    }
-
-    /**
-     * @internal
-     */
-    public function getRegisteredDoktypes(): array
-    {
-        $this->initializeTca();
-        $items = $this->pageTypes;
-        unset($items['default']);
-        return array_keys($items);
-    }
-
-    /**
-     * Used to find out if a specific doktype is restricted to only allow a certain list of tables.
-     * This list can be checked against via 'isRecordTypeAllowedForDoktype()'
-     */
-    public function doesDoktypeOnlyAllowSpecifiedRecordTypes(?int $doktype = null): bool
-    {
-        $this->initializeTca();
-        $doktype = $doktype ?? 'default';
-        return $this->pageTypes[$doktype]['onlyAllowedTables'] ?? false;
+        $allowedRecordTypes = $this->getAllowedTypesForDoktype($doktype);
+        if (in_array('*', $allowedRecordTypes, true)) {
+            return true;
+        }
+        return in_array($type, $allowedRecordTypes, true);
     }
 
     /**
      * @internal only to be used within TYPO3 Core
+     * @return string[]
      */
     public function getAllowedTypesForDoktype(int $doktype): array
     {
-        $this->initializeTca();
-        $allowedTableList = $this->pageTypes[$doktype]['allowedTables'] ?? $this->pageTypes['default']['allowedTables'];
-        return explode(',', $allowedTableList);
-    }
-
-    /**
-     * @internal only to be used within TYPO3 Core
-     */
-    public function exportConfiguration(): array
-    {
-        $this->initializeTca();
-        return $this->pageTypes;
+        $pagesSchema = $this->tcaSchemaFactory->get('pages');
+        if ($pagesSchema->hasSubSchema((string)$doktype)) {
+            $pageTypeSchema = $pagesSchema->getSubSchema((string)$doktype);
+            $allowedRecordTypes = $pageTypeSchema->getRawConfiguration()['allowedRecordTypes'] ?? [];
+            if ($allowedRecordTypes !== []) {
+                return $allowedRecordTypes;
+            }
+        }
+        $hardDefaults = ['pages', 'sys_category', 'sys_file_reference', 'sys_file_collection'];
+        $defaultAllowedRecordTypes = $pagesSchema->getRawConfiguration()['defaultAllowedRecordTypes'] ?? [];
+        $mergedDefault = array_merge($hardDefaults, $defaultAllowedRecordTypes);
+        return array_unique($mergedDefault);
     }
 
     /**
@@ -146,7 +78,8 @@ class PageDoktypeRegistry
         $doktypeLabelMap = [];
         $schema = $this->tcaSchemaFactory->get('pages');
         // @todo Does not work for dynamic items, in case SubSchemaDivisorField is no StaticSelectFieldType!
-        foreach ($schema->getField($schema->getSubSchemaTypeInformation()->getFieldName())->getConfiguration()['items'] ?? [] as $doktypeItemConfig) {
+        $subSchemaField = $schema->getSubSchemaTypeInformation()->getFieldName();
+        foreach ($schema->getField($subSchemaField)->getConfiguration()['items'] ?? [] as $doktypeItemConfig) {
             $selectionItem = SelectItem::fromTcaItemArray($doktypeItemConfig);
             if ($selectionItem->isDivider()) {
                 continue;
@@ -156,18 +89,62 @@ class PageDoktypeRegistry
         return $doktypeLabelMap;
     }
 
-    private function initializeTca(): void
+    /**
+     * Check if a page type is viewable based on TCA configuration only.
+     * Does NOT consider pageTsConfig overrides.
+     *
+     * By default, all page types are viewable unless explicitly set to false
+     * via the TCA option "isViewable".
+     */
+    public function isPageTypeViewable(int $doktype): bool
     {
-        if ($this->tcaHasBeenInitialized) {
-            return;
-        }
-        $allowedRecordTypesForDefault = [];
-        foreach ($this->tcaSchemaFactory->all() as $schemaName => $schema) {
-            if ($schema->getRawConfiguration()['security']['ignorePageTypeRestriction'] ?? false) {
-                $allowedRecordTypesForDefault[] = $schemaName;
+        $pageSchema = $this->tcaSchemaFactory->get('pages');
+        if ($pageSchema->hasSubSchema((string)$doktype)) {
+            $subSchema = $pageSchema->getSubSchema((string)$doktype);
+            $config = $subSchema->getRawConfiguration();
+            if (isset($config['isViewable'])) {
+                return (bool)$config['isViewable'];
             }
         }
-        $this->tcaHasBeenInitialized = true;
-        $this->addAllowedRecordTypes($allowedRecordTypesForDefault);
+        // Default: viewable
+        return true;
+    }
+
+    /**
+     * Check if a page is viewable, considering both TCA and pageTsConfig.
+     * Respects TCEMAIN.preview.disableButtonForDokType TSconfig.
+     */
+    public function isPageViewable(int $doktype, int $pageId): bool
+    {
+        // check TSconfig (same logic as PreviewUriBuilder::isPreviewableDoktype)
+        $TSconfig = BackendUtility::getPagesTSconfig($pageId)['TCEMAIN.']['preview.'] ?? [];
+        if (isset($TSconfig['disableButtonForDokType'])) {
+            $excludeDokTypes = GeneralUtility::intExplode(',', (string)$TSconfig['disableButtonForDokType'], true);
+            return !in_array($doktype, $excludeDokTypes, true);
+        }
+
+        // fallback to check TCA
+        if (!$this->isPageTypeViewable($doktype)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Returns array of non-viewable doktype integers based on TCA only.
+     * Used for JavaScript tree configuration.
+     *
+     * @return int[]
+     */
+    public function getNonViewableDoktypes(): array
+    {
+        $nonViewable = [];
+        foreach ($this->tcaSchemaFactory->get('pages')->getSubSchemata() as $doktype => $schema) {
+            $isViewable = $schema->getRawConfiguration()['isViewable'] ?? true;
+            if (!$isViewable) {
+                $nonViewable[] = (int)$doktype;
+            }
+        }
+        return $nonViewable;
     }
 }

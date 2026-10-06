@@ -25,10 +25,13 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\DataHandling\SoftReference\SoftReferenceParserFactory;
 use TYPO3\CMS\Core\DataHandling\SoftReference\SoftReferenceParserResult;
+use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Html\HtmlParser;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\VisibleSchemaFieldsCollector;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Linkvalidator\Event\BeforeRecordIsAnalyzedEvent;
 use TYPO3\CMS\Linkvalidator\Linktype\LinktypeRegistry;
@@ -76,6 +79,8 @@ class LinkAnalyzer
         protected readonly SoftReferenceParserFactory $softReferenceParserFactory,
         protected readonly LinktypeRegistry $linktypeRegistry,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly ConnectionPool $connectionPool,
+        protected readonly VisibleSchemaFieldsCollector $visibleSchemaFieldsCollector,
     ) {}
 
     /**
@@ -147,7 +152,7 @@ class LinkAnalyzer
                 $selectFields[] = $schema->getSubSchemaTypeInformation()->getFieldName();
             }
 
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            $queryBuilder = $this->connectionPool
                 ->getQueryBuilderForTable($table);
 
             if ($considerHidden) {
@@ -161,7 +166,7 @@ class LinkAnalyzer
             // or other limit depending on the used dbms - and we also avoid placeholder usage
             // as they are hard to calculate beforehand because of some magic handling of dbal.
             $maxChunk = PlatformInformation::getMaxBindParameters(
-                GeneralUtility::makeInstance(ConnectionPool::class)
+                $this->connectionPool
                     ->getConnectionForTable($table)
                     ->getDatabasePlatform()
             );
@@ -204,7 +209,8 @@ class LinkAnalyzer
                 $schema = $this->tcaSchemaFactory->get($table);
 
                 $record = [];
-                $record['headline'] = BackendUtility::getRecordTitle($table, $entryValue['row']);
+                // Limit headline to 255 chars. GeneralUtility::fixed_lgd_cs appends "..." to the string.
+                $record['headline'] = GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($table, $entryValue['row']), 252);
                 $record['record_pid'] = $entryValue['row']['pid'];
                 $record['record_uid'] = $entryValue['uid'];
                 $record['table_name'] = $table;
@@ -222,7 +228,7 @@ class LinkAnalyzer
                 if ($languageFieldName && isset($entryValue['row'][$languageFieldName])) {
                     $record['language'] = $entryValue['row'][$languageFieldName];
                 } else {
-                    $record['language'] = -1;
+                    $record['language'] = LanguageMarker::ALL_LANGUAGES;
                 }
                 if (!empty($entryValue['pageAndAnchor'] ?? '')) {
                     // Page with anchor, e.g. 18#1580
@@ -293,6 +299,10 @@ class LinkAnalyzer
             $selectFields[] = $updatedFieldName;
         }
 
+        if ($schema->supportsSubSchema()) {
+            $selectFields[] = $schema->getSubSchemaTypeInformation()->getFieldName();
+        }
+
         $row = $queryBuilder
             ->select(...$selectFields)
             ->from($table)
@@ -332,36 +342,51 @@ class LinkAnalyzer
      * @param array $fields Array of fields to analyze
      * @param array $record Record to analyze
      */
-    public function analyzeRecord(array &$results, $table, array $fields, array $record)
+    public function analyzeRecord(array &$results, string $table, array $fields, array $record)
     {
         $event = new BeforeRecordIsAnalyzedEvent($table, $record, $fields, $this, $results);
         $this->eventDispatcher->dispatch($event);
         $results = $event->getResults();
         $record = $event->getRecord();
 
-        $schema = $this->tcaSchemaFactory->get($table);
+        // Use VisibleSchemaFieldsCollector to only check fields visible for the record type and current user
+        $visibleFields = $this->visibleSchemaFieldsCollector->getFields($table, $record);
         // Put together content of all relevant fields
         $htmlParser = GeneralUtility::makeInstance(HtmlParser::class);
         $idRecord = $record['uid'];
         // Get all references
         foreach ($fields as $field) {
-            if (!$schema->hasField($field)) {
+            if (!isset($visibleFields[$field])) {
                 continue;
             }
-            $fieldInformation = $schema->getField($field);
-            $conf = $fieldInformation->getConfiguration();
+            $fieldInformation = $visibleFields[$field];
             $valueField = $record[$field];
 
-            // @todo: check for 'type' => 'file' as well and update in documentation?
+            if ((string)$valueField === '') {
+                continue;
+            }
+
+            // Fields of TCA type 'link' contain the typolink directly (e.g. tt_content.header_link)
+            // and are not resolved through a soft reference parser.
+            if ($fieldInformation->isType(TableColumnType::LINK)) {
+                $this->analyzeTypolink((string)$valueField, $results, $record, $field, $table);
+                continue;
+            }
 
             // Check if a TCA configured field has soft references defined (see TYPO3 Core API document)
             $softReferenceKeys = $fieldInformation->getSoftReferenceKeys();
-            if ($softReferenceKeys === false || (string)$valueField === '') {
+            if ($softReferenceKeys === false) {
                 continue;
             }
             // Traverse soft references
             // set subst such that findRef will return substitutes for urls, emails etc
             $softRefParams = ['subst'];
+            // Several soft reference parsers may be configured for the same field (e.g.
+            // "typolink_tag,email[subst],url"), and more than one of them may match the very
+            // same link, e.g. an URL used as its own link text: <a href="https://foo">https://foo</a>
+            // is matched by "typolink_tag" (via the href attribute) as well as by "url" (as plain text).
+            // Track already found link targets per field to avoid reporting such a link twice.
+            $foundTokenValues = [];
             foreach ($this->softReferenceParserFactory->getParsersBySoftRefParserList(implode(',', $softReferenceKeys), $softRefParams) as $softReferenceParser) {
                 $parserResult = $softReferenceParser->parse($table, $field, $idRecord, $valueField);
                 if (!$parserResult->hasMatched()) {
@@ -369,9 +394,9 @@ class LinkAnalyzer
                 }
 
                 if ($softReferenceParser->getParserKey() === 'typolink_tag') {
-                    $this->analyzeTypoLinks($parserResult, $results, $htmlParser, $record, $field, $table);
+                    $this->analyzeTypoLinks($parserResult, $results, $htmlParser, $record, $field, $table, $foundTokenValues);
                 } else {
-                    $this->analyzeLinks($parserResult, $results, $record, $field, $table);
+                    $this->analyzeLinks($parserResult, $results, $record, $field, $table, $foundTokenValues);
                 }
             }
         }
@@ -385,14 +410,21 @@ class LinkAnalyzer
      * @param array $record UID of the current record
      * @param string $field The current field
      * @param string $table The current table
+     * @param array $foundTokenValues Link targets already found for this record/field by a previous soft
+     *              reference parser, to avoid reporting the same link twice when it is matched by more
+     *              than one parser (e.g. an URL used as its own link text)
      */
-    protected function analyzeLinks(SoftReferenceParserResult $parserResult, array &$results, array $record, $field, $table)
+    protected function analyzeLinks(SoftReferenceParserResult $parserResult, array &$results, array $record, $field, $table, array &$foundTokenValues = [])
     {
         foreach ($parserResult->getMatchedElements() as $element) {
             $reference = $element['subst'] ?? [];
             $type = '';
             $idRecord = $record['uid'];
             if (empty($reference)) {
+                continue;
+            }
+            $tokenValue = (string)($reference['tokenValue'] ?? '');
+            if ($tokenValue !== '' && isset($foundTokenValues[$tokenValue])) {
                 continue;
             }
 
@@ -409,6 +441,80 @@ class LinkAnalyzer
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $reference['tokenID']]['table'] = $table;
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $reference['tokenID']]['field'] = $field;
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $reference['tokenID']]['uid'] = $idRecord;
+            if ($tokenValue !== '') {
+                $foundTokenValues[$tokenValue] = true;
+            }
+        }
+    }
+
+    /**
+     * Find all supported broken links for one link, contained directly in $content
+     * (e.g. TCA type "link" fields such as tt_content.header_link).
+     *
+     * Reuses the "typolink" soft reference parser to resolve the link (page, file,
+     * external URL, ...), instead of re-implementing that resolution here. That parser
+     * returns a page reference and a content element reference as two separate matches
+     * for a link to a content element (e.g. t3://page?uid=1#20), which are merged into
+     * a single "pageAndAnchor" entry here, the same way analyzeTypoLinks() merges them
+     * for typolink_tag matches.
+     *
+     * @param array $results Array of broken links
+     * @param array $record The current record
+     * @param string $field The current field
+     * @param string $table The current table
+     */
+    protected function analyzeTypolink(string $content, array &$results, array $record, string $field, string $table): void
+    {
+        $idRecord = $record['uid'];
+        foreach ($this->softReferenceParserFactory->getParsersBySoftRefParserList('typolink', ['subst']) as $softReferenceParser) {
+            $parserResult = $softReferenceParser->parse($table, $field, $idRecord, $content);
+            if (!$parserResult->hasMatched()) {
+                continue;
+            }
+
+            $currentR = [];
+            $wasPage = false;
+            $pageAndAnchor = '';
+            foreach ($parserResult->getMatchedElements() as $element) {
+                $r = $element['subst'] ?? [];
+                if (empty($r)) {
+                    continue;
+                }
+                // Merge a page reference and an immediately following content element
+                // reference into one combined "pageAndAnchor" value (see method docblock).
+                if (str_contains($r['recordRef'] ?? '', 'pages')) {
+                    $currentR = $r;
+                    $pageAndAnchor = $r['tokenValue'];
+                    $wasPage = true;
+                } elseif ($wasPage && str_contains($r['recordRef'] ?? '', 'tt_content')) {
+                    $pageAndAnchor .= '#c' . $r['tokenValue'];
+                    $wasPage = false;
+                } else {
+                    $currentR = $r;
+                }
+            }
+            if (empty($currentR)) {
+                continue;
+            }
+
+            $type = '';
+            foreach ($this->linktypeRegistry->getLinktypes() as $keyArr => $linkType) {
+                $type = $linkType->fetchType($currentR, $type, $keyArr);
+                // Store the type that was found
+                // This prevents overriding by internal validator
+                if (!empty($type)) {
+                    $currentR['type'] = $type;
+                }
+            }
+            $key = $table . ':' . $field . ':' . $idRecord . ':' . $currentR['tokenID'];
+            $results[$type][$key]['substr'] = $currentR;
+            $results[$type][$key]['row'] = $record;
+            $results[$type][$key]['table'] = $table;
+            $results[$type][$key]['field'] = $field;
+            $results[$type][$key]['uid'] = $idRecord;
+            if (str_contains($pageAndAnchor, '#c')) {
+                $results[$type][$key]['pageAndAnchor'] = $pageAndAnchor;
+            }
         }
     }
 
@@ -421,8 +527,11 @@ class LinkAnalyzer
      * @param array $record The current record
      * @param string $field The current field
      * @param string $table The current table
+     * @param array $foundTokenValues Link targets already found for this record/field by a previous soft
+     *              reference parser, to avoid reporting the same link twice when it is matched by more
+     *              than one parser (e.g. an URL used as its own link text)
      */
-    protected function analyzeTypoLinks(SoftReferenceParserResult $parserResult, array &$results, HtmlParser $htmlParser, array $record, string $field, string $table)
+    protected function analyzeTypoLinks(SoftReferenceParserResult $parserResult, array &$results, HtmlParser $htmlParser, array $record, string $field, string $table, array &$foundTokenValues = [])
     {
         $linkTags = $htmlParser->splitIntoBlock('a,link', $parserResult->getContent());
         $idRecord = $record['uid'];
@@ -459,6 +568,10 @@ class LinkAnalyzer
             if (empty($currentR)) {
                 continue;
             }
+            $tokenValue = (string)($currentR['tokenValue'] ?? '');
+            if ($tokenValue !== '' && isset($foundTokenValues[$tokenValue])) {
+                continue;
+            }
             foreach ($this->linktypeRegistry->getLinktypes() as $keyArr => $linkType) {
                 $type = $linkType->fetchType($currentR, $type, $keyArr);
                 // Store the type that was found
@@ -474,6 +587,9 @@ class LinkAnalyzer
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $currentR['tokenID']]['uid'] = $idRecord;
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $currentR['tokenID']]['link_title'] = $title;
             $results[$type][$table . ':' . $field . ':' . $idRecord . ':' . $currentR['tokenID']]['pageAndAnchor'] = $referencedRecordType;
+            if ($tokenValue !== '') {
+                $foundTokenValues[$tokenValue] = true;
+            }
         }
     }
 
@@ -485,6 +601,11 @@ class LinkAnalyzer
     public function getLinkCounts(): array
     {
         return $this->brokenLinkRepository->getNumberOfBrokenLinksForRecordsOnPages($this->pids, $this->searchFields);
+    }
+
+    public function getTSConfig(): array
+    {
+        return $this->tsConfig;
     }
 
     protected function getLanguageService(): LanguageService

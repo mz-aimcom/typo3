@@ -18,10 +18,17 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Tests\Unit\Validation\Validator;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 use TYPO3\CMS\Extbase\Error\Error;
 use TYPO3\CMS\Extbase\Error\Result;
+use TYPO3\CMS\Extbase\Persistence\Generic\LazyLoadingProxy;
+use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapper;
+use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
+use TYPO3\CMS\Extbase\Validation\Validator\BooleanValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\GenericObjectValidator;
+use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\ValidatorInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -30,13 +37,13 @@ final class GenericObjectValidatorTest extends UnitTestCase
     #[Test]
     public function validatorShouldReturnErrorsIfTheValueIsNoObjectAndNotNull(): void
     {
-        self::assertTrue((new GenericObjectValidator())->validate('foo')->hasErrors());
+        self::assertTrue(new GenericObjectValidator()->validate('foo')->hasErrors());
     }
 
     #[Test]
     public function validatorShouldReturnNoErrorsIfTheValueIsNull(): void
     {
-        self::assertFalse((new GenericObjectValidator())->validate(null)->hasErrors());
+        self::assertFalse(new GenericObjectValidator()->validate(null)->hasErrors());
     }
 
     public static function dataProviderForValidator(): array
@@ -49,7 +56,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $resultWithError1->addError($error1);
         $resultWithError2 = new Result();
         $resultWithError2->addError($error2);
-        $objectWithPrivateProperties = new class () {
+        $objectWithPrivateProperties = new class {
             protected $foo = 'foovalue';
             protected $bar = 'barvalue';
 
@@ -103,11 +110,11 @@ final class GenericObjectValidatorTest extends UnitTestCase
     #[Test]
     public function validateCanHandleRecursiveTargetsWithoutEndlessLooping(): void
     {
-        $A = new class () {
+        $A = new class {
             public $b;
         };
 
-        $B = new class () {
+        $B = new class {
             public $a;
         };
 
@@ -126,11 +133,11 @@ final class GenericObjectValidatorTest extends UnitTestCase
     #[Test]
     public function validateDetectsFailuresInRecursiveTargetsI(): void
     {
-        $A = new class () {
+        $A = new class {
             public $b;
         };
 
-        $B = new class () {
+        $B = new class {
             public $a;
             public $uuid = 0xF;
         };
@@ -149,7 +156,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $mockUuidValidator = $this->getMockBuilder(ValidatorInterface::class)
             ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
-        $mockUuidValidator->method('validate')->with(15)->willReturn($result);
+        $mockUuidValidator->expects($this->atLeastOnce())->method('validate')->with(15)->willReturn($result);
         $bValidator->addPropertyValidator('uuid', $mockUuidValidator);
 
         self::assertSame(['b.uuid' => [$error]], $aValidator->validate($A)->getFlattenedErrors());
@@ -158,12 +165,12 @@ final class GenericObjectValidatorTest extends UnitTestCase
     #[Test]
     public function validateDetectsFailuresInRecursiveTargetsII(): void
     {
-        $A = new class () {
+        $A = new class {
             public $b;
             public $uuid = 0xF;
         };
 
-        $B = new class () {
+        $B = new class {
             public $a;
             public $uuid = 0xF;
         };
@@ -182,7 +189,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $mockUuidValidator = $this->getMockBuilder(ValidatorInterface::class)
             ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
-        $mockUuidValidator->method('validate')->with(15)->willReturn($result1);
+        $mockUuidValidator->expects($this->atLeastOnce())->method('validate')->with(15)->willReturn($result1);
         $aValidator->addPropertyValidator('uuid', $mockUuidValidator);
         $bValidator->addPropertyValidator('uuid', $mockUuidValidator);
 
@@ -193,12 +200,12 @@ final class GenericObjectValidatorTest extends UnitTestCase
     public function validateDetectsFailuresInRecursiveTargetsIII(): void
     {
         // Create to test-entities. Use the same uuid to make the same validator trigger on both objects
-        $A = new class () {
+        $A = new class {
             public $b;
             public $uuid = 0xF;
         };
 
-        $B = new class () {
+        $B = new class {
             public $a;
             public $uuid = 0xF;
         };
@@ -216,6 +223,7 @@ final class GenericObjectValidatorTest extends UnitTestCase
             ->onlyMethods(['validate', 'getOptions', 'setOptions', 'getRequest', 'setRequest'])
             ->getMock();
         $mockValidatorUuidNot0xF
+            ->expects($this->atLeastOnce())
             ->method('validate')->with(0xF)->willReturn($result1);
 
         $aValidator->addPropertyValidator('uuid', $mockValidatorUuidNot0xF);
@@ -268,5 +276,57 @@ final class GenericObjectValidatorTest extends UnitTestCase
         $fooObjectStorage->offsetSet($validatorForFoo);
 
         self::assertEquals($fooObjectStorage, $validator->getPropertyValidators('foo'));
+    }
+
+    #[IgnoreDeprecations]
+    #[Test]
+    public function propertyReadByAnIsserIsValidatedOnALazilyLoadedObject(): void
+    {
+        $lazilyLoadedObject = new class extends AbstractEntity {
+            protected bool $boolean = true;
+
+            public function isBoolean(): bool
+            {
+                return $this->boolean;
+            }
+        };
+        $validator = new GenericObjectValidator();
+        $booleanValidator = new BooleanValidator();
+        $booleanValidator->setOptions(['is' => true]);
+        $validator->addPropertyValidator('boolean', $booleanValidator);
+
+        self::assertFalse($validator->validate($this->createProxyFor($lazilyLoadedObject))->hasErrors());
+    }
+
+    #[IgnoreDeprecations]
+    #[Test]
+    public function propertyWithoutAnyAccessorIsValidatedOnALazilyLoadedObject(): void
+    {
+        $lazilyLoadedObject = new class extends AbstractEntity {
+            protected ObjectStorage $_myStorage;
+
+            public function __construct()
+            {
+                $this->_myStorage = new ObjectStorage();
+                $this->_myStorage->attach(new \stdClass());
+            }
+        };
+        $validator = new GenericObjectValidator();
+        $validator->addPropertyValidator('_myStorage', new NotEmptyValidator());
+
+        self::assertFalse($validator->validate($this->createProxyFor($lazilyLoadedObject))->hasErrors());
+    }
+
+    private function createProxyFor(AbstractEntity $lazilyLoadedObject): LazyLoadingProxy
+    {
+        $parentObject = new class extends AbstractEntity {
+            protected AbstractEntity|LazyLoadingProxy|null $relation = null;
+        };
+        $dataMapper = self::createStub(DataMapper::class);
+        $dataMapper->method('mapResultToPropertyValue')->willReturn($lazilyLoadedObject);
+        $proxy = new LazyLoadingProxy($parentObject, 'relation', 1, $dataMapper);
+        $parentObject->_setProperty('relation', $proxy);
+
+        return $proxy;
     }
 }

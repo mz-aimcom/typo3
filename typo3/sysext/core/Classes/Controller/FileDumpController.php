@@ -22,12 +22,14 @@ use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\Event\ModifyFileDumpEvent;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
+use TYPO3\CMS\Core\Resource\ProcessableFileInterface;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ProcessedFileRepository;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
@@ -45,6 +47,7 @@ readonly class FileDumpController
         protected ResponseFactoryInterface $responseFactory,
         protected HashService $hashService,
         private FileNameValidator $fileNameValidator,
+        private ProcessedFileRepository $processedFileRepository,
     ) {}
 
     /**
@@ -106,11 +109,7 @@ readonly class FileDumpController
             );
         }
 
-        if (!empty($processingInstructions) && !($file instanceof ProcessedFile)) {
-            if (is_callable([$file, 'getOriginalFile'])) {
-                // Get the original file from the file reference
-                $file = $file->getOriginalFile();
-            }
+        if (!empty($processingInstructions) && $file instanceof ProcessableFileInterface) {
             $file = $file->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, $processingInstructions);
         }
 
@@ -176,7 +175,7 @@ readonly class FileDumpController
     protected function isTokenValid(array $parameters, ServerRequestInterface $request): bool
     {
         return hash_equals(
-            $this->hashService->hmac(implode('|', $parameters), 'resourceStorageDumpFile'),
+            $this->hashService->hmac(implode('|', $parameters), 'resourceStorageDumpFile', HashAlgo::SHA3_256),
             $request->getQueryParams()['token'] ?? ''
         );
     }
@@ -207,8 +206,7 @@ readonly class FileDumpController
             }
         } elseif (isset($parameters['p'])) {
             try {
-                $processedFileRepository = GeneralUtility::makeInstance(ProcessedFileRepository::class);
-                $file = $processedFileRepository->findByUid((int)$parameters['p']);
+                $file = $this->processedFileRepository->findByUid((int)$parameters['p']);
                 if ($file->isDeleted() || !$this->isFileValid($file->getOriginalFile())) {
                     $file = null;
                 }

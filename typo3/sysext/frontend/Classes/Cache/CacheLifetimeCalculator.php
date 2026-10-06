@@ -43,7 +43,7 @@ use TYPO3\CMS\Frontend\Event\ModifyCacheLifetimeForRowEvent;
 #[Autoconfigure(public: true)]
 class CacheLifetimeCalculator
 {
-    protected const defaultCacheTimeout = 86400;
+    protected const defaultCacheTimeout = 365 * 86400; // 1 year
 
     public function __construct(
         #[Autowire(service: 'cache.runtime')]
@@ -51,12 +51,13 @@ class CacheLifetimeCalculator
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly ConnectionPool $connectionPool,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly Context $context,
     ) {}
 
     /**
      * Get the cache lifetime in seconds for the given record.
      */
-    public function calculateLifetimeForRow(string $tableName, array $record, int $defaultCacheTimoutInSeconds = 0): int
+    public function calculateLifetimeForRow(string $tableName, array $record, int $defaultCacheTimeoutInSeconds = 0): int
     {
         $cachedCacheLifetimeIdentifier = sprintf('calculateLifetimeForRow_%s_%d', $tableName, ($record['uid'] ?? 0));
         $cachedCacheLifetime = $this->runtimeCache->get($cachedCacheLifetimeIdentifier);
@@ -64,7 +65,8 @@ class CacheLifetimeCalculator
             return (int)$cachedCacheLifetime;
         }
 
-        $cacheTimeout = $defaultCacheTimoutInSeconds ?: self::defaultCacheTimeout;
+        $cacheTimeout = $defaultCacheTimeoutInSeconds ?: self::defaultCacheTimeout;
+        $currentTimestamp = $this->context->getAspect('date')->getTimestampWithMinutePrecision();
 
         if ($this->tcaSchemaFactory->has($tableName)) {
             $schema = $this->tcaSchemaFactory->get($tableName);
@@ -74,17 +76,12 @@ class CacheLifetimeCalculator
                     continue;
                 }
                 $timeField = $schema->getCapability($capability)->getFieldName();
-                if (array_key_exists($timeField, $record) && $record[$timeField] > 0 && ((int)$record[$timeField] - $GLOBALS['ACCESS_TIME']) > 0) {
-                    $cacheTimeout = min($cacheTimeout, (int)$record[$timeField] - $GLOBALS['ACCESS_TIME']);
+                if (array_key_exists($timeField, $record) && $record[$timeField] > 0 && ((int)$record[$timeField] - $currentTimestamp) > 0) {
+                    $cacheTimeout = min($cacheTimeout, (int)$record[$timeField] - $currentTimestamp);
                 }
             }
         }
 
-        // Get the time, rounded to the minute (do not pollute MySQL cache!)
-        // It is ok that we do not take seconds into account here because this
-        // value will be subtracted later. So we never get the time "before"
-        // the cache change.
-        $currentTimestamp = (int)$GLOBALS['ACCESS_TIME'];
         $cacheTimeout = min($currentTimestamp, $cacheTimeout);
 
         $event = new ModifyCacheLifetimeForRowEvent(
@@ -93,14 +90,15 @@ class CacheLifetimeCalculator
             $record
         );
         $event = $this->eventDispatcher->dispatch($event);
-        $this->runtimeCache->set($cachedCacheLifetimeIdentifier, (string)$event->cacheLifetime);
+        $cacheTimeout = $event->cacheLifetime;
+        $this->runtimeCache->set($cachedCacheLifetimeIdentifier, (string)$cacheTimeout);
         return $cacheTimeout;
     }
 
     /**
      * Get the cache lifetime in seconds for the given page.
      */
-    public function calculateLifetimeForPage(int $pageId, array $pageRecord, array $renderingInstructions, int $defaultCacheTimoutInSeconds, Context $context): int
+    public function calculateLifetimeForPage(int $pageId, array $pageRecord, array $renderingInstructions, Context $context): int
     {
         $cachedCacheLifetimeIdentifier = 'cacheLifeTimeForPage_' . $pageId;
         $cachedCacheLifetime = $this->runtimeCache->get($cachedCacheLifetimeIdentifier);
@@ -111,9 +109,8 @@ class CacheLifetimeCalculator
             // Cache period was set for the page:
             $cacheTimeout = (int)$pageRecord['cache_timeout'];
         } else {
-            // Cache period was set via TypoScript "config.cache_period",
-            // otherwise it's the default of 24 hours
-            $cacheTimeout = $defaultCacheTimoutInSeconds ?: (int)($renderingInstructions['cache_period'] ?? self::defaultCacheTimeout);
+            // Cache period was set via TypoScript "config.cache_period", otherwise the default cache timeout is used
+            $cacheTimeout = (int)($renderingInstructions['cache_period'] ?? self::defaultCacheTimeout);
         }
 
         $cacheTimeout = $this->calculateLifetimeForRow('pages', $pageRecord, $cacheTimeout);
@@ -122,11 +119,7 @@ class CacheLifetimeCalculator
         // Get the configuration
         $tablesToConsider = $this->getCurrentPageCacheConfiguration($pageId, $renderingInstructions);
 
-        // Get the time, rounded to the minute (do not pollute MySQL cache!)
-        // It is ok that we do not take seconds into account here because this
-        // value will be subtracted later. So we never get the time "before"
-        // the cache change.
-        $currentTimestamp = (int)$GLOBALS['ACCESS_TIME'];
+        $currentTimestamp = $this->context->getAspect('date')->getTimestampWithMinutePrecision();
         $cacheTimeout = min($this->calculatePageCacheLifetime($tablesToConsider, $currentTimestamp), $cacheTimeout);
 
         $event = new ModifyCacheLifetimeForPageEvent(
@@ -199,8 +192,10 @@ class CacheLifetimeCalculator
     protected function getFirstTimeValueForRecord(string $tableDef, int $currentTimestamp): int
     {
         $result = PHP_INT_MAX;
-        [$tableName, $pid] = GeneralUtility::trimExplode(':', $tableDef);
-        if (empty($tableName) || empty($pid)) {
+        $tableDefParts = GeneralUtility::trimExplode(':', $tableDef);
+        $tableName = $tableDefParts[0] ?? '';
+        $pid = $tableDefParts[1] ?? null;
+        if ($tableName === '' || $pid === null) {
             throw new \InvalidArgumentException('Unexpected value for parameter $tableDef. Expected <tablename>:<pid>, got \'' . htmlspecialchars($tableDef) . '\'.', 1307190365);
         }
 

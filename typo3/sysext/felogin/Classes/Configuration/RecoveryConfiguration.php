@@ -17,31 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\FrontendLogin\Configuration;
 
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
 use Symfony\Component\Mime\Address;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
-use TYPO3\CMS\Fluid\View\TemplatePaths;
 
 /**
  * @internal this is a concrete TYPO3 implementation and solely used for EXT:felogin and not part of TYPO3's Core API.
  */
-class RecoveryConfiguration implements LoggerAwareInterface
+class RecoveryConfiguration
 {
-    use LoggerAwareTrait;
-
-    protected string $forgotHash;
+    protected readonly string $forgotHash;
     protected ?Address $replyTo = null;
     protected Address $sender;
-    protected array $settings;
+    protected readonly array $settings;
     protected string $mailTemplateName = '';
     protected ?int $timestamp = null;
 
     public function __construct(
-        protected Context $context,
+        protected readonly Context $context,
         ConfigurationManagerInterface $configurationManager,
         Random $random,
         HashService $hashService
@@ -57,28 +53,6 @@ class RecoveryConfiguration implements LoggerAwareInterface
     public function getForgotHash(): string
     {
         return $this->forgotHash;
-    }
-
-    /**
-     * Returns an instance of TemplatePaths with paths configured in felogin TypoScript and
-     * paths configured in $GLOBALS['TYPO3_CONF_VARS']['MAIL'].
-     */
-    public function getMailTemplatePaths(): TemplatePaths
-    {
-        $templatePaths = new TemplatePaths();
-        $templatePaths->setTemplateRootPaths(array_replace(
-            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'] ?? [],
-            $this->settings['email']['templateRootPaths'] ?? [],
-        ));
-        $templatePaths->setLayoutRootPaths(array_replace(
-            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['layoutRootPaths'] ?? [],
-            $this->settings['email']['layoutRootPaths'] ?? [],
-        ));
-        $templatePaths->setPartialRootPaths(array_replace(
-            $GLOBALS['TYPO3_CONF_VARS']['MAIL']['partialRootPaths'] ?? [],
-            $this->settings['email']['partialRootPaths'] ?? [],
-        ));
-        return $templatePaths;
     }
 
     /**
@@ -123,7 +97,7 @@ class RecoveryConfiguration implements LoggerAwareInterface
     {
         $randomString = $random->generateRandomHexString(16);
 
-        return $hashService->hmac($randomString, self::class);
+        return $hashService->hmac($randomString, self::class, HashAlgo::SHA3_256);
     }
 
     protected function resolveFromTypoScript(): void

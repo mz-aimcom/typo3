@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Database;
 
+use Doctrine\DBAL\Platforms\MySQLPlatform as DoctrineMySQLPlatform;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LogLevel;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
@@ -52,7 +53,18 @@ class ReferenceIndex
      *
      * @var positive-int
      */
-    private const HASH_VERSION = 1;
+    private const int HASH_VERSION = 1;
+
+    /**
+     * Number of records fetched per query when traversing a table in
+     * updateIndex(). Both mysqli and pdo_mysql buffer the full result set
+     * client side, so an unbounded query materializes the entire table in
+     * memory. 5000 rows cap this at roughly 100MB for wide tables like
+     * tt_content, while keeping the number of queries low.
+     *
+     * @var positive-int
+     */
+    private const int RECORD_CHUNK_SIZE = 5000;
 
     /**
      * Key list of tables to exclude from ReferenceIndex. Only $GLOBALS['TCA'] need to be listed here, if at all.
@@ -106,8 +118,6 @@ class ReferenceIndex
 
         $isWorkspacesLoaded = ExtensionManagementUtility::isLoaded('workspaces');
         $tcaTableNames = $this->tcaSchemaFactory->all()->getNames();
-        // @todo: Ensure tcaSchemaFactory->all() always sorts alphabetically (or add test to verify), then remove this sort()
-        sort($tcaTableNames);
 
         $progressListener?->log('Remember to create missing tables and columns before running this.', LogLevel::WARNING);
 
@@ -322,23 +332,42 @@ class ReferenceIndex
                 }
             }
 
-            // Traverse all records in table, not including soft-deleted records
-            $queryBuilder = $this->connectionPool->getQueryBuilderForTable($tableName);
-            $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
-            $queryResult = $queryBuilder
-                ->select('*')
-                ->from($tableName)
-                ->orderBy('uid')
-                ->executeQuery();
-            while ($record = $queryResult->fetchAssociative()) {
-                $progressListener?->advance();
-                if ($isWorkspacesLoaded && $tableHasLocalSideMmRelation && (int)($record['t3ver_wsid'] ?? 0) === 0) {
-                    // If we have a record that can be the local side of a workspace relation, workspace records
-                    // may point to it, even though the record has no workspace overlay. See workspace ManyToMany
-                    // Modify addCategoryRelation as example. In those cases, we need to iterate all active workspaces
-                    // and update refindex for all foreign workspace records that point to it.
-                    foreach ($listOfActiveWorkspaces as $workspaceId) {
-                        $result = $this->updateRefIndexTable($tableName, (int)$record['uid'], $testOnly, $workspaceId, $record);
+            // Traverse all records in table, not including soft-deleted records.
+            // Records are fetched in chunks using keyset pagination on the primary
+            // key: database drivers buffer the full result set client side, so a
+            // single unbounded query would materialize the entire table in memory.
+            $lastUid = 0;
+            do {
+                $queryBuilder = $this->connectionPool->getQueryBuilderForTable($tableName);
+                $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+                $queryResult = $queryBuilder
+                    ->select('*')
+                    ->from($tableName)
+                    ->where($queryBuilder->expr()->gt('uid', $queryBuilder->createNamedParameter($lastUid, Connection::PARAM_INT)))
+                    ->orderBy('uid')
+                    ->setMaxResults(self::RECORD_CHUNK_SIZE)
+                    ->executeQuery();
+                $recordsInChunk = 0;
+                while ($record = $queryResult->fetchAssociative()) {
+                    $recordsInChunk++;
+                    $lastUid = (int)$record['uid'];
+                    $progressListener?->advance();
+                    if ($isWorkspacesLoaded && $tableHasLocalSideMmRelation && (int)($record['t3ver_wsid'] ?? 0) === 0) {
+                        // If we have a record that can be the local side of a workspace relation, workspace records
+                        // may point to it, even though the record has no workspace overlay. See workspace ManyToMany
+                        // Modify addCategoryRelation as example. In those cases, we need to iterate all active workspaces
+                        // and update refindex for all foreign workspace records that point to it.
+                        foreach ($listOfActiveWorkspaces as $workspaceId) {
+                            $result = $this->updateRefIndexTable($tableName, (int)$record['uid'], $testOnly, $workspaceId, $record);
+                            $numberOfHandledRecords++;
+                            if ($result['addedNodes'] || $result['deletedNodes']) {
+                                $error = 'Record ' . $tableName . ':' . $record['uid'] . ' had ' . $result['addedNodes'] . ' added indexes and ' . $result['deletedNodes'] . ' deleted indexes';
+                                $errors[] = $error;
+                                $progressListener?->log($error, LogLevel::WARNING);
+                            }
+                        }
+                    } else {
+                        $result = $this->updateRefIndexTable($tableName, (int)$record['uid'], $testOnly, (int)($record['t3ver_wsid'] ?? 0), $record);
                         $numberOfHandledRecords++;
                         if ($result['addedNodes'] || $result['deletedNodes']) {
                             $error = 'Record ' . $tableName . ':' . $record['uid'] . ' had ' . $result['addedNodes'] . ' added indexes and ' . $result['deletedNodes'] . ' deleted indexes';
@@ -346,16 +375,9 @@ class ReferenceIndex
                             $progressListener?->log($error, LogLevel::WARNING);
                         }
                     }
-                } else {
-                    $result = $this->updateRefIndexTable($tableName, (int)$record['uid'], $testOnly, (int)($record['t3ver_wsid'] ?? 0), $record);
-                    $numberOfHandledRecords++;
-                    if ($result['addedNodes'] || $result['deletedNodes']) {
-                        $error = 'Record ' . $tableName . ':' . $record['uid'] . ' had ' . $result['addedNodes'] . ' added indexes and ' . $result['deletedNodes'] . ' deleted indexes';
-                        $errors[] = $error;
-                        $progressListener?->log($error, LogLevel::WARNING);
-                    }
                 }
-            }
+                $queryResult->free();
+            } while ($recordsInChunk >= self::RECORD_CHUNK_SIZE);
             $progressListener?->finish();
         }
 
@@ -364,7 +386,7 @@ class ReferenceIndex
         if ($errorCount) {
             $progressListener?->log($recordsCheckedString . ' Updates: ' . $errorCount, LogLevel::WARNING);
         } else {
-            $progressListener?->log($recordsCheckedString . ' Index Integrity was perfect!');
+            $progressListener?->log($recordsCheckedString . ' Index Integrity was perfect.');
         }
         if (!$testOnly) {
             $this->registry->set('core', 'sys_refindex_lastUpdate', $GLOBALS['EXEC_TIME']);
@@ -551,6 +573,32 @@ class ReferenceIndex
         }
     }
 
+    /**
+     * Fields of a foreign side MM record evaluated by compileReferenceIndexRowsForRecord().
+     * Selecting only those keeps the memory footprint low: The rows of all relations of a
+     * field are held at once, and a single record can have many thousand of them.
+     *
+     * @return non-empty-list<string>
+     */
+    private function getForeignSideRecordFields(string $tableName): array
+    {
+        $fields = ['uid'];
+        $schema = $this->tcaSchemaFactory->get($tableName);
+        foreach ([
+            TcaSchemaCapability::RestrictionDisabledField,
+            TcaSchemaCapability::RestrictionStartTime,
+            TcaSchemaCapability::RestrictionEndTime,
+        ] as $capability) {
+            if ($schema->hasCapability($capability)) {
+                $fields[] = $schema->getCapability($capability)->getFieldName();
+            }
+        }
+        if ($schema->hasCapability(TcaSchemaCapability::Workspace)) {
+            $fields[] = 't3ver_state';
+        }
+        return $fields;
+    }
+
     private function compileReferenceIndexRowsForRecord(string $tableName, array $record, int $workspaceUid): array
     {
         $relations = [];
@@ -594,14 +642,52 @@ class ReferenceIndex
                     && $field instanceof RelationalFieldTypeInterface
                     && $field->getRelationshipType() === RelationshipType::ManyToMany
                 ) {
+                    // Fetching each foreign row on its own is very expensive with a high number of MM relations.
+                    // Fetch them per foreign table instead, restricted to the few fields evaluated below.
+                    // @todo: It would be better if RelationHandler would not return soft-deleted MM rows. Unsure
+                    //        how to do that since RH only works on the MM table, but it could then also return
+                    //        the full foreign row along the way.
+                    // @todo: Still expensive. Maybe instead make RelationHandler return the needed foreign row
+                    //        fields in some hopefully more efficient way, or refactor so this does not have to
+                    //        be done on every save.
+                    $recordUids = [];
+                    foreach ($itemArray as $item) {
+                        // uid as key to not fetch the same row twice if a record is related more than once.
+                        $recordUids[(string)$item['table']][(int)$item['id']] = (int)$item['id'];
+                    }
+                    $records = [];
+                    foreach ($recordUids as $foreignTableName => $uids) {
+                        $connection = $this->connectionPool->getConnectionForTable($foreignTableName);
+                        // Ensure number of predicates is hard capped: Depending on the database platform, we are limited by
+                        // a) the length of the resulting query (minimum should be 1M Bytes) and
+                        // b) the memory available to the range optimizer (see https://dev.mysql.com/doc/refman/9.3/en/range-optimization.html)
+                        // For mysql, the memory limit of range optimization defaults to 8MB. Each predicate in IN() uses approx.
+                        // 230 bytes which leaves us with a maximum of around 35000 when giving a little padding.
+                        // Other platforms (including MariaDB) do not have this limit, PlatformInformation::getMaxBindParameters()
+                        // is used as a conservative cap for them, in line with DataMapProcessor::fetchDependentElements().
+                        // If this cap is removed, this should either be refactored to use a temporary table or maintainers of
+                        // large TYPO3 instances using mysql should be advised to increase their configuration of range_optimizer_max_mem_size
+                        $chunkSize = $connection->getDatabasePlatform() instanceof DoctrineMySQLPlatform
+                            ? 35000
+                            : PlatformInformation::getMaxBindParameters($connection->getDatabasePlatform());
+                        foreach (array_chunk($uids, $chunkSize) as $uidsChunked) {
+                            $query = $connection->createQueryBuilder();
+                            $query->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
+                            $query
+                                ->select(...$this->getForeignSideRecordFields($foreignTableName))
+                                ->from($foreignTableName)
+                                ->where(
+                                    $query->expr()->in('uid', $query->quoteArrayBasedValueListToIntegerList($uidsChunked))
+                                );
+                            foreach ($query->executeQuery()->fetchAllAssociative() as $row) {
+                                $records[$foreignTableName][(int)$row['uid']] = $row;
+                            }
+                        }
+                    }
+
                     foreach ($itemArray as $itemKey => $item) {
                         // Get rid of soft-deleted foreign records, those should not create refindex entries
-                        // @todo: It would be better if RelationHandler would not return soft-deleted MM rows. Unsure
-                        //        how to do that since RH only works on the MM table, but it could then also return
-                        //        the full foreign row along the way.
-                        // @todo: Expensive. This code could be optimized to fetch multiple records at once per foreign
-                        //        table, or make RH return full foreign rows in some hopefully efficient way.
-                        $foreignSideRecord = BackendUtility::getRecord($item['table'], (int)$item['id']);
+                        $foreignSideRecord = $records[$item['table']][(int)$item['id']] ?? null;
                         if ($foreignSideRecord === null) {
                             // @todo: This mixes up ref_sorting when rows are removed here. Shouldn't be
                             //        very problematic, though.

@@ -17,10 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Mvc\Controller;
 
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Error\Http\BadRequestException;
 use TYPO3\CMS\Core\Exception\Crypto\InvalidHashStringException;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Extbase\Property\PropertyMappingConfigurationInterface;
@@ -47,7 +47,7 @@ use TYPO3\CMS\Extbase\Security\HashScope;
  *
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-class MvcPropertyMappingConfigurationService implements SingletonInterface
+class MvcPropertyMappingConfigurationService
 {
     protected HashService $hashService;
 
@@ -58,8 +58,6 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
 
     /**
      * Generate a request hash for a list of form fields
-     *
-     * @throws InvalidArgumentForHashGenerationException
      */
     public function generateTrustedPropertiesToken(array $formFieldNames, string $fieldNamePrefix = ''): string
     {
@@ -107,7 +105,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
     protected function encodeAndHashFormFieldArray(array $formFieldArray): string
     {
         $encodedFormFieldArray = json_encode($formFieldArray);
-        return $this->hashService->appendHmac($encodedFormFieldArray, HashScope::TrustedProperties->prefix());
+        return $this->hashService->appendHmac($encodedFormFieldArray, HashScope::TrustedProperties->prefix(), HashAlgo::SHA3_256);
     }
 
     /**
@@ -126,7 +124,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
         }
 
         try {
-            $encodedTrustedProperties = $this->hashService->validateAndStripHmac($trustedPropertiesToken, HashScope::TrustedProperties->prefix());
+            $encodedTrustedProperties = $this->hashService->validateAndStripHmac($trustedPropertiesToken, HashScope::TrustedProperties->prefix(), HashAlgo::SHA3_256);
         } catch (InvalidHashStringException $e) {
             throw new BadRequestException('The HMAC of the form could not be validated.', 1581862822);
         }
@@ -139,6 +137,7 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
         }
 
         foreach ($trustedProperties as $propertyName => $propertyConfiguration) {
+            $propertyName = (string)$propertyName;
             if (!$controllerArguments->hasArgument($propertyName) || !is_array($propertyConfiguration)) {
                 continue;
             }
@@ -167,7 +166,10 @@ class MvcPropertyMappingConfigurationService implements SingletonInterface
 
         foreach ($propertyConfiguration as $innerKey => $innerValue) {
             if (is_array($innerValue)) {
-                $this->modifyPropertyMappingConfiguration($innerValue, $propertyMappingConfiguration->forProperty($innerKey));
+                $this->modifyPropertyMappingConfiguration(
+                    $innerValue,
+                    $propertyMappingConfiguration->forProperty((string)$innerKey)
+                );
             }
             $propertyMappingConfiguration->allowProperties($innerKey);
         }

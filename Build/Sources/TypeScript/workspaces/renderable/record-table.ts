@@ -11,13 +11,35 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { html, LitElement, nothing, type TemplateResult } from 'lit';
 import IconHelper from '@typo3/workspaces/utility/icon-helper';
-import { classMap } from 'lit/directives/class-map';
-import { ifDefined } from 'lit/directives/if-defined';
-import { repeat } from 'lit/directives/repeat';
+import { classMap } from 'lit/directives/class-map.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { repeat } from 'lit/directives/repeat.js';
+import coreLabels from '~labels/core.core';
+import labels from '~labels/workspaces.messages';
 import '@typo3/backend/element/icon-element';
+import '@typo3/backend/element/qrcode-modal-button';
+import 'bootstrap'; // for data-bs-toggle="dropdown"
+
+export type AdditionalColumnValue = {
+  label?: string,
+  value?: string,
+  icon?: string,
+  title?: string,
+  url?: string
+};
+
+export type ActionData = {
+  group?: string,
+  enabled?: boolean,
+  visible?: boolean,
+  icon?: string,
+  title?: string,
+  url?: string
+};
 
 export type RecordData = {
   table: string,
@@ -33,7 +55,11 @@ export type RecordData = {
   value_nextStage: number,
   value_prevStage: number,
   path_Workspace: string,
-  lastChangedFormatted: string,
+  lastChanged: string,
+  lastEditorId: number,
+  lastEditorName: string,
+  lastEditorRealName: string,
+  lastEditorAvatar: string,
   t3ver_wsid: number,
   t3ver_oid: number,
   livepid: number,
@@ -48,6 +74,7 @@ export type RecordData = {
   allowedAction_publish: boolean,
   allowedAction_delete: boolean,
   allowedAction_view: boolean,
+  previewUrl: string,
   allowedAction_edit: boolean,
   allowedAction_versionPageOpen: boolean,
   state_Workspace: string,
@@ -57,13 +84,21 @@ export type RecordData = {
   integrity: {
     status: string,
     messages: string
-  }
+  },
+  additional?: Record<string, AdditionalColumnValue>,
+  actions?: Record<string, ActionData>
 };
 
 @customElement('typo3-workspaces-record-table')
 export class RecordTableElement extends LitElement {
   @property({ type: Array })
   public results: RecordData[] = [];
+
+  /**
+   * Labels of columns added by third party extensions, indexed by column identifier.
+   */
+  @property({ type: Object })
+  public additionalColumns: Record<string, string> = {};
 
   private latestPath: string | null = null;
 
@@ -79,43 +114,43 @@ export class RecordTableElement extends LitElement {
           <thead>
           <tr>
             <th>
-              <div class="btn-group dropdown">
-                <button type="button" class="dropdown-toggle dropdown-toggle-link t3js-multi-record-selection-check-actions-toggle" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false" aria-label="${TYPO3.lang['labels.openSelectionOptions']}">
+              <div class="dropdown">
+                <button type="button" class="dropdown-toggle dropdown-toggle-link t3js-multi-record-selection-check-actions-toggle" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false" aria-label="${coreLabels.get('labels.openSelectionOptions')}">
                   <typo3-backend-icon identifier="actions-selection" size="small"></typo3-backend-icon>
                 </button>
                 <ul class="dropdown-menu t3js-multi-record-selection-check-actions">
                   <li>
-                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title=${TYPO3.lang['labels.checkAll']}>
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-all" title=${coreLabels.get('labels.checkAll')}>
                       <span class="dropdown-item-columns">
                         <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                           <typo3-backend-icon identifier="actions-selection-elements-all" size="small"></typo3-backend-icon>
                         </span>
                         <span class="dropdown-item-column dropdown-item-column-title">
-                          ${TYPO3.lang['labels.checkAll']}
+                          ${coreLabels.get('labels.checkAll')}
                         </span>
                       </span>
                     </button>
                   </li>
                   <li>
-                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title=${TYPO3.lang['labels.uncheckAll']}>
+                    <button type="button" class="dropdown-item" disabled data-multi-record-selection-check-action="check-none" title=${coreLabels.get('labels.uncheckAll')}>
                       <span class="dropdown-item-columns">
                           <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                             <typo3-backend-icon identifier="actions-selection-elements-none" size="small"></typo3-backend-icon>
                           </span>
                           <span class="dropdown-item-column dropdown-item-column-title">
-                            ${TYPO3.lang['labels.uncheckAll']}
+                            ${coreLabels.get('labels.uncheckAll')}
                           </span>
                       </span>
                     </button>
                   </li>
                   <li>
-                    <button type="button" class="dropdown-item" data-multi-record-selection-check-action="toggle" title=${TYPO3.lang['labels.toggleSelection']}>
+                    <button type="button" class="dropdown-item" data-multi-record-selection-check-action="toggle" title=${coreLabels.get('labels.toggleSelection')}>
                       <span class="dropdown-item-columns">
                           <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
                             <typo3-backend-icon identifier="actions-selection-elements-invert" size="small"></typo3-backend-icon>
                           </span>
                           <span class="dropdown-item-column dropdown-item-column-title">
-                            ${TYPO3.lang['labels.toggleSelection']}
+                            ${coreLabels.get('labels.toggleSelection')}
                           </span>
                       </span>
                     </button>
@@ -123,14 +158,15 @@ export class RecordTableElement extends LitElement {
                 </ul>
               </div>
             </th>
-            <th class="col-min">${TYPO3.lang['column.wsTitle']}</th>
-            <th class="col-language">${TYPO3.lang['labels._LOCALIZATION_']}</th>
-            <th class="col-datetime">${TYPO3.lang['column.lastChangeOn']}</th>
-            <th class="col-state">${TYPO3.lang['column.wsStateAction']}</th>
-            <th class="col-state">${TYPO3.lang['column.integrity']}</th>
-            <th>${TYPO3.lang['column.stage']}</th>
+            <th class="col-min">${labels.get('column.wsTitle')}</th>
+            <th class="col-language">${coreLabels.get('labels._LOCALIZATION_')}</th>
+            <th class="col-datetime">${labels.get('column.last_change')}</th>
+            <th class="col-state">${labels.get('column.wsStateAction')}</th>
+            <th class="col-state">${labels.get('column.integrity')}</th>
+            <th>${labels.get('column.stage')}</th>
+            ${Object.values(this.additionalColumns).map((label: string) => html`<th>${label}</th>`)}
             <th class="col-control nowrap">
-              <span class="visually-hidden">${TYPO3.lang['labels._CONTROL_']}</span>
+              <span class="visually-hidden">${coreLabels.get('labels._CONTROL_')}</span>
             </th>
           </tr>
           </thead>
@@ -164,33 +200,33 @@ export class RecordTableElement extends LitElement {
     switch (wsState) {
       case 'deleted':
         wsStateActionClass = 'danger';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.deleted'];
+        wsStateActionLabel = labels.get('column.wsStateAction.deleted');
         break;
       case 'hidden':
         wsStateActionClass = 'secondary';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.hidden'];
+        wsStateActionLabel = labels.get('column.wsStateAction.hidden');
         break;
       case 'modified':
         wsStateActionClass = 'warning';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.modified'];
+        wsStateActionLabel = labels.get('column.wsStateAction.modified');
         break;
       case 'moved':
         wsStateActionClass = 'primary';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.moved'];
+        wsStateActionLabel = labels.get('column.wsStateAction.moved');
         break;
       case 'new':
         wsStateActionClass = 'success';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.new'];
+        wsStateActionLabel = labels.get('column.wsStateAction.new');
         break;
       default:
         wsStateActionClass = 'secondary';
-        wsStateActionLabel = TYPO3.lang['column.wsStateAction.unchanged'];
+        wsStateActionLabel = labels.get('column.wsStateAction.unchanged');
     }
 
     return html`
       ${latestPathChanged ? html`
         <tr>
-          <th colspan="8" class="col-white-space-normal">
+          <th colspan=${8 + Object.keys(this.additionalColumns).length} class="col-white-space-normal">
             <a href=${data.urlToPage}>${data.path_Workspace}</a>
           </th>
         </tr>
@@ -229,7 +265,21 @@ export class RecordTableElement extends LitElement {
           </span>
           ${data.language.title_crop}
         </td>
-        <td class="col-datetime">${data.lastChangedFormatted}</td>
+        <td class="col-datetime col-nowrap">
+          <div class="d-flex flex-column flex-nowrap row-gap-1">
+            ${data.lastEditorName ? html`
+            <span class="d-inline-flex align-items-center gap-1">
+              <span class="d-inline-flex align-items-center" aria-hidden="true">
+                ${unsafeHTML((data.lastEditorAvatar || '').replace(/--avatar-size:\s*\d+px/g, '--avatar-size: 16px'))}
+              </span>
+              <span>${data.lastEditorRealName || data.lastEditorName}</span>
+            </span>
+          ` : html`
+            <span class="text-variant">${labels.get('column.editor.unknown')}</span>
+          `}
+            ${data.lastChanged ? labels.get('column.last_change.value', { last_change: new Date(data.lastChanged) }) : nothing}
+          </div>
+        </td>
         <td class="col-state">
           <span class="badge badge-${wsStateActionClass}">${wsStateActionLabel}</span>
         </td>
@@ -239,87 +289,135 @@ export class RecordTableElement extends LitElement {
           </span>
         ` : nothing}</td>
         <td>${data.label_Stage}</td>
-        <td class="col-control nowrap">
-          <div class="btn-group">${this.renderElementActions(data)}</div>
-          <div class="btn-group">${this.renderVersioningActions(data)}</div>
-        </td>
+        ${Object.keys(this.additionalColumns).map((identifier: string) => this.renderAdditionalColumn(data, identifier))}
+        <td class="col-control nowrap">${this.renderActions(data)}</td>
       </tr>
     `;
+  }
+
+  protected renderAdditionalColumn(data: RecordData, identifier: string): TemplateResult {
+    const column = data.additional?.[identifier];
+    if (column === undefined) {
+      return html`<td></td>`;
+    }
+
+    const content = html`
+      ${column.icon ? html`
+        <typo3-backend-icon identifier=${column.icon} size="small"></typo3-backend-icon>
+      ` : nothing}
+      ${column.value ?? ''}
+    `;
+
+    return html`
+      <td title=${ifDefined(column.title || undefined)}>
+        ${column.url ? html`<a href=${column.url}>${content}</a>` : content}
+      </td>
+    `;
+  }
+
+  /**
+   * The action buttons of a row, rendered as one button group per group declared by the server.
+   * Which actions exist is decided there, the module only knows how to present its own ones.
+   */
+  protected renderActions(data: RecordData): TemplateResult[] {
+    const groups = new Map<string, TemplateResult[]>();
+
+    for (const [ identifier, action ] of Object.entries(data.actions ?? {})) {
+      if (action.visible === false) {
+        continue;
+      }
+      const group = action.group ?? 'custom';
+      if (!groups.has(group)) {
+        groups.set(group, []);
+      }
+      groups.get(group).push(this.renderAction(identifier, action, data));
+    }
+
+    return Array.from(groups.values()).map((actions: TemplateResult[]) => html`
+      <div class="btn-group">${actions}</div>
+    `);
+  }
+
+  protected renderAction(identifier: string, action: ActionData, data: RecordData): TemplateResult {
+    const enabled = action.enabled !== false;
+
+    if (identifier === 'qrcode') {
+      return this.getQrCodeAction(data, enabled);
+    }
+
+    const defaults = this.getActionDefaults(identifier, data, enabled);
+    const attributes: Record<string, string> = { ...defaults.attributes };
+    const title = action.title || defaults.title;
+    if (title !== '') {
+      attributes.title = title;
+    }
+    const icon = action.icon || defaults.icon;
+
+    if (action.url && enabled) {
+      return html`
+        <a class="btn btn-default" href=${action.url} title=${ifDefined(attributes.title)}>
+          <typo3-backend-icon identifier=${IconHelper.getIconIdentifier(icon || 'empty-empty')} size="small"></typo3-backend-icon>
+        </a>
+      `;
+    }
+
+    return this.getAction(enabled, identifier, icon, attributes);
   }
 
   protected renderIndent(level: number) {
     return html`<span class="indent indent-inline-block" style="--indent-level: ${level}"></span>`;
   }
 
-  private renderElementActions(data: RecordData): TemplateResult[] {
-    return [
-      this.getAction(
-        data.allowedAction_view,
-        'preview',
-        'actions-version-workspace-preview',
-        {
-          'title': TYPO3.lang['tooltip.viewElementAction']
-        }
-      ),
-      this.getAction(
-        data.allowedAction_edit && data.state_Workspace !== 'deleted',
-        'open',
-        'actions-open',
-        {
-          'title': TYPO3.lang['tooltip.editElementAction']
-        }
-      ),
-      this.getAction(
-        data.allowedAction_versionPageOpen,
-        'version',
-        'actions-version-page-open',
-        {
-          'title': TYPO3.lang['tooltip.openPage']
-        }
-      )
-    ];
+  /**
+   * Icon, title and attributes of the actions the module handles itself. Actions of third party
+   * extensions are unknown here and are presented with what their payload provides.
+   */
+  private getActionDefaults(identifier: string, data: RecordData, enabled: boolean): { icon: string, title: string, attributes: Record<string, string> } {
+    switch (identifier) {
+      case 'preview':
+        return { icon: 'actions-version-workspace-preview', title: labels.get('tooltip.viewElementAction'), attributes: {} };
+      case 'open':
+        return { icon: 'actions-open', title: labels.get('tooltip.editElementAction'), attributes: {} };
+      case 'version':
+        return { icon: 'actions-version-page-open', title: labels.get('tooltip.openPage'), attributes: {} };
+      case 'expand':
+        return {
+          icon: data.expanded ? 'actions-caret-down' : 'actions-caret-right',
+          title: labels.get('tooltip.expand'),
+          attributes: {
+            'data-bs-target': '[data-collection="' + data.Workspaces_CollectionCurrent + '"]',
+            'aria-expanded': !enabled || data.expanded ? 'true' : 'false',
+            'data-bs-toggle': 'collapse',
+          }
+        };
+      case 'changes':
+        return { icon: 'actions-document-info', title: labels.get('tooltip.showChanges'), attributes: {} };
+      case 'publish':
+        return { icon: 'actions-version-swap-version', title: labels.get('tooltip.publish'), attributes: {} };
+      case 'remove':
+        return { icon: 'actions-delete', title: labels.get('tooltip.discardVersion'), attributes: {} };
+      default:
+        return { icon: '', title: '', attributes: {} };
+    }
   }
 
-  private renderVersioningActions(data: RecordData): TemplateResult[] {
-    const hasSubitems = data.Workspaces_CollectionChildren > 0 && data.Workspaces_CollectionCurrent !== '';
-
-    return [
-      this.getAction(
-        hasSubitems,
-        'expand',
-        (data.expanded ? 'actions-caret-down' : 'actions-caret-right'),
-        {
-          'title': TYPO3.lang['tooltip.expand'],
-          'data-bs-target': '[data-collection="' + data.Workspaces_CollectionCurrent + '"]',
-          'aria-expanded': !hasSubitems || data.expanded ? 'true' : 'false',
-          'data-bs-toggle': 'collapse',
-        }
-      ),
-      this.getAction(
-        data.hasChanges,
-        'changes',
-        'actions-document-info',
-        {
-          'title': TYPO3.lang['tooltip.showChanges']
-        }
-      ),
-      this.getAction(
-        data.allowedAction_publish && data.Workspaces_CollectionParent === '',
-        'publish',
-        'actions-version-swap-version',
-        {
-          'title': TYPO3.lang['tooltip.publish']
-        }
-      ),
-      this.getAction(
-        data.allowedAction_delete,
-        'remove',
-        'actions-delete',
-        {
-          'title': TYPO3.lang['tooltip.discardVersion']
-        }
-      )
-    ];
+  private getQrCodeAction(data: RecordData, enabled: boolean): TemplateResult {
+    if (!enabled || !data.previewUrl) {
+      return html`
+        <button type="button" class="btn btn-default" disabled>
+          <typo3-backend-icon identifier="empty-empty" size="small"></typo3-backend-icon>
+        </button>
+      `;
+    }
+    return html`
+      <typo3-qrcode-modal-button
+        class="btn btn-default"
+        content="${data.previewUrl}"
+        modal-title="${labels.get('tooltip.qrCode') || 'QR Code'}"
+        title="${labels.get('tooltip.qrCode') || 'QR Code'}">
+        <typo3-backend-icon identifier="actions-qrcode" size="small"></typo3-backend-icon>
+      </typo3-qrcode-modal-button>
+    `;
   }
 
   /**
@@ -329,7 +427,7 @@ export class RecordTableElement extends LitElement {
    * @param {string} action
    * @param {string} iconIdentifier
    * @param {object} additionalAttributes
-   * @return {JQuery}
+   * @return {TemplateResult}
    */
   private getAction(condition: boolean, action: string, iconIdentifier: string, additionalAttributes?: Record<string, string>): TemplateResult {
     return html`

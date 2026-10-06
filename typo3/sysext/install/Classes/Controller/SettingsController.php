@@ -34,6 +34,7 @@ use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\PasswordPolicy\PasswordService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\TypoScript\AST\CommentAwareAstBuilder;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
@@ -44,6 +45,7 @@ use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Install\Configuration\FeatureManager;
+use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\LocalConfigurationValueService;
 
 /**
@@ -53,6 +55,7 @@ use TYPO3\CMS\Install\Service\LocalConfigurationValueService;
 class SettingsController extends AbstractController
 {
     public function __construct(
+        private readonly LateBootService $lateBootService,
         private readonly PackageManager $packageManager,
         private readonly LanguageServiceFactory $languageServiceFactory,
         private readonly CommentAwareAstBuilder $astBuilder,
@@ -60,6 +63,7 @@ class SettingsController extends AbstractController
         private readonly AstTraverser $astTraverser,
         private readonly FormProtectionFactory $formProtectionFactory,
         private readonly ConfigurationManager $configurationManager,
+        private readonly PasswordService $passwordService
     ) {}
 
     /**
@@ -116,16 +120,17 @@ class SettingsController extends AbstractController
         } else {
             $password = $request->getParsedBody()['install']['password'] ?? '';
             $passwordCheck = $request->getParsedBody()['install']['passwordCheck'];
-
+            $validationResultErrors = $this->passwordService->getValidationErrorsForInstallToolUpdate($password);
             if ($password !== $passwordCheck) {
                 $messageQueue->enqueue(new FlashMessage(
                     'Given passwords do not match.',
                     'Install tool password not changed',
                     ContextualFeedbackSeverity::ERROR
                 ));
-            } elseif (strlen($password) < 8) {
+            } elseif ($validationResultErrors !== []) {
+                $errors = array_values($validationResultErrors);
                 $messageQueue->enqueue(new FlashMessage(
-                    'Given password must be at least eight characters long.',
+                    implode('. ', $errors) . '.',
                     'Install tool password not changed',
                     ContextualFeedbackSeverity::ERROR
                 ));
@@ -152,7 +157,8 @@ class SettingsController extends AbstractController
      */
     public function systemMaintainerGetListAction(ServerRequestInterface $request): ResponseInterface
     {
-        $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
+        $container = $this->lateBootService->getContainer(true);
+        $connectionPool = $container->get(ConnectionPool::class);
 
         // We have to respect the enable fields here by our own because no TCA is loaded
         $queryBuilder = $connectionPool->getQueryBuilderForTable('be_users');
@@ -175,9 +181,9 @@ class SettingsController extends AbstractController
         $systemMaintainerList = array_map('intval', $systemMaintainerList);
         $currentTime = time();
         foreach ($users as &$user) {
-            $user['disable'] = $user['disable'] ||
-                ((int)$user['starttime'] !== 0 && $user['starttime'] > $currentTime) ||
-                ((int)$user['endtime'] !== 0 && $user['endtime'] < $currentTime);
+            $user['disable'] = $user['disable']
+                || ((int)$user['starttime'] !== 0 && $user['starttime'] > $currentTime)
+                || ((int)$user['endtime'] !== 0 && $user['endtime'] < $currentTime);
             $user['isSystemMaintainer'] = in_array((int)$user['uid'], $systemMaintainerList, true);
         }
         $view = $this->initializeView($request);
@@ -230,7 +236,9 @@ class SettingsController extends AbstractController
             }
         }
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('be_users');
+        $container = $this->lateBootService->getContainer(true);
+        $connectionPool = $container->get(ConnectionPool::class);
+        $queryBuilder = $connectionPool->getQueryBuilderForTable('be_users');
         $queryBuilder->getRestrictions()->removeAll();
 
         $validatedUserList = $queryBuilder
@@ -253,7 +261,7 @@ class SettingsController extends AbstractController
 
         if (empty($validatedUserList)) {
             $messages[] = new FlashMessage(
-                'The system has no maintainers enabled anymore. Please use the standalone Admin Tools from now on.',
+                'The system has no maintainers enabled anymore. Please use the standalone Install Tools from now on.',
                 'Cleared system maintainer list',
                 ContextualFeedbackSeverity::INFO
             );
@@ -423,7 +431,7 @@ class SettingsController extends AbstractController
     public function extensionConfigurationGetContentAction(ServerRequestInterface $request): ResponseInterface
     {
         // Extension configuration needs initialized $GLOBALS['LANG']
-        $GLOBALS['LANG'] = $this->languageServiceFactory->create('default');
+        $GLOBALS['LANG'] = $this->languageServiceFactory->create('en');
         $extensionsWithConfigurations = [];
         $activePackages = $this->packageManager->getActivePackages();
         $extensionConfiguration = new ExtensionConfiguration();
@@ -452,14 +460,19 @@ class SettingsController extends AbstractController
                     }
                 }
                 $displayConstants = [];
+                foreach ($astConstantCommentVisitor->getCategories() as $category => $details) {
+                    if ($details['usageCount'] > 0) {
+                        $displayConstants[$category]['label'] = $details['label'];
+                    }
+                }
                 foreach ($constants as $constant) {
-                    $displayConstants[$constant['cat']][$constant['subcat_sorting_first']]['label'] = $constant['subcat_label'];
-                    $displayConstants[$constant['cat']][$constant['subcat_sorting_first']]['items'][$constant['subcat_sorting_second']] = $constant;
+                    $displayConstants[$constant['cat']]['items'][$constant['subcat_sorting_first']]['label'] = $constant['subcat_label'];
+                    $displayConstants[$constant['cat']]['items'][$constant['subcat_sorting_first']]['items'][$constant['subcat_sorting_second']] = $constant;
                 }
                 foreach ($displayConstants as &$constantCategory) {
-                    ksort($constantCategory);
-                    foreach ($constantCategory as &$constantDetailItems) {
-                        ksort($constantDetailItems['items']);
+                    ksort($constantCategory['items'], SORT_NATURAL);
+                    foreach ($constantCategory['items'] as &$constantDetailItems) {
+                        ksort($constantDetailItems['items'], SORT_NATURAL);
                     }
                 }
                 $extensionsWithConfigurations[$extensionKey] = $displayConstants;
@@ -499,7 +512,7 @@ class SettingsController extends AbstractController
             foreach ($configuration as $configKey => $value) {
                 $nestedConfiguration = ArrayUtility::setValueByPath($nestedConfiguration, $configKey, $value, '.');
             }
-            (new ExtensionConfiguration())->set($extensionKey, $nestedConfiguration);
+            new ExtensionConfiguration()->set($extensionKey, $nestedConfiguration);
             $messages[] = new FlashMessage(
                 'Successfully saved configuration for extension "' . $extensionKey . '".',
                 'Configuration saved',

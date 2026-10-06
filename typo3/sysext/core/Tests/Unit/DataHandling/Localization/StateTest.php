@@ -25,24 +25,30 @@ use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\Localization\State;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class StateTest extends UnitTestCase
 {
-    private const TABLE_NAME = 'tx_test_table';
+    private const string TABLE_NAME = 'tx_test_table';
 
-    protected TcaSchemaFactory $tcaSchemaFactory;
+    private TcaSchemaFactory $tcaSchemaFactory;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock = self::createStub(PhpFrontend::class);
+        $cacheMock->method('has')->willReturnCallback(static function (string $entryIdentifier): bool {
+            self::assertNotSame('', $entryIdentifier);
+            return false;
+        });
         $this->tcaSchemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );

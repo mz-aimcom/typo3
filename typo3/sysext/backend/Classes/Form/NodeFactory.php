@@ -15,6 +15,7 @@
 
 namespace TYPO3\CMS\Backend\Form;
 
+use TYPO3\CMS\Backend\Form\Element\AvatarElement;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -62,7 +63,7 @@ class NodeFactory
         'siteLanguage' => Container\SiteLanguageContainer::class,
         'listOfFieldsContainer' => Container\ListOfFieldsContainer::class,
         'noTabsContainer' => Container\NoTabsContainer::class,
-        'outerWrapContainer' => Container\OuterWrapContainer::class,
+        'formWrapContainer' => Container\FormWrapContainer::class,
         'paletteAndSingleContainer' => Container\PaletteAndSingleContainer::class,
         'singleFieldContainer' => Container\SingleFieldContainer::class,
         'tabsContainer' => Container\TabsContainer::class,
@@ -107,6 +108,8 @@ class NodeFactory
         'json' => Element\JsonElement::class,
         'uuid' => Element\UuidElement::class,
         'tablePermission' => Element\TablePermissionElement::class,
+        // special renderTypes for user settings
+        'avatar' => AvatarElement::class,
 
         // Default classes to enrich single elements
         'fieldControl' => NodeExpansion\FieldControl::class,
@@ -114,9 +117,9 @@ class NodeFactory
         'fieldWizard' => NodeExpansion\FieldWizard::class,
 
         // Element information
-        'tcaDescription' => FieldInformation\TcaDescription::class,
         'adminIsSystemMaintainer' => FieldInformation\AdminIsSystemMaintainer::class,
         'backendLayoutFromParentPage' => FieldInformation\BackendLayoutFromParentPage::class,
+        'noSelectableItemsAvailable' => FieldInformation\NoSelectableItemsAvailable::class,
 
         // Element wizards
         'defaultLanguageDifferences' => FieldWizard\DefaultLanguageDifferences::class,
@@ -125,6 +128,7 @@ class NodeFactory
         'otherLanguageThumbnails' => FieldWizard\OtherLanguageThumbnails::class,
         'recordsOverview' => FieldWizard\RecordsOverview::class,
         'selectIcons' => FieldWizard\SelectIcons::class,
+        'shortcutValidation' => FieldWizard\ShortcutValidation::class,
         'tableList' => FieldWizard\TableList::class,
 
         // Element controls

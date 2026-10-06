@@ -48,8 +48,8 @@ use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
  *
  * Important: $GLOBALS['TYPO3_REQUEST'] is NOT available before the RequestHandler has been
  * called. This especially means the question "Is this a frontend or backend request?"
- * can NOT be answered in the TYPO3 bootstrap related extension files ext_localconf.php,
- * ext_tables.php and Configuration/TCA/* files.
+ * can NOT be answered in the TYPO3 bootstrap related extension files ext_localconf.php
+ * and Configuration/TCA/* files.
  */
 enum ApplicationType: string
 {
@@ -57,6 +57,8 @@ enum ApplicationType: string
     case BACKEND = 'backend';
     // SystemEnvironmentBuilder::REQUESTTYPE_FE
     case FRONTEND = 'frontend';
+    // SystemEnvironmentBuilder::REQUESTTYPE_INSTALL
+    case INSTALL = 'install';
 
     /**
      * Create an ApplicationType object from a given PSR-7 request.
@@ -77,6 +79,9 @@ enum ApplicationType: string
         }
         if (($type & SystemEnvironmentBuilder::REQUESTTYPE_BE) === SystemEnvironmentBuilder::REQUESTTYPE_BE) {
             return self::BACKEND;
+        }
+        if (($type & SystemEnvironmentBuilder::REQUESTTYPE_INSTALL) === SystemEnvironmentBuilder::REQUESTTYPE_INSTALL) {
+            return self::INSTALL;
         }
         throw new \LogicException('Could not resolve application type to either frontend or backend', 1678875015);
     }

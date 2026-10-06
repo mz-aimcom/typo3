@@ -19,14 +19,15 @@ namespace TYPO3\CMS\Impexp;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Configuration\Exception\SiteConfigurationWriteException;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
-use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Configuration\SiteWriter;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Exception;
-use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
+use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\ResourceInstructionTrait;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
@@ -35,7 +36,7 @@ use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Serializer\Typo3XmlParser;
 use TYPO3\CMS\Core\Serializer\Typo3XmlSerializerOptions;
-use TYPO3\CMS\Core\Service\FlexFormService;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -115,17 +116,28 @@ class Import extends ImportExport
     protected ?ResourceStorage $defaultStorage = null;
 
     /**
-     * Name of the "fileadmin" folder where files for export/import should be located
+     * When false, processSiteConfigurations() is skipped. Set to false when the caller
+     * (e.g. a distribution installer) handles site configuration import itself.
      */
-    protected string $fileadminFolderName = '';
+    protected bool $importSiteConfigurations = true;
 
     public function __construct(
         protected readonly FlexFormTools $flexFormTools,
         protected readonly StorageRepository $storageRepository,
-        protected readonly FlexFormService $flexFormService,
         protected readonly ConnectionPool $connectionPool,
+        protected readonly SiteWriter $siteWriter,
+        protected readonly SiteFinder $siteFinder,
     ) {
         $this->fetchStorages();
+    }
+
+    /**
+     * Disable automatic site configuration import. Call this when the invoking
+     * code (e.g. a distribution installer) handles site configuration itself.
+     */
+    public function disableSiteConfigurationImport(): void
+    {
+        $this->importSiteConfigurations = false;
     }
 
     /**
@@ -208,7 +220,7 @@ class Import extends ImportExport
                 $xmlContent = (string)file_get_contents($filePath);
                 if (strlen($xmlContent)) {
                     try {
-                        $dat = (new Typo3XmlParser())->decode(
+                        $dat = new Typo3XmlParser()->decode(
                             $xmlContent,
                             new Typo3XmlSerializerOptions([
                                 Typo3XmlSerializerOptions::RETURN_ROOT_NODE_NAME => true,
@@ -287,8 +299,8 @@ class Import extends ImportExport
 
         if ($isDataCompressed) {
             if (!function_exists('gzuncompress')) {
-                $this->addError('Content read error: This file requires decompression, ' .
-                    'but this server does not offer gzcompress()/gzuncompress() functions.');
+                $this->addError('Content read error: This file requires decompression, '
+                    . 'but this server does not offer gzcompress()/gzuncompress() functions.');
                 return null;
             }
             $dataString = (string)gzuncompress($dataString);
@@ -310,6 +322,16 @@ class Import extends ImportExport
     public function getMetaData(): array
     {
         return $this->dat['header']['meta'] ?? [];
+    }
+
+    public function getSiteConfigurations(): array
+    {
+        $siteConfigurations = $this->dat['header']['site_configurations'] ?? [];
+        foreach ($siteConfigurations as $identifier => $config) {
+            $rootPageId = (int)($config['rootPageId'] ?? 0);
+            $siteConfigurations[$identifier]['_rootPageTitle'] = $this->dat['header']['records']['pages'][$rootPageId]['title'] ?? '';
+        }
+        return $siteConfigurations;
     }
 
     /**
@@ -339,8 +361,8 @@ class Import extends ImportExport
         foreach ($this->dat['header']['records']['sys_file_storage'] ?? [] as $sysFileStorageUid => $_) {
             $storageRecord = &$this->dat['records']['sys_file_storage:' . $sysFileStorageUid]['data'];
             if ($storageRecord['driver'] === 'Local'
-                && $storageRecord['is_writable']
-                && $storageRecord['is_online']
+                && ($storageRecord['is_writable'] ?? 1)
+                && ($storageRecord['is_online'] ?? 1)
             ) {
                 $storageMapUid = -1;
                 foreach ($this->storages as $storage) {
@@ -365,8 +387,8 @@ class Import extends ImportExport
                         $configuration = $storageObject->getConfiguration();
                         $this->addError(
                             sprintf(
-                                'The file storage "%s" does not exist. ' .
-                                'Please create the directory prior to starting the import!',
+                                'The file storage "%s" does not exist. '
+                                . 'Please create the directory prior to starting the import!',
                                 $storageObject->getName() . $configuration['basePath']
                             )
                         );
@@ -410,11 +432,71 @@ class Import extends ImportExport
         $this->setFlexFormRelations();
         // Finally, traverse all records and process soft references with substitution attributes.
         $this->processSoftReferences();
+        // Write site configurations bundled in the export, with rootPageId remapped to imported UIDs.
+        // Skipped when the caller handles site configuration import itself (e.g. distribution installers)
+        // or when the current user is not an admin (site configurations are admin-only).
+        if ($this->importSiteConfigurations && $this->getBackendUser()->isAdmin()) {
+            $this->processSiteConfigurations();
+        }
         // Cleanup
         $this->removeTemporaryFolderName();
 
         if ($this->hasErrors()) {
             throw new ImportFailedException('The import has failed.', 1484484613);
+        }
+    }
+
+    /**
+     * Write site configurations embedded in the import file.
+     * Skips any site whose identifier already exists.
+     * Remaps rootPageId from the export UID to the newly imported UID.
+     */
+    protected function processSiteConfigurations(): void
+    {
+        $siteConfigurations = $this->dat['header']['site_configurations'] ?? [];
+        if (!is_array($siteConfigurations) || $siteConfigurations === []) {
+            return;
+        }
+        $importedPageIds = $this->importMapId['pages'] ?? [];
+        foreach ($siteConfigurations as $siteIdentifier => $configuration) {
+            if (!is_string($siteIdentifier) || !is_array($configuration)) {
+                continue;
+            }
+            $exportedRootPageId = (int)($configuration['rootPageId'] ?? 0);
+            $importedRootPageId = $importedPageIds[$exportedRootPageId] ?? null;
+            if ($importedRootPageId === null) {
+                continue;
+            }
+
+            // Skip if a site configuration already exists for this root page.
+            try {
+                $this->siteFinder->getSiteByRootPageId((int)$importedRootPageId);
+                continue;
+            } catch (SiteNotFoundException) {
+                // No site exists yet — proceed with creating one.
+            }
+
+            // Find a free identifier — never merge into an existing site config.
+            $targetIdentifier = $siteIdentifier;
+            $counter = 0;
+            while (true) {
+                try {
+                    $this->siteFinder->getSiteByIdentifier($targetIdentifier);
+                    $targetIdentifier = $siteIdentifier . '-' . (++$counter);
+                } catch (SiteNotFoundException) {
+                    break;
+                }
+            }
+
+            $configuration['rootPageId'] = (int)$importedRootPageId;
+            $configuration['base'] = '/' . $targetIdentifier . '/';
+            // @TODO Add error handling / routes etc where page ids are used and configured
+
+            try {
+                $this->siteWriter->write($targetIdentifier, $configuration);
+            } catch (SiteConfigurationWriteException) {
+                // Site configuration write failures are non-fatal; the imported data remains intact.
+            }
         }
     }
 
@@ -444,8 +526,8 @@ class Import extends ImportExport
         foreach ($this->dat['header']['records']['sys_file_storage'] as $sysFileStorageUid => $_) {
             $storageRecord = &$this->dat['records']['sys_file_storage:' . $sysFileStorageUid]['data'];
             if ($storageRecord['driver'] === 'Local'
-                && $storageRecord['is_writable']
-                && $storageRecord['is_online']
+                && ($storageRecord['is_writable'] ?? 1)
+                && ($storageRecord['is_online'] ?? 1)
             ) {
                 foreach ($this->storages as $storage) {
                     if ($this->isEquivalentStorage($storage, $storageRecord)) {
@@ -503,10 +585,10 @@ class Import extends ImportExport
     protected function isEquivalentStorage(ResourceStorage $storageObject, array &$storageRecord): bool
     {
         if ($storageObject->getDriverType() === $storageRecord['driver']
-            && $storageObject->isWritable() === (bool)$storageRecord['is_writable']
-            && $storageObject->isOnline() === (bool)$storageRecord['is_online']
+            && $storageObject->isWritable() === (bool)($storageRecord['is_writable'] ?? 1)
+            && $storageObject->isOnline() === (bool)($storageRecord['is_online'] ?? 1)
         ) {
-            $storageRecordConfiguration = $this->flexFormService->convertFlexFormContentToArray($storageRecord['configuration'] ?? '');
+            $storageRecordConfiguration = $this->flexFormTools->convertFlexFormContentToArray($storageRecord['configuration'] ?? '');
             $storageObjectConfiguration = $storageObject->getConfiguration();
             if ($storageRecordConfiguration['pathType'] === $storageObjectConfiguration['pathType']
                 && $storageRecordConfiguration['basePath'] === $storageObjectConfiguration['basePath']
@@ -629,7 +711,6 @@ class Import extends ImportExport
 
                 try {
                     $this->skipResourceConsistencyCheckForCommands($storage, $temporaryFile, $fileRecord['name']);
-                    /** @var File $file */
                     $file = $storage->addFile($temporaryFile, $importFolder, $fileRecord['name']);
                 } catch (Exception $e) {
                     $this->addError(sprintf(
@@ -642,8 +723,8 @@ class Import extends ImportExport
 
                 if ($file->getSha1() !== $fileRecord['sha1']) {
                     $this->addError(sprintf(
-                        'Error: The hash of the written file is not identical to the import data! ' .
-                        'File could be corrupted! File: "%s" with storage uid "%s"',
+                        'Error: The hash of the written file is not identical to the import data! '
+                        . 'File could be corrupted! File: "%s" with storage uid "%s"',
                         $fileRecord['identifier'],
                         $fileRecord['storage']
                     ));
@@ -736,9 +817,12 @@ class Import extends ImportExport
         if (is_array($this->dat['header']['pagetree'] ?? null)) {
             $pageList = [];
             $this->flatInversePageTree($this->dat['header']['pagetree'], $pageList);
-            foreach ($pageList as $pageUid => $_) {
+            foreach ($this->sortPageUidsParentsFirst(array_keys($pageList)) as $pageUid) {
                 $pid = $this->dat['header']['records']['pages'][$pageUid]['pid'] ?? null;
-                $pid = $this->importNewIdPids[$pid] ?? $this->pid;
+                if ($pid !== null) {
+                    $pid = (int)$pid;
+                }
+                $pid = $this->importNewIdPids[$pid ?? ''] ?? $this->pid;
                 $this->addSingle($importData, 'pages', (int)$pageUid, $pid);
                 unset($remainingPages[$pageUid]);
             }
@@ -766,6 +850,43 @@ class Import extends ImportExport
 
         // Sort pages
         $this->writePagesOrder();
+    }
+
+    /**
+     * Page translations are appended to the exported page tree as top level nodes, so a translation
+     * may be listed before the page it belongs to. Order the pages in a way that each page is
+     * preceded by its parent page, since the parent needs to have been assigned its new ID before
+     * a page can be related to it.
+     *
+     * @param list<int> $pageUids
+     * @return list<int>
+     */
+    protected function sortPageUidsParentsFirst(array $pageUids): array
+    {
+        $importPageUids = array_flip($pageUids);
+        $sortedPageUids = [];
+        $sortedPageUidsMap = [];
+        $pendingPageUids = $pageUids;
+
+        while ($pendingPageUids !== []) {
+            $postponedPageUids = [];
+            foreach ($pendingPageUids as $pageUid) {
+                $pid = (int)($this->dat['header']['records']['pages'][$pageUid]['pid'] ?? 0);
+                if (isset($importPageUids[$pid]) && !isset($sortedPageUidsMap[$pid])) {
+                    $postponedPageUids[] = $pageUid;
+                    continue;
+                }
+                $sortedPageUids[] = $pageUid;
+                $sortedPageUidsMap[$pageUid] = true;
+            }
+            if (count($postponedPageUids) === count($pendingPageUids)) {
+                // Pages referencing each other in a circle, keep the given order for the remainder
+                return array_merge($sortedPageUids, $postponedPageUids);
+            }
+            $pendingPageUids = $postponedPageUids;
+        }
+
+        return $sortedPageUids;
     }
 
     /**
@@ -822,8 +943,8 @@ class Import extends ImportExport
      */
     protected function doRespectPid(string $table, int $uid): bool
     {
-        return ($this->importMode[$table . ':' . $uid] ?? '') !== self::IMPORT_MODE_IGNORE_PID &&
-            (!$this->globalIgnorePid || ($this->importMode[$table . ':' . $uid] ?? '') === self::IMPORT_MODE_RESPECT_PID);
+        return ($this->importMode[$table . ':' . $uid] ?? '') !== self::IMPORT_MODE_IGNORE_PID
+            && (!$this->globalIgnorePid || ($this->importMode[$table . ':' . $uid] ?? '') === self::IMPORT_MODE_RESPECT_PID);
     }
 
     /**
@@ -1027,7 +1148,7 @@ class Import extends ImportExport
 
         // Record relations
         $schema = $this->tcaSchemaFactory->get($table);
-        foreach ($this->dat['records'][$table . ':' . $uid]['rels'] as $field => &$relation) {
+        foreach ($this->dat['records'][$table . ':' . $uid]['rels'] ?? [] as $field => &$relation) {
             switch ($relation['type'] ?? '') {
                 case 'db':
                 case 'file':
@@ -1135,9 +1256,9 @@ class Import extends ImportExport
                         && $this->importMapId[$table][$uid] == $ID)
                     ) {
                         $this->addError(
-                            'Possible error: ' . $table . ':' . $uid . ' had no new id assigned to it. ' .
-                            'This indicates that the record was not added to database during import. ' .
-                            'Please check changelog!'
+                            'Possible error: ' . $table . ':' . $uid . ' had no new id assigned to it. '
+                            . 'This indicates that the record was not added to database during import. '
+                            . 'Please check changelog!'
                         );
                     }
                 }
@@ -1170,10 +1291,10 @@ class Import extends ImportExport
             if (isset($this->importMapId[$table][$uid])) {
                 if (!$this->tcaSchemaFactory->has($table)) {
                     $this->addError(sprintf('Error: This record does not have a TCA schema! (%s:%s)', $table, $uid));
-                } elseif (is_array($this->dat['records'][$table . ':' . $uid]['rels'] ?? null)) {
+                } else {
                     $schema = $this->tcaSchemaFactory->get($table);
                     $actualUid = BackendUtility::wsMapId($table, $this->importMapId[$table][$uid]);
-                    foreach ($this->dat['records'][$table . ':' . $uid]['rels'] as $field => $relation) {
+                    foreach ($this->dat['records'][$table . ':' . $uid]['rels'] ?? [] as $field => $relation) {
                         // Field "uid_local" of sys_file_reference needs no update because the correct reference uid was already written.
                         // @see ImportExport::fixUidLocalInSysFileReferenceRecords()
                         if (isset($relation['type']) && !($table === 'sys_file_reference' && $field === 'uid_local') && $relation['type'] === 'db') {
@@ -1186,8 +1307,6 @@ class Import extends ImportExport
                             }
                         }
                     }
-                } else {
-                    $this->addError(sprintf('Error: This record does not appear to have a relation array! (%s:%s)', $table, $uid));
                 }
             } else {
                 $this->addError(sprintf('Error: This record does not appear to have been created! (%s:%s)', $table, $uid));
@@ -1277,10 +1396,10 @@ class Import extends ImportExport
             if (isset($this->importMapId[$table][$uid])) {
                 if (!$this->tcaSchemaFactory->has($table)) {
                     $this->addError(sprintf('Error: This record does not appear to have a TCA schema! (%s:%s)', $table, $uid));
-                } elseif (is_array($this->dat['records'][$table . ':' . $uid]['rels'] ?? null)) {
+                } else {
                     $schema = $this->tcaSchemaFactory->get($table);
                     $actualUid = BackendUtility::wsMapId($table, $this->importMapId[$table][$uid]);
-                    foreach ($this->dat['records'][$table . ':' . $uid]['rels'] as $field => $relation) {
+                    foreach ($this->dat['records'][$table . ':' . $uid]['rels'] ?? [] as $field => $relation) {
                         // Field "configuration" of sys_file_storage needs no update because it has not been removed
                         // and has no relations.
                         // @see Import::addSingle()
@@ -1304,21 +1423,17 @@ class Import extends ImportExport
                                         $schema
                                     );
                                     $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier, $schema);
-                                    $flexFormData = (new Typo3XmlParser())->decodeWithReturningExceptionAsString(
+                                    $flexFormData = new Typo3XmlParser()->decodeWithReturningExceptionAsString(
                                         (string)($this->dat['records'][$table . ':' . $uid]['data'][$field] ?? ''),
                                         new Typo3XmlSerializerOptions([
                                             Typo3XmlSerializerOptions::ALLOW_UNDEFINED_NAMESPACES,
                                         ])
                                     );
                                     if (is_array($flexFormData['data'] ?? null)) {
-                                        $flexFormIterator = GeneralUtility::makeInstance(DataHandler::class);
-                                        $flexFormIterator->callBackObj = $this;
-                                        $flexFormData['data'] = $flexFormIterator->checkValue_flex_procInData(
+                                        $flexFormData['data'] = $this->remapFlexFormRelationsInData(
                                             $flexFormData['data'],
-                                            [],
                                             $dataStructure,
-                                            [$relation],
-                                            'remapRelationsOfFlexFormCallBack'
+                                            $relation
                                         );
                                     }
                                     if (is_array($flexFormData['data'] ?? null)) {
@@ -1328,8 +1443,6 @@ class Import extends ImportExport
                             }
                         }
                     }
-                } else {
-                    $this->addError(sprintf('Error: This record does not appear to have a relation array! (%s:%s)', $table, $uid));
                 }
             } else {
                 $this->addError(sprintf('Error: This record does not appear to have been created! (%s:%s)', $table, $uid));
@@ -1351,30 +1464,52 @@ class Import extends ImportExport
         }
     }
 
-    /**
-     * Callback function to remap relations in FlexForm data
-     *
-     * @param array $pParams Set of parameters passed through by calling method setFlexFormRelations()
-     * @param array $dsConf TCA config for field (from Data Structure of course)
-     * @param string $dataValue Field value (from FlexForm XML)
-     * @param string $dataValue_ext1 Not used
-     * @param string $path Path of where the data structure of the element is found
-     * @return array Array where the "value" key carries the mapped relation string.
-     *
-     * @see setFlexFormRelations()
-     */
-    public function remapRelationsOfFlexFormCallBack(array $pParams, array $dsConf, string $dataValue, $dataValue_ext1, string $path): array
+    private function remapFlexFormRelationsInData(array $data, array $dataStructure, array $relation): array
     {
-        [$relation] = $pParams;
-        // In case the $path is used as index without a trailing slash we will remove that
-        if (!is_array($relation['flexFormRels']['db'][$path] ?? null) && is_array($relation['flexFormRels']['db'][rtrim($path, '/')] ?? false)) {
-            $path = rtrim($path, '/');
+        foreach ($dataStructure['sheets'] as $sheetKey => $sheetData) {
+            foreach (($sheetData['ROOT']['el'] ?? []) as $sheetElementKey => $sheetElementTca) {
+                if (($sheetElementTca['type'] ?? '') === 'array') {
+                    // Section element.
+                    if (!is_array($sheetElementTca['el'] ?? false) || !is_array($data[$sheetKey]['lDEF'][$sheetElementKey]['el'] ?? false)) {
+                        continue;
+                    }
+                    foreach ($data[$sheetKey]['lDEF'][$sheetElementKey]['el'] as $valueSectionContainerKey => $valueSectionContainers) {
+                        if (!is_array($valueSectionContainers ?? false)) {
+                            continue;
+                        }
+                        foreach ($valueSectionContainers as $valueContainerType => $valueContainerElements) {
+                            if (!is_array($sheetElementTca['el'][$valueContainerType]['el'] ?? false)) {
+                                continue;
+                            }
+                            foreach ($sheetElementTca['el'][$valueContainerType]['el'] as $containerElement => $containerElementTca) {
+                                if (!isset($data[$sheetKey]['lDEF'][$sheetElementKey]['el'][$valueSectionContainerKey][$valueContainerType]['el'][$containerElement]['vDEF'])) {
+                                    continue;
+                                }
+                                $structurePath = $sheetKey . '/lDEF/' . $sheetElementKey . '/el/' . $valueSectionContainerKey . '/' . $valueContainerType . '/el/' . $containerElement . '/vDEF/';
+                                $fieldRelations = $relation['flexFormRels']['db'][$structurePath]
+                                    ?? $relation['flexFormRels']['db'][rtrim($structurePath, '/')]
+                                    ?? null;
+                                if (is_array($fieldRelations)) {
+                                    $data[$sheetKey]['lDEF'][$sheetElementKey]['el'][$valueSectionContainerKey][$valueContainerType]['el'][$containerElement]['vDEF']
+                                        = implode(',', $this->remapRelationsOfField($fieldRelations, $containerElementTca['config'] ?? []));
+                                }
+                            }
+                        }
+                    }
+                } elseif (isset($data[$sheetKey]['lDEF'][$sheetElementKey]['vDEF'])) {
+                    // Simple field element.
+                    $structurePath = $sheetKey . '/lDEF/' . $sheetElementKey . '/vDEF/';
+                    $fieldRelations = $relation['flexFormRels']['db'][$structurePath]
+                        ?? $relation['flexFormRels']['db'][rtrim($structurePath, '/')]
+                        ?? null;
+                    if (is_array($fieldRelations)) {
+                        $data[$sheetKey]['lDEF'][$sheetElementKey]['vDEF']
+                            = implode(',', $this->remapRelationsOfField($fieldRelations, $sheetElementTca['config'] ?? []));
+                    }
+                }
+            }
         }
-        if (is_array($relation['flexFormRels']['db'][$path] ?? null)) {
-            $actualRelations = $this->remapRelationsOfField($relation['flexFormRels']['db'][$path], $dsConf);
-            $dataValue = implode(',', $actualRelations);
-        }
-        return ['value' => $dataValue];
+        return $data;
     }
 
     /**************************
@@ -1420,21 +1555,20 @@ class Import extends ImportExport
                                         $schema
                                     );
                                     $dataStructure = $this->flexFormTools->parseDataStructureByIdentifier($dataStructureIdentifier, $schema);
-                                    $flexFormData = (new Typo3XmlParser())->decodeWithReturningExceptionAsString(
+                                    $flexFormData = new Typo3XmlParser()->decodeWithReturningExceptionAsString(
                                         (string)($actualRecord[$field] ?? ''),
                                         new Typo3XmlSerializerOptions([
                                             Typo3XmlSerializerOptions::ALLOW_UNDEFINED_NAMESPACES,
                                         ])
                                     );
                                     if (is_array($flexFormData['data'] ?? null)) {
-                                        $flexFormIterator = GeneralUtility::makeInstance(DataHandler::class);
-                                        $flexFormIterator->callBackObj = $this;
-                                        $flexFormData['data'] = $flexFormIterator->checkValue_flex_procInData(
+                                        $flexFormData['data'] = $this->processFlexFormSoftRefsInData(
                                             $flexFormData['data'],
-                                            [],
                                             $dataStructure,
-                                            [$table, $uid, $field, $softrefsByField],
-                                            'processSoftReferencesFlexFormCallBack'
+                                            $table,
+                                            $uid,
+                                            $field,
+                                            $softrefsByField
                                         );
                                     }
                                     if (is_array($flexFormData['data'] ?? null)) {
@@ -1444,7 +1578,7 @@ class Import extends ImportExport
                             } else {
                                 // Get tokenizedContent string and proceed only if that is not blank:
                                 $tokenizedContent = $this->dat['records'][$table . ':' . $uid]['rels'][$field]['softrefs']['tokenizedContent'] ?? '';
-                                if ($tokenizedContent !== '' && is_array($softrefsByField)) {
+                                if ($tokenizedContent !== '') {
                                     $updateData[$table][$actualUid][$field] = $this->processSoftReferencesSubstTokens($tokenizedContent, $softrefsByField, $table, (string)$uid);
                                 }
                             }
@@ -1469,37 +1603,54 @@ class Import extends ImportExport
         ]);
     }
 
-    /**
-     * Callback function to traverse the FlexForm structure and remap its soft reference relations.
-     *
-     * @param array $pParams Set of parameters in numeric array: table, uid, field, soft references
-     * @param array $dsConf TCA config for field (from Data Structure of course)
-     * @param string $dataValue Field value (from FlexForm XML)
-     * @param string $dataValue_ext1 Not used
-     * @param string $path Path of where the data structure where the element is found
-     * @return array Array where the "value" key carries the value.
-     * @see setFlexFormRelations()
-     */
-    public function processSoftReferencesFlexFormCallBack(array $pParams, array $dsConf, string $dataValue, $dataValue_ext1, string $path): array
+    private function processFlexFormSoftRefsInData(array $data, array $dataStructure, string $table, string|int $origUid, string $field, array $softrefs): array
     {
-        [$table, $origUid, $field, $softrefs] = $pParams;
-        if (is_array($softrefs)) {
-            // Filter for soft references of this path ...
-            $softrefsByPath = [];
-            foreach ($softrefs as $tokenID => $softref) {
-                if ($softref['structurePath'] === $path) {
-                    $softrefsByPath[$tokenID] = $softref;
-                }
-            }
-            // ... and perform the processing.
-            if (!empty($softrefsByPath)) {
-                $tokenizedContent = $this->dat['records'][$table . ':' . $origUid]['rels'][$field]['flexFormRels']['softrefs'][$path]['tokenizedContent'];
-                if (strlen($tokenizedContent)) {
-                    $dataValue = $this->processSoftReferencesSubstTokens($tokenizedContent, $softrefsByPath, $table, (string)$origUid);
+        foreach ($dataStructure['sheets'] as $sheetKey => $sheetData) {
+            foreach (($sheetData['ROOT']['el'] ?? []) as $sheetElementKey => $sheetElementTca) {
+                if (($sheetElementTca['type'] ?? '') === 'array') {
+                    // Section element.
+                    if (!is_array($sheetElementTca['el'] ?? false) || !is_array($data[$sheetKey]['lDEF'][$sheetElementKey]['el'] ?? false)) {
+                        continue;
+                    }
+                    foreach ($data[$sheetKey]['lDEF'][$sheetElementKey]['el'] as $valueSectionContainerKey => $valueSectionContainers) {
+                        if (!is_array($valueSectionContainers ?? false)) {
+                            continue;
+                        }
+                        foreach ($valueSectionContainers as $valueContainerType => $valueContainerElements) {
+                            if (!is_array($sheetElementTca['el'][$valueContainerType]['el'] ?? false)) {
+                                continue;
+                            }
+                            foreach (array_keys($sheetElementTca['el'][$valueContainerType]['el']) as $containerElement) {
+                                if (!isset($data[$sheetKey]['lDEF'][$sheetElementKey]['el'][$valueSectionContainerKey][$valueContainerType]['el'][$containerElement]['vDEF'])) {
+                                    continue;
+                                }
+                                $structurePath = $sheetKey . '/lDEF/' . $sheetElementKey . '/el/' . $valueSectionContainerKey . '/' . $valueContainerType . '/el/' . $containerElement . '/vDEF/';
+                                $softrefsByPath = array_filter($softrefs, static fn(array $softref): bool => $softref['structurePath'] === $structurePath);
+                                if (!empty($softrefsByPath)) {
+                                    $tokenizedContent = $this->dat['records'][$table . ':' . $origUid]['rels'][$field]['flexFormRels']['softrefs'][$structurePath]['tokenizedContent'] ?? '';
+                                    if ($tokenizedContent !== '') {
+                                        $data[$sheetKey]['lDEF'][$sheetElementKey]['el'][$valueSectionContainerKey][$valueContainerType]['el'][$containerElement]['vDEF']
+                                            = $this->processSoftReferencesSubstTokens($tokenizedContent, $softrefsByPath, $table, (string)$origUid);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } elseif (isset($data[$sheetKey]['lDEF'][$sheetElementKey]['vDEF'])) {
+                    // Simple field element.
+                    $structurePath = $sheetKey . '/lDEF/' . $sheetElementKey . '/vDEF/';
+                    $softrefsByPath = array_filter($softrefs, static fn(array $softref): bool => $softref['structurePath'] === $structurePath);
+                    if (!empty($softrefsByPath)) {
+                        $tokenizedContent = $this->dat['records'][$table . ':' . $origUid]['rels'][$field]['flexFormRels']['softrefs'][$structurePath]['tokenizedContent'] ?? '';
+                        if ($tokenizedContent !== '') {
+                            $data[$sheetKey]['lDEF'][$sheetElementKey]['vDEF']
+                                = $this->processSoftReferencesSubstTokens($tokenizedContent, $softrefsByPath, $table, (string)$origUid);
+                        }
+                    }
                 }
             }
         }
-        return ['value' => $dataValue];
+        return $data;
     }
 
     /**
@@ -1528,235 +1679,21 @@ class Import extends ImportExport
                     break;
                 default:
                     // This is almost the same as handling relations:
-                    // - Creating or updating related files and adjusting the file reference to link to the new file.
                     // - Adjusting the record reference to link to the already imported record - if any.
-                    switch ((string)$softref['subst']['type']) {
-                        case 'file':
-                            $insertValue = $this->processSoftReferencesSaveFile($softref['subst']['relFileName'], $softref, $table, $uid);
-                            break;
-                        case 'db':
-                        default:
-                            [$tempTable, $tempUid] = explode(':', (string)($softref['subst']['recordRef'] ?? ':'));
-                            if (isset($this->importMapId[$tempTable][$tempUid])) {
-                                $insertValue = BackendUtility::wsMapId($tempTable, $this->importMapId[$tempTable][$tempUid]);
-                                $tokenValue = (string)$softref['subst']['tokenValue'];
-                                if (str_contains($tokenValue, ':')) {
-                                    [$tokenKey] = explode(':', $tokenValue);
-                                    $insertValue = $tokenKey . ':' . $insertValue;
-                                }
-                            }
+                    [$tempTable, $tempUid] = explode(':', (string)($softref['subst']['recordRef'] ?? ':'));
+                    if (isset($this->importMapId[$tempTable][$tempUid])) {
+                        $insertValue = BackendUtility::wsMapId($tempTable, $this->importMapId[$tempTable][$tempUid]);
+                        $tokenValue = (string)$softref['subst']['tokenValue'];
+                        if (str_contains($tokenValue, ':')) {
+                            [$tokenKey] = explode(':', $tokenValue);
+                            $insertValue = $tokenKey . ':' . $insertValue;
+                        }
                     }
             }
             // Finally, replace the soft reference token in tokenized content
             $tokenizedContent = str_replace('{softref:' . $tokenID . '}', (string)$insertValue, $tokenizedContent);
         }
         return $tokenizedContent;
-    }
-
-    /**
-     * Process a soft reference file
-     *
-     * @param string $relFileName Old Relative filename
-     * @param array $softref Soft reference
-     * @param string $table Table for which the processing occurs
-     * @param string $uid UID of record from table
-     * @return string New relative filename (value to insert instead of the softref token)
-     */
-    protected function processSoftReferencesSaveFile(string $relFileName, array $softref, string $table, string $uid): string
-    {
-        if (isset($this->dat['header']['files'][$softref['file_ID']])) {
-            // Initialize; Get directory prefix for file and find possible filename
-            $dirPrefix = PathUtility::dirname($relFileName) . '/';
-            if (str_starts_with($dirPrefix, $this->getFileadminFolderName() . '/')) {
-                // File in fileadmin/ folder:
-                // Create file (and possible resources)
-                $newFileName = $this->processSoftReferencesSaveFileCreateRelFile($dirPrefix, PathUtility::basename($relFileName), $softref['file_ID'], $table, $uid) ?: '';
-                if (strlen($newFileName)) {
-                    $relFileName = $newFileName;
-                } else {
-                    $this->addError('ERROR: No new file created for "' . $relFileName . '"');
-                }
-            } else {
-                $this->addError('ERROR: Sorry, cannot operate on files which are outside the fileadmin folder.');
-            }
-        } else {
-            $this->addError('ERROR: Could not find file ID in header.');
-        }
-        // Return (new) filename relative to public web path
-        return $relFileName;
-    }
-
-    /**
-     * Create file in directory and return the new (unique) filename
-     *
-     * @param string $origDirPrefix Directory prefix, relative, with trailing slash
-     * @param string $fileName Filename (without path)
-     * @param string $fileID File ID from import memory
-     * @param string $table Table for which the processing occurs
-     * @param string $uid UID of record from table
-     * @return string|null New relative filename, if any
-     */
-    protected function processSoftReferencesSaveFileCreateRelFile(string $origDirPrefix, string $fileName, string $fileID, string $table, string $uid): ?string
-    {
-        // If the fileID map contains an entry for this fileID then just return the relative filename of that entry;
-        // we don't want to write another unique filename for this one!
-        if (isset($this->fileIdMap[$fileID])) {
-            return PathUtility::stripPathSitePrefix($this->fileIdMap[$fileID]);
-        }
-        // Verify file mount access to dir-prefix. Returns the best alternative relative path if any
-        $dirPrefix = $this->resolveStoragePath($origDirPrefix);
-        if ($dirPrefix !== null && (!$this->update || $origDirPrefix === $dirPrefix) && $this->checkOrCreateDir($dirPrefix)) {
-            $fileHeaderInfo = $this->dat['header']['files'][$fileID];
-            $updMode = $this->update && $this->importMapId[$table][$uid] === $uid && ($this->importMode[$table . ':' . $uid] ?? '') !== self::IMPORT_MODE_AS_NEW;
-            // Create new name for file:
-            // Must have same ID in map array (just for security, is not really needed) and NOT be set "as_new".
-
-            // Write main file:
-            if ($updMode) {
-                $newName = Environment::getPublicPath() . '/' . $dirPrefix . $fileName;
-            } else {
-                // Create unique filename:
-                $fileProcObj = $this->getFileProcObj();
-                $newName = (string)$fileProcObj->getUniqueName($fileName, Environment::getPublicPath() . '/' . $dirPrefix);
-            }
-            if ($this->writeFileVerify($newName, $fileID)) {
-                // If the resource was an HTML/CSS file with resources attached, we will write those as well!
-                if (is_array($fileHeaderInfo['EXT_RES_ID'] ?? null)) {
-                    $tokenizedContent = $this->dat['files'][$fileID]['tokenizedContent'];
-                    $tokenSubstituted = false;
-                    $fileProcObj = $this->getFileProcObj();
-                    if ($updMode) {
-                        foreach ($fileHeaderInfo['EXT_RES_ID'] as $res_fileID) {
-                            if ($this->dat['files'][$res_fileID]['filename']) {
-                                // Resolve original filename:
-                                $relResourceFileName = $this->dat['files'][$res_fileID]['parentRelFileName'];
-                                $absResourceFileName = Environment::getPublicPath() . '/' . $origDirPrefix . $relResourceFileName;
-                                $absResourceFileName = GeneralUtility::getFileAbsFileName($absResourceFileName);
-                                if ($absResourceFileName && str_starts_with($absResourceFileName, Environment::getPublicPath() . '/' . $this->getFileadminFolderName() . '/')) {
-                                    $destDir = PathUtility::stripPathSitePrefix(PathUtility::dirname($absResourceFileName) . '/');
-                                    if ($this->resolveStoragePath($destDir, false) !== null && $this->checkOrCreateDir($destDir)) {
-                                        $this->writeFileVerify($absResourceFileName, $res_fileID);
-                                    } else {
-                                        $this->addError('ERROR: Could not create file in directory "' . $destDir . '"');
-                                    }
-                                } else {
-                                    $this->addError('ERROR: Could not resolve path for "' . $relResourceFileName . '"');
-                                }
-                                $tokenizedContent = str_replace('{EXT_RES_ID:' . $res_fileID . '}', $relResourceFileName, $tokenizedContent);
-                                $tokenSubstituted = true;
-                            }
-                        }
-                    } else {
-                        // Create the ressource's directory name (filename without extension, suffixed "_FILES")
-                        $resourceDir = PathUtility::dirname($newName) . '/' . preg_replace('/\\.[^.]*$/', '', PathUtility::basename($newName)) . '_FILES';
-                        if (GeneralUtility::mkdir($resourceDir)) {
-                            foreach ($fileHeaderInfo['EXT_RES_ID'] as $res_fileID) {
-                                if ($this->dat['files'][$res_fileID]['filename']) {
-                                    $absResourceFileName = (string)$fileProcObj->getUniqueName($this->dat['files'][$res_fileID]['filename'], $resourceDir);
-                                    $relResourceFileName = substr($absResourceFileName, strlen(PathUtility::dirname($resourceDir)) + 1);
-                                    $this->writeFileVerify($absResourceFileName, $res_fileID);
-                                    $tokenizedContent = str_replace('{EXT_RES_ID:' . $res_fileID . '}', $relResourceFileName, $tokenizedContent);
-                                    $tokenSubstituted = true;
-                                }
-                            }
-                        }
-                    }
-                    // If substitutions has been made, write the content to the file again:
-                    if ($tokenSubstituted) {
-                        GeneralUtility::writeFile($newName, $tokenizedContent, true);
-                    }
-                }
-                return PathUtility::stripPathSitePrefix($newName);
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Writes a file from the import memory having $fileID to file name $fileName which must be an absolute path inside public web path
-     *
-     * @param string $fileName Absolute filename inside public web path to write to
-     * @param string $fileID File ID from import memory
-     * @return bool Returns TRUE if it went well. Notice that the content of the file is read again, and md5 from import memory is validated.
-     */
-    protected function writeFileVerify(string $fileName, string $fileID): bool
-    {
-        $fileProcObj = $this->getFileProcObj();
-        if (!$fileProcObj->actionPerms['addFile']) {
-            $this->addError('ERROR: You did not have sufficient permissions to write the file "' . $fileName . '"');
-            return false;
-        }
-        // Just for security, check again. Should actually not be necessary.
-        try {
-            $this->resourceFactory->getFolderObjectFromCombinedIdentifier(PathUtility::dirname($fileName));
-        } catch (InsufficientFolderAccessPermissionsException $e) {
-            $this->addError('ERROR: Filename "' . $fileName . '" was not allowed in destination path!');
-            return false;
-        }
-        $pathInfo = GeneralUtility::split_fileref($fileName);
-        if (!$this->fileNameValidator->isValid($pathInfo['file'])) {
-            $this->addError('ERROR: Filename "' . $fileName . '" failed against extension check or deny-pattern!');
-            return false;
-        }
-        if (!GeneralUtility::getFileAbsFileName($fileName)) {
-            $this->addError('ERROR: Filename "' . $fileName . '" was not a valid relative file path!');
-            return false;
-        }
-        if (!$this->dat['files'][$fileID]) {
-            $this->addError('ERROR: File ID "' . $fileID . '" could not be found');
-            return false;
-        }
-        GeneralUtility::writeFile($fileName, $this->dat['files'][$fileID]['content'], true);
-        $this->fileIdMap[$fileID] = $fileName;
-        if (hash_equals(md5((string)file_get_contents($fileName)), $this->dat['files'][$fileID]['content_md5'])) {
-            return true;
-        }
-        $this->addError('ERROR: File content "' . $fileName . '" was corrupted');
-        return false;
-    }
-
-    /**
-     * Returns TRUE if directory exists  and if it doesn't it will create directory and return TRUE if that succeeded.
-     *
-     * @param string $dirPrefix Directory to create. Having a trailing slash. Must be in fileadmin/. Relative to public web path
-     * @return bool TRUE, if directory exists (was created)
-     */
-    protected function checkOrCreateDir(string $dirPrefix): bool
-    {
-        // Split dir path and remove first directory (which should be "fileadmin")
-        $filePathParts = explode('/', $dirPrefix);
-        $firstDir = array_shift($filePathParts);
-        if ($firstDir === $this->getFileadminFolderName() && GeneralUtility::getFileAbsFileName($dirPrefix)) {
-            $pathAcc = '';
-            foreach ($filePathParts as $dirname) {
-                $pathAcc .= '/' . $dirname;
-                if (strlen($dirname)) {
-                    if (!@is_dir(Environment::getPublicPath() . '/' . $this->getFileadminFolderName() . $pathAcc)) {
-                        if (!GeneralUtility::mkdir(Environment::getPublicPath() . '/' . $this->getFileadminFolderName() . $pathAcc)) {
-                            $this->addError('ERROR: Directory could not be created....B');
-                            return false;
-                        }
-                    }
-                } elseif ($dirPrefix === $this->getFileadminFolderName() . $pathAcc) {
-                    return true;
-                } else {
-                    $this->addError('ERROR: Directory could not be created....A');
-                }
-            }
-        }
-        return false;
-    }
-
-    protected function getFileadminFolderName(): string
-    {
-        if (empty($this->fileadminFolderName)) {
-            if (!empty($GLOBALS['TYPO3_CONF_VARS']['BE']['fileadminDir'])) {
-                $this->fileadminFolderName = rtrim($GLOBALS['TYPO3_CONF_VARS']['BE']['fileadminDir'], '/');
-            } else {
-                $this->fileadminFolderName = 'fileadmin';
-            }
-        }
-        return $this->fileadminFolderName;
     }
 
     /**

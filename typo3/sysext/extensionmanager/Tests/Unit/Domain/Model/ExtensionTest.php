@@ -18,27 +18,12 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Domain\Model;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ExtensionTest extends UnitTestCase
 {
-    #[Test]
-    #[DoesNotPerformAssertions]
-    public function convertDependenciesToObjectsDoesNotFail(): void
-    {
-        $serializedDependencies = [
-            'depends' => [
-                'php' => '5.1.0-0.0.0',
-                'typo3' => '4.2.0-4.4.99',
-                'fn_lib' => '',
-            ],
-        ];
-        Extension::createFromExtensionArray(['key' => 'no-name', 'constraints' => $serializedDependencies])->getDependencies();
-    }
-
     #[Test]
     public function convertDependenciesToObjectsSetsIdentifier(): void
     {
@@ -55,7 +40,7 @@ final class ExtensionTest extends UnitTestCase
         foreach ($dependencyObjects as $resultingDependency) {
             $identifiers[] = $resultingDependency->getIdentifier();
         }
-        self::assertSame($identifiers, ['php', 'typo3', 'fn_lib']);
+        self::assertSame(['php', 'typo3', 'fn_lib'], $identifiers);
     }
 
     public static function convertDependenciesToObjectSetsVersionDataProvider(): array
@@ -132,16 +117,56 @@ final class ExtensionTest extends UnitTestCase
     }
 
     #[Test]
+    public function createObjectFromRowMapsComposerName(): void
+    {
+        $extension = Extension::createObjectFromRow([
+            'uid' => 1,
+            'extension_key' => 'my_ext',
+            'composer_name' => 'vendor/my-ext',
+        ]);
+
+        self::assertSame('vendor/my-ext', $extension->composerName);
+    }
+
+    #[Test]
+    public function derivesPackageIdentifierFromItsProperties(): void
+    {
+        $extension = new Extension();
+        $extension->extensionKey = 'my_package';
+        $extension->version = '1.2.3';
+        $extension->remote = 'ter';
+
+        $identifier = $extension->getPackageIdentifier();
+        self::assertSame('my_package', $identifier->packageKey);
+        self::assertSame('1.2.3', $identifier->version);
+        self::assertSame('ter', $identifier->remote);
+    }
+
+    #[Test]
+    public function exposesIdentifierAsRequestArgumentsForFluid(): void
+    {
+        $extension = new Extension();
+        $extension->extensionKey = 'my_package';
+        $extension->version = '1.2.3';
+        $extension->remote = 'ter';
+
+        self::assertSame(
+            ['packageKey' => 'my_package', 'version' => '1.2.3', 'remote' => 'ter'],
+            $extension->getIdentifier()
+        );
+    }
+
+    #[Test]
     public function getDistributionImageTest(): void
     {
         $imageUrl = 'https://example.org/path/to/image.png';
 
         $extension = new Extension();
-        $extension->setDistributionImage($imageUrl);
+        $extension->distributionImage = $imageUrl;
 
         self::assertEquals(
             $imageUrl,
-            $extension->getDistributionImage()
+            $extension->distributionImage
         );
     }
 
@@ -151,11 +176,11 @@ final class ExtensionTest extends UnitTestCase
         $imageUrl = 'https://example.org/path/to/image.png';
 
         $extension = new Extension();
-        $extension->setDistributionWelcomeImage($imageUrl);
+        $extension->distributionWelcomeImage = $imageUrl;
 
         self::assertEquals(
             $imageUrl,
-            $extension->getDistributionWelcomeImage()
+            $extension->distributionWelcomeImage
         );
     }
 }

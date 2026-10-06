@@ -12,16 +12,18 @@
  */
 
 import { html, LitElement, type TemplateResult, nothing } from 'lit';
-import { customElement, property, state } from 'lit/decorators';
+import { customElement, property, state } from 'lit/decorators.js';
 import { until } from 'lit/directives/until.js';
 import '@typo3/backend/element/icon-element';
 import { copyToClipboard } from '@typo3/backend/copy-to-clipboard';
 import Notification from '@typo3/backend/notification';
-import { lll } from '@typo3/core/lit-helper';
 import { markdown } from '@typo3/core/directive/markdown';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import type { BaseElement } from '@typo3/backend/settings/type/base';
 import { SettingsMode, sanitizeSettingsMode } from '@typo3/backend/settings/enum/settings-mode.enum';
+import labels from '~labels/backend.settingseditor';
+import copyToClipboardLabels from '~labels/backend.copytoclipboard';
+import 'bootstrap'; // for data-bs-toggle="dropdown"
 
 type ValueType = string|number|boolean|string[]|null;
 
@@ -33,8 +35,7 @@ interface SettingDefinition {
   label: string,
   description: string|null,
   readonly: boolean,
-  // @todo php json_encode encodes ['0' => 'foo'] as ['foo'] instead of {'0' => 'foo'}
-  enum: Record<string, string>|Array<string>,
+  enum: Record<string, string>,
   categories: string[],
   tags: string[],
   options: Record<string, unknown>,
@@ -117,10 +118,6 @@ export class EditableSettingElement extends LitElement {
 
   protected updateFieldAttributes(element: HTMLElement): void {
     const { definition, value } = this.setting;
-    // Force conversion to an object, as PHP json_encode encodes ['0' => 'foo'] as
-    // ['foo'] instead of {'0' => 'foo'}
-    const enumEntries = Object.entries(definition.enum || {});
-
     const attributes = {
       key: definition.key,
       formid: `setting-${definition.key}`,
@@ -128,9 +125,9 @@ export class EditableSettingElement extends LitElement {
       value: Array.isArray(value) ? JSON.stringify(value) : String(value),
       debug: this.mode === SettingsMode.advanced,
       readonly: definition.readonly,
-      enum: enumEntries.length > 0 ? JSON.stringify(Object.fromEntries(enumEntries)) : false,
+      enum: Object.keys(definition.enum).length > 0 ? JSON.stringify(definition.enum) : false,
       default: Array.isArray(definition.default) ? JSON.stringify(definition.default) : String(definition.default),
-      options: definition.options ? (Array.isArray(definition.options) && definition.options.length === 0 ? '{}' : JSON.stringify(definition.options)) : '{}',
+      options: JSON.stringify(definition.options),
     };
     for (const [key, value] of Object.entries(attributes)) {
       if (typeof value === 'boolean') {
@@ -162,7 +159,7 @@ export class EditableSettingElement extends LitElement {
               type="button"
               ?disabled=${definition.readonly}
               @click="${() => this.setToDefaultValue()}">
-              <typo3-backend-icon identifier="actions-undo" size="small"></typo3-backend-icon> ${lll('settingseditor.edit.resetSetting')}
+              <typo3-backend-icon identifier="actions-undo" size="small"></typo3-backend-icon> ${labels.get('settingseditor.edit.resetSetting')}
             </button>
           </li>
           ${this.mode === SettingsMode.advanced ? html`
@@ -172,7 +169,7 @@ export class EditableSettingElement extends LitElement {
                 text=${definition.key}
                 class="dropdown-item dropdown-item-spaced"
               >
-                <typo3-backend-icon identifier="actions-clipboard" size="small"></typo3-backend-icon> ${lll('settingseditor.edit.copySettingsIdentifier')}
+                <typo3-backend-icon identifier="actions-clipboard" size="small"></typo3-backend-icon> ${labels.get('settingseditor.edit.copySettingsIdentifier')}
               </typo3-copy-to-clipboard>
             </li>
             ${this.dumpuri ? html`
@@ -180,7 +177,7 @@ export class EditableSettingElement extends LitElement {
                 <button class="dropdown-item dropdown-item-spaced"
                   type="button"
                   @click="${() => this.copyAsYaml()}">
-                  <typo3-backend-icon identifier="actions-clipboard-paste" size="small"></typo3-backend-icon> ${lll('settingseditor.edit.copyAsYaml')}
+                  <typo3-backend-icon identifier="actions-clipboard-paste" size="small"></typo3-backend-icon> ${labels.get('settingseditor.edit.copyAsYaml')}
                 </a>
               </li>
             ` : nothing}
@@ -208,7 +205,7 @@ export class EditableSettingElement extends LitElement {
     data.append('specificSetting', this.setting.definition.key);
     data.append(name, value);
 
-    // @todo hookup with NProgress
+    // @todo hookup with ProgressBar
     const response = await new AjaxRequest(this.dumpuri).post(
       data
     );
@@ -219,7 +216,7 @@ export class EditableSettingElement extends LitElement {
       copyToClipboard(result.yaml);
     } else {
       console.warn('Value can not be copied to clipboard.', typeof result.yaml);
-      Notification.error(lll('copyToClipboard.error'));
+      Notification.error(copyToClipboardLabels.get('copyToClipboard.error'));
     }
   }
 }

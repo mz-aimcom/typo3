@@ -24,6 +24,7 @@ use Doctrine\DBAL\Driver\PDO\MySQL\Driver as DoctrinePDOMySqlDriver;
 use Doctrine\DBAL\Driver\PDO\OCI\Driver as DoctrinePDOOCIDriver;
 use Doctrine\DBAL\Driver\PDO\PgSQL\Driver as DoctrinePDOPgSqlDriver;
 use Doctrine\DBAL\Driver\PDO\SQLite\Driver as DoctrinePDOSqliteDriver;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
@@ -78,8 +79,6 @@ class DatabaseCheck implements CheckInterface
      * List of database platforms to check
      *
      * @var string[]
-     * @todo Check if this property can be removed after DatabaseCheck::retrieveDatabasePlatformByDriverName() could be
-     *       removed.
      */
     private static $databaseDriverToPlatformMapping = [
         DoctrineMysqliDriver::class => DatabaseCheckPlatformMysql::class,
@@ -113,8 +112,9 @@ class DatabaseCheck implements CheckInterface
         DoctrinePDOSqliteDriver::class => DatabaseCheckDriverPDOSqlite::class,
     ];
 
-    public function __construct()
-    {
+    public function __construct(
+        private ?ConnectionPool $connectionPool = null,
+    ) {
         $this->messageQueue = new FlashMessageQueue('install-database-check');
     }
 
@@ -194,8 +194,13 @@ class DatabaseCheck implements CheckInterface
             return $this->messageQueue;
         }
 
+        if ($this->connectionPool === null) {
+            // Skip checks as we can not check as long as connections are not established yet.
+            return $this->messageQueue;
+        }
+
         if (!empty(self::$databaseDriverToPlatformMapping[$databaseDriver])) {
-            $platformMessageQueue = (new $databasePlatformClass())->getStatus();
+            $platformMessageQueue = new $databasePlatformClass($this->connectionPool)->getStatus();
             foreach ($platformMessageQueue as $message) {
                 $this->messageQueue->enqueue($message);
             }
@@ -234,23 +239,6 @@ class DatabaseCheck implements CheckInterface
         }
 
         return $installedDrivers;
-    }
-
-    /**
-     * @throws Exception
-     * @todo This method seems to be unused. Check if it can be removed or if it needs to be deprecated.
-     */
-    public static function retrieveDatabasePlatformByDriverName(string $databaseDriverName): string
-    {
-        $databaseDriverClassName = static::retrieveDatabaseDriverClassByDriverName($databaseDriverName);
-        if (!empty(self::$databaseDriverToPlatformMapping[$databaseDriverClassName])) {
-            return self::$databaseDriverToPlatformMapping[$databaseDriverClassName];
-        }
-
-        throw new Exception(
-            sprintf('There is no database platform available for the given driver: %s', $databaseDriverName),
-            1573753057
-        );
     }
 
     /**

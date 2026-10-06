@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
@@ -25,6 +26,7 @@ use TYPO3\CMS\Core\View\ViewInterface;
 use TYPO3\CMS\Install\Controller\UpgradeController;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class UpgradeControllerTest extends UnitTestCase
 {
     public static function versionDataProviderWithoutException(): array
@@ -47,7 +49,7 @@ final class UpgradeControllerTest extends UnitTestCase
     #[DoesNotPerformAssertions]
     public function versionIsAccepted(string $version): void
     {
-        $request = (new ServerRequest())->withQueryParams([
+        $request = new ServerRequest()->withQueryParams([
             'install' => [
                 'version' => $version,
             ],
@@ -61,10 +63,10 @@ final class UpgradeControllerTest extends UnitTestCase
             'readFiles' => [],
             'notAffectedFiles' => [],
         ]);
-        $viewMock = $this->getMockBuilder(ViewInterface::class)->getMock();
-        $viewMock->expects($this->any())->method('assignMultiple')->willReturn($viewMock);
-        $viewMock->expects($this->any())->method('render')->willReturn('');
-        $subject->method('initializeView')->willReturn($viewMock);
+        $viewStub = self::createStub(ViewInterface::class);
+        $viewStub->method('assignMultiple')->willReturn($viewStub);
+        $viewStub->method('render')->willReturn('');
+        $subject->method('initializeView')->willReturn($viewStub);
         $subject->upgradeDocsGetChangelogForVersionAction($request);
     }
     public static function versionDataProvider(): array
@@ -86,7 +88,7 @@ final class UpgradeControllerTest extends UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1537209128);
-        $request = (new ServerRequest())->withQueryParams([
+        $request = new ServerRequest()->withQueryParams([
             'install' => [
                 'version' => $version,
             ],
@@ -100,10 +102,10 @@ final class UpgradeControllerTest extends UnitTestCase
             'readFiles' => [],
             'notAffectedFiles' => [],
         ]);
-        $viewMock = $this->getMockBuilder(ViewInterface::class)->getMock();
-        $viewMock->expects($this->any())->method('assignMultiple')->willReturn($viewMock);
-        $viewMock->expects($this->any())->method('render')->willReturn('');
-        $subject->method('initializeView')->willReturn($viewMock);
+        $viewStub = self::createStub(ViewInterface::class);
+        $viewStub->method('assignMultiple')->willReturn($viewStub);
+        $viewStub->method('render')->willReturn('');
+        $subject->method('initializeView')->willReturn($viewStub);
         $subject->upgradeDocsGetChangelogForVersionAction($request);
     }
 }

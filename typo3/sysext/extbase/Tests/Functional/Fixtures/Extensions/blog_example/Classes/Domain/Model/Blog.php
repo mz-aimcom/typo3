@@ -17,9 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\BlogExample\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation\ORM\Cascade;
-use TYPO3\CMS\Extbase\Annotation\ORM\Lazy;
-use TYPO3\CMS\Extbase\Annotation\Validate;
+use TYPO3\CMS\Extbase\Attribute\ORM\Cascade;
+use TYPO3\CMS\Extbase\Attribute\ORM\Lazy;
+use TYPO3\CMS\Extbase\Attribute\Validate;
 use TYPO3\CMS\Extbase\Domain\Model\FileReference;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 use TYPO3\CMS\Extbase\Persistence\Generic\LazyLoadingProxy;
@@ -33,8 +33,8 @@ class Blog extends AbstractEntity
     /**
      * The blog's title.
      */
-    #[Validate(['validator' => 'NotEmpty'])]
-    #[Validate(['validator' => 'StringLength', 'options' => ['minimum' => 1, 'maximum' => 80]])]
+    #[Validate(validator: 'NotEmpty')]
+    #[Validate(validator: 'StringLength', options: ['minimum' => 1, 'maximum' => 80])]
     protected string $title = '';
 
     /**
@@ -45,7 +45,7 @@ class Blog extends AbstractEntity
     /**
      * A short description of the blog
      */
-    #[Validate(['validator' => 'StringLength', 'options' => ['minimum' => 1, 'maximum' => 150]])]
+    #[Validate(validator: 'StringLength', options: ['minimum' => 1, 'maximum' => 150])]
     protected string $description = '';
 
     /**
@@ -61,8 +61,11 @@ class Blog extends AbstractEntity
      * @var ObjectStorage<Post>
      */
     #[Lazy]
-    #[Cascade(['value' => 'remove'])]
+    #[Cascade('remove')]
     protected ObjectStorage $posts;
+
+    #[Lazy]
+    protected ?Post $featuredPost = null;
 
     /**
      * @var ObjectStorage<Category>
@@ -149,6 +152,16 @@ class Blog extends AbstractEntity
     public function getPosts(): ObjectStorage
     {
         return $this->posts;
+    }
+
+    public function getFeaturedPost(): ?Post
+    {
+        return $this->featuredPost;
+    }
+
+    public function setFeaturedPost(?Post $featuredPost): void
+    {
+        $this->featuredPost = $featuredPost;
     }
 
     public function addCategory(Category $category): void

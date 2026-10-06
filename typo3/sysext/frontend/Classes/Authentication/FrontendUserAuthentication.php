@@ -207,8 +207,8 @@ class FrontendUserAuthentication extends AbstractUserAuthentication
         }
 
         if ($GLOBALS['TYPO3_CONF_VARS']['FE']['permalogin'] == 0 || $GLOBALS['TYPO3_CONF_VARS']['FE']['permalogin'] == 1) {
-            $isPermanent = $request->getParsedBody()[$this->formfield_permanent] ?? '';
-            if (strlen((string)$isPermanent) != 1) {
+            $isPermanent = $request->getParsedBody()[$this->formfield_permanent] ?? null;
+            if ($isPermanent === null) {
                 $isPermanent = $GLOBALS['TYPO3_CONF_VARS']['FE']['permalogin'];
             } elseif (!$isPermanent) {
                 // To make sure the user gets a session cookie and doesn't keep a possibly existing time based cookie,
@@ -436,7 +436,7 @@ class FrontendUserAuthentication extends AbstractUserAuthentication
     /**
      * Saves session data, either persistent or bound to current session cookie. Please see getKey() for more details.
      * When a value is set the flag $this->userData_change will be set so that the final call to ->storeSessionData() will know if a change has occurred and needs to be saved to the database.
-     * Notice: Simply calling this function will not save the data to the database! The actual saving is done in storeSessionData() which is called as some of the last things in \TYPO3\CMS\Frontend\Http\RequestHandler. So if you exit before this point, nothing gets saved of course! And the solution is to call $GLOBALS['TSFE']->storeSessionData(); before you exit.
+     * Notice: Simply calling this function will not save the data to the database! The actual saving is done in storeSessionData() which is called as some of the last things in \TYPO3\CMS\Frontend\Http\RequestHandler.
      *
      * @param string $type Session data type; Either "user" (persistent, bound to fe_users profile) or "ses" (temporary, bound to current session cookie)
      * @param string $key Key from the data array to store incoming data in; The session data (in either case) is an array ($this->uc / $this->sessionData) and this value determines in which key the $data value will be stored.

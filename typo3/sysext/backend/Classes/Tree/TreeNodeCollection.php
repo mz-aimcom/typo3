@@ -24,8 +24,6 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class TreeNodeCollection extends \ArrayObject
 {
     /**
-     * Constructor
-     *
      * You can move an initial data array to initialize the instance and further objects.
      * This is useful for the deserialization.
      *
@@ -43,11 +41,8 @@ class TreeNodeCollection extends \ArrayObject
      * Sorts the internal nodes array
      *
      * @param int $flags Optional parameter, ignored. Added to be compatible with asort method signature in PHP 8.
-     *
-     * @todo Use return type "true" instead of bool if PHP8.3+ is minimum supported and remove #[\ReturnTypeWillChange].
      */
-    #[\ReturnTypeWillChange]
-    public function asort(int $flags = SORT_REGULAR): bool
+    public function asort(int $flags = SORT_REGULAR): true
     {
         $this->uasort($this->nodeCompare(...));
         return true;
@@ -58,9 +53,8 @@ class TreeNodeCollection extends \ArrayObject
      *
      * @see \TYPO3\CMS\Backend\Tree\TreeNode::compareTo
      * @internal
-     * @return int
      */
-    public function nodeCompare(TreeNode $node, TreeNode $otherNode)
+    public function nodeCompare(TreeNode $node, TreeNode $otherNode): int
     {
         return $node->compareTo($otherNode);
     }
@@ -78,20 +72,18 @@ class TreeNodeCollection extends \ArrayObject
      *
      * @throws Exception if the deserialized object type is not identical to the current one
      */
-    public function __unserialize($arrayRepresentation): void
+    public function __unserialize($data): void
     {
-        if ($arrayRepresentation['serializeClassName'] !== static::class) {
+        if ($data['serializeClassName'] !== static::class) {
             throw new Exception('Deserialized object type is not identical!', 1294586647);
         }
-        $this->dataFromArray($arrayRepresentation);
+        $this->dataFromArray($data);
     }
 
     /**
      * Returns the collection in an array representation for e.g. serialization
-     *
-     * @return array
      */
-    public function toArray()
+    public function toArray(): array
     {
         $arrayRepresentation = [
             'serializeClassName' => static::class,
@@ -106,10 +98,8 @@ class TreeNodeCollection extends \ArrayObject
 
     /**
      * Sets the data of the node collection by a given array
-     *
-     * @param array $data
      */
-    public function dataFromArray($data)
+    public function dataFromArray(array $data): void
     {
         unset($data['serializeClassName']);
         foreach ($data as $index => $nodeArray) {

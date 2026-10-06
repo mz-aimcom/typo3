@@ -116,15 +116,15 @@ class Recordlist {
     // Store collapse state in UC
     let storedModuleDataList = {};
 
-    if (PersistentStorage.isset('moduleData.web_list.collapsedTables')) {
-      storedModuleDataList = PersistentStorage.get('moduleData.web_list.collapsedTables');
+    if (PersistentStorage.isset('moduleData.records.collapsedTables')) {
+      storedModuleDataList = PersistentStorage.get('moduleData.records.collapsedTables');
     }
 
     const collapseConfig: Record<string, number> = {};
     collapseConfig[table] = isExpanded ? 1 : 0;
 
     storedModuleDataList = Object.assign(storedModuleDataList, collapseConfig);
-    PersistentStorage.set('moduleData.web_list.collapsedTables', storedModuleDataList).then((): void => {
+    PersistentStorage.set('moduleData.records.collapsedTables', storedModuleDataList).then((): void => {
       target.dataset.state = isExpanded ? 'collapsed' : 'expanded';
     });
   };
@@ -197,6 +197,7 @@ class Recordlist {
 
     let editUrl: string = top.TYPO3.settings.FormEngine.moduleUrl
       + '&edit[' + tableName + '][' + entityIdentifiers.join(',') + ']=edit'
+      + '&module=' + encodeURIComponent(top.TYPO3.ModuleMenu.App.getCurrentModule())
       + '&returnUrl=' + Recordlist.getReturnUrl(returnUrl);
 
     if (columnsOnly.length > 0) {
@@ -273,6 +274,11 @@ class Recordlist {
 
   private readonly registerPaginationEvents = (): void => {
     document.querySelectorAll('.t3js-recordlist-paging').forEach((trigger: HTMLInputElement) => {
+      trigger.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+        }
+      });
       trigger.addEventListener('keyup', (e: KeyboardEvent) => {
         e.preventDefault();
         let value = Number(trigger.value);

@@ -26,6 +26,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\VisibilityAspect;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Routing\Aspect\PersistedPatternMapper;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
@@ -37,7 +38,7 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class PersistedPatternMapperTest extends FunctionalTestCase
 {
-    private const ASPECT_CONFIGURATION = [
+    private const array ASPECT_CONFIGURATION = [
         'tableName' => 'tt_content',
         'routeFieldName' => 'header',
         // `layout` does not really much sense here since it's always `0`
@@ -46,7 +47,7 @@ final class PersistedPatternMapperTest extends FunctionalTestCase
         'routeFieldResult' => '{header}-{layout}',
     ];
 
-    private const SLUG_CONFIGURATION = [
+    private const array SLUG_CONFIGURATION = [
         'type' => 'slug',
         'generatorOptions' => [
             'prefixParentPageSlug' => false,
@@ -57,14 +58,14 @@ final class PersistedPatternMapperTest extends FunctionalTestCase
         'default' => '',
     ];
 
-    private const LANGUAGE_MAP = [
+    private const array LANGUAGE_MAP = [
         'es-es' => 3,
         'fr-ca' => 2,
         'fr-fr' => 1,
         'default' => 0,
     ];
 
-    private const SITE_ADDITION = [
+    private const array SITE_ADDITION = [
         'acme' => 0,
         'other' => 4000,
     ];
@@ -148,11 +149,11 @@ final class PersistedPatternMapperTest extends FunctionalTestCase
     private function writeSiteConfiguration(Site $site): void
     {
         // ensure no previous site configuration influences the test
-        $path = $this->instancePath . '/typo3conf/sites';
+        $path = Environment::getConfigPath() . '/sites';
         $cache = $this->get('cache.core');
         $eventDispatcher = $this->get(EventDispatcherInterface::class);
         GeneralUtility::rmdir($path . '/' . $site->getIdentifier(), true);
-        (new SiteWriter($path, $eventDispatcher, $this->get(YamlFileLoader::class)))
+        new SiteWriter($path, $eventDispatcher, $this->get(YamlFileLoader::class))
             ->write($site->getIdentifier(), $site->getConfiguration());
     }
 
@@ -268,7 +269,7 @@ final class PersistedPatternMapperTest extends FunctionalTestCase
             'scheduled-visibility-slug, scheduled context (timestamp 20000)' => [
                 $scheduledContext,
                 ['slug' => 'scheduled-visibility-slug-0', 'uid' => '4053'],
-                false, // @todo actually `true`, Start-/EndTimeRestriction do not support Context, yet
+                true,
             ],
         ];
     }

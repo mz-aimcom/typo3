@@ -24,35 +24,50 @@ use TYPO3\CMS\Core\Package\PackageManager;
 /**
  * @internal
  */
-class CacheWarmer
+readonly class CacheWarmer
 {
     public function __construct(
-        protected readonly PackageManager $packageManager,
-        protected readonly Locales $locales,
-        protected readonly LocalizationFactory $localizationFactory
+        protected PackageManager $packageManager,
+        protected LabelFileResolver $labelFileResolver,
+        protected LocalizationFactory $localizationFactory,
+        protected Locales $locales,
     ) {}
 
     #[AsEventListener]
     public function warmupCaches(CacheWarmupEvent $event): void
     {
         if ($event->hasGroup('system')) {
-            $languages = $this->locales->getActiveLanguages();
+            $activeLanguages = $this->locales->getActiveLanguages();
+            $locales = [];
+            foreach ($activeLanguages as $language) {
+                $locales[$language] = $this->locales->createLocale($language);
+            }
+
+            // Collect all label files from all packages first to avoid repeated filesystem scans.
+            $allBaseLocaleResources = [];
             $packages = $this->packageManager->getActivePackages();
             foreach ($packages as $package) {
-                $dir = $package->getPackagePath() . 'Resources/Private/Language';
-                if (!is_dir($dir)) {
-                    continue;
+                $baseLocaleResources = $this->labelFileResolver->getAllLabelFilesOfPackage($package->getPackageKey(), true)['default'] ?? [];
+                foreach ($baseLocaleResources as $fileReference) {
+                    $allBaseLocaleResources[] = $fileReference;
                 }
-                $recursiveIterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir));
-                // Search for all files with suffix *.xlf and  without a dot in the file basename
-                $fileIterator = new \RegexIterator($recursiveIterator, '#^.+/[^.]+\.xlf$#', \RegexIterator::GET_MATCH);
-                $shorthand = 'EXT:' . $package->getPackageKey() . '/Resources/Private/Language';
-                foreach ($fileIterator as $match) {
-                    $fileReference = str_replace($dir, $shorthand, $match[0]);
-                    foreach ($languages as $language) {
-                        // @todo: Force cache renewal
-                        $this->localizationFactory->getParsedData($fileReference, $language);
-                    }
+            }
+
+            // Phase 1: Add all resources to Symfony Translator without retrieving catalogues.
+            // This avoids O(n²) behaviour where each getCatalogue() rebuilds from all previously
+            // added resources. By batching all addResource() calls first, catalogue building
+            // only happens once per locale in phase 2.
+            foreach ($locales as $locale) {
+                foreach ($allBaseLocaleResources as $fileReference) {
+                    $this->localizationFactory->warmupTranslatorResource($fileReference, $locale);
+                }
+            }
+
+            // Phase 2: Retrieve catalogues and write to system cache.
+            // Resources are already loaded, so this just builds catalogues once per locale.
+            foreach ($locales as $locale) {
+                foreach ($allBaseLocaleResources as $fileReference) {
+                    $this->localizationFactory->getParsedData($fileReference, $locale, true);
                 }
             }
         }

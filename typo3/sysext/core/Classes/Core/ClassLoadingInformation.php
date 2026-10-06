@@ -54,6 +54,11 @@ class ClassLoadingInformation
     public const AUTOLOAD_PSR4_FILENAME = 'autoload_psr4.php';
 
     /**
+     * Name of file that contains all package provides, fetched from the composer.json files of extensions
+     */
+    private const string AUTOLOAD_INCLUDE_FILENAME = 'autoload_files.php';
+
+    /**
      * Name of file that contains all class alias mappings
      */
     public const AUTOLOAD_CLASSALIASMAP_FILENAME = 'autoload_classaliasmap.php';
@@ -93,9 +98,10 @@ class ClassLoadingInformation
         $activeExtensionPackages = static::getActiveExtensionPackages();
 
         $generator = new ClassLoadingInformationGenerator();
-        $classInfoFiles = $generator->buildAutoloadInformationFiles(self::isTestingContext(), Environment::getPublicPath() . '/', $activeExtensionPackages);
+        $classInfoFiles = $generator->buildAutoloadInformationFiles(self::isTestingContext(), Environment::getProjectPath() . '/', $activeExtensionPackages);
         GeneralUtility::writeFile(self::getClassLoadingInformationDirectory() . self::AUTOLOAD_CLASSMAP_FILENAME, $classInfoFiles['classMapFile'], true);
         GeneralUtility::writeFile(self::getClassLoadingInformationDirectory() . self::AUTOLOAD_PSR4_FILENAME, $classInfoFiles['psr-4File'], true);
+        GeneralUtility::writeFile(self::getClassLoadingInformationDirectory() . self::AUTOLOAD_INCLUDE_FILENAME, $classInfoFiles['includesFile'], true);
 
         $classAliasMapFile = $generator->buildClassAliasMapFile($activeExtensionPackages);
         GeneralUtility::writeFile(self::getClassLoadingInformationDirectory() . self::AUTOLOAD_CLASSALIASMAP_FILENAME, $classAliasMapFile, true);
@@ -129,8 +135,16 @@ class ClassLoadingInformation
         if (file_exists($dynamicPsr4File)) {
             $psr4 = require $dynamicPsr4File;
             if (is_array($psr4)) {
-                foreach ($psr4 as $prefix => $paths) {
-                    $composerClassLoader->setPsr4($prefix, $paths);
+                self::registerPsr4Prefixes($composerClassLoader, $psr4);
+            }
+        }
+
+        $dynamicIncludesFile = self::getClassLoadingInformationDirectory() . self::AUTOLOAD_INCLUDE_FILENAME;
+        if (file_exists($dynamicIncludesFile)) {
+            $includes = require $dynamicIncludesFile;
+            if (is_array($includes)) {
+                foreach ($includes as $fileIdentifier => $file) {
+                    self::requireFile($fileIdentifier, $file);
                 }
             }
         }
@@ -147,12 +161,59 @@ class ClassLoadingInformation
         $generator = new ClassLoadingInformationGenerator();
         $classInformation = $generator->buildClassLoadingInformationForPackage($package, false, self::isTestingContext(), Environment::getPublicPath() . '/');
         $composerClassLoader->addClassMap($classInformation['classMap']);
-        foreach ($classInformation['psr-4'] as $prefix => $paths) {
-            $composerClassLoader->setPsr4($prefix, $paths);
+        self::registerPsr4Prefixes($composerClassLoader, $classInformation['psr-4']);
+        foreach ($classInformation['files'] as $fileIdentifier => $file) {
+            self::requireFile($fileIdentifier, $file);
         }
         $classAliasMap = $generator->buildClassAliasMapForPackage($package);
         if (!empty($classAliasMap['aliasToClassNameMapping']) && !empty($classAliasMap['classNameToAliasMapping'])) {
             ClassAliasMap::addAliasMap($classAliasMap);
+        }
+    }
+
+    /**
+     * Registers PSR-4 prefixes on the Composer class loader, keeping the directories
+     * that are already registered for the very same prefix.
+     *
+     * ClassLoader::setPsr4() replaces all directories of a prefix. A prefix can be used
+     * by more than one package, for instance when an extension ships a library of the
+     * same namespace as a dedicated Composer package. Extension directories take
+     * precedence, all other directories are kept as fallback.
+     *
+     * De-duplication keeps repeated registration idempotent: functional tests bootstrap
+     * TYPO3 more than once per process and would otherwise grow the directory list of a
+     * prefix with every single bootstrap.
+     *
+     * @param array<string, string|list<string>> $psr4
+     */
+    private static function registerPsr4Prefixes(ClassLoader $composerClassLoader, array $psr4): void
+    {
+        $registeredPrefixes = $composerClassLoader->getPrefixesPsr4();
+        foreach ($psr4 as $prefix => $paths) {
+            $composerClassLoader->setPsr4(
+                $prefix,
+                array_values(array_unique(array_merge((array)$paths, $registeredPrefixes[$prefix] ?? [])))
+            );
+        }
+    }
+
+    private static function requireFile(string $fileIdentifier, string $file): void
+    {
+        $requireFile = \Closure::bind(static function ($fileIdentifier, $file) {
+            if (empty($GLOBALS['__composer_autoload_files'][$fileIdentifier])) {
+                $GLOBALS['__composer_autoload_files'][$fileIdentifier] = true;
+
+                require $file;
+            }
+        }, null, null);
+        try {
+            if (!file_exists($file)) {
+                return;
+            }
+            $requireFile($fileIdentifier, $file);
+        } catch (\Throwable) {
+            // Make sure to not break everything in case the does something weird
+            // and especially allow to dump new class loading information to eventually recover
         }
     }
 
@@ -162,9 +223,9 @@ class ClassLoadingInformation
     protected static function getClassLoadingInformationDirectory()
     {
         if (self::isTestingContext()) {
-            return Environment::getLegacyConfigPath() . '/' . self::AUTOLOAD_INFO_DIR_TESTS;
+            return dirname(Environment::getExtensionsPath()) . '/' . self::AUTOLOAD_INFO_DIR_TESTS;
         }
-        return Environment::getLegacyConfigPath() . '/' . self::AUTOLOAD_INFO_DIR;
+        return dirname(Environment::getExtensionsPath()) . '/' . self::AUTOLOAD_INFO_DIR;
     }
 
     /**

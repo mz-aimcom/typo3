@@ -16,6 +16,7 @@
 namespace TYPO3\CMS\Frontend\ContentObject;
 
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Core\Information\Typo3Information;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
@@ -24,6 +25,9 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
 use TYPO3\CMS\Extbase\Mvc\Web\RequestBuilder;
 use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\CMS\Frontend\ContentObject\Exception\ContentRenderingException;
+use TYPO3Fluid\Fluid\View\Exception\InvalidLayoutException;
+use TYPO3Fluid\Fluid\View\Exception\InvalidPartialException;
+use TYPO3Fluid\Fluid\View\Exception\InvalidTemplateResourceException;
 
 /**
  * Contains FLUIDTEMPLATE class object
@@ -61,7 +65,7 @@ class FluidTemplateContentObject extends AbstractContentObject
      *   mylabel.value = Label from TypoScript coming
      * }
      *
-     * @param array $conf Array of TypoScript properties
+     * @param mixed $conf Array of TypoScript properties (marked as "mixed" currently because we don't know what we're receiving)
      */
     public function render($conf = []): string
     {
@@ -135,10 +139,28 @@ class FluidTemplateContentObject extends AbstractContentObject
         $variables = $this->contentDataProcessor->process($this->cObj, $conf, $variables);
         $view->assignMultiple($variables);
 
-        // Rendering the view internally set's the template (paths). This is required for following asset rendering
-        $content = $view->render($templateFilename);
-
-        $this->renderFluidTemplateAssetsIntoPageRenderer($view, $variables);
+        try {
+            // View needs to be rendered before the following asset rendering because it
+            // sets the template (paths) internally.
+            $content = $view->render($templateFilename);
+        } catch (InvalidTemplateResourceException $e) {
+            // Only add a FLUIDTEMPLATE specific message in case the exception has been thrown for the given template
+            if ($e instanceof InvalidPartialException || $e instanceof InvalidLayoutException || $templateFilename === '' || $e->templateName !== 'Default/' . $templateFilename) {
+                throw $e;
+            }
+            throw new InvalidTemplateResourceException(
+                sprintf(
+                    'FLUIDTEMPLATE TypoScript object: Failed to resolve a template file for templateName "%s". See also: %s. The following paths were checked: "%s"',
+                    $templateFilename,
+                    Typo3Information::getDocsLink('t3tsref:cobj-template'),
+                    implode('", "', $e->evaluatedTemplatePaths),
+                ),
+                1772572794,
+                $e,
+                $e->templateName,
+                $e->evaluatedTemplatePaths,
+            );
+        }
 
         if (isset($conf['stdWrap.'])) {
             return $this->cObj->stdWrap($content, $conf['stdWrap.']);
@@ -202,24 +224,6 @@ class FluidTemplateContentObject extends AbstractContentObject
             $request = $requestBuilder->build($request);
         }
         return $request;
-    }
-
-    /**
-     * Attempts to render HeaderAssets and FooterAssets sections from the
-     * Fluid template, then adds each (if not empty) to either header or
-     * footer, as appropriate, using PageRenderer.
-     */
-    protected function renderFluidTemplateAssetsIntoPageRenderer(FluidViewAdapter $view, array $variables): void
-    {
-        $pageRenderer = $this->getPageRenderer();
-        $headerAssets = $view->renderSection('HeaderAssets', [...$variables, 'contentObject' => $this], true);
-        $footerAssets = $view->renderSection('FooterAssets', [...$variables, 'contentObject' => $this], true);
-        if (!empty(trim($headerAssets))) {
-            $pageRenderer->addHeaderData($headerAssets);
-        }
-        if (!empty(trim($footerAssets))) {
-            $pageRenderer->addFooterData($footerAssets);
-        }
     }
 
     /**

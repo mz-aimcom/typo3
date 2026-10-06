@@ -2,24 +2,37 @@
 	"name": "typo3/cms-reactions",
 	"type": "typo3-cms-framework",
 	"description": "TYPO3 CMS Reactions - Handle incoming Webhooks for TYPO3",
-	"homepage": "https://typo3.org",
-	"license": ["GPL-2.0-or-later"],
-	"authors": [{
-		"name": "TYPO3 Core Team",
-		"email": "typo3cms@typo3.org",
-		"role": "Developer"
-	}],
+	"homepage": "https://typo3.community/",
+	"funding": [
+		{
+			"type": "membership",
+			"url": "https://typo3.org/membership"
+		}
+	],
+	"license": [
+		"GPL-2.0-or-later"
+	],
+	"authors": [
+		{
+			"name": "TYPO3 Core Team",
+			"email": "typo3cms@typo3.org",
+			"role": "Developer"
+		}
+	],
 	"support": {
-		"chat": "https://typo3.org/help",
+		"issues": "https://forge.typo3.org/issues/",
+		"forum": "https://talk.typo3.org/",
+		"source": "https://github.com/TYPO3/typo3/",
 		"docs": "https://docs.typo3.org/c/typo3/cms-reactions/main/en-us/",
-		"issues": "https://forge.typo3.org",
-		"source": "https://github.com/typo3/typo3"
+		"rss": "https://news.typo3.com/rss/",
+		"chat": "https://typo3.community/meet/slack/",
+		"security": "https://typo3.org/security/"
 	},
 	"config": {
 		"sort-packages": true
 	},
 	"require": {
-		"typo3/cms-core": "14.0.*@dev"
+		"typo3/cms-core": "15.0.*@dev"
 	},
 	"suggest": {
 		"typo3/cms-lowlevel": "To display registered reactions in the configuration module"
@@ -29,7 +42,7 @@
 	},
 	"extra": {
 		"branch-alias": {
-			"dev-main": "14.0.x-dev"
+			"dev-main": "15.0.x-dev"
 		},
 		"typo3/cms": {
 			"extension-key": "reactions"

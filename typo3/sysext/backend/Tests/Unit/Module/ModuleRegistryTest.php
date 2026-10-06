@@ -27,14 +27,14 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ModuleRegistryTest extends UnitTestCase
 {
-    protected ModuleFactory $moduleFactory;
+    private ModuleFactory $moduleFactory;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->moduleFactory = new ModuleFactory(
-            $this->createMock(IconRegistry::class),
+            self::createStub(IconRegistry::class),
             new NoopEventDispatcher()
         );
     }
@@ -57,7 +57,7 @@ final class ModuleRegistryTest extends UnitTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1642375889);
 
-        (new ModuleRegistry([]))->getModule('a_module');
+        new ModuleRegistry([])->getModule('a_module');
     }
 
     #[Test]
@@ -179,13 +179,13 @@ final class ModuleRegistryTest extends UnitTestCase
     {
         self::assertEquals(
             ['a', 'b', 'b_a', 'b_b', 'c'],
-            array_keys((new ModuleRegistry([
+            array_keys(new ModuleRegistry([
                 $this->createModule('a'),
                 $this->createModule('b'),
                 $this->createModule('b_a', ['parent' => 'b']),
                 $this->createModule('b_b', ['parent' => 'b']),
                 $this->createModule('c'),
-            ]))->getModules())
+            ])->getModules())
         );
     }
 
@@ -194,14 +194,14 @@ final class ModuleRegistryTest extends UnitTestCase
     {
         self::assertEquals(
             ['a', 'b', 'c', 'd', 'f', 'e'],
-            array_keys((new ModuleRegistry([
+            array_keys(new ModuleRegistry([
                 $this->createModule('f'),
                 $this->createModule('c', ['position' => ['after' => '*']]),
                 $this->createModule('d', ['position' => ['bottom']]),
                 $this->createModule('a', ['position' => ['top']]),
                 $this->createModule('b', ['position' => ['before' => '*']]),
                 $this->createModule('e'),
-            ]))->getModules())
+            ])->getModules())
         );
     }
 
@@ -211,7 +211,7 @@ final class ModuleRegistryTest extends UnitTestCase
         self::assertEquals(
             // @todo Shouldn't this better be: "a", "a_a", "a_a_a", "b", "c", "d", "e" ?
             ['a', 'a_a', 'a_a_a', 'b', 'd', 'c', 'e'],
-            array_keys((new ModuleRegistry([
+            array_keys(new ModuleRegistry([
                 $this->createModule('a'),
                 $this->createModule('a_a', ['parent' => 'a']),
                 $this->createModule('a_a_a', ['parent' => 'a_a']),
@@ -219,7 +219,7 @@ final class ModuleRegistryTest extends UnitTestCase
                 $this->createModule('c', ['position' => ['after' => 'a']]),
                 $this->createModule('d', ['position' => ['after' => 'b']]),
                 $this->createModule('e'),
-            ]))->getModules())
+            ])->getModules())
         );
     }
 
@@ -229,17 +229,180 @@ final class ModuleRegistryTest extends UnitTestCase
         self::assertEquals(
             // @todo Shouldn't this better be: "a", "e", "c", "b", "d" ?
             ['a', 'b', 'd', 'c', 'e'],
-            array_keys((new ModuleRegistry([
+            array_keys(new ModuleRegistry([
                 $this->createModule('a'),
                 $this->createModule('b', ['position' => ['after' => 'a']]),
                 $this->createModule('c', ['position' => ['after' => 'a']]),
                 $this->createModule('d', ['position' => ['after' => 'b']]),
                 $this->createModule('e', ['position' => ['before' => 'c']]),
-            ]))->getModules())
+            ])->getModules())
         );
     }
 
-    protected function createModule($identifier, $configuration = []): ModuleInterface
+    #[Test]
+    public function singleSubmoduleIsPromotedToStandalone(): void
+    {
+        $registry = new ModuleRegistry([
+            $this->createModule('parent', [
+                'navigationComponent' => '@typo3/backend/tree/test-tree',
+                'position' => ['top'],
+                'aliases' => ['parent_alias'],
+                'appearance' => [
+                    'promotesSingleSubmoduleToStandalone' => true,
+                ],
+            ]),
+            $this->createModule('child', [
+                'parent' => 'parent',
+                'path' => '/module/child',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+        ]);
+
+        // Parent should be removed
+        self::assertFalse($registry->hasModule('parent'));
+
+        // Child should be promoted to standalone
+        $child = $registry->getModule('child');
+        self::assertTrue($child->isStandalone());
+        self::assertFalse($child->hasParentModule());
+        self::assertEquals('', $child->getParentIdentifier());
+
+        // Child should inherit parent properties
+        self::assertEquals('@typo3/backend/tree/test-tree', $child->getNavigationComponent());
+        self::assertEquals(['before' => '*'], $child->getPosition());
+        self::assertContains('parent_alias', $child->getAliases());
+    }
+
+    #[Test]
+    public function singleSubmoduleKeepsOwnNavigationComponent(): void
+    {
+        $registry = new ModuleRegistry([
+            $this->createModule('parent', [
+                'navigationComponent' => '@typo3/backend/tree/parent-tree',
+                'appearance' => [
+                    'promotesSingleSubmoduleToStandalone' => true,
+                ],
+            ]),
+            $this->createModule('child', [
+                'parent' => 'parent',
+                'navigationComponent' => '@typo3/backend/tree/child-tree',
+                'path' => '/module/child',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $child = $registry->getModule('child');
+        self::assertEquals('@typo3/backend/tree/child-tree', $child->getNavigationComponent());
+    }
+
+    #[Test]
+    public function multipleSubmodulesAreNotPromoted(): void
+    {
+        $registry = new ModuleRegistry([
+            $this->createModule('parent', [
+                'appearance' => [
+                    'promotesSingleSubmoduleToStandalone' => true,
+                ],
+            ]),
+            $this->createModule('child_a', [
+                'parent' => 'parent',
+                'path' => '/module/child-a',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+            $this->createModule('child_b', [
+                'parent' => 'parent',
+                'path' => '/module/child-b',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+        ]);
+
+        // Parent should still exist
+        self::assertTrue($registry->hasModule('parent'));
+
+        // Children should have parent
+        self::assertTrue($registry->getModule('child_a')->hasParentModule());
+        self::assertTrue($registry->getModule('child_b')->hasParentModule());
+        self::assertFalse($registry->getModule('child_a')->isStandalone());
+        self::assertFalse($registry->getModule('child_b')->isStandalone());
+    }
+
+    #[Test]
+    public function singleSubmoduleNotPromotedWithoutAppearanceSetting(): void
+    {
+        $registry = new ModuleRegistry([
+            $this->createModule('parent', []),
+            $this->createModule('child', [
+                'parent' => 'parent',
+                'path' => '/module/child',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+        ]);
+
+        // Parent should still exist
+        self::assertTrue($registry->hasModule('parent'));
+
+        // Child should have parent
+        self::assertTrue($registry->getModule('child')->hasParentModule());
+        self::assertFalse($registry->getModule('child')->isStandalone());
+    }
+
+    #[Test]
+    public function standaloneParentModuleIsNotProcessedForPromotion(): void
+    {
+        $registry = new ModuleRegistry([
+            $this->createModule('parent', [
+                'standalone' => true,
+                'path' => '/module/parent',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+                'appearance' => [
+                    'promotesSingleSubmoduleToStandalone' => true,
+                ],
+            ]),
+            $this->createModule('child', [
+                'parent' => 'parent',
+                'path' => '/module/child',
+                'routes' => [
+                    '_default' => [
+                        'target' => 'TestController::handleRequest',
+                    ],
+                ],
+            ]),
+        ]);
+
+        // Both should exist
+        self::assertTrue($registry->hasModule('parent'));
+        self::assertTrue($registry->hasModule('child'));
+
+        // Parent should be standalone, child should have parent
+        self::assertTrue($registry->getModule('parent')->isStandalone());
+        self::assertTrue($registry->getModule('child')->hasParentModule());
+    }
+
+    private function createModule($identifier, $configuration = []): ModuleInterface
     {
         return $this->moduleFactory->createModule(
             $identifier,

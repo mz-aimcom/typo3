@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Functional\Localization;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\Backend\NullBackend;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
@@ -26,15 +27,21 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 final class LanguageServiceTest extends FunctionalTestCase
 {
     // Constants to access the various language files
-    private const LANGUAGE_FILE = 'EXT:test_localization/Resources/Private/Language/locallang.xlf';
-    private const LANGUAGE_FILE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_override.xlf';
-    private const LANGUAGE_FILE_OVERRIDE_DE = 'EXT:test_localization/Resources/Private/Language/de.locallang_override.xlf';
-    private const LANGUAGE_FILE_OVERRIDE_FR = 'EXT:test_localization/Resources/Private/Language/fr.locallang_override.xlf';
-    private const LANGUAGE_FILE_CORE = 'EXT:core/Resources/Private/Language/locallang_common.xlf';
-    private const LANGUAGE_FILE_CORE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_common_override.xlf';
-    private const LANGUAGE_FILE_CORE_OVERRIDE_FR = 'EXT:test_localization/Resources/Private/Language/fr.locallang_common_override.xlf';
+    private const string LANGUAGE_FILE = 'EXT:test_localization/Resources/Private/Language/locallang.xlf';
+    private const string LANGUAGE_FILE__DEFAULT_IS_NON_ENGLISH_WITH_TARGETS = 'EXT:test_localization/Resources/Private/Language/default-with-targets/locallang.xlf';
+    private const string LANGUAGE_FILE_XLIFF_2 = 'EXT:test_localization/Resources/Private/Language/messages_2.xlf';
+    private const string LANGUAGE_FILE_ICU = 'EXT:test_localization/Resources/Private/Language/locallang_icu.xlf';
+    private const string LANGUAGE_FILE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_override.xlf';
+    private const string LANGUAGE_FILE_OVERRIDE__DEFAULT_WITHOUT_TARGETS = 'EXT:test_localization/Resources/Private/Language/override-without-targets/locallang_override.xlf';
+    private const string LANGUAGE_FILE_OVERRIDE_DE = 'EXT:test_localization/Resources/Private/Language/de.locallang_override.xlf';
+    private const string LANGUAGE_FILE_OVERRIDE_FR = 'EXT:test_localization/Resources/Private/Language/fr.locallang_override.xlf';
+    private const string LANGUAGE_FILE_CORE = 'EXT:core/Resources/Private/Language/locallang_common.xlf';
+    private const string LANGUAGE_FILE_CORE_OVERRIDE = 'EXT:test_localization/Resources/Private/Language/locallang_common_override.xlf';
+    private const string LANGUAGE_FILE_CORE_OVERRIDE__DEFAULT_WITHOUT_TARGETS = 'EXT:test_localization/Resources/Private/Language/override-without-targets/locallang_common_override.xlf';
+    private const string LANGUAGE_FILE_CORE_OVERRIDE_FR = 'EXT:test_localization/Resources/Private/Language/fr.locallang_common_override.xlf';
     protected array $testExtensionsToLoad = [
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_localization',
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_translation_domain',
     ];
 
     protected bool $initializeDatabase = false;
@@ -58,7 +65,7 @@ final class LanguageServiceTest extends FunctionalTestCase
     #[Test]
     public function splitLabelTest(string $input, string $expected): void
     {
-        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $subject = $this->get(LanguageServiceFactory::class)->create('en');
         self::assertEquals($expected, $subject->sL($input));
     }
 
@@ -138,10 +145,17 @@ final class LanguageServiceTest extends FunctionalTestCase
         $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE, $expectedLabels);
     }
 
+    #[DataProvider('ensureVariousLocalizationScenariosWorkDataProvider')]
+    #[Test]
+    public function ensureVariousLocalizationScenariosWorkWithDefaultLanguageFileBasedOnNonEnglishWithTargets(string $locale, array $expectedLabels): void
+    {
+        $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE__DEFAULT_IS_NON_ENGLISH_WITH_TARGETS, $expectedLabels);
+    }
+
     public static function ensureVariousLocalizationScenariosWorkDataProvider(): \Generator
     {
         yield 'Can handle localization for native language' => [
-            'locale' => 'default',
+            'locale' => 'en',
             'expectedLabels' => [
                 'label1' => 'This is label #1',
                 'label2' => 'This is label #2',
@@ -164,6 +178,22 @@ final class LanguageServiceTest extends FunctionalTestCase
                 'label3' => 'This is label #3',
             ],
         ];
+        yield 'Can handle localization with intermediate locale fr for missing translation for locale fr-CA' => [
+            'locale' => 'fr-CA',
+            'expectedLabels' => [
+                'label1' => 'Ceci est le libellé no. 1',
+                'label2' => 'Ceci est le libellé no. 2',
+                'label3' => 'Ceci est le libellé no. 3',
+            ],
+        ];
+        yield 'Can handle localization with intermediate locale fr for undefined locale fr-ZZ' => [
+            'locale' => 'fr-ZZ',
+            'expectedLabels' => [
+                'label1' => 'Ceci est le libellé no. 1',
+                'label2' => 'Ceci est le libellé no. 2',
+                'label3' => 'Ceci est le libellé no. 3',
+            ],
+        ];
     }
 
     #[DataProvider('ensureVariousLocalizationOverrideScenariosWorkDataProvider')]
@@ -177,10 +207,21 @@ final class LanguageServiceTest extends FunctionalTestCase
         $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE, $expectedLabels);
     }
 
+    #[DataProvider('ensureVariousLocalizationOverrideScenariosWorkDataProvider')]
+    #[Test]
+    public function ensureVariousLocalizationOverrideScenariosWorkWithDefaultOverrideFileWithoutTargets(string $locale, array $expectedLabels): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE__DEFAULT_WITHOUT_TARGETS;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['de'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_DE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr'][self::LANGUAGE_FILE][] = self::LANGUAGE_FILE_OVERRIDE_FR;
+
+        $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE, $expectedLabels);
+    }
+
     public static function ensureVariousLocalizationOverrideScenariosWorkDataProvider(): \Generator
     {
         yield 'Can override localization for native translation' => [
-            'locale' => 'default',
+            'locale' => 'en',
             'expectedLabels' => [
                 'label1' => 'This is my 1st label',
                 'label2' => 'This is my 2nd label',
@@ -210,6 +251,16 @@ final class LanguageServiceTest extends FunctionalTestCase
     public function ensureVariousLocalizationOverrideScenariosForCoreExtensionWork(string $locale, array $expectedLabels): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE_FR;
+
+        $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE_CORE, $expectedLabels);
+    }
+
+    #[DataProvider('ensureVariousLocalizationOverrideScenariosForCoreExtensionWorkDataProvider')]
+    #[Test]
+    public function ensureVariousLocalizationOverrideScenariosForCoreExtensionWorkWithDefaultOverrideFileWithoutTargetsl(string $locale, array $expectedLabels): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE__DEFAULT_WITHOUT_TARGETS;
         $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr'][self::LANGUAGE_FILE_CORE][] = self::LANGUAGE_FILE_CORE_OVERRIDE_FR;
 
         $this->ensureLocalizationScenarioWorks($locale, self::LANGUAGE_FILE_CORE, $expectedLabels);
@@ -284,5 +335,423 @@ final class LanguageServiceTest extends FunctionalTestCase
                 ],
             ],
         ];
+    }
+
+    public static function deprecatedLabelReferenceProvider(): \Generator
+    {
+        yield 'DeprecatedLabelXliff1' => [
+            'expected' => 'This is label is deprecated',
+            'longLabel' => self::LANGUAGE_FILE . ':deprecated_label',
+            'label' => 'deprecated_label',
+            'domain' => 'test_localization.messages',
+            'locale' => 'en',
+        ];
+        yield 'DeprecatedLabelIsDeprecatedXliff1' => [
+            'expected' => 'This is label #4 is deprecated',
+            'longLabel' => self::LANGUAGE_FILE . ':label4.x-unused',
+            'label' => 'label4.x-unused',
+            'domain' => 'test_localization.messages',
+            'locale' => 'en',
+        ];
+        yield 'DeprecatedLabelFrenchFallbackXliff1' => [
+            'expected' => 'This is label is deprecated',
+            'longLabel' => self::LANGUAGE_FILE . ':deprecated_label',
+            'label' => 'deprecated_label',
+            'domain' => 'test_localization.messages',
+            'locale' => 'fr',
+        ];
+        yield 'DeprecatedLabelXliff2' => [
+            'expected' => 'Expiration Date',
+            'longLabel' => self::LANGUAGE_FILE_XLIFF_2 . ':expiration_date',
+            'label' => 'expiration_date',
+            'domain' => 'test_localization.messages_2',
+            'locale' => 'en',
+        ];
+        yield 'DeprecatedLabelIsDeprecatedXliff2' => [
+            'expected' => 'This is label #4 is deprecated',
+            'longLabel' => self::LANGUAGE_FILE_XLIFF_2 . ':label4.x-unused',
+            'label' => 'label4.x-unused',
+            'domain' => 'test_localization.messages_2',
+            'locale' => 'en',
+        ];
+    }
+
+    #[IgnoreDeprecations]
+    #[DataProvider('deprecatedLabelReferenceProvider')]
+    #[Test]
+    public function referencingDeprecatedLabelViaSLIsDeprecatedTest(string $expected, string $longLabel, string $label, string $domain, string $locale): void
+    {
+        $this->expectUserDeprecationMessageMatches('/.*/');
+        $subject = $this->get(LanguageServiceFactory::class)->create($locale);
+        self::assertEquals($expected, $subject->sL($longLabel));
+    }
+
+    #[DataProvider('deprecatedLabelReferenceProvider')]
+    #[IgnoreDeprecations]
+    #[Test]
+    public function referencingDeprecatedLabelViaIsDeprecatedTest(string $expected, string $longLabel, string $label, string $domain, string $locale): void
+    {
+        $this->expectUserDeprecationMessageMatches('/.*/');
+        $subject = $this->get(LanguageServiceFactory::class)->create($locale);
+        self::assertEquals($expected, $subject->translate($label, $domain));
+    }
+
+    public static function nonDeprecatedLabelReferenceProvider(): \Generator
+    {
+        yield 'DeprecatedLabelInEnglishIsNotDeprecatedInFrenchXliff1' => [
+            'expected' => 'Cette étiquette n° 5 est obsolète en anglais.',
+            'longLabel' => self::LANGUAGE_FILE . ':label5',
+            'label' => 'label5',
+            'domain' => 'test_localization.messages',
+            'locale' => 'fr',
+        ];
+        yield 'DeprecatedLabelInEnglishIsNotDeprecatedInFrenchXliff2' => [
+            'expected' => 'Ceci est l’étiquette n°5 (obsolète en anglais)',
+            'longLabel' => self::LANGUAGE_FILE_XLIFF_2 . ':label5',
+            'label' => 'label5',
+            'domain' => 'test_localization.messages_2',
+            'locale' => 'fr',
+        ];
+        yield 'DeprecatedLabelInFrenchFallsBackToEnglishXliff2' => [
+            'expected' => 'This is label #1',
+            'longLabel' => self::LANGUAGE_FILE_XLIFF_2 . ':label1',
+            'label' => 'label1',
+            'domain' => 'test_localization.messages_2',
+            'locale' => 'en',
+        ];
+    }
+
+    #[DataProvider('nonDeprecatedLabelReferenceProvider')]
+    #[Test]
+    public function referencingNonDeprecatedLabelViaSLIsNotDeprecatedTest(string $expected, string $longLabel, string $label, string $domain, string $locale): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create($locale);
+        self::assertEquals($expected, $subject->sL($longLabel));
+    }
+
+    #[DataProvider('nonDeprecatedLabelReferenceProvider')]
+    #[Test]
+    public function referencingNonDeprecatedLabelViaIsNotDeprecatedTest(string $expected, string $longLabel, string $label, string $domain, string $locale): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create($locale);
+        self::assertEquals($expected, $subject->translate($label, $domain));
+    }
+
+    #[Test]
+    public function locallangAndMessagesXlfCurrentlyDoNotWorkAlongsideEachOther(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+
+        // @todo If this ever gets changed, also adapt `Build/Scripts/checkIntegrityXliff.php`.
+        // The expectation could be to have 'test.message' from locallang.xlf be available, even though it is not defined in messages.xlf
+        // This would allow to "merge" both files, but that would not fit with the single-file resolution system
+        // the TranslationDomainMapper follows at this time.
+        // The expectatation would then be "Test Message" (as defined in locallang.xlf)
+        self::assertSame('test_translation_domain.messages:test.message', $subject->sL('test_translation_domain.messages:test.message'));
+    }
+
+    // ICU MessageFormat Tests
+    public static function icuMessageFormatProvider(): \Generator
+    {
+        yield 'Simple plural - one file (English)' => [
+            'locale' => 'default',
+            'label' => 'file_count',
+            'arguments' => ['count' => 1],
+            'expected' => '1 file',
+        ];
+        yield 'Simple plural - multiple files (English)' => [
+            'locale' => 'default',
+            'label' => 'file_count',
+            'arguments' => ['count' => 5],
+            'expected' => '5 files',
+        ];
+        yield 'Plural with zero - no items (English)' => [
+            'locale' => 'default',
+            'label' => 'item_count',
+            'arguments' => ['count' => 0],
+            'expected' => 'no items',
+        ];
+        yield 'Plural with zero - one item (English)' => [
+            'locale' => 'default',
+            'label' => 'item_count',
+            'arguments' => ['count' => 1],
+            'expected' => '1 item',
+        ];
+        yield 'Plural with zero - multiple items (English)' => [
+            'locale' => 'default',
+            'label' => 'item_count',
+            'arguments' => ['count' => 42],
+            'expected' => '42 items',
+        ];
+        yield 'Combined placeholder and plural (English)' => [
+            'locale' => 'default',
+            'label' => 'greeting',
+            'arguments' => ['name' => 'John', 'count' => 3],
+            'expected' => 'Hello John, you have 3 messages.',
+        ];
+        yield 'Simple placeholder (English)' => [
+            'locale' => 'default',
+            'label' => 'simple_placeholder',
+            'arguments' => ['name' => 'Alice'],
+            'expected' => 'Welcome, Alice!',
+        ];
+        yield 'Select gender - male (English)' => [
+            'locale' => 'default',
+            'label' => 'select_gender',
+            'arguments' => ['gender' => 'male'],
+            'expected' => 'He liked your post.',
+        ];
+        yield 'Select gender - female (English)' => [
+            'locale' => 'default',
+            'label' => 'select_gender',
+            'arguments' => ['gender' => 'female'],
+            'expected' => 'She liked your post.',
+        ];
+        yield 'Select gender - other (English)' => [
+            'locale' => 'default',
+            'label' => 'select_gender',
+            'arguments' => ['gender' => 'neutral'],
+            'expected' => 'They liked your post.',
+        ];
+        // French translations
+        yield 'Simple plural - one file (French)' => [
+            'locale' => 'fr',
+            'label' => 'file_count',
+            'arguments' => ['count' => 1],
+            'expected' => '1 fichier',
+        ];
+        yield 'Simple plural - multiple files (French)' => [
+            'locale' => 'fr',
+            'label' => 'file_count',
+            'arguments' => ['count' => 5],
+            'expected' => '5 fichiers',
+        ];
+        yield 'Combined placeholder and plural (French)' => [
+            'locale' => 'fr',
+            'label' => 'greeting',
+            'arguments' => ['name' => 'Jean', 'count' => 1],
+            'expected' => 'Bonjour Jean, vous avez 1 message.',
+        ];
+    }
+
+    #[DataProvider('icuMessageFormatProvider')]
+    #[Test]
+    public function icuMessageFormatWorksCorrectly(string $locale, string $label, array $arguments, string $expected): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create($locale);
+        $result = $subject->translate($label, self::LANGUAGE_FILE_ICU, $arguments);
+        self::assertEquals($expected, $result);
+    }
+
+    #[Test]
+    public function sprintfStyleArgumentsStillWork(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        // Test with positional arguments (sprintf-style)
+        $result = $subject->translate('sprintf_style', self::LANGUAGE_FILE_ICU, [42]);
+        self::assertEquals('Downloaded 42 times', $result);
+    }
+
+    #[Test]
+    public function sprintfStyleArgumentsWorkInFrench(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('fr');
+        // Test with positional arguments (sprintf-style)
+        $result = $subject->translate('sprintf_style', self::LANGUAGE_FILE_ICU, [42]);
+        self::assertEquals('Téléchargé 42 fois', $result);
+    }
+
+    #[Test]
+    public function translateReturnsNullForMissingLabel(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertNull($subject->translate('nonexistent_label', self::LANGUAGE_FILE));
+    }
+
+    #[Test]
+    public function translateReturnsDefaultForMissingLabel(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->translate('nonexistent_label', self::LANGUAGE_FILE, [], 'My fallback');
+        self::assertSame('My fallback', $result);
+    }
+
+    #[Test]
+    public function translateReturnsDefaultForEmptyLabel(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->translate('nonexistent_label', self::LANGUAGE_FILE, [], 'Fallback');
+        self::assertSame('Fallback', $result);
+    }
+
+    #[Test]
+    public function translateIgnoresDefaultWhenLabelExists(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->translate('label1', self::LANGUAGE_FILE, [], 'Fallback');
+        self::assertSame('This is label #1', $result);
+    }
+
+    #[Test]
+    public function translateWithDomainSyntax(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->translate('label1', 'test_localization.messages');
+        self::assertSame('This is label #1', $result);
+    }
+
+    #[Test]
+    public function translateWithDomainSyntaxAndArguments(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->translate('sprintf_style', 'test_localization.icu', [42]);
+        self::assertSame('Downloaded 42 times', $result);
+    }
+
+    #[Test]
+    public function translateWithDomainSyntaxInFrench(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('fr');
+        $result = $subject->translate('label1', 'test_localization.messages');
+        self::assertSame('Ceci est le libellé no. 1', $result);
+    }
+
+    #[Test]
+    public function labelResolvesLllExtReference(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('LLL:' . self::LANGUAGE_FILE . ':label1');
+        self::assertSame('This is label #1', $result);
+    }
+
+    #[Test]
+    public function labelResolvesExtReference(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label(self::LANGUAGE_FILE . ':label1');
+        self::assertSame('This is label #1', $result);
+    }
+
+    #[Test]
+    public function labelResolvesDomainReference(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('test_localization.messages:label1');
+        self::assertSame('This is label #1', $result);
+    }
+
+    #[Test]
+    public function labelResolvesReferenceInFrench(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('fr');
+        $result = $subject->label('LLL:' . self::LANGUAGE_FILE . ':label1');
+        self::assertSame('Ceci est le libellé no. 1', $result);
+    }
+
+    #[Test]
+    public function labelReturnsNullForMissingLabel(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertNull($subject->label('LLL:' . self::LANGUAGE_FILE . ':nonexistent'));
+    }
+
+    #[Test]
+    public function labelReturnsDefaultForMissingLabel(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('LLL:' . self::LANGUAGE_FILE . ':nonexistent', default: 'Fallback');
+        self::assertSame('Fallback', $result);
+    }
+
+    #[Test]
+    public function labelReturnsDefaultForEmptyReference(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertSame('Fallback', $subject->label('', default: 'Fallback'));
+    }
+
+    #[Test]
+    public function labelReturnsDefaultForWhitespaceOnlyReference(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertSame('Fallback', $subject->label('   ', default: 'Fallback'));
+    }
+
+    #[Test]
+    public function labelReturnsDefaultForReferenceWithoutColon(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertSame('Fallback', $subject->label('no-colon-here', default: 'Fallback'));
+    }
+
+    #[Test]
+    public function labelReturnsNullForEmptyReferenceWithoutDefault(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        self::assertNull($subject->label(''));
+    }
+
+    #[Test]
+    public function labelWithSprintfArguments(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('LLL:' . self::LANGUAGE_FILE_ICU . ':sprintf_style', [42]);
+        self::assertSame('Downloaded 42 times', $result);
+    }
+
+    #[Test]
+    public function labelWithIcuArguments(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('LLL:' . self::LANGUAGE_FILE_ICU . ':file_count', ['count' => 5]);
+        self::assertSame('5 files', $result);
+    }
+
+    #[Test]
+    public function labelWithDomainSyntaxAndArguments(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('default');
+        $result = $subject->label('test_localization.icu:sprintf_style', [42]);
+        self::assertSame('Downloaded 42 times', $result);
+    }
+
+    #[Test]
+    public function labelWithPointAndColonTest(): void
+    {
+        $subject = $this->get(LanguageServiceFactory::class)->create('en');
+        $input = 'a.b:c';
+        self::assertEquals($input, $subject->sL($input));
+    }
+
+    #[Test]
+    public function ensureLocalizationOverrideWithDomainSyntaxWorks(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['test_localization.messages'][] = self::LANGUAGE_FILE_OVERRIDE;
+
+        $this->ensureLocalizationScenarioWorks('default', self::LANGUAGE_FILE, [
+            'label1' => 'This is my 1st label',
+            'label2' => 'This is my 2nd label',
+            'label3' => 'This is label #3',
+        ]);
+    }
+
+    #[Test]
+    public function ensureLocalizationOverrideWithLanguageSpecificDomainSyntaxWorks(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['test_localization.messages'][] = self::LANGUAGE_FILE_OVERRIDE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['de']['test_localization.messages'][] = self::LANGUAGE_FILE_OVERRIDE_DE;
+        $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']['fr']['test_localization.messages'][] = self::LANGUAGE_FILE_OVERRIDE_FR;
+
+        $this->ensureLocalizationScenarioWorks('de', self::LANGUAGE_FILE, [
+            'label1' => 'Das ist Beschriftung 1',
+            'label2' => 'Das ist Beschriftung 2',
+            'label3' => 'Das ist Beschriftung 3',
+        ]);
+
+        $this->ensureLocalizationScenarioWorks('fr', self::LANGUAGE_FILE, [
+            'label1' => 'Ceci est mon 1er libellé',
+            'label2' => 'Ceci est le libellé no. 2',
+            'label3' => 'Ceci est mon 3e libellé',
+        ]);
     }
 }

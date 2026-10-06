@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\BlogExample\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation\Validate;
+use TYPO3\CMS\Extbase\Attribute\Validate;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 
 /**
@@ -25,7 +25,7 @@ use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
  */
 class RestrictedComment extends AbstractEntity
 {
-    #[Validate(['validator' => 'StringLength', 'options' => ['maximum' => 500]])]
+    #[Validate(validator: 'StringLength', options: ['maximum' => 500])]
     protected string $content = '';
 
     // Note: Simple string access, no model relation

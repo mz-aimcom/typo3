@@ -37,7 +37,7 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
     /**
      * @var array Used by buildDefaultLanguageConfiguration() of SiteBasedTestTrait
      */
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -58,6 +58,14 @@ final class PageTsConfigFactoryTest extends FunctionalTestCase
         self::assertSame('loadedFromRelativeIncludeTarget23', $pageTsConfig->getPageTsConfigArray()['loadedFromRelativeIncludeTarget23']);
         // 24 is a relative include with path traversal and not allowed to be loaded.
         self::assertArrayNotHasKey('loadedFromRelativeIncludeTarget24', $pageTsConfig->getPageTsConfigArray());
+    }
+
+    #[Test]
+    public function pageTsConfigConditionOnTreeDoesNotCrashWithEmptyRootline(): void
+    {
+        $subject = $this->get(PageTsConfigFactory::class);
+        $pageTsConfig = $subject->create([], new NullSite());
+        self::assertSame('matched', $pageTsConfig->getPageTsConfigArray()['conditionOnEmptyRootlineMatches'] ?? null);
     }
 
     #[Test]

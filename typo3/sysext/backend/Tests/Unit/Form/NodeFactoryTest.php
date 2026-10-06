@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\Element\SelectSingleElement;
@@ -31,6 +32,7 @@ use TYPO3\CMS\Backend\Tests\Unit\Form\Fixtures\NodeFactory\NodeResolvers\FooReso
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class NodeFactoryTest extends UnitTestCase
 {
     #[Test]
@@ -246,10 +248,10 @@ final class NodeFactoryTest extends UnitTestCase
     #[Test]
     public function createReturnsInstanceOfUnknownElementIfTypeIsNotRegistered(): void
     {
-        $unknownElementMock = $this->createMock(UnknownElement::class);
-        GeneralUtility::addInstance(UnknownElement::class, $unknownElementMock);
+        $unknownElementStub = self::createStub(UnknownElement::class);
+        GeneralUtility::addInstance(UnknownElement::class, $unknownElementStub);
         $subject = new NodeFactory();
-        self::assertSame($unknownElementMock, $subject->create(['renderType' => 'foo']));
+        self::assertSame($unknownElementStub, $subject->create(['renderType' => 'foo']));
     }
 
     #[Test]
@@ -259,10 +261,10 @@ final class NodeFactoryTest extends UnitTestCase
             'type' => 'select',
             'renderType' => 'selectTree',
         ];
-        $selectTreeElementMock = $this->createMock(SelectTreeElement::class);
-        GeneralUtility::addInstance(SelectTreeElement::class, $selectTreeElementMock);
+        $selectTreeElementStub = self::createStub(SelectTreeElement::class);
+        GeneralUtility::addInstance(SelectTreeElement::class, $selectTreeElementStub);
         $subject = new NodeFactory();
-        self::assertSame($selectTreeElementMock, $subject->create($data));
+        self::assertSame($selectTreeElementStub, $subject->create($data));
     }
 
     #[Test]
@@ -278,9 +280,9 @@ final class NodeFactoryTest extends UnitTestCase
             ],
         ];
         $subject = new NodeFactory();
-        $selectSingleElementMock = $this->createMock(SelectSingleElement::class);
-        GeneralUtility::addInstance(SelectSingleElement::class, $selectSingleElementMock);
-        self::assertSame($selectSingleElementMock, $subject->create($data));
+        $selectSingleElementStub = self::createStub(SelectSingleElement::class);
+        GeneralUtility::addInstance(SelectSingleElement::class, $selectSingleElementStub);
+        self::assertSame($selectSingleElementStub, $subject->create($data));
     }
 
     #[Test]

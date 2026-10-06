@@ -1,0 +1,90 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:be="http://typo3.org/ns/TYPO3/CMS/Backend/ViewHelpers"
+    xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<div class="table-fit">
+    <table class="table table-striped table-hover">
+        <thead>
+        <tr>
+            <th colspan="2"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.group.label" /></th>
+        </tr>
+        </thead>
+        <tbody>
+        <f:for each="{groupsWithoutTasks}" as="group" key="groupKey">
+            <tr class="{f:if(condition:'{group.disabled}', then: 'disabled')}" {f:if(condition: '{group.color}', then: 'style="border-left: 4px solid {group.color};"')}>
+                <td class="col-title col-responsive">
+                    <be:link.editRecord uid="{group.uid}" table="tx_scheduler_task_group" fields="groupName,color,description" returnUrl="{be:moduleLink(route: 'scheduler')}" class="btn btn-link">
+                        <strong>{group.groupName}</strong>
+                    </be:link.editRecord>
+                    <f:if condition="{group.description}">
+                        <p class="text-variant mb-0">{group.description}</p>
+                    </f:if>
+                </td>
+                <td class="col-control nowrap">
+                    <form name="tx_scheduler_form_group" id="tx_scheduler_form_group" method="post">
+                        <input name="action[group][uid]" type="hidden" value="{group.uid}">
+                        <div class="btn-group" role="group">
+                            <typo3-scheduler-new-task-wizard-button class="btn btn-sm btn-default" url="{f:be.uri(route:'ajax_new_scheduler_task_wizard', parameters:'{returnUrl: returnUrl, defaultValues: {task_group: group.uid}}')}" subject="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}">
+                                <core:icon identifier="actions-plus" />
+                                <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add" />
+                            </typo3-scheduler-new-task-wizard-button>
+                        </div>
+                        <div class="btn-group" role="group">
+                            <f:if condition="{group.hidden}">
+                                <f:then>
+                                    <button
+                                        type="submit"
+                                        name="action[group][hidden]"
+                                        value="0"
+                                        class="btn btn-sm btn-default"
+                                        title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:enable')}"
+                                    >
+                                        <core:icon identifier="actions-edit-unhide"/>
+                                    </button>
+                                </f:then>
+                                <f:else>
+                                    <button
+                                        type="submit"
+                                        name="action[group][hidden]"
+                                        value="1"
+                                        class="btn btn-sm btn-default"
+                                        title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:disable')}"
+                                    >
+                                        <core:icon identifier="actions-edit-hide"/>
+                                    </button>
+                                </f:else>
+                            </f:if>
+                            <button
+                                type="submit"
+                                class="btn btn-sm btn-default t3js-modal-trigger"
+                                data-target-form="tx_scheduler_form_group_remove_{group.uid}"
+                                data-severity="warning"
+                                data-button-close-text="{f:translate(key: 'cancel', domain:'core.action')}"
+                                data-button-ok-text="{f:translate(key: 'delete', domain:'core.action')}"
+                                data-content="{f:translate(key: 'delete_group', domain:'scheduler.messages')}"
+                                data-title="{f:translate(key: 'delete_group', domain:'scheduler.label')}"
+                                title="{f:translate(key: 'delete_group', domain:'scheduler.label')}"
+                            >
+                                <core:icon identifier="actions-edit-delete"/>
+                            </button>
+                        </div>
+                    </form>
+                    <form name="tx_scheduler_form_group_remove_{group.uid}" id="tx_scheduler_form_group_remove_{group.uid}" method="post">
+                        <input name="action[groupRemove]" type="hidden" value="{group.uid}">
+                    </form>
+                </td>
+            </tr>
+        </f:for>
+        <tr>
+            <td colspan="2">
+                <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:unusedGroups.count" arguments="{count: '{groupsWithoutTasks -> f:count()}'}" />
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+</html>

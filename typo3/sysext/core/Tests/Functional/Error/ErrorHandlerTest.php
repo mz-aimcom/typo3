@@ -17,10 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Error;
 
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Error\ErrorHandler;
-use TYPO3\CMS\Core\Log\Logger;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -43,7 +42,6 @@ final class ErrorHandlerTest extends FunctionalTestCase
     }
 
     #[Test]
-    #[DoesNotPerformAssertions]
     public function handleErrorFetchesDeprecations(): void
     {
         trigger_error(
@@ -54,6 +52,7 @@ final class ErrorHandlerTest extends FunctionalTestCase
             'The second error should be caught by ErrorHandler as well.',
             E_USER_DEPRECATED
         );
+        self::assertContains('TYPO3.CMS.deprecations', GeneralUtility::makeInstance(LogManager::class)->getLoggerNames());
     }
 
     /**
@@ -80,23 +79,17 @@ final class ErrorHandlerTest extends FunctionalTestCase
         $logManagerMock->expects($this->never())->method('getLogger')->with('TYPO3.CMS.deprecations');
         GeneralUtility::setSingletonInstance(LogManager::class, $logManagerMock);
 
-        $logger = $this->getMockBuilder(Logger::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['log'])
-            ->getMock();
+        $logger = $this->createMock(LoggerInterface::class);
 
         // Make sure the assigned logger does not log
         $logger->expects($this->never())->method('log');
 
         $coreErrorHandler = new ErrorHandler(
-            // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
-            //        and only kept here here because possible custom PHP extensions may still use it.
-            //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
-            E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR)
+            E_ALL & ~(E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR)
         );
         $coreErrorHandler->setLogger($logger);
 
-        $customErrorHandler = new class () {
+        $customErrorHandler = new class {
             protected $existingHandler;
 
             public function setExistingHandler($existingHandler): void

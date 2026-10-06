@@ -18,8 +18,14 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Redirects\Tests\Functional\Service;
 
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Redirects\Event\RedirectIntegrityCheckEvent;
 use TYPO3\CMS\Redirects\Service\IntegrityService;
+use TYPO3\CMS\Redirects\Service\RedirectService;
 use TYPO3\CMS\Redirects\Utility\RedirectConflict;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -28,7 +34,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
     use SiteBasedTestTrait;
 
     // Needed to happify phpstan in combination with SiteBasedTestTrait
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'unused' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -100,6 +106,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'example.com',
                     'source_path' => '/',
+                    'target' => '/home',
                     'uid' => 7,
                 ],
             ],
@@ -109,6 +116,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/about-us/we-are-here',
+                    'target' => 'https://maps.google.com',
                     'uid' => 1,
                 ],
             ],
@@ -118,6 +126,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'example.com',
                     'source_path' => '/contact',
+                    'target' => '/write-a-message',
                     'uid' => 6,
                 ],
             ],
@@ -127,6 +136,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/features',
+                    'target' => '/features-new',
                     'uid' => 9,
                 ],
             ],
@@ -147,6 +157,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/about-us/we-are-here',
+                    'target' => 'https://maps.google.com',
                     'uid' => 1,
                 ],
             ],
@@ -156,6 +167,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'another.example.com',
                     'source_path' => '/de/merkmale',
+                    'target' => '/de/features',
                     'uid' => 4,
                 ],
             ],
@@ -165,6 +177,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'another.example.com',
                     'source_path' => '/features',
+                    'target' => '/features-new',
                     'uid' => 8,
                 ],
             ],
@@ -187,6 +200,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'example.com',
                     'source_path' => '/',
+                    'target' => '/home',
                     'uid' => 7,
                 ],
             ],
@@ -196,6 +210,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/about-us/we-are-here',
+                    'target' => 'https://maps.google.com',
                     'uid' => 1,
                 ],
             ],
@@ -205,6 +220,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/about-us/we-are-here',
+                    'target' => 'https://maps.google.com',
                     'uid' => 1,
                 ],
             ],
@@ -214,6 +230,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'another.example.com',
                     'source_path' => '/de/merkmale',
+                    'target' => '/de/features',
                     'uid' => 4,
                 ],
             ],
@@ -223,6 +240,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'example.com',
                     'source_path' => '/contact',
+                    'target' => '/write-a-message',
                     'uid' => 6,
                 ],
             ],
@@ -232,6 +250,7 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => '*',
                     'source_path' => '/features',
+                    'target' => '/features-new',
                     'uid' => 9,
                 ],
             ],
@@ -241,12 +260,58 @@ final class IntegrityServiceTest extends FunctionalTestCase
                     'integrity_status' => RedirectConflict::SELF_REFERENCE,
                     'source_host' => 'another.example.com',
                     'source_path' => '/features',
+                    'target' => '/features-new',
                     'uid' => 8,
                 ],
             ],
         ];
         $subject = $this->get(IntegrityService::class);
         $this->assertExpectedPathsFromGenerator($expectedConflicts, $subject->findConflictingRedirects());
+    }
+
+    #[Test]
+    public function checkRedirectTargetIntegrityYieldsNothingWithoutListeners(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $subject = $this->get(IntegrityService::class);
+        $result = iterator_to_array($subject->checkRedirectIntegrity());
+        self::assertSame([], $result);
+    }
+
+    #[Test]
+    public function checkRedirectTargetIntegrityDispatchesEventForEachRedirect(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/sys_redirect.csv');
+        $eventDispatcher = new class implements EventDispatcherInterface {
+            /** @var list<RedirectIntegrityCheckEvent> */
+            public array $dispatchedEvents = [];
+            public function dispatch(object $event): object
+            {
+                if ($event instanceof RedirectIntegrityCheckEvent) {
+                    $this->dispatchedEvents[] = $event;
+                    $event->setIntegrityStatus('test_broken');
+                }
+                return $event;
+            }
+        };
+        $subject = new IntegrityService(
+            $this->get(RedirectService::class),
+            $this->get(SiteFinder::class),
+            $this->get(ConnectionPool::class),
+            $eventDispatcher,
+            $this->get(TcaSchemaFactory::class),
+        );
+        $conflicts = iterator_to_array($subject->checkRedirectIntegrity());
+        // 9 non-deleted redirects in fixture
+        self::assertCount(9, $eventDispatcher->dispatchedEvents);
+        self::assertCount(9, $conflicts);
+        foreach ($conflicts as $conflict) {
+            self::assertSame('test_broken', $conflict['redirect']['integrity_status']);
+            self::assertArrayHasKey('uri', $conflict);
+            self::assertArrayHasKey('uid', $conflict['redirect']);
+            self::assertArrayHasKey('source_host', $conflict['redirect']);
+            self::assertArrayHasKey('source_path', $conflict['redirect']);
+        }
     }
 
     private function assertExpectedPathsFromGenerator(array $expectedConflicts, \Generator $generator): void

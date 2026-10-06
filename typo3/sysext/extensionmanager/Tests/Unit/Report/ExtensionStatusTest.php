@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Report;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -31,6 +32,7 @@ use TYPO3\CMS\Extensionmanager\Utility\ListUtility;
 use TYPO3\CMS\Reports\Status;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ExtensionStatusTest extends UnitTestCase
 {
     #[Test]
@@ -66,8 +68,8 @@ final class ExtensionStatusTest extends UnitTestCase
     public function getStatusCallsMainRepositoryForMainRepositoryStatusResult(): void
     {
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())
-            ->willReturn($this->createMock(LanguageService::class));
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())
+            ->willReturn(self::createStub(LanguageService::class));
 
         $listUtilityMock = $this->setUpRegistryStatusTests();
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -86,8 +88,8 @@ final class ExtensionStatusTest extends UnitTestCase
     public function getStatusReturnsErrorStatusIfRepositoryIsNotFound(): void
     {
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())
-            ->willReturn($this->createMock(LanguageService::class));
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())
+            ->willReturn(self::createStub(LanguageService::class));
 
         $listUtilityMock = $this->setUpRegistryStatusTests(0, true);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock(false);
@@ -107,10 +109,10 @@ final class ExtensionStatusTest extends UnitTestCase
     public function getStatusReturnsNoticeIfRepositoryUpdateIsLongerThanSevenDaysAgo(): void
     {
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())
-            ->willReturn($this->createMock(LanguageService::class));
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())
+            ->willReturn(self::createStub(LanguageService::class));
 
-        $remote = new class () extends TerExtensionRemote {
+        $remote = new class extends TerExtensionRemote {
             public function __construct() {}
 
             public function getLastUpdate(): \DateTimeInterface
@@ -142,8 +144,8 @@ final class ExtensionStatusTest extends UnitTestCase
     public function getStatusReturnsOkForLoadedExtensionIfNoInsecureExtensionIsLoaded(): void
     {
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())
-            ->willReturn($this->createMock(LanguageService::class));
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())
+            ->willReturn(self::createStub(LanguageService::class));
 
         $listUtilityMock = $this->setUpRegistryStatusTests();
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -162,9 +164,9 @@ final class ExtensionStatusTest extends UnitTestCase
     #[Test]
     public function getStatusReturnsErrorForLoadedExtensionIfInsecureExtensionIsLoaded(): void
     {
-        $languageServiceMock = $this->createMock(LanguageService::class);
+        $languageServiceStub = self::createStub(LanguageService::class);
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceStub);
 
         $listUtilityMock = $this->setUpRegistryStatusTests(-1);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -183,9 +185,9 @@ final class ExtensionStatusTest extends UnitTestCase
     #[Test]
     public function getStatusReturnsOkForExistingExtensionIfNoInsecureExtensionExists(): void
     {
-        $languageServiceMock = $this->createMock(LanguageService::class);
+        $languageServiceStub = self::createStub(LanguageService::class);
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceStub);
 
         $listUtilityMock = $this->setUpRegistryStatusTests(0, false);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -205,9 +207,9 @@ final class ExtensionStatusTest extends UnitTestCase
     #[Test]
     public function getStatusReturnsWarningForExistingExtensionIfInsecureExtensionExistsButIsNotLoaded(): void
     {
-        $languageServiceMock = $this->createMock(LanguageService::class);
+        $languageServiceStub = self::createStub(LanguageService::class);
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceStub);
 
         $listUtilityMock = $this->setUpRegistryStatusTests(-1, false);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -226,9 +228,9 @@ final class ExtensionStatusTest extends UnitTestCase
     #[Test]
     public function getStatusReturnsWarningForLoadedExtensionIfOutdatedExtensionIsLoaded(): void
     {
-        $languageServiceMock = $this->createMock(LanguageService::class);
+        $languageServiceStub = self::createStub(LanguageService::class);
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceStub);
 
         $listUtilityMock = $this->setUpRegistryStatusTests(-2, true);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -247,9 +249,9 @@ final class ExtensionStatusTest extends UnitTestCase
     #[Test]
     public function getStatusReturnsErrorForExistingExtensionIfOutdatedExtensionExists(): void
     {
-        $languageServiceMock = $this->createMock(LanguageService::class);
+        $languageServiceStub = self::createStub(LanguageService::class);
         $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
+        $languageServiceFactoryMock->expects($this->atMost(PHP_INT_MAX))->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceStub);
 
         $listUtilityMock = $this->setUpRegistryStatusTests(-2, false);
         $remoteRegistryMock = $this->setUpRemoteRegistryMock();
@@ -265,15 +267,15 @@ final class ExtensionStatusTest extends UnitTestCase
         self::assertEquals(ContextualFeedbackSeverity::WARNING, $statusObject->getSeverity());
     }
 
-    protected function setUpRegistryStatusTests(
+    private function setUpRegistryStatusTests(
         int $reviewState = 0,
         bool $installed = true
     ): ListUtility&MockObject {
         $mockTerObject = new Extension();
-        $mockTerObject->setVersion('1.0.6');
-        $mockTerObject->setReviewState($reviewState);
+        $mockTerObject->version = '1.0.6';
+        $mockTerObject->reviewState = $reviewState;
 
-        $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
+        $eventDispatcher = self::createStub(EventDispatcherInterface::class);
         $mockListUtility = $this->getMockBuilder(ListUtility::class)->getMock();
         $mockListUtility->injectEventDispatcher($eventDispatcher);
         $mockListUtility
@@ -288,11 +290,11 @@ final class ExtensionStatusTest extends UnitTestCase
         return $mockListUtility;
     }
 
-    protected function setUpRemoteRegistryMock(bool $setupRepositoryStatusOk = true): RemoteRegistry&MockObject
+    private function setUpRemoteRegistryMock(bool $setupRepositoryStatusOk = true): RemoteRegistry&MockObject
     {
         $remoteRegistryMock = $this->createMock(RemoteRegistry::class);
         if ($setupRepositoryStatusOk) {
-            $remoteRegistryMock->method('hasRemote')->with(self::anything())->willReturn(true);
+            $remoteRegistryMock->expects($this->atMost(PHP_INT_MAX))->method('hasRemote')->with(self::anything())->willReturn(true);
             $remoteRegistryMock->method('hasDefaultRemote')->willReturn(true);
         } else {
             $remoteRegistryMock->method('hasDefaultRemote')->willReturn(false);
@@ -302,7 +304,7 @@ final class ExtensionStatusTest extends UnitTestCase
 
     private function getDefaultTerExtensionRemote(): TerExtensionRemote
     {
-        return new class () extends TerExtensionRemote {
+        return new class extends TerExtensionRemote {
             public function __construct() {}
 
             public function getLastUpdate(): \DateTimeInterface

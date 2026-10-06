@@ -20,18 +20,23 @@ namespace TYPO3\CMS\IndexedSearch\Tests\Unit;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\IndexedSearch\FileContentParser;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class FileContentParserTest extends UnitTestCase
 {
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['TYPO3_REQUEST']);
+        parent::tearDown();
+    }
+
     #[Test]
     public function splitPdfInfoDoesNotOverrideValues(): void
     {
-        $GLOBALS['LANG'] = $this->createMock(LanguageService::class);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
-        $subject = new FileContentParser();
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $subject = new FileContentParser(self::createStub(LanguageServiceFactory::class));
         $input = '
 Title:          BAA010718_Broschüre_Chancen_bieten_V2.indd
 Creator:        Adobe InDesign CC 13.0 (Macintosh)

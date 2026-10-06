@@ -25,7 +25,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @internal
  */
-class ZipService
+readonly class ZipService
 {
     /**
      * Extracts the zip archive to a given directory. This method makes sure a file cannot be placed outside the directory.
@@ -68,7 +68,7 @@ class ZipService
         }
 
         for ($i = 0; $i < $zip->numFiles; $i++) {
-            $entryName = (string)$zip->getNameIndex($i);
+            $entryName = str_replace('\\', '/', (string)$zip->getNameIndex($i));
             if (preg_match('#/(?:\.{2,})+#', $entryName) // Contains any traversal sequence starting with a slash, e.g. /../, /.., /.../
                 || preg_match('#^(?:\.{2,})+/#', $entryName) // Starts with a traversal sequence, e.g. ../, .../
             ) {

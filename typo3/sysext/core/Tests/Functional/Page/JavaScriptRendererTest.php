@@ -24,22 +24,24 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class JavaScriptRendererTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     /**
      * Ensures closing comment block cannot be injected.
      */
     #[Test]
     public function textContentIsEncoded(): void
     {
-        $subject = JavaScriptRenderer::create('anything.js');
+        $subject = JavaScriptRenderer::create('URI:/anything.js');
         $subject->addJavaScriptModuleInstruction(
-            JavaScriptModuleInstruction::create('@typo3/test/module.js')
+            JavaScriptModuleInstruction::create('@typo3/core/document-service.js')
                 ->invoke('test*/', 'arg*/')
         );
         $subject->addGlobalAssignment(['section*/' => ['key*/' => 'value*/']]);
         self::assertSame(
             '<script>Object.assign(globalThis, {"section*\/":{"key*\/":"value*\/"}})</script>'
                 . PHP_EOL
-                . '<script src="anything.js" async="async">/* [{"type":"javaScriptModuleInstruction","payload":{"name":"@typo3\/test\/module.js","exportName":null,"flags":2,"items":[{"type":"invoke","method":"test*\/","args":["arg*\/"]}]}}] */</script>',
+                . '<script src="/anything.js" async="async">/* [{"type":"javaScriptModuleInstruction","payload":{"name":"@typo3\/core\/document-service.js","exportName":null,"flags":2,"items":[{"type":"invoke","method":"test*\/","args":["arg*\/"]}]}}] */</script>',
             trim($subject->render(null, '/'))
         );
     }
@@ -60,5 +62,31 @@ final class JavaScriptRendererTest extends FunctionalTestCase
             '<script>Object.assign(globalThis, {"test":"test1","bar":"baz"})</script>',
             trim($subject->render(null, '/'))
         );
+    }
+
+    #[Test]
+    public function throwsExceptionForUnavailableModule(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1728220800);
+
+        $subject = JavaScriptRenderer::create('anything.js');
+        $subject->addJavaScriptModuleInstruction(
+            JavaScriptModuleInstruction::create('@unavailable/module.js')
+        );
+        $subject->render(null, '/');
+    }
+
+    #[Test]
+    public function throwsExceptionForUnavailableDynamicInstruction(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1728220800);
+
+        $subject = JavaScriptRenderer::create('anything.js');
+        $subject->addJavaScriptModuleInstruction(
+            JavaScriptModuleInstruction::create('@unavailable/module.js')->invoke('dynamic')
+        );
+        $subject->render(null, '/');
     }
 }

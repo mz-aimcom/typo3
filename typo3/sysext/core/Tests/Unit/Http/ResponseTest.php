@@ -25,7 +25,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ResponseTest extends UnitTestCase
 {
-    protected ?Response $response;
+    private Response $response;
 
     protected function setUp(): void
     {
@@ -78,13 +78,6 @@ final class ResponseTest extends UnitTestCase
     }
 
     #[Test]
-    public function constructorRaisesExceptionForInvalidStream(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        new Response(['TOTALLY INVALID']);
-    }
-
-    #[Test]
     public function constructorCanAcceptAllMessageParts(): void
     {
         $body = new Stream('php://memory');
@@ -132,8 +125,7 @@ final class ResponseTest extends UnitTestCase
     #[Test]
     public function constructorRaisesExceptionForInvalidBody($body): void
     {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionCode(1436717277);
+        $this->expectException(\TypeError::class);
         new Response($body);
     }
 

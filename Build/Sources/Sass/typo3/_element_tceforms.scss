@@ -13,7 +13,6 @@
 img.t3-tceforms-sysfile-imagepreview {
     float: var(--typo3-position-start);
     margin-inline-end: 10px;
-    margin-bottom: 10px;
 }
 
 .typo3-TCEforms span.typo3-TCEforms-newToken {
@@ -65,25 +64,6 @@ div.t3-form-field-container:first-child .t3-form-field-label-flex {
 
     &--deleted {
         opacity: 0 !important;
-    }
-}
-
-//
-// TCEforms Inline-Relational-Record-Editing
-//
-.t3-form-field-container-inline-hidden,
-.t3-form-field-container-inline-placeHolder,
-.t3-form-field-container-files-hidden,
-.t3-form-field-container-files-placeHolder {
-    & > .panel-heading {
-        background-color: transparent;
-    }
-    opacity: .5;
-    border-style: dashed;
-
-    &:hover,
-    &:focus-within {
-        opacity: 1;
     }
 }
 

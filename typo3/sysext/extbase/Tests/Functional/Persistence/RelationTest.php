@@ -51,7 +51,7 @@ final class RelationTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/Fixtures/RelationTestImport.csv');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $this->get(ConfigurationManagerInterface::class)->setRequest($request);
         $this->persistenceManager = $this->get(PersistenceManager::class);
         $this->blog = $this->get(BlogRepository::class)->findByUid(1);
@@ -285,7 +285,7 @@ final class RelationTest extends FunctionalTestCase
     #[Test]
     public function mmRelationWithMatchFieldIsResolvedFromLocalSide(): void
     {
-        $queryBuilder = (new ConnectionPool())->getQueryBuilderForTable('sys_category_record_mm');
+        $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable('sys_category_record_mm');
         $queryBuilder->getRestrictions()
             ->removeAll();
         $countCategories = $queryBuilder
@@ -330,7 +330,7 @@ final class RelationTest extends FunctionalTestCase
     #[Test]
     public function mmRelationWithMatchFieldIsCreatedFromLocalSide(): void
     {
-        $queryBuilder = (new ConnectionPool())->getQueryBuilderForTable('sys_category_record_mm');
+        $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable('sys_category_record_mm');
         $queryBuilder->getRestrictions()
             ->removeAll();
         $countCategories = $queryBuilder
@@ -364,7 +364,7 @@ final class RelationTest extends FunctionalTestCase
         $postRepository->update($post);
         $this->persistenceManager->persistAll();
 
-        $queryBuilder = (new ConnectionPool())->getQueryBuilderForTable('sys_category_record_mm');
+        $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable('sys_category_record_mm');
         $queryBuilder->getRestrictions()
             ->removeAll();
         $countCategories = $queryBuilder
@@ -406,7 +406,7 @@ final class RelationTest extends FunctionalTestCase
         $this->persistenceManager->persistAll();
 
         // re-fetch Post and Blog
-        $queryBuilder = (new ConnectionPool())->getQueryBuilderForTable('sys_category_record_mm');
+        $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable('sys_category_record_mm');
         $queryBuilder->getRestrictions()
             ->removeAll();
         $newBlogCategoryCount = $queryBuilder

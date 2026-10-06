@@ -25,11 +25,13 @@ use TYPO3\CMS\Core\Core\ClassLoadingInformation;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\ReferenceIndex;
 use TYPO3\CMS\Core\Database\Schema\Exception\StatementException;
 use TYPO3\CMS\Core\Database\Schema\SchemaMigrator;
 use TYPO3\CMS\Core\Database\Schema\SqlReader;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\JsonResponse;
+use TYPO3\CMS\Core\Localization\LanguagePackService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -39,10 +41,10 @@ use TYPO3\CMS\Core\PasswordPolicy\PasswordPolicyValidator;
 use TYPO3\CMS\Core\PasswordPolicy\Validator\Dto\ContextData;
 use TYPO3\CMS\Core\Service\OpcodeCacheService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Service\ClearCacheService;
 use TYPO3\CMS\Install\Service\ClearTableService;
-use TYPO3\CMS\Install\Service\LanguagePackService;
 use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\Typo3tempFileService;
 
@@ -57,7 +59,6 @@ class MaintenanceController extends AbstractController
     public function __construct(
         private readonly LateBootService $lateBootService,
         private readonly ClearCacheService $clearCacheService,
-        private readonly ClearTableService $clearTableService,
         private readonly ConfigurationManager $configurationManager,
         private readonly PasswordHashFactory $passwordHashFactory,
         private readonly Locales $locales,
@@ -107,7 +108,7 @@ class MaintenanceController extends AbstractController
      */
     public function clearTypo3tempFilesStatsAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables(false);
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false);
         $typo3tempFileService = $container->get(Typo3tempFileService::class);
 
         $view = $this->initializeView($request);
@@ -135,7 +136,7 @@ class MaintenanceController extends AbstractController
      */
     public function clearTypo3tempFilesAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables(false);
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false);
         $typo3tempFileService = $container->get(Typo3tempFileService::class);
         $messageQueue = new FlashMessageQueue('install');
         $folder = $request->getParsedBody()['install']['folder'];
@@ -223,7 +224,7 @@ class MaintenanceController extends AbstractController
      */
     public function databaseAnalyzerAnalyzeAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false);
         $schemaMigrator = $container->get(SchemaMigrator::class);
 
         $messageQueue = new FlashMessageQueue('install');
@@ -377,7 +378,7 @@ class MaintenanceController extends AbstractController
      */
     public function databaseAnalyzerExecuteAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false);
         $messageQueue = new FlashMessageQueue('install');
         $selectedHashes = $request->getParsedBody()['install']['hashes'] ?? [];
         if (empty($selectedHashes)) {
@@ -421,9 +422,11 @@ class MaintenanceController extends AbstractController
         $view->assignMultiple([
             'clearTablesClearToken' => $formProtection->generateToken('installTool', 'clearTablesClear'),
         ]);
+        $container = $this->lateBootService->getContainer(true);
+        $clearTableService = $container->get(ClearTableService::class);
         return new JsonResponse([
             'success' => true,
-            'stats' => $this->clearTableService->getTableStatistics(),
+            'stats' => $clearTableService->getTableStatistics(),
             'html' => $view->render('Maintenance/ClearTables'),
             'buttons' => [
                 [
@@ -448,7 +451,9 @@ class MaintenanceController extends AbstractController
                 1501944076
             );
         }
-        $this->clearTableService->clearSelectedTable($table);
+        $container = $this->lateBootService->getContainer(true);
+        $clearTableService = $container->get(ClearTableService::class);
+        $clearTableService->clearSelectedTable($table);
         $messageQueue = new FlashMessageQueue('install');
         $messageQueue->enqueue(
             new FlashMessage('The table ' . $table . ' has been cleared.', 'Table cleared')
@@ -516,7 +521,8 @@ class MaintenanceController extends AbstractController
                 ContextualFeedbackSeverity::ERROR
             ));
         } else {
-            $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
+            $container = $this->lateBootService->getContainer(true);
+            $connectionPool = $container->get(ConnectionPool::class);
             $userExists = $connectionPool->getConnectionForTable('be_users')
                 ->count(
                     'uid',
@@ -594,7 +600,7 @@ class MaintenanceController extends AbstractController
             'languagePacksUpdateIsoTimesToken' => $formProtection->generateToken('installTool', 'languagePacksUpdateIsoTimes'),
         ]);
         // This action needs TYPO3_CONF_VARS for full GeneralUtility::getUrl() config
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables(false, true);
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false, true);
         $languagePackService = $container->get(LanguagePackService::class);
         $extensions = $languagePackService->getExtensionLanguagePackDetails();
         $extensionList = array_map(function (array $extension) {
@@ -617,7 +623,8 @@ class MaintenanceController extends AbstractController
     public function languagePacksActivateLanguageAction(ServerRequestInterface $request): ResponseInterface
     {
         $messageQueue = new FlashMessageQueue('install');
-        $languagePackService = GeneralUtility::makeInstance(LanguagePackService::class);
+        $container = $this->lateBootService->getContainer(true);
+        $languagePackService = $container->get(LanguagePackService::class);
         $availableLanguages = $languagePackService->getAvailableLanguages();
         $activeLanguages = $languagePackService->getActiveLanguages();
         $iso = $request->getParsedBody()['install']['iso'];
@@ -679,7 +686,8 @@ class MaintenanceController extends AbstractController
     public function languagePacksDeactivateLanguageAction(ServerRequestInterface $request): ResponseInterface
     {
         $messageQueue = new FlashMessageQueue('install');
-        $languagePackService = GeneralUtility::makeInstance(LanguagePackService::class);
+        $container = $this->lateBootService->getContainer(true);
+        $languagePackService = $container->get(LanguagePackService::class);
         $availableLanguages = $languagePackService->getAvailableLanguages();
         $activeLanguages = $languagePackService->getActiveLanguages();
         $iso = $request->getParsedBody()['install']['iso'];
@@ -756,11 +764,20 @@ class MaintenanceController extends AbstractController
      */
     public function languagePacksUpdatePackAction(ServerRequestInterface $request): ResponseInterface
     {
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables(false, true);
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false, true);
         $iso = $request->getParsedBody()['install']['iso'];
         $key = $request->getParsedBody()['install']['extension'];
 
         $languagePackService = $container->get(LanguagePackService::class);
+
+        // Gate untrusted user input against the set of extensions and languages exposed for download.
+        $extensions = $languagePackService->getExtensionLanguagePackDetails();
+        if (!isset($extensions[$key]['packs'][$iso])) {
+            return new JsonResponse([
+                'success' => true,
+                'packResult' => 'skipped',
+            ]);
+        }
 
         return new JsonResponse([
             'success' => true,
@@ -774,7 +791,8 @@ class MaintenanceController extends AbstractController
     public function languagePacksUpdateIsoTimesAction(ServerRequestInterface $request): ResponseInterface
     {
         $isos = $request->getParsedBody()['install']['isos'];
-        $languagePackService = GeneralUtility::makeInstance(LanguagePackService::class);
+        $container = $this->lateBootService->getContainer(true);
+        $languagePackService = $container->get(LanguagePackService::class);
         $languagePackService->setLastUpdatedIsoCode($isos);
 
         // The cache manager is already instantiated in the install tool
@@ -794,7 +812,9 @@ class MaintenanceController extends AbstractController
      */
     public function resetBackendUserUcAction(): ResponseInterface
     {
-        GeneralUtility::makeInstance(ConnectionPool::class)
+        $container = $this->lateBootService->getContainer(true);
+        $connectionPool = $container->get(ConnectionPool::class);
+        $connectionPool
             ->getQueryBuilderForTable('be_users')
             ->update('be_users')
             ->set('uc', '')
@@ -807,6 +827,65 @@ class MaintenanceController extends AbstractController
         return new JsonResponse([
             'success' => true,
             'status' => $messageQueue,
+        ]);
+    }
+
+    /**
+     * Show reference index card
+     */
+    public function referenceIndexAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $view = $this->initializeView($request);
+        $view->assignMultiple([
+            'referenceIndexToken' => $this->formProtectionFactory->createFromRequest($request)->generateToken('installTool', 'referenceIndexUpdate'),
+            'binaryPath' => ExtensionManagementUtility::extPath('core', 'bin/typo3'),
+        ]);
+        return new JsonResponse([
+            'success' => true,
+            'html' => $view->render('Maintenance/ReferenceIndex'),
+            'buttons' => [
+                [
+                    'btnClass' => 'btn-default t3js-referenceIndex-check',
+                    'text' => 'Check Reference Index',
+                ],
+                [
+                    'btnClass' => 'btn-default t3js-referenceIndex-update',
+                    'text' => 'Update Reference Index',
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Check or update reference index
+     */
+    public function referenceIndexUpdateAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $isCheckOnly = (bool)($request->getParsedBody()['install']['checkOnly'] ?? false);
+
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false, true);
+        $result = $container->get(ReferenceIndex::class)->updateIndex($isCheckOnly);
+
+        $messageQueue = new FlashMessageQueue('install');
+        if (!empty($result['errors'])) {
+            foreach ($result['errors'] as $error) {
+                $messageQueue->enqueue(new FlashMessage(
+                    $error,
+                    'Reference Index Issue',
+                    ContextualFeedbackSeverity::WARNING
+                ));
+            }
+        } else {
+            $messageQueue->enqueue(new FlashMessage(
+                $isCheckOnly ? 'Reference index check completed successfully' : 'Reference index has been updated successfully',
+                $isCheckOnly ? 'Check Complete' : 'Update Complete'
+            ));
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'status' => $messageQueue,
+            'result' => $result,
         ]);
     }
 }

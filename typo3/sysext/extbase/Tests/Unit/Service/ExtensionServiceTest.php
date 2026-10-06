@@ -17,26 +17,24 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Service;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
-use TYPO3\CMS\Core\Database\Connection;
-use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\ConcreteQueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
-use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Tests\Unit\Database\Mocks\MockPlatform\MockMySQLPlatform;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Exception;
 use TYPO3\CMS\Extbase\Service\ExtensionService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class ExtensionServiceTest extends UnitTestCase
 {
-    protected ConfigurationManagerInterface&MockObject $mockConfigurationManager;
-    protected ExtensionService $extensionService;
+    private ConfigurationManagerInterface&MockObject $mockConfigurationManager;
+    private ExtensionService $extensionService;
 
     /**
      * Due to nested PageRepository / FrontendRestriction Container issues, the Context object is set
@@ -46,10 +44,8 @@ final class ExtensionServiceTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['TSFE'] = new \stdClass();
-        $this->extensionService = new ExtensionService();
         $this->mockConfigurationManager = $this->createMock(ConfigurationManagerInterface::class);
-        $this->extensionService->injectConfigurationManager($this->mockConfigurationManager);
+        $this->extensionService = new ExtensionService($this->mockConfigurationManager, new NullFrontend('runtime'));
         $GLOBALS['TYPO3_CONF_VARS']['EXTCONF']['extbase']['extensions'] = [
             'ExtensionName' => [
                 'plugins' => [
@@ -89,30 +85,6 @@ final class ExtensionServiceTest extends UnitTestCase
                 ],
             ],
         ];
-    }
-
-    /**
-     * Setup and return a mocked database connection that allows
-     * the QueryBuilder to work.
-     */
-    protected function getMockDatabaseConnection(): MockObject&Connection
-    {
-        $connection = $this->createMock(Connection::class);
-        $connection->method('getDatabasePlatform')->willReturn(new MockMySQLPlatform());
-        $connection->method('getExpressionBuilder')->willReturn(new ExpressionBuilder($connection));
-        $connection->method('quoteIdentifier')->with(self::anything())->willReturnArgument(0);
-
-        $queryBuilder = new QueryBuilder(
-            $connection,
-            null,
-            new ConcreteQueryBuilder($connection),
-        );
-
-        $connectionPool = $this->createMock(ConnectionPool::class);
-        $connectionPool->method('getQueryBuilderForTable')->with('tt_content')->willReturn($queryBuilder);
-        GeneralUtility::addInstance(ConnectionPool::class, $connectionPool);
-
-        return $connection;
     }
 
     /**
@@ -286,11 +258,11 @@ final class ExtensionServiceTest extends UnitTestCase
     public function getTargetPageTypeByFormatReturnsZeroIfNoMappingIsSet(): void
     {
         $configurationManagerMock = $this->createMock(ConfigurationManager::class);
-        $configurationManagerMock->method('getConfiguration')->with(
+        $configurationManagerMock->expects($this->atLeastOnce())->method('getConfiguration')->with(
             ConfigurationManagerInterface::CONFIGURATION_TYPE_FRAMEWORK,
             'extension'
         )->willReturn([]);
-        $this->extensionService->injectConfigurationManager($configurationManagerMock);
+        $this->extensionService = new ExtensionService($configurationManagerMock, new NullFrontend('runtime'));
 
         $result = $this->extensionService->getTargetPageTypeByFormat('extension', 'json');
 
@@ -301,7 +273,7 @@ final class ExtensionServiceTest extends UnitTestCase
     public function getTargetPageTypeByFormatReturnsMappedPageTypeFromConfiguration(): void
     {
         $configurationManagerMock = $this->createMock(ConfigurationManager::class);
-        $configurationManagerMock->method('getConfiguration')->with(
+        $configurationManagerMock->expects($this->atLeastOnce())->method('getConfiguration')->with(
             ConfigurationManagerInterface::CONFIGURATION_TYPE_FRAMEWORK,
             'extension'
         )->willReturn([
@@ -311,7 +283,7 @@ final class ExtensionServiceTest extends UnitTestCase
                 ],
             ],
         ]);
-        $this->extensionService->injectConfigurationManager($configurationManagerMock);
+        $this->extensionService = new ExtensionService($configurationManagerMock, new NullFrontend('runtime'));
 
         $result = $this->extensionService->getTargetPageTypeByFormat('extension', 'json');
 

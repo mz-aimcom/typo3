@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file source-language="en" target-language="eo" datatype="plaintext" original="EXT:core/Resources/Private/Language/countries.xlf" product-name="typo3/cms-core">
     <body>
@@ -190,10 +190,6 @@
         <source>Bulgarian</source>
         <target>Bulgara</target>
       </trans-unit>
-      <trans-unit id="bh" approved="yes">
-        <source>Bihari languages</source>
-        <target>Biharaj lingvoj</target>
-      </trans-unit>
       <trans-unit id="bho" approved="yes">
         <source>Bhojpuri</source>
         <target>Boĝpura</target>
@@ -201,6 +197,10 @@
       <trans-unit id="bi" approved="yes">
         <source>Bislama</source>
         <target>Bislamo</target>
+      </trans-unit>
+      <trans-unit id="bih" approved="yes">
+        <source>Bihari languages</source>
+        <target>Biharaj lingvoj</target>
       </trans-unit>
       <trans-unit id="bik" approved="yes">
         <source>Bikol</source>
@@ -223,8 +223,8 @@
         <target>Bengala</target>
       </trans-unit>
       <trans-unit id="bnt" approved="yes">
-        <source>Bantu (Other)</source>
-        <target>Bantua (alia)</target>
+        <source>Bantu languages</source>
+        <target>Bantuaj lingvoj</target>
       </trans-unit>
       <trans-unit id="bo" approved="yes">
         <source>Tibetan</source>
@@ -334,6 +334,10 @@
         <source>Chamic languages</source>
         <target>Ĉamaj lingvoj</target>
       </trans-unit>
+      <trans-unit id="cnr" approved="yes">
+        <source>Montenegrin</source>
+        <target>Montenegra</target>
+      </trans-unit>
       <trans-unit id="co" approved="yes">
         <source>Corsican</source>
         <target>Korsika</target>
@@ -419,8 +423,8 @@
         <target>Slavia (atapaska)</target>
       </trans-unit>
       <trans-unit id="dgr" approved="yes">
-        <source>Dogrib</source>
-        <target>Dogriba</target>
+        <source>Tlicho; Dogrib</source>
+        <target>Tlicho; Dogrib</target>
       </trans-unit>
       <trans-unit id="din" approved="yes">
         <source>Dinka</source>
@@ -1207,12 +1211,12 @@
         <target>Napola</target>
       </trans-unit>
       <trans-unit id="nb" approved="yes">
-        <source>Bokmål, Norwegian; Norwegian Bokmål</source>
-        <target>Norvega (Bokmål)</target>
+        <source>Norwegian Bokmål</source>
+        <target>Norvega (libronorvega)</target>
       </trans-unit>
       <trans-unit id="nd" approved="yes">
-        <source>Ndebele, North; North Ndebele</source>
-        <target>Ndebela, norda</target>
+        <source>North Ndebele</source>
+        <target>Norda Ndebela</target>
       </trans-unit>
       <trans-unit id="nds" approved="yes">
         <source>Low German; Low Saxon; German, Low; Saxon, Low</source>
@@ -1223,8 +1227,8 @@
         <target>Nepala</target>
       </trans-unit>
       <trans-unit id="new" approved="yes">
-        <source>Nepal Bhasa; Newari</source>
-        <target>Nevara</target>
+        <source>Nepal Bhasa; Newar; Newari</source>
+        <target>Nepal Bhasa; Newar; Newari</target>
       </trans-unit>
       <trans-unit id="ng" approved="yes">
         <source>Ndonga</source>
@@ -1247,8 +1251,8 @@
         <target>Nederlanda; Flandra</target>
       </trans-unit>
       <trans-unit id="nn" approved="yes">
-        <source>Norwegian Nynorsk; Nynorsk, Norwegian</source>
-        <target>Norvega (Nynorsk)</target>
+        <source>Norwegian Nynorsk</source>
+        <target>Norvega (novnorvega)</target>
       </trans-unit>
       <trans-unit id="no" approved="yes">
         <source>Norwegian</source>
@@ -1267,8 +1271,8 @@
         <target>Nokoa</target>
       </trans-unit>
       <trans-unit id="nr" approved="yes">
-        <source>Ndebele, South; South Ndebele</source>
-        <target>Ndebela, suda</target>
+        <source>South Ndebele</source>
+        <target>Suda Ndebela</target>
       </trans-unit>
       <trans-unit id="nso" approved="yes">
         <source>Pedi; Sepedi; Northern Sotho</source>
@@ -1307,8 +1311,8 @@
         <target>Nzima</target>
       </trans-unit>
       <trans-unit id="oc" approved="yes">
-        <source>Occitan (post 1500); Provençal</source>
-        <target>Okcitana (post 1500); Provenca</target>
+        <source>Occitan (post 1500)</source>
+        <target>Okcitana (post 1500)</target>
       </trans-unit>
       <trans-unit id="oj" approved="yes">
         <source>Ojibwa</source>
@@ -1395,8 +1399,8 @@
         <target>Prakritaj lingvoj</target>
       </trans-unit>
       <trans-unit id="pro" approved="yes">
-        <source>Provençal, Old (to 1500)</source>
-        <target>Provenca, malnova (ĝis 1500)</target>
+        <source>Provençal, Old (to 1500); Occitan, Old (to 1500)</source>
+        <target>Provenca, malnova (ĝis 1500); okcitana, malnova (ĝis 1500)</target>
       </trans-unit>
       <trans-unit id="ps" approved="yes">
         <source>Pushto; Pashto</source>
@@ -1471,8 +1475,8 @@
         <target>Jakuta</target>
       </trans-unit>
       <trans-unit id="sai" approved="yes">
-        <source>South American Indian (Other)</source>
-        <target>Sudamerikaj indianaj lingvoj (aliaj)</target>
+        <source>South American Indian languages</source>
+        <target>Sudamerikaj indianaj lingvoj</target>
       </trans-unit>
       <trans-unit id="sal" approved="yes">
         <source>Salishan languages</source>

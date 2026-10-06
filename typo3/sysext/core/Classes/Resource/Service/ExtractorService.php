@@ -17,27 +17,28 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource\Service;
 
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileType;
 use TYPO3\CMS\Core\Resource\Index\ExtractorInterface;
 use TYPO3\CMS\Core\Resource\Index\ExtractorRegistry;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Service class to extract metadata
  */
-class ExtractorService
+#[Autoconfigure(public: true)]
+readonly class ExtractorService
 {
-    /**
-     * @var ExtractorInterface[][]
-     */
-    private array $extractionServices;
+    public function __construct(
+        private ExtractorRegistry $extractorRegistry,
+    ) {}
 
     public function extractMetaData(File $fileObject): array
     {
         $newMetaData = $extractedMetaData = [];
         // Loop through available extractors and fetch metadata for the given file.
-        foreach ($this->getExtractionServices($fileObject->getStorage()->getDriverType()) as $extractorService) {
+        $extractionServices = $this->extractorRegistry->getExtractorsWithDriverSupport($fileObject->getStorage()->getDriverType());
+        foreach ($extractionServices as $extractorService) {
             if ($this->isFileTypeSupportedByExtractor($fileObject, $extractorService)
                 && $extractorService->canProcess($fileObject)
             ) {
@@ -51,26 +52,13 @@ class ExtractorService
         // Sort metadata by priority so that merging happens in order of precedence.
         ksort($newMetaData);
         // Merge the collected metadata.
-        $metaData = [[]];
+        $metaData = [];
         foreach ($newMetaData as $dataFromExtractors) {
             foreach ($dataFromExtractors as $data) {
                 $metaData[] = $data;
             }
         }
-        return array_filter(array_merge(...$metaData));
-    }
-
-    /**
-     * Get available extraction services
-     *
-     * @return ExtractorInterface[]
-     */
-    protected function getExtractionServices(string $driverType): array
-    {
-        if (empty($this->extractionServices[$driverType])) {
-            $this->extractionServices[$driverType] = $this->getExtractorRegistry()->getExtractorsWithDriverSupport($driverType);
-        }
-        return $this->extractionServices[$driverType];
+        return array_merge(...$metaData);
     }
 
     /**
@@ -91,13 +79,5 @@ class ExtractorService
             }
         }
         return false;
-    }
-
-    /**
-     * Returns an instance of the FileIndexRepository
-     */
-    protected function getExtractorRegistry(): ExtractorRegistry
-    {
-        return GeneralUtility::makeInstance(ExtractorRegistry::class);
     }
 }

@@ -17,9 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Mvc\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Error\Http\BadRequestException;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -34,6 +37,8 @@ use TYPO3\CMS\Extbase\Security\Exception\InvalidArgumentForHashGenerationExcepti
 use TYPO3\CMS\Extbase\Security\HashScope;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
 {
     /**
@@ -128,11 +133,11 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
     #[Test]
     public function generateTrustedPropertiesTokenGeneratesTheCorrectHashesInNormalOperation($input, $expected): void
     {
-        $requestHashService = $this->getMockBuilder(MvcPropertyMappingConfigurationService::class)
+        $mockPropertyMappingConfigurationService = $this->getMockBuilder(MvcPropertyMappingConfigurationService::class)
             ->onlyMethods(['encodeAndHashFormFieldArray'])
             ->getMock();
-        $requestHashService->expects($this->once())->method('encodeAndHashFormFieldArray')->with($expected);
-        $requestHashService->generateTrustedPropertiesToken($input);
+        $mockPropertyMappingConfigurationService->expects($this->once())->method('encodeAndHashFormFieldArray')->with($expected);
+        $mockPropertyMappingConfigurationService->generateTrustedPropertiesToken($input);
     }
 
     #[DataProvider('dataProviderForGenerateTrustedPropertiesTokenWithUnallowedValues')]
@@ -141,10 +146,10 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
     {
         $this->expectException(InvalidArgumentForHashGenerationException::class);
         $this->expectExceptionCode($expectExceptionCode);
-        $requestHashService = $this->getMockBuilder(MvcPropertyMappingConfigurationService::class)
+        $mockPropertyMappingConfigurationService = $this->getMockBuilder(MvcPropertyMappingConfigurationService::class)
             ->onlyMethods(['encodeAndHashFormFieldArray'])
             ->getMock();
-        $requestHashService->generateTrustedPropertiesToken($input);
+        $mockPropertyMappingConfigurationService->generateTrustedPropertiesToken($input);
     }
 
     #[Test]
@@ -156,16 +161,16 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
                 'hu' => 1,
             ],
         ];
-        $expectedHash = 'b0f49cabac3153cee385184e17925f2184d88fe6';
+        $expectedHash = '7c0354f5a8d3da54a22a1a9f72c88cdd4deaf8d7fa3c4773bbb0a08b9081cffa';
 
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'bar';
         $hashService = new HashService();
 
-        $requestHashService = $this->getAccessibleMock(MvcPropertyMappingConfigurationService::class, null);
-        $requestHashService->injectHashService($hashService);
+        $mockPropertyMappingConfigurationService = $this->getAccessibleMock(MvcPropertyMappingConfigurationService::class, null);
+        $mockPropertyMappingConfigurationService->injectHashService($hashService);
 
         $expected = json_encode($formFieldArray) . $expectedHash;
-        $actual = $requestHashService->_call('encodeAndHashFormFieldArray', $formFieldArray);
+        $actual = $mockPropertyMappingConfigurationService->_call('encodeAndHashFormFieldArray', $formFieldArray);
         self::assertEquals($expected, $actual);
     }
 
@@ -173,13 +178,13 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
     #[DoesNotPerformAssertions]
     public function initializePropertyMappingConfigurationDoesNothingIfTrustedPropertiesAreNotSet(): void
     {
-        $extbaseAttribute = (new ExtbaseRequestParameters())->setArgument('__trustedProperties', null);
-        $coreRequest = (new ServerRequest())->withAttribute('extbase', $extbaseAttribute);
+        $extbaseAttribute = new ExtbaseRequestParameters()->setArgument('__trustedProperties', null);
+        $coreRequest = new ServerRequest()->withAttribute('extbase', $extbaseAttribute);
         $extbaseRequest = (new Request($coreRequest));
 
         $arguments = new Arguments();
-        $requestHashService = new MvcPropertyMappingConfigurationService();
-        $requestHashService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
+        $propertyMappingConfigurationService = new MvcPropertyMappingConfigurationService();
+        $propertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
     }
 
     #[Test]
@@ -188,15 +193,15 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
         $this->expectException(BadRequestException::class);
         $this->expectExceptionCode(1581862822);
 
-        $extbaseAttribute = (new ExtbaseRequestParameters())->setArgument('__trustedProperties', 'string with less than 40 characters');
-        $coreRequest = (new ServerRequest())->withAttribute('extbase', $extbaseAttribute);
+        $extbaseAttribute = new ExtbaseRequestParameters()->setArgument('__trustedProperties', 'string with less than 40 characters');
+        $coreRequest = new ServerRequest()->withAttribute('extbase', $extbaseAttribute);
         $extbaseRequest = (new Request($coreRequest));
 
         $arguments = new Arguments();
         $hashService = new HashService();
-        $requestHashService = new MvcPropertyMappingConfigurationService();
-        $requestHashService->injectHashService($hashService);
-        $requestHashService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
+        $propertyMappingConfigurationService = new MvcPropertyMappingConfigurationService();
+        $propertyMappingConfigurationService->injectHashService($hashService);
+        $propertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
     }
 
     #[Test]
@@ -204,19 +209,19 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
     {
         $hashService = new HashService();
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'bar';
-        $extbaseAttribute = (new ExtbaseRequestParameters())->setArgument('__trustedProperties', 'garbage' . $hashService->hmac('garbage', HashScope::TrustedProperties->prefix()));
-        $coreRequest = (new ServerRequest())->withAttribute('extbase', $extbaseAttribute);
+        $extbaseAttribute = new ExtbaseRequestParameters()->setArgument('__trustedProperties', 'garbage' . $hashService->hmac('garbage', HashScope::TrustedProperties->prefix(), HashAlgo::SHA3_256));
+        $coreRequest = new ServerRequest()->withAttribute('extbase', $extbaseAttribute);
         $extbaseRequest = (new Request($coreRequest));
 
         $arguments = new Arguments();
-        $requestHashService = new MvcPropertyMappingConfigurationService();
-        $requestHashService->injectHashService($hashService);
+        $propertyMappingConfigurationService = new MvcPropertyMappingConfigurationService();
+        $propertyMappingConfigurationService->injectHashService($hashService);
 
         $this->expectException(BadRequestException::class);
         $this->expectExceptionMessage('The HMAC of the form could not be utilized.');
         $this->expectExceptionCode(1691267306);
 
-        $requestHashService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
+        $propertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
     }
 
     #[Test]
@@ -224,19 +229,19 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
     {
         $hashService = new HashService();
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'bar';
-        $extbaseAttribute = (new ExtbaseRequestParameters())->setArgument('__trustedProperties', 'a:1:{s:3:"foo";s:3:"bar";}' . $hashService->hmac('a:1:{s:3:"foo";s:3:"bar";}', HashScope::TrustedProperties->prefix()));
-        $coreRequest = (new ServerRequest())->withAttribute('extbase', $extbaseAttribute);
+        $extbaseAttribute = new ExtbaseRequestParameters()->setArgument('__trustedProperties', 'a:1:{s:3:"foo";s:3:"bar";}' . $hashService->hmac('a:1:{s:3:"foo";s:3:"bar";}', HashScope::TrustedProperties->prefix(), HashAlgo::SHA3_256));
+        $coreRequest = new ServerRequest()->withAttribute('extbase', $extbaseAttribute);
         $extbaseRequest = (new Request($coreRequest));
 
         $arguments = new Arguments();
-        $requestHashService = new MvcPropertyMappingConfigurationService();
-        $requestHashService->injectHashService($hashService);
+        $propertyMappingConfigurationService = new MvcPropertyMappingConfigurationService();
+        $propertyMappingConfigurationService->injectHashService($hashService);
 
         $this->expectException(BadRequestException::class);
         $this->expectExceptionMessage('Trusted properties used outdated serialization format instead json.');
         $this->expectExceptionCode(1699604555);
 
-        $requestHashService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
+        $propertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
     }
 
     #[Test]
@@ -321,21 +326,42 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
         self::assertTrue($propertyMappingConfiguration->forProperty('bar')->shouldMap('foo'));
     }
 
+    #[Test]
+    public function initializePropertyMappingConfigurationSetsAllowedNestedFieldsRecursively(): void
+    {
+        $trustedProperties = [
+            'foo' => [
+                'bar' => [
+                    ['foo' => 1],
+                    ['bar' => 1],
+                    ['baz' => 1],
+                ],
+            ],
+        ];
+        $arguments = $this->initializePropertyMappingConfiguration($trustedProperties);
+        $propertyMappingConfiguration = $arguments->getArgument('foo')->getPropertyMappingConfiguration();
+        self::assertFalse($propertyMappingConfiguration->shouldMap('someProperty'));
+        self::assertTrue($propertyMappingConfiguration->shouldMap('bar'));
+        self::assertTrue($propertyMappingConfiguration->forProperty('bar.0')->shouldMap('foo'));
+        self::assertTrue($propertyMappingConfiguration->forProperty('bar.1')->shouldMap('bar'));
+        self::assertTrue($propertyMappingConfiguration->forProperty('bar.2')->shouldMap('baz'));
+    }
+
     /**
      * Helper which initializes the property mapping configuration and returns arguments
      */
-    protected function initializePropertyMappingConfiguration(array $trustedProperties): Arguments
+    private function initializePropertyMappingConfiguration(array $trustedProperties): Arguments
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'bar';
         $hashService = new HashService();
-        $trustedPropertiesToken = $hashService->appendHmac(json_encode($trustedProperties), HashScope::TrustedProperties->prefix());
+        $trustedPropertiesToken = $hashService->appendHmac(json_encode($trustedProperties), HashScope::TrustedProperties->prefix(), HashAlgo::SHA3_256);
 
-        $extbaseAttribute = (new ExtbaseRequestParameters())->setArgument('__trustedProperties', $trustedPropertiesToken);
-        $coreRequest = (new ServerRequest())->withAttribute('extbase', $extbaseAttribute);
+        $extbaseAttribute = new ExtbaseRequestParameters()->setArgument('__trustedProperties', $trustedPropertiesToken);
+        $coreRequest = new ServerRequest()->withAttribute('extbase', $extbaseAttribute);
         $extbaseRequest = (new Request($coreRequest));
 
-        $requestHashService = $this->getAccessibleMock(MvcPropertyMappingConfigurationService::class, null);
-        $requestHashService->_set('hashService', $hashService);
+        $mockPropertyMappingConfigurationService = $this->getAccessibleMock(MvcPropertyMappingConfigurationService::class, null);
+        $mockPropertyMappingConfigurationService->_set('hashService', $hashService);
 
         $mockArgument = $this->getAccessibleMock(Argument::class, ['getName'], [], '', false);
 
@@ -347,7 +373,7 @@ final class MvcPropertyMappingConfigurationServiceTest extends UnitTestCase
         $arguments = $this->getAccessibleMock(Arguments::class, null);
         $arguments->addNewArgument('foo');
 
-        $requestHashService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
+        $mockPropertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($extbaseRequest, $arguments);
 
         return $arguments;
     }

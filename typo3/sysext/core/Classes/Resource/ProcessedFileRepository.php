@@ -17,17 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Platform\PlatformInformation;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\Area;
 use TYPO3\CMS\Core\Resource\Processing\TaskInterface;
 use TYPO3\CMS\Core\Resource\Processing\TaskTypeRegistry;
 use TYPO3\CMS\Core\Resource\Service\ConfigurationService;
-use TYPO3\CMS\Core\SingletonInterface;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * A repository for accessing and storing processed files.
@@ -35,21 +36,17 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * This class is mainly meant to be used internally in TYPO3 for accessing via
  * FileProcessingService or custom FAL Processors.
  */
-class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterface
+#[Autoconfigure(public: true)]
+readonly class ProcessedFileRepository
 {
-    use LoggerAwareTrait;
-
-    /**
-     * As determining the table columns is a costly operation this is done only once
-     * during runtime and cached afterward.
-     *
-     * @see cleanUnavailableColumns()
-     */
-    protected array $tableColumns = [];
-
     public function __construct(
-        protected readonly ResourceFactory $factory,
-        protected readonly TaskTypeRegistry $taskTypeRegistry
+        private ResourceFactory $factory,
+        private TaskTypeRegistry $taskTypeRegistry,
+        private LoggerInterface $logger,
+        private ConnectionPool $connectionPool,
+        private Context $context,
+        #[Autowire(service: 'cache.runtime')]
+        private FrontendInterface $runtimeCache,
     ) {}
 
     /**
@@ -57,7 +54,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
      */
     public function findByUid(int $uid): ProcessedFile
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_processedfile');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file_processedfile');
         $row = $queryBuilder
             ->select('*')
             ->from('sys_file_processedfile')
@@ -76,7 +73,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
     {
         $processedFileObject = null;
         if ($storage->hasFile($identifier)) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_processedfile');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file_processedfile');
             $databaseRow = $queryBuilder
                 ->select('*')
                 ->from('sys_file_processedfile')
@@ -106,8 +103,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
      */
     public function countByStorage(ResourceStorage $storage): int
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable('sys_file_processedfile');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file_processedfile');
         return (int)$queryBuilder
             ->count('uid')
             ->from('sys_file_processedfile')
@@ -129,7 +125,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
         if ($processedFile->isPersisted()) {
             $this->update($processedFile, $task);
         } else {
-            $currentTimestamp = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
+            $currentTimestamp = $this->context->getPropertyFromAspect('date', 'timestamp');
             $insertFields = $processedFile->toArray();
             $insertFields['crdate'] = $currentTimestamp;
             $insertFields['tstamp'] = $currentTimestamp;
@@ -137,7 +133,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
 
             $insertFields = $this->cleanUnavailableColumns($insertFields);
 
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_file_processedfile');
+            $connection = $this->connectionPool->getConnectionForTable('sys_file_processedfile');
             $connection->insert(
                 'sys_file_processedfile',
                 $insertFields,
@@ -146,6 +142,8 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
 
             $uid = $connection->lastInsertId();
             $processedFile->updateProperties(['uid' => $uid]);
+
+            $this->flushRuntimeCacheOfOriginal($processedFile);
         }
     }
 
@@ -161,11 +159,10 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
             $updateFields['checksum'] = $task->getConfigurationChecksum();
             $updateFields = $this->cleanUnavailableColumns($updateFields);
             unset($updateFields['uid']);
-            $currentTimestamp = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
+            $currentTimestamp = $this->context->getPropertyFromAspect('date', 'timestamp');
             $updateFields['tstamp'] = $currentTimestamp;
 
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_file_processedfile');
-            $connection->update(
+            $this->connectionPool->getConnectionForTable('sys_file_processedfile')->update(
                 'sys_file_processedfile',
                 $updateFields,
                 [
@@ -173,6 +170,8 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
                 ],
                 ['configuration' => Connection::PARAM_LOB]
             );
+
+            $this->flushRuntimeCacheOfOriginal($processedFile);
         }
     }
 
@@ -184,31 +183,15 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
         // Creating a task object to only fetch cleaned configuration properties
         $task = $this->prepareTaskObject($file, $taskType, $configuration);
         $configuration = $task->getConfiguration();
+        $configurationSha1 = sha1(new ConfigurationService()->serialize($configuration));
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_processedfile');
-        $databaseRow = $queryBuilder
-            ->select('*')
-            ->from('sys_file_processedfile')
-            ->where(
-                $queryBuilder->expr()->eq(
-                    'original',
-                    $queryBuilder->createNamedParameter($file->getUid(), Connection::PARAM_INT)
-                ),
-                $queryBuilder->expr()->eq('task_type', $queryBuilder->createNamedParameter($taskType)),
-                $queryBuilder->expr()->eq(
-                    'configurationsha1',
-                    $queryBuilder->createNamedParameter(sha1((new ConfigurationService())->serialize($configuration)))
-                )
-            )
-            ->executeQuery()
-            ->fetchAssociative();
-
-        if (is_array($databaseRow)) {
-            $processedFile = $this->createDomainObject($databaseRow);
-        } else {
-            $processedFile = $this->createNewProcessedFileObject($file, $taskType, $configuration);
+        foreach ($this->getAllByOriginal($file, $taskType) as $databaseRow) {
+            if ($databaseRow['configurationsha1'] === $configurationSha1) {
+                return $this->createDomainObject($databaseRow);
+            }
         }
-        return $processedFile;
+
+        return $this->createNewProcessedFileObject($file, $taskType, $configuration);
     }
 
     /**
@@ -216,20 +199,8 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
      */
     public function findAllByOriginalFile(File $file): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_processedfile');
-        $result = $queryBuilder
-            ->select('*')
-            ->from('sys_file_processedfile')
-            ->where(
-                $queryBuilder->expr()->eq(
-                    'original',
-                    $queryBuilder->createNamedParameter($file->getUid(), Connection::PARAM_INT)
-                )
-            )
-            ->executeQuery();
-
         $itemList = [];
-        while ($row = $result->fetchAssociative()) {
+        foreach ($this->getAllByOriginal($file) as $row) {
             $itemList[] = $this->createDomainObject($row);
         }
         return $itemList;
@@ -244,7 +215,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
      */
     public function removeAll(?int $storageUid = null): int
     {
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_file_processedfile');
+        $connection = $this->connectionPool->getConnectionForTable('sys_file_processedfile');
         $queryBuilder = $connection->createQueryBuilder();
         $where = [
             $queryBuilder->expr()->neq('identifier', $queryBuilder->createNamedParameter('')),
@@ -289,7 +260,121 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
             $connection->delete('sys_file_processedfile', ['storage' => $storageUid], [Connection::PARAM_INT]);
         }
 
+        $this->runtimeCache->flushByTag('processed-files');
+
         return $errorCount;
+    }
+
+    /**
+     * Removes a single processed file database row.
+     */
+    public function remove(ProcessedFile $processedFile): void
+    {
+        if (!$processedFile->isPersisted()) {
+            return;
+        }
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file_processedfile');
+        $queryBuilder
+            ->delete('sys_file_processedfile')
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'uid',
+                    $queryBuilder->createNamedParameter($processedFile->getUid(), Connection::PARAM_INT)
+                )
+            )
+            ->executeStatement();
+
+        $this->flushRuntimeCacheOfOriginal($processedFile);
+    }
+
+    /**
+     * Removes processed file database rows by uid. The original files are unknown
+     * on this path, so the whole runtime cache is flushed to keep it coherent.
+     */
+    public function removeByUids(array $uids): int
+    {
+        if ($uids === []) {
+            return 0;
+        }
+        $connection = $this->connectionPool->getConnectionForTable('sys_file_processedfile');
+        $maxBindParameters = PlatformInformation::getMaxBindParameters($connection->getDatabasePlatform());
+        $deletedRecords = 0;
+        foreach (array_chunk($uids, $maxBindParameters) as $chunk) {
+            $queryBuilder = $connection->createQueryBuilder();
+            $deletedRecords += $queryBuilder
+                ->delete('sys_file_processedfile')
+                ->where(
+                    $queryBuilder->expr()->in(
+                        'uid',
+                        $queryBuilder->createNamedParameter($chunk, Connection::PARAM_INT_ARRAY)
+                    )
+                )
+                ->executeStatement();
+        }
+
+        $this->runtimeCache->flushByTag('processed-files');
+
+        return $deletedRecords;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function getAllByOriginal(File $file, ?string $taskType = null): array
+    {
+        $cacheIdentifier = 'processed-file-repository-original-' . $file->getUid();
+        if ($taskType !== null) {
+            $cacheIdentifier .= '-tasktype-' . md5($taskType);
+        }
+
+        $cachedRows = $this->runtimeCache->get($cacheIdentifier);
+        if (is_array($cachedRows)) {
+            return $cachedRows;
+        }
+
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file_processedfile');
+        $where = [
+            $queryBuilder->expr()->eq(
+                'original',
+                $queryBuilder->createNamedParameter($file->getUid(), Connection::PARAM_INT)
+            ),
+        ];
+        if ($taskType !== null) {
+            $where[] = $queryBuilder->expr()->eq('task_type', $queryBuilder->createNamedParameter($taskType));
+        }
+
+        $result = $queryBuilder
+            ->select('*')
+            ->from('sys_file_processedfile')
+            ->where(...$where)
+            ->executeQuery();
+
+        $rows = [];
+        while (($row = $result->fetchAssociative()) !== false) {
+            $rows[] = $row;
+        }
+
+        $this->runtimeCache->set($cacheIdentifier, $rows, ['processed-files', $this->getRuntimeCacheTagOfOriginal($file)]);
+
+        return $rows;
+    }
+
+    protected function flushRuntimeCacheOfOriginal(array|ProcessedFile|File|int $files): void
+    {
+        if (!is_array($files)) {
+            $files = [$files];
+        }
+        $tags = array_map($this->getRuntimeCacheTagOfOriginal(...), $files);
+        $this->runtimeCache->flushByTags($tags);
+    }
+
+    protected function getRuntimeCacheTagOfOriginal(ProcessedFile|File|int $file): string
+    {
+        return 'processed-file-original-' . match (true) {
+            $file instanceof ProcessedFile => $file->getOriginalFile()->getUid(),
+            $file instanceof File => $file->getUid(),
+            default => $file
+        };
     }
 
     /**
@@ -305,7 +390,7 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
         $originalFile = $this->factory->getFileObject((int)$databaseRow['original']);
         $taskType = $databaseRow['task_type'];
         // Allow deserialization of Area class, since Area objects get serialized in configuration
-        // TODO: This should be changed to json encode and decode at some point
+        // @todo: This should be changed to json encode and decode at some point
         $configuration = unserialize(
             $databaseRow['configuration'],
             [
@@ -323,15 +408,10 @@ class ProcessedFileRepository implements LoggerAwareInterface, SingletonInterfac
      */
     protected function cleanUnavailableColumns(array $data): array
     {
-        // As determining the table columns is a costly operation this is done only once during runtime and cached then
-        if ($this->tableColumns === []) {
-            $this->tableColumns = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable('sys_file_processedfile')
-                ->createSchemaManager()
-                ->listTableColumns('sys_file_processedfile');
-        }
-
-        return array_intersect_key($data, $this->tableColumns);
+        return array_intersect_key($data, $this->connectionPool
+            ->getConnectionForTable('sys_file_processedfile')
+            ->getSchemaInformation()
+            ->listTableColumnInfos('sys_file_processedfile'));
     }
 
     /**

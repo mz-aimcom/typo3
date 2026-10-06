@@ -38,27 +38,20 @@ class ExtbasePluginContentObject extends AbstractContentObject
         $extbaseBootstrap = GeneralUtility::makeInstance(Bootstrap::class);
         $extbaseBootstrap->setContentObjectRenderer($this->getContentObjectRenderer());
         if ($this->cObj->getUserObjectType() === false) {
-            // Come here only if we are not called from $TSFE->processNonCacheableContentPartsAndSubstituteContentMarkers()!
+            // Come here only if we are not called as non-cached element
             $this->cObj->setUserObjectType(ContentObjectRenderer::OBJECTTYPE_USER);
         }
         $request = $extbaseBootstrap->initialize($conf, $this->request);
         $content = $extbaseBootstrap->handleFrontendRequest($request);
-        // Rendering is deferred, as the action should not be cached, we pump this now to TSFE to be executed later-on
+        // Rendering is deferred, as the action should not be cached. Register as non cached element.
         if ($this->cObj->doConvertToUserIntObject) {
             $this->cObj->doConvertToUserIntObject = false;
-            // @todo: this should be removed in the future in TSFE to allow more "uncacheables" than USER_INTs
+            // @todo: this should be removed in the future when FE chains allows more "uncacheables" than USER_INTs
             // also, the handleFrontendRequest() should return the full response in the future
             $conf['userFunc'] = Bootstrap::class . '->run';
-            $this->cObj->setUserObjectType(ContentObjectRenderer::OBJECTTYPE_USER_INT);
-            $tsfe = $this->getTypoScriptFrontendController();
-            $substKey = 'INT_SCRIPT.' . $tsfe->uniqueHash();
-            $content = '<!--' . $substKey . '-->';
-            $tsfe->config['INTincScript'][$substKey] = [
-                'conf' => $conf,
-                'cObj' => serialize($this->cObj),
-                'type' => 'FUNC',
-            ];
-        } elseif (isset($conf['stdWrap.'])) {
+            return $this->generateNotCachedContentPlaceholder($request, (array)$conf);
+        }
+        if (isset($conf['stdWrap.'])) {
             // Only executed when the element is not converted to USER_INT
             $content = $this->cObj->stdWrap($content, $conf['stdWrap.']);
         }

@@ -15,6 +15,7 @@
 
 namespace TYPO3\CMS\Extbase\Reflection;
 
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
 use TYPO3\CMS\Core\SingletonInterface;
@@ -26,13 +27,6 @@ use TYPO3\CMS\Extbase\Reflection\Exception\UnknownClassException;
  */
 class ReflectionService implements SingletonInterface
 {
-    private string $cacheIdentifier;
-
-    /**
-     * @var FrontendInterface
-     */
-    protected $dataCache;
-
     /**
      * Indicates whether the Reflection cache needs to be updated.
      *
@@ -50,10 +44,12 @@ class ReflectionService implements SingletonInterface
      */
     protected $classSchemata = [];
 
-    public function __construct(FrontendInterface $cache, string $cacheIdentifier)
-    {
-        $this->dataCache = $cache;
-        $this->cacheIdentifier = $cacheIdentifier;
+    public function __construct(
+        #[Autowire(service: 'cache.extbase')]
+        protected FrontendInterface $dataCache,
+        #[Autowire(expression: 'service("package-dependent-cache-identifier").withPrefix("ClassSchemata").toString()')]
+        private string $cacheIdentifier
+    ) {
         if (($classSchemata = $this->dataCache->get($this->cacheIdentifier)) !== false) {
             $this->classSchemata = $classSchemata;
         }
@@ -61,7 +57,15 @@ class ReflectionService implements SingletonInterface
 
     public function __destruct()
     {
-        if ($this->dataCacheNeedsUpdate) {
+        // The cache write may serialize with an HMAC based on the encryption key. The destructor
+        // may run late (during shutdown or garbage collection) when the global configuration
+        // has already been reset - persisting is impossible then and must be skipped, since
+        // emitted warnings could not be caught by any error handler at that point anymore.
+        // This extra condition is to ensure a running TYPO3 "bootstrapped" environment, which
+        // may not be available within the functional test environments, and would then be unable
+        // to access the cache backend properly (relies on SYS.encryptionKey for example)
+        // @todo - This must go away, once GLOBAL state vanishes completely, of course
+        if ($this->dataCacheNeedsUpdate && isset($GLOBALS['TYPO3_CONF_VARS'])) {
             $this->dataCache->set($this->cacheIdentifier, $this->classSchemata);
         }
     }

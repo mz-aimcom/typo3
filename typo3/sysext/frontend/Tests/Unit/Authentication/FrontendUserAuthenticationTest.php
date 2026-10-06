@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Tests\Unit\Authentication;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -49,17 +50,17 @@ final class FrontendUserAuthenticationTest extends UnitTestCase
 
         // Main session backend setup
         $userSessionManagerMock = $this->createMock(UserSessionManager::class);
-        $userSessionManagerMock->method('createFromRequestOrAnonymous')->with(self::anything())->willReturn($userSession);
+        $userSessionManagerMock->method('createFromRequestOrAnonymous')->willReturn($userSession);
         // Verify new session id is generated
         $userSessionManagerMock->method('createAnonymousSession')->willReturn(UserSession::createNonFixated('newSessionId'));
         // set() and update() shouldn't be called since no session cookie is set
         // remove() should be called with given session id
-        $userSessionManagerMock->expects($this->once())->method('isSessionPersisted')->with(self::anything())->willReturn(true);
-        $userSessionManagerMock->expects($this->once())->method('removeSession')->with(self::anything());
+        $userSessionManagerMock->expects($this->once())->method('isSessionPersisted')->willReturn(true);
+        $userSessionManagerMock->expects($this->once())->method('removeSession');
 
         // set() and update() shouldn't be called since no session cookie is set
-        $userSessionManagerMock->expects($this->never())->method('elevateToFixatedUserSession')->with(self::anything());
-        $userSessionManagerMock->expects($this->never())->method('updateSession')->with(self::anything());
+        $userSessionManagerMock->expects($this->never())->method('elevateToFixatedUserSession');
+        $userSessionManagerMock->expects($this->never())->method('updateSession');
 
         $subject = new FrontendUserAuthentication();
         $subject->initializeUserSessionManager($userSessionManagerMock);
@@ -82,17 +83,17 @@ final class FrontendUserAuthenticationTest extends UnitTestCase
         // Main session backend setup
         $userSession = UserSession::createNonFixated($uniqueSessionId);
         $userSessionManagerMock = $this->createMock(UserSessionManager::class);
-        $userSessionManagerMock->method('createFromRequestOrAnonymous')->withAnyParameters()->willReturn($userSession);
-        $userSessionManagerMock->method('createAnonymousSession')->withAnyParameters()->willReturn($userSession);
+        $userSessionManagerMock->method('createFromRequestOrAnonymous')->willReturn($userSession);
+        $userSessionManagerMock->method('createAnonymousSession')->willReturn($userSession);
         // Verify new session id is generated
         // set() and update() shouldn't be called since no session cookie is set
         // remove() should be called with given session id
-        $userSessionManagerMock->expects($this->once())->method('isSessionPersisted')->with(self::anything())->willReturn(true);
-        $userSessionManagerMock->expects($this->never())->method('removeSession')->with(self::anything());
+        $userSessionManagerMock->expects($this->once())->method('isSessionPersisted')->willReturn(true);
+        $userSessionManagerMock->expects($this->never())->method('removeSession');
 
         // set() and update() shouldn't be called since no session cookie is set
-        $userSessionManagerMock->expects($this->never())->method('elevateToFixatedUserSession')->with(self::anything());
-        $userSessionManagerMock->expects($this->once())->method('updateSession')->with(self::anything());
+        $userSessionManagerMock->expects($this->never())->method('elevateToFixatedUserSession');
+        $userSessionManagerMock->expects($this->once())->method('updateSession');
 
         // new session should be written
         $sessionRecord = [
@@ -120,5 +121,38 @@ final class FrontendUserAuthenticationTest extends UnitTestCase
         $prev = error_reporting(0);
         $subject->storeSessionData();
         error_reporting($prev);
+    }
+
+    public static function getLoginFormDataRespectsPermaloginConfigurationDataProvider(): array
+    {
+        return [
+            'disabled, checkbox checked' => [-1, '1', false],
+            'disabled, checkbox unchecked' => [-1, '', false],
+            'disabled, field not submitted' => [-1, null, false],
+            'default disabled, checkbox checked' => [0, '1', true],
+            'default disabled, checkbox unchecked' => [0, '', false],
+            'default disabled, explicit zero' => [0, '0', false],
+            'default disabled, field not submitted' => [0, null, false],
+            'default enabled, checkbox checked' => [1, '1', true],
+            'default enabled, checkbox unchecked' => [1, '', false],
+            'default enabled, explicit zero' => [1, '0', false],
+            'default enabled, field not submitted' => [1, null, true],
+            'always, checkbox checked' => [2, '1', true],
+            'always, checkbox unchecked' => [2, '', true],
+            'always, field not submitted' => [2, null, true],
+        ];
+    }
+
+    #[DataProvider('getLoginFormDataRespectsPermaloginConfigurationDataProvider')]
+    #[Test]
+    public function getLoginFormDataRespectsPermaloginConfiguration(int $configuration, ?string $submittedValue, bool $expected): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['FE']['permalogin'] = $configuration;
+        $request = new ServerRequest('https://example.com/', 'POST');
+        if ($submittedValue !== null) {
+            $request = $request->withParsedBody(['permalogin' => $submittedValue]);
+        }
+        $subject = new FrontendUserAuthentication();
+        self::assertSame($expected, $subject->getLoginFormData($request)['permanent']);
     }
 }

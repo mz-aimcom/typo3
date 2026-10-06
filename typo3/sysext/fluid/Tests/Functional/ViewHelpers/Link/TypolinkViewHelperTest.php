@@ -38,7 +38,7 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
     /**
      * @var array Used by buildDefaultLanguageConfiguration() of SiteBasedTestTrait
      */
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -63,28 +63,28 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
             ],
             'link: default with additional parameters' => [
                 '<f:link.typolink parameter="1" additionalParams="&foo=bar">This is a testlink</f:link.typolink>',
-                '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+                '<a href="/en/?foo=bar&amp;cHash=626dbb5a2e0bcc17f77dc364642237e24deaafe0d981c475563b038c4ad68138">This is a testlink</a>',
             ],
             'link: with add query string' => [
                 '<f:link.typolink parameter="1" addQueryString="untrusted">This is a testlink</f:link.typolink>',
-                '<a href="/en/?foo=bar&amp;temp=test&amp;cHash=286759dfcd3f566fa21091a0d77e9831">This is a testlink</a>',
+                '<a href="/en/?foo=bar&amp;temp=test&amp;cHash=aad29f8fed213a294e265642dd11ae9d143babfd824629b771aea51022589fb3">This is a testlink</a>',
             ],
             'link: with add query string and exclude' => [
                 '<f:link.typolink parameter="1" addQueryString="untrusted" addQueryStringExclude="temp">This is a testlink</f:link.typolink>',
-                '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+                '<a href="/en/?foo=bar&amp;cHash=626dbb5a2e0bcc17f77dc364642237e24deaafe0d981c475563b038c4ad68138">This is a testlink</a>',
             ],
             't3://page link: default' => [
                 '<f:link.typolink parameter="t3://page?uid=1&foo=bar">This is a testlink</f:link.typolink>',
-                '<a href="/en/?foo=bar&amp;cHash=afa4b37588ab917af3cfe2cd4464029d">This is a testlink</a>',
+                '<a href="/en/?foo=bar&amp;cHash=626dbb5a2e0bcc17f77dc364642237e24deaafe0d981c475563b038c4ad68138">This is a testlink</a>',
             ],
             't3://page link: default with additional parameters' => [
                 '<f:link.typolink parameter="t3://page?uid=1&foo=bar" additionalParams="&bar=foo">This is a testlink</f:link.typolink>',
-                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=ff6d36ab0e75db69a8e6bf5271602dcb">This is a testlink</a>',
+                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=82af408a16390604666f7d2f7f903cfdb6f288d1a6a2ae663d179cd405f03516">This is a testlink</a>',
             ],
             // parameter `foo=bar` defined via t3-urn takes precedence over `foo=additional` in `additionalParams`
             't3://page link: default with additional parameters - t3-urn parameters take precedence' => [
                 '<f:link.typolink parameter="t3://page?uid=1&foo=bar" additionalParams="&bar=foo&foo=additional">This is a testlink</f:link.typolink>',
-                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=ff6d36ab0e75db69a8e6bf5271602dcb">This is a testlink</a>',
+                '<a href="/en/?bar=foo&amp;foo=bar&amp;cHash=82af408a16390604666f7d2f7f903cfdb6f288d1a6a2ae663d179cd405f03516">This is a testlink</a>',
             ],
             't3://url link: default' => [
                 '<f:link.typolink parameter="t3://url?url=https://example.org?param=1&other=dude">This is a testlink</f:link.typolink>',
@@ -134,11 +134,11 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
             ],
             'page with complex title and extended parameters' => [
                 '<f:link.typolink parameter="1 - - \"a \\\"link\\\" title with \\\\\ \" &x=y">This is a testlink</f:link.typolink>',
-                '<a href="/en/?x=y&amp;cHash=fcdb7fbded8dc9d683ea83aee9909d99" title="a &quot;link&quot; title with \">This is a testlink</a>',
+                '<a href="/en/?x=y&amp;cHash=8e24cf41b0783eabd312823ed1e38df3b119ed7e51bbaddd4cc86fde26719776" title="a &quot;link&quot; title with \">This is a testlink</a>',
             ],
             'full parameter usage' => [
                 '<f:link.typolink parameter="1 _blank css-class \"testtitle with whitespace\" &X=y">This is a testlink</f:link.typolink>',
-                '<a href="/en/?X=y&amp;cHash=b8582914879e1ee43c72a4d26e4a4d98" target="_blank" title="testtitle with whitespace" class="css-class">This is a testlink</a>',
+                '<a href="/en/?X=y&amp;cHash=9c5ac0b5f398ce7db74f108e6d80c6e7dbf1b0616ae8fa2636778c2a752790d3" target="_blank" title="testtitle with whitespace" class="css-class">This is a testlink</a>',
             ],
             't3:// with extended class' => [
                 '<f:link.typolink parameter="t3://url?url=https://example.org?param=1&other=dude - css-class">This is a testlink</f:link.typolink>',
@@ -171,7 +171,7 @@ final class TypolinkViewHelperTest extends FunctionalTestCase
                 $this->buildDefaultLanguageConfiguration('EN', '/en/'),
             ]
         );
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -185,7 +185,7 @@ page.10 {
 EOT
         ]);
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())
+            new InternalRequest()
             ->withPageId(1)
             ->withQueryParameter('foo', 'bar')
             ->withQueryParameter('temp', 'test')
@@ -204,14 +204,14 @@ EOT
                 'Link text',
             ],
             'target _self' => [
-                '<f:link.typolink parameter="{parameter}" parts-as="typoLinkParts">Individual {typoLinkParts.target} {typoLinkParts.class} {typoLinkParts.title}</f:link.typolink>',
+                '<f:link.typolink parameter="{parameter}" partsAs="typoLinkParts">Individual {typoLinkParts.target} {typoLinkParts.class} {typoLinkParts.title}</f:link.typolink>',
                 [
                     'parameter' => 'http://typo3.org/ "_self" "<CSS>" "<Title>"',
                 ],
                 '<a href="http://typo3.org/" target="_self" title="&lt;Title&gt;" class="&lt;CSS&gt;">Individual _self &lt;CSS&gt; &lt;Title&gt;</a>',
             ],
             'target does not point to "self", adds noreferrer relationship' => [
-                '<f:link.typolink parameter="{parameter}" parts-as="typoLinkParts">Individual {typoLinkParts.target} {typoLinkParts.class} {typoLinkParts.title}</f:link.typolink>',
+                '<f:link.typolink parameter="{parameter}" partsAs="typoLinkParts">Individual {typoLinkParts.target} {typoLinkParts.class} {typoLinkParts.title}</f:link.typolink>',
                 [
                     'parameter' => 'http://typo3.org/ "<Target>" "<CSS>" "<Title>"',
                 ],
@@ -232,26 +232,40 @@ EOT
                     . '&lt;img src=&quot;logo.png&quot; alt=&quot;&amp;quot;&amp;lt;ALT&amp;gt;&amp;quot;&quot;&gt;&lt;/div&gt;"'
                     . ' data-other="&#039;&#039;" title="&lt;Title&gt;" class="&lt;CSS&gt;">Link Text</a>',
             ],
-            'parts-as is local variable' => [
-                '<f:link.typolink parameter="{parameter}" parts-as="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
+            'partsAs is local variable' => [
+                '<f:link.typolink parameter="{parameter}" partsAs="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
                 [
                     'parameter' => 'http://typo3.org/ "_self"',
                 ],
                 '<a href="http://typo3.org/" target="_self">_self</a>',
             ],
             'typolinkParameter object' => [
-                '<f:link.typolink parameter="{parameter}" parts-as="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
+                '<f:link.typolink parameter="{parameter}" partsAs="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
                 [
                     'parameter' => new TypolinkParameter('http://typo3.org/', '_self'),
                 ],
                 '<a href="http://typo3.org/" target="_self">_self</a>',
             ],
             'invalid parameter' => [
-                '<f:link.typolink parameter="{parameter}" parts-as="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
+                '<f:link.typolink parameter="{parameter}" partsAs="typoLinkParts">{typoLinkParts.target}</f:link.typolink>{typoLinkParts.target}',
                 [
                     'parameter' => new \stdClass(),
                 ],
                 '',
+            ],
+            'partsAs works' => [
+                '<f:link.typolink parameter="{parameter}" partsAs="foo">{foo.target}</f:link.typolink>{foo.target}',
+                [
+                    'parameter' => 'http://typo3.org/ "_self"',
+                ],
+                '<a href="http://typo3.org/" target="_self">_self</a>',
+            ],
+            'parts-as still works' => [
+                '<f:link.typolink parameter="{parameter}" parts-as="foo">{foo.target}</f:link.typolink>{foo.target}',
+                [
+                    'parameter' => 'http://typo3.org/ "_self"',
+                ],
+                '<a href="http://typo3.org/" target="_self">_self</a>',
             ],
         ];
     }
@@ -275,6 +289,12 @@ EOT
         $context->getTemplatePaths()->setTemplateSource($template);
         $view = new TemplateView($context);
         $view->assignMultiple($assigns);
-        self::assertSame($expected, trim($view->render()));
+        self::assertSame($expected, trim($view->render()), 'uncached');
+
+        $context = $this->get(RenderingContextFactory::class)->create([], $request);
+        $context->getTemplatePaths()->setTemplateSource($template);
+        $view = new TemplateView($context);
+        $view->assignMultiple($assigns);
+        self::assertSame($expected, trim($view->render()), 'cached');
     }
 }

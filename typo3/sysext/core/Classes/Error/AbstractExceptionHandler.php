@@ -20,8 +20,9 @@ use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Error\Http\StatusException;
 use TYPO3\CMS\Core\Http\ApplicationType;
-use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\SysLog\Action as SystemLogGenericAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
 use TYPO3\CMS\Core\SysLog\Type as SystemLogType;
@@ -33,7 +34,7 @@ use TYPO3\CMS\Core\Utility\HttpUtility;
  *
  * This file is a backport from TYPO3 Flow
  */
-abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, SingletonInterface, LoggerAwareInterface
+abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, LoggerAwareInterface
 {
     use LoggerAwareTrait;
 
@@ -101,11 +102,15 @@ abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, Si
         try {
             if ($this->logger) {
                 // 'FE' if in FrontendApplication, else 'BE' (also in CLI without request object)
+                // @todo: We could reconsider this construct with PHP 8.5: It might be possible to register
+                //        the exception handler early during bootstrap. Then, later, when a request is available,
+                //        get it, and reconfigure exception handler to its final state. This would avoid the runtime
+                //        dependency to request including the funny PHP_SAPI fork in handleException().
                 $applicationMode = ($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
                     && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isFrontend()
                     ? 'FE'
                     : 'BE';
-                $requestUrl = $this->anonymizeToken(GeneralUtility::getIndpEnv('TYPO3_REQUEST_URL'));
+                $requestUrl = $this->anonymizeToken(NormalizedParams::createFromServerParams($_SERVER)->getRequestUrl());
                 $this->logger->critical('Core: Exception handler ({mode}: {application_mode}): {exception_class}, code #{exception_code}, file {file}, line {line}: {message}', [
                     'mode' => $mode,
                     'application_mode' => $applicationMode,
@@ -130,7 +135,7 @@ abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, Si
         $logMessage = 'Uncaught TYPO3 Exception: ' . $exceptionCodeNumber . $exception->getMessage() . ' | '
             . get_class($exception) . ' thrown in file ' . $filePathAndName . ' in line ' . $exception->getLine();
         if ($mode === self::CONTEXT_WEB) {
-            $logMessage .= '. Requested URL: ' . $this->anonymizeToken(GeneralUtility::getIndpEnv('TYPO3_REQUEST_URL'));
+            $logMessage .= '. Requested URL: ' . $this->anonymizeToken(NormalizedParams::createFromServerParams($_SERVER)->getRequestUrl());
         }
         // When database credentials are wrong, the exception is probably
         // caused by this. Therefore we cannot do any database operation,
@@ -180,7 +185,7 @@ abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, Si
                 'level' => SystemLogType::toLevel(SystemLogType::ERROR),
                 'details' => str_replace('%', '%%', $logMessage),
                 'log_data' => empty($data) ? '' : json_encode($data),
-                'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                'IP' => NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress(),
                 'tstamp' => $GLOBALS['EXEC_TIME'],
                 'workspace' => $workspace,
             ]
@@ -195,16 +200,33 @@ abstract class AbstractExceptionHandler implements ExceptionHandlerInterface, Si
      */
     protected function sendStatusHeaders(\Throwable $exception)
     {
-        if (method_exists($exception, 'getStatusHeaders')) {
-            $headers = $exception->getStatusHeaders();
-        } else {
-            $headers = [HttpUtility::HTTP_STATUS_500];
-        }
+        $headers = $exception instanceof StatusException
+            ? $exception->getStatusHeaders()
+            : [HttpUtility::HTTP_STATUS_500];
         if (!headers_sent()) {
             foreach ($headers as $header) {
                 header($header);
             }
         }
+    }
+
+    /**
+     * Derives the numeric HTTP status code from the exception.
+     *
+     * Mirrors the logic of {@see sendStatusHeaders()}: returns the status code
+     * from the HTTP status line of a StatusException, or 500 for any other exception.
+     */
+    protected function getHttpStatusCodeFromException(\Throwable $exception): int
+    {
+        if (!($exception instanceof StatusException)) {
+            return 500;
+        }
+        foreach ($exception->getStatusHeaders() ?? [] as $header) {
+            if (preg_match('/^HTTP\/[\d.]+\s+(\d{3})/', $header, $matches)) {
+                return (int)$matches[1];
+            }
+        }
+        return 500;
     }
 
     protected function getBackendUser(): ?BackendUserAuthentication

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Persistence\Generic;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Container\ContainerInterface;
 use TYPO3\CMS\Core\Utility\StringUtility;
@@ -32,6 +33,7 @@ use TYPO3\CMS\Extbase\Tests\Unit\Persistence\Fixture\Model\Entity2;
 use TYPO3\CMS\Extbase\Tests\Unit\Persistence\Generic\Fixtures\TearDownableBackendInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class PersistenceManagerTest extends UnitTestCase
 {
     #[Test]
@@ -44,9 +46,9 @@ final class PersistenceManagerTest extends UnitTestCase
         $mockBackend->expects($this->once())->method('setAggregateRootObjects')->with($objectStorage);
 
         $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $manager->add($entity2);
 
@@ -63,9 +65,9 @@ final class PersistenceManagerTest extends UnitTestCase
         $mockBackend->expects($this->once())->method('setDeletedEntities')->with($objectStorage);
 
         $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $manager->remove($entity2);
 
@@ -82,69 +84,40 @@ final class PersistenceManagerTest extends UnitTestCase
         $mockBackend->expects($this->once())->method('getIdentifierByObject')->with($object)->willReturn($fakeUuid);
 
         $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
 
         self::assertEquals($manager->getIdentifierByObject($object), $fakeUuid);
     }
 
     #[Test]
-    public function getObjectByIdentifierReturnsObjectFromSessionIfAvailable(): void
+    public function getObjectByIdentifierDelegatesToBackend(): void
     {
         $fakeUuid = 'fakeUuid';
         $object = new \stdClass();
 
-        $mockSession = $this->createMock(Session::class);
-        $mockSession->expects($this->once())->method('hasIdentifier')->with($fakeUuid, \stdClass::class)->willReturn(true);
-        $mockSession->expects($this->once())->method('getObjectByIdentifier')->with($fakeUuid)->willReturn($object);
-
-        $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
-            $this->createMock(BackendInterface::class),
-            $mockSession
-        );
-
-        self::assertEquals($manager->getObjectByIdentifier($fakeUuid, $object::class), $object);
-    }
-
-    #[Test]
-    public function getObjectByIdentifierReturnsObjectFromPersistenceIfAvailable(): void
-    {
-        $fakeUuid = '42';
-        $object = new \stdClass();
-        $fakeEntityType = get_class($object);
-
-        $mockSession = $this->createMock(Session::class);
-        $mockSession->expects($this->once())->method('hasIdentifier')->with($fakeUuid)->willReturn(false);
-
         $mockBackend = $this->createMock(BackendInterface::class);
         $mockBackend->expects($this->once())->method('getObjectByIdentifier')->with(
             $fakeUuid,
-            $fakeEntityType
+            \stdClass::class
         )->willReturn($object);
 
         $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $mockSession
+            self::createStub(Session::class)
         );
 
-        self::assertEquals($manager->getObjectByIdentifier($fakeUuid, $fakeEntityType), $object);
+        self::assertSame($object, $manager->getObjectByIdentifier($fakeUuid, $object::class));
     }
 
     #[Test]
-    public function getObjectByIdentifierReturnsNullForUnknownObject(): void
+    public function getObjectByIdentifierReturnsNullWhenBackendReturnsNull(): void
     {
         $fakeUuid = '42';
         $fakeEntityType = 'foobar';
-
-        $mockSession = $this->createMock(Session::class);
-        $mockSession->expects($this->once())->method('hasIdentifier')->with(
-            $fakeUuid,
-            $fakeEntityType
-        )->willReturn(false);
 
         $mockBackend = $this->createMock(BackendInterface::class);
         $mockBackend->expects($this->once())->method('getObjectByIdentifier')->with(
@@ -153,9 +126,9 @@ final class PersistenceManagerTest extends UnitTestCase
         )->willReturn(null);
 
         $manager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $mockSession
+            self::createStub(Session::class)
         );
 
         self::assertNull($manager->getObjectByIdentifier($fakeUuid, $fakeEntityType));
@@ -167,9 +140,9 @@ final class PersistenceManagerTest extends UnitTestCase
         $someObject = new \stdClass();
         $backend = $this->createMock(BackendInterface::class);
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $backend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $persistenceManager->add($someObject);
 
@@ -179,8 +152,8 @@ final class PersistenceManagerTest extends UnitTestCase
         // this is the actual assertion
         $backend->expects($this->atLeastOnce())->method('setAggregateRootObjects')->with($expectedAddedObjects);
 
-        $backend->expects($this->atLeastOnce())->method('setChangedEntities')->with(self::anything());
-        $backend->expects($this->atLeastOnce())->method('setDeletedEntities')->with(self::anything());
+        $backend->expects($this->atLeastOnce())->method('setChangedEntities');
+        $backend->expects($this->atLeastOnce())->method('setDeletedEntities');
         $backend->expects($this->atLeastOnce())->method('commit');
         $persistenceManager->persistAll();
     }
@@ -194,9 +167,9 @@ final class PersistenceManagerTest extends UnitTestCase
 
         $backend = $this->createMock(BackendInterface::class);
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $backend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $persistenceManager->add($object1);
         $persistenceManager->add($object2);
@@ -213,8 +186,8 @@ final class PersistenceManagerTest extends UnitTestCase
         // this is the actual assertion
         $backend->expects($this->atLeastOnce())->method('setAggregateRootObjects')->with($expectedAddedObjects);
 
-        $backend->expects($this->atLeastOnce())->method('setChangedEntities')->with(self::anything());
-        $backend->expects($this->atLeastOnce())->method('setDeletedEntities')->with(self::anything());
+        $backend->expects($this->atLeastOnce())->method('setChangedEntities');
+        $backend->expects($this->atLeastOnce())->method('setDeletedEntities');
         $backend->expects($this->atLeastOnce())->method('commit');
 
         $persistenceManager->persistAll();
@@ -229,9 +202,9 @@ final class PersistenceManagerTest extends UnitTestCase
 
         $backend = $this->createMock(BackendInterface::class);
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $backend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $persistenceManager->add($object1);
         $persistenceManager->add($object2);
@@ -252,8 +225,8 @@ final class PersistenceManagerTest extends UnitTestCase
         // this is the actual assertion
         $backend->expects($this->atLeastOnce())->method('setAggregateRootObjects')->with($expectedAddedObjects);
 
-        $backend->expects($this->atLeastOnce())->method('setChangedEntities')->with(self::anything());
-        $backend->expects($this->atLeastOnce())->method('setDeletedEntities')->with(self::anything());
+        $backend->expects($this->atLeastOnce())->method('setChangedEntities');
+        $backend->expects($this->atLeastOnce())->method('setDeletedEntities');
         $backend->expects($this->atLeastOnce())->method('commit');
         $persistenceManager->persistAll();
     }
@@ -268,16 +241,16 @@ final class PersistenceManagerTest extends UnitTestCase
         $object = new \ArrayObject(['val' => '1']);
         $backend = $this->createMock(BackendInterface::class);
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $backend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $persistenceManager->remove($object);
 
         $expectedDeletedObjects = new ObjectStorage();
         $expectedDeletedObjects->attach($object);
         $backend->expects($this->atLeastOnce())->method('setAggregateRootObjects');
-        $backend->expects($this->atLeastOnce())->method('setChangedEntities')->with(self::anything());
+        $backend->expects($this->atLeastOnce())->method('setChangedEntities');
 
         // this is the actual assertion
         $backend->expects($this->atLeastOnce())->method('setDeletedEntities')->with($expectedDeletedObjects);
@@ -325,7 +298,7 @@ final class PersistenceManagerTest extends UnitTestCase
             ->with(self::equalTo($changedEntities));
 
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
             $session
         );
@@ -343,9 +316,9 @@ final class PersistenceManagerTest extends UnitTestCase
         $mockBackend = $this->createMock(TearDownableBackendInterface::class);
         $mockBackend->expects($this->once())->method('tearDown');
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
         $persistenceManager->tearDown();
     }
@@ -376,9 +349,9 @@ final class PersistenceManagerTest extends UnitTestCase
             ->with(self::equalTo($aggregateRootObjects));
 
         $persistenceManager = new PersistenceManager(
-            $this->createMock(QueryFactoryInterface::class),
+            self::createStub(QueryFactoryInterface::class),
             $mockBackend,
-            $this->createMock(Session::class)
+            self::createStub(Session::class)
         );
 
         $persistenceManager->add($entity1);

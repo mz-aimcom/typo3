@@ -21,12 +21,14 @@ use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * Translate form element properties.
  *
  * Scope: frontend / backend
+ *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-form-translateelementproperty
  */
 final class TranslateElementPropertyViewHelper extends AbstractViewHelper
 {
@@ -39,12 +41,13 @@ final class TranslateElementPropertyViewHelper extends AbstractViewHelper
         $this->registerArgument('element', RootRenderableInterface::class, 'Form Element to translate', true);
         $this->registerArgument('property', 'mixed', 'Property to translate');
         $this->registerArgument('renderingOptionProperty', 'mixed', 'Property to translate');
+        $this->registerArgument('languageKey', 'string', 'Language key ("da" for example) or "default" to use. Also a Locale object is possible. If empty, use current locale from the request.');
     }
 
     /**
      * Return array element by key.
      */
-    public function render(): array|null|string
+    public function render(): array|string|null
     {
         self::assertArgumentTypes($this->arguments);
         $element = $this->arguments['element'];
@@ -65,7 +68,7 @@ final class TranslateElementPropertyViewHelper extends AbstractViewHelper
         $formRuntime = $this->renderingContext
             ->getViewHelperVariableContainer()
             ->get(RenderRenderableViewHelper::class, 'formRuntime');
-        return $this->translationService->translateFormElementValue($element, $propertyParts, $formRuntime);
+        return $this->translationService->translateFormElementValue($element, $propertyParts, $formRuntime, $this->arguments['languageKey']);
     }
 
     private static function assertArgumentTypes(array $arguments): void
@@ -78,7 +81,7 @@ final class TranslateElementPropertyViewHelper extends AbstractViewHelper
             ) {
                 continue;
             }
-            throw new Exception(
+            throw new InvalidArgumentValueException(
                 sprintf(
                     'Arguments "%s" either must be string or array',
                     $argumentName

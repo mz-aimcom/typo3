@@ -31,10 +31,10 @@ use TYPO3\CMS\Core\Http\Response;
  *
  * @internal
  */
-class EidHandler implements MiddlewareInterface
+readonly class EidHandler implements MiddlewareInterface
 {
     public function __construct(
-        protected readonly DispatcherInterface $dispatcher
+        protected DispatcherInterface $dispatcher
     ) {}
 
     /**
@@ -52,12 +52,12 @@ class EidHandler implements MiddlewareInterface
         ob_clean();
 
         if (!is_string($eID)) {
-            return (new Response())->withStatus(400, 'Invalid eID');
+            return new Response()->withStatus(400, 'Invalid eID');
         }
 
         $target = $GLOBALS['TYPO3_CONF_VARS']['FE']['eID_include'][$eID] ?? null;
         if (empty($target)) {
-            return (new Response())->withStatus(404, 'eID not registered');
+            return new Response()->withStatus(404, 'eID not registered');
         }
 
         $request = $request->withAttribute('target', $target);

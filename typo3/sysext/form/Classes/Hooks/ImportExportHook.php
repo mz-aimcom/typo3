@@ -20,6 +20,7 @@ use TYPO3\CMS\Form\Slot\FilePersistenceSlot;
 
 /**
  * @internal
+ * @deprecated: Remove in v16 along with the FileFormsToDatabaseUpgradeWizard
  */
 class ImportExportHook
 {

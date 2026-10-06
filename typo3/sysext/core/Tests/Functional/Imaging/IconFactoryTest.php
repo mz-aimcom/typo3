@@ -20,6 +20,8 @@ namespace TYPO3\CMS\Core\Tests\Functional\Imaging;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\DependencyInjection\Container;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Imaging\Event\ModifyRecordOverlayIconIdentifierEvent;
 use TYPO3\CMS\Core\Imaging\IconFactory;
@@ -29,6 +31,8 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Schema\Field\FieldCollection;
+use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class IconFactoryTest extends FunctionalTestCase
@@ -155,7 +159,7 @@ final class IconFactoryTest extends FunctionalTestCase
             $this->registeredSpinningIconIdentifier,
             SvgIconProvider::class,
             [
-                'source' => __DIR__ . '/Fixtures/file.svg',
+                'source' => 'EXT:core/Resources/Public/Icons/Extension.svg',
                 'spinning' => true,
             ]
         );
@@ -229,14 +233,14 @@ final class IconFactoryTest extends FunctionalTestCase
     #[Test]
     public function getIconForResourceReturnsCorrectMarkupForFileResources(): void
     {
-        $resourceMock = $this->createMock(File::class);
-        $resourceMock->method('isMissing')->willReturn(false);
-        $resourceMock->method('getExtension')->willReturn('pdf');
-        $resourceMock->method('getMimeType')->willReturn('');
+        $resourceStub = self::createStub(File::class);
+        $resourceStub->method('isMissing')->willReturn(false);
+        $resourceStub->method('getExtension')->willReturn('pdf');
+        $resourceStub->method('getMimeType')->willReturn('');
 
         self::assertStringContainsString(
             '<span class="t3js-icon icon icon-size-medium icon-state-default icon-mimetypes-pdf" data-identifier="mimetypes-pdf" aria-hidden="true">',
-            $this->subject->getIconForResource($resourceMock)->render()
+            $this->subject->getIconForResource($resourceStub)->render()
         );
     }
 
@@ -365,7 +369,7 @@ final class IconFactoryTest extends FunctionalTestCase
         $GLOBALS['TCA']['']['ctrl'] = [];
         self::assertStringContainsString(
             '<span class="t3js-icon icon icon-size-medium icon-state-default icon-default-not-found" data-identifier="default-not-found" aria-hidden="true">',
-            $this->subject->getIconForRecord('', [])->render()
+            $this->subject->getIconForRecord('', [], IconSize::MEDIUM, new TcaSchema('', new FieldCollection([]), []))->render()
         );
     }
 
@@ -434,6 +438,36 @@ final class IconFactoryTest extends FunctionalTestCase
         $mockRecord['hidden'] = '1';
         $result = $this->subject->getIconForRecord('tt_content', $mockRecord)->render();
         self::assertStringContainsString('<span class="t3js-icon icon icon-size-medium icon-state-default icon-mimetypes-x-content-text" data-identifier="mimetypes-x-content-text" aria-hidden="true">', $result);
+        self::assertStringContainsString('<span class="icon-overlay icon-overlay-hidden">', $result);
+    }
+
+    /**
+     * Overlays are calculated from the enable columns, which a resolved record keeps in its
+     * system properties instead of its regular properties. Only the raw record carries them.
+     */
+    #[Test]
+    public function getIconForRecordObjectDeterminesTableAndOverlayFromRecord(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/tt_content.csv');
+        $record = $this->get(RecordFactory::class)->createFromDatabaseRow(
+            'tt_content',
+            BackendUtility::getRecord('tt_content', 1)
+        );
+        $result = $this->subject->getIconForRecordObject($record)->render();
+        self::assertStringContainsString('data-identifier="mimetypes-x-content-text-media"', $result);
+        self::assertStringContainsString('<span class="icon-overlay icon-overlay-hidden">', $result);
+    }
+
+    #[Test]
+    public function getIconForRecordObjectDeterminesTableAndOverlayFromRawRecord(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/tt_content.csv');
+        $record = $this->get(RecordFactory::class)->createRawRecord(
+            'tt_content',
+            BackendUtility::getRecord('tt_content', 1)
+        );
+        $result = $this->subject->getIconForRecordObject($record)->render();
+        self::assertStringContainsString('data-identifier="mimetypes-x-content-text-media"', $result);
         self::assertStringContainsString('<span class="icon-overlay icon-overlay-hidden">', $result);
     }
 
@@ -543,11 +577,11 @@ final class IconFactoryTest extends FunctionalTestCase
     /**
      * Create file object to use as test subject
      */
-    protected function getTestSubjectFileObject(string $extension, string $mimeType = ''): File
+    private function getTestSubjectFileObject(string $extension, string $mimeType = ''): File
     {
-        $mockedStorage = $this->createMock(ResourceStorage::class);
+        $storageStub = self::createStub(ResourceStorage::class);
         $mockedFile = $this->getMockBuilder(File::class)
-            ->setConstructorArgs([['identifier' => '', 'name' => ''], $mockedStorage])
+            ->setConstructorArgs([['identifier' => '', 'name' => ''], $storageStub])
             ->getMock();
         $mockedFile->expects($this->atMost(1))->method('getExtension')->willReturn($extension);
         $mockedFile->expects($this->atLeastOnce())->method('getMimeType')->willReturn($mimeType);
@@ -557,14 +591,14 @@ final class IconFactoryTest extends FunctionalTestCase
     /**
      * Create folder object to use as test subject
      */
-    protected function getTestSubjectFolderObject(string $identifier): Folder
+    private function getTestSubjectFolderObject(string $identifier): Folder
     {
-        $mockedStorage = $this->createMock(ResourceStorage::class);
-        $mockedStorage->method('getRootLevelFolder')->willReturn(
-            new Folder($mockedStorage, '/', '/')
+        $storageStub = self::createStub(ResourceStorage::class);
+        $storageStub->method('getRootLevelFolder')->willReturn(
+            new Folder($storageStub, '/', '/')
         );
-        $mockedStorage->method('checkFolderActionPermission')->willReturn(true);
-        $mockedStorage->method('isBrowsable')->willReturn(true);
-        return new Folder($mockedStorage, $identifier, $identifier);
+        $storageStub->method('checkFolderActionPermission')->willReturn(true);
+        $storageStub->method('isBrowsable')->willReturn(true);
+        return new Folder($storageStub, $identifier, $identifier);
     }
 }

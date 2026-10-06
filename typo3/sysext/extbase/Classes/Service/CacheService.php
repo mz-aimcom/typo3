@@ -21,7 +21,6 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
@@ -30,7 +29,7 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
  * Cache clearing helper functions
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-class CacheService implements SingletonInterface
+class CacheService
 {
     protected array $clearCacheForTables = [];
     protected \SplStack $cacheTagStack;
@@ -51,7 +50,8 @@ class CacheService implements SingletonInterface
     /**
      * Clears the page cache
      *
-     * @param int|int[] $pageIdsToClear single or multiple pageIds to clear the cache for
+     * @param int|int[]|string $pageIdsToClear single or multiple pageIds to clear the cache for
+     * @todo This method should be hardened to only accept integers or an array of integers
      */
     public function clearPageCache($pageIdsToClear = null): void
     {

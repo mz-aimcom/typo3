@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\View\BackendLayout;
 
-use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Database\Connection;
@@ -34,10 +33,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @internal Specific DataProviderInterface implementation, not considered public API.
  */
-#[Autoconfigure(public: true)]
 readonly class DefaultDataProvider implements DataProviderInterface
 {
-    private const DEFAULT_COLUMNS_LAYOUT = '
+    private const string DEFAULT_COLUMNS_LAYOUT = '
 		backend_layout {
 			colCount = 1
 			rowCount = 1
@@ -101,6 +99,11 @@ readonly class DefaultDataProvider implements DataProviderInterface
         return $backendLayout;
     }
 
+    public function getIdentifier(): string
+    {
+        return 'default';
+    }
+
     /**
      * Creates a backend layout with the default configuration.
      */
@@ -132,7 +135,7 @@ readonly class DefaultDataProvider implements DataProviderInterface
         $references = $this->fileRepository->findByRelation('backend_layout', 'icon', (int)$icon['uid']);
         if (!empty($references)) {
             $icon = reset($references);
-            return $icon->getPublicUrl();
+            return $icon->getPublicUrl() ?? '';
         }
         return '';
     }

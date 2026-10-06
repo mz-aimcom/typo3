@@ -32,6 +32,10 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class NewRecordControllerTest extends FunctionalTestCase
 {
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_translation_domain',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -132,7 +136,30 @@ final class NewRecordControllerTest extends FunctionalTestCase
 
         self::assertEquals(200, $response->getStatusCode());
         self::assertStringContainsString('list-group mt-2', $content);
-        self::assertStringContainsString('Folder from Storage', $content);
+        self::assertStringContainsString('Selection of single files', $content);
+    }
+
+    #[Test]
+    public function controllerRendersSelectionWhenSingleAllowedTableHasSubSchemas(): void
+    {
+        // Limit creation to sys_file_collection, which supports sub-types. The single-item
+        // fast-redirect path must not dereference a missing 'url' key on items that carry
+        // a 'types' sub-array, but fall through to render the selection wizard.
+        $connection = $this->getConnectionPool()->getConnectionForTable('pages');
+        $connection->update(
+            'pages',
+            ['TSconfig' => 'mod.web_list.allowedNewTables = sys_file_collection'],
+            ['uid' => 1]
+        );
+
+        $request = $this->createRequest('/record/new', ['id' => 1]);
+        $controller = $this->get(NewRecordController::class);
+
+        $response = $controller->mainAction($request);
+        $content = (string)$response->getBody();
+
+        self::assertEquals(200, $response->getStatusCode());
+        self::assertStringContainsString('Selection of single files', $content);
     }
 
     #[Test]
@@ -153,14 +180,44 @@ final class NewRecordControllerTest extends FunctionalTestCase
         $content = (string)$response->getBody();
 
         self::assertEquals(200, $response->getStatusCode());
-        self::assertStringNotContainsString('Folder from Storage', $content);
+        self::assertStringNotContainsString('Files from a selected folder', $content);
+    }
+
+    #[Test]
+    public function translationDomainDeterminesRecordGroupPackage(): void
+    {
+        $groupedLinks = [];
+
+        /** @var Container $container */
+        $container = $this->get('service_container');
+        $container->set(
+            'test-new-record-group-listener',
+            static function (ModifyNewRecordCreationLinksEvent $event) use (&$groupedLinks): void {
+                $groupedLinks = $event->groupedCreationLinks;
+            }
+        );
+        $container->get(ListenerProvider::class)->addListener(
+            ModifyNewRecordCreationLinksEvent::class,
+            'test-new-record-group-listener'
+        );
+
+        $controller = $this->get(NewRecordController::class);
+        $controller->mainAction($this->createRequest('/record/new', ['id' => 1]));
+
+        self::assertArrayHasKey('testtranslationdomain', $groupedLinks);
+        self::assertSame(
+            'A test extension for translation domain mapping',
+            $groupedLinks['testtranslationdomain']['title']
+        );
+        self::assertSame('TYPO3 CMS Backend', $groupedLinks['backend']['title']);
+        self::assertNotSame($groupedLinks['testtranslationdomain']['icon'], $groupedLinks['backend']['icon']);
     }
 
     private function createRequest(string $path, array $queryParams = []): ServerRequest
     {
         $normalizedParams = new NormalizedParams([], [], '', '');
 
-        return (new ServerRequest('http://localhost' . $path, 'GET'))
+        return new ServerRequest('http://localhost' . $path, 'GET')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('normalizedParams', $normalizedParams)
             ->withAttribute('route', new Route($path, ['packageName' => 'typo3/cms-backend']))

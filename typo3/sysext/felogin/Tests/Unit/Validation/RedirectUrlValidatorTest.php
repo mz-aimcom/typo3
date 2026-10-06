@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\FrontendLogin\Tests\Unit\Validation;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
@@ -38,15 +40,17 @@ use TYPO3\CMS\FrontendLogin\Validation\RedirectUrlValidator;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class RedirectUrlValidatorTest extends UnitTestCase
 {
     protected bool $backupEnvironment = true;
 
-    protected RedirectUrlValidator&AccessibleObjectInterface $accessibleFixture;
-    protected RequestInterface $extbaseRequest;
-    protected EventDispatcherInterface&MockObject $eventDispatcher;
-    protected string $testHostName;
-    protected string $testSitePath;
+    private RedirectUrlValidator&AccessibleObjectInterface $accessibleFixture;
+    private RequestInterface $extbaseRequest;
+    private EventDispatcherInterface&MockObject $eventDispatcher;
+    private string $testHostName;
+    private string $testSitePath;
 
     protected bool $resetSingletonInstances = true;
 
@@ -62,15 +66,14 @@ final class RedirectUrlValidatorTest extends UnitTestCase
         $this->eventDispatcher = $this->createMock(EventDispatcherInterface::class);
         $this->testHostName = 'hostname.tld';
         $this->testSitePath = '/';
-        $this->accessibleFixture = $this->getAccessibleMock(RedirectUrlValidator::class, null, [$mockedSiteFinder, $this->eventDispatcher]);
-        $this->accessibleFixture->setLogger(new NullLogger());
+        $this->accessibleFixture = $this->getAccessibleMock(RedirectUrlValidator::class, null, [$mockedSiteFinder, $this->eventDispatcher, new NullLogger()]);
         $this->setUpFakeSitePathAndHost();
     }
 
     /**
      * Set up a fake site path and host
      */
-    protected function setUpFakeSitePathAndHost(): void
+    private function setUpFakeSitePathAndHost(): void
     {
         $_SERVER['SCRIPT_NAME'] = $this->testSitePath . 'index.php';
         $_SERVER['HTTP_HOST'] = $this->testHostName;

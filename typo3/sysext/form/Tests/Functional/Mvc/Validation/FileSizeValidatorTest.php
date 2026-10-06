@@ -29,11 +29,17 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class FileSizeValidatorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
+    protected array $coreExtensionsToLoad = [
+        'form',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $GLOBALS['TYPO3_REQUEST'] = $request;
     }
 
@@ -65,8 +71,8 @@ final class FileSizeValidatorTest extends FunctionalTestCase
         $options = ['minimum' => '1M', 'maximum' => '10M'];
         $validator = new FileSizeValidator();
         $validator->setOptions($options);
-        $mockedStorage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
-        $file = new File(['identifier' => '/foo', 'name' => 'bar.txt', 'size' => '1'], $mockedStorage);
+        $storageStub = self::createStub(ResourceStorage::class);
+        $file = new File(['identifier' => '/foo', 'name' => 'bar.txt', 'size' => '1'], $storageStub);
         self::assertTrue($validator->validate($file)->hasErrors());
     }
 
@@ -76,8 +82,8 @@ final class FileSizeValidatorTest extends FunctionalTestCase
         $options = ['minimum' => '1M', 'maximum' => '1M'];
         $validator = new FileSizeValidator();
         $validator->setOptions($options);
-        $mockedStorage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
-        $file = new File(['identifier' => '/foo', 'name' => 'bar.txt', 'size' => '1048577'], $mockedStorage);
+        $storageStub = self::createStub(ResourceStorage::class);
+        $file = new File(['identifier' => '/foo', 'name' => 'bar.txt', 'size' => '1048577'], $storageStub);
         self::assertTrue($validator->validate($file)->hasErrors());
     }
 

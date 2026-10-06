@@ -19,14 +19,12 @@ namespace TYPO3\CMS\Fluid\ViewHelpers\Form;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Crypto\HashService;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Domain\Model\FileReference;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Service\ExtensionService;
 use TYPO3\CMS\Extbase\Service\FileHandlingService;
 use TYPO3\CMS\Fluid\ViewHelpers\FormViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
 
 /**
  * ViewHelper which renders a checkbox field used for file upload deletion in Extbase forms.
@@ -46,6 +44,7 @@ final class UploadDeleteCheckboxViewHelper extends AbstractTagBasedViewHelper
 
     public function __construct(
         private readonly HashService $hashService,
+        private readonly ExtensionService $extensionService,
     ) {
         parent::__construct();
     }
@@ -77,7 +76,7 @@ final class UploadDeleteCheckboxViewHelper extends AbstractTagBasedViewHelper
         $extensionName = $extbaseRequestParams->getControllerExtensionName();
         $pluginName = $extbaseRequestParams->getPluginName();
         if ($extensionName === '' || $pluginName === '') {
-            throw new Exception('ExtensionName or PluginName not set in Extbase request', 1719660837);
+            throw new \RuntimeException('ExtensionName or PluginName not set in Extbase request', 1719660837);
         }
 
         $deleteData = [
@@ -85,12 +84,11 @@ final class UploadDeleteCheckboxViewHelper extends AbstractTagBasedViewHelper
             'fileReference' => $fileReference->getUid(),
         ];
 
-        $extensionService = GeneralUtility::makeInstance(ExtensionService::class);
-        $pluginNamespace = $extensionService->getPluginNamespace($extensionName, $pluginName);
+        $pluginNamespace = $this->extensionService->getPluginNamespace($extensionName, $pluginName);
         $formObjectName = $this->getFormObjectName();
         $fileReferenceIdentifier = $this->hashService->hmac($property . $fileReference->getUid(), self::class);
-        $nameAttribute = $pluginNamespace . '[' . FileHandlingService::DELETE_IDENTIFIER . ']' .
-            '[' . $formObjectName . ']' . '[' . $fileReferenceIdentifier . ']';
+        $nameAttribute = $pluginNamespace . '[' . FileHandlingService::DELETE_IDENTIFIER . ']'
+            . '[' . $formObjectName . ']' . '[' . $fileReferenceIdentifier . ']';
         $valueAttribute = $this->hashService->appendHmac(
             json_encode($deleteData, JSON_THROW_ON_ERROR),
             FileHandlingService::DELETE_IDENTIFIER
@@ -103,7 +101,7 @@ final class UploadDeleteCheckboxViewHelper extends AbstractTagBasedViewHelper
 
         $this->tag->addAttribute('id', $idAttribute);
         $this->tag->addAttribute('name', $nameAttribute);
-        $this->tag->addAttribute('value', $valueAttribute);
+        $this->tag->addAttribute('value', (string)$valueAttribute);
         if ($checked === true) {
             $this->tag->addAttribute('checked', 'checked');
         }

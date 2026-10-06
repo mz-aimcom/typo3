@@ -18,30 +18,38 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller;
 
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
+use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Http\UploadedFile;
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
+use TYPO3\CMS\Extbase\Event\Mvc\BeforeActionRateLimitResponseEvent;
+use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Mvc\Controller\Arguments;
 use TYPO3\CMS\Extbase\Mvc\Exception\InvalidArgumentTypeException;
 use TYPO3\CMS\Extbase\Mvc\Exception\NoSuchActionException;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
+use TYPO3\CMS\Extbase\Security\HashScope;
 use TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller\Fixture\Validation\Validator\CustomValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\ConjunctionValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
-use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Tests\ActionControllerTest\Controller\TestController;
 use TYPO3Tests\ActionControllerTest\Domain\Model\Model;
 
 final class ActionControllerTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $testExtensionsToLoad = [
         'typo3/sysext/extbase/Tests/Functional/Fixtures/Extensions/action_controller_test',
     ];
@@ -51,7 +59,7 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
         $subject = $this->get(TestController::class);
         $subject->arguments = new Arguments();
@@ -76,7 +84,7 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
         $subject = $this->get(TestController::class);
         $subject->arguments = new Arguments();
@@ -103,7 +111,7 @@ final class ActionControllerTest extends FunctionalTestCase
         $this->expectExceptionCode(1253175643);
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
         $subject = $this->get(TestController::class);
         $subject->arguments = new Arguments();
@@ -118,10 +126,10 @@ final class ActionControllerTest extends FunctionalTestCase
         $this->expectExceptionCode(1186669086);
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('doesNotExist');
@@ -134,10 +142,10 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('qux');
@@ -151,10 +159,10 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('bar')
@@ -169,7 +177,6 @@ final class ActionControllerTest extends FunctionalTestCase
         $conjunctionValidator = $argument->getValidator();
         self::assertInstanceOf(ConjunctionValidator::class, $conjunctionValidator);
         $validators = $conjunctionValidator->getValidators();
-        self::assertInstanceOf(\SplObjectStorage::class, $validators);
         $validators->rewind();
         self::assertInstanceOf(CustomValidator::class, $validators->current());
         self::assertInstanceOf(ServerRequestInterface::class, $validators->current()->getRequest());
@@ -180,10 +187,10 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('baz')
@@ -198,7 +205,6 @@ final class ActionControllerTest extends FunctionalTestCase
         $conjunctionValidator = $argument->getValidator();
         self::assertInstanceOf(ConjunctionValidator::class, $conjunctionValidator);
         $validators = $conjunctionValidator->getValidators();
-        self::assertInstanceOf(\SplObjectStorage::class, $validators);
         self::assertCount(1, $validators);
         $validators->rewind();
         self::assertInstanceOf(NotEmptyValidator::class, $validators->current());
@@ -210,10 +216,10 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('qux');
@@ -232,65 +238,15 @@ final class ActionControllerTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function renderAssetsForRequestAssignsHeaderDataFromViewIntoPageRenderer(): void
-    {
-        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
-        $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
-        );
-
-        $viewMock = $this->createMock(FluidViewAdapter::class);
-        $viewMock->expects($this->exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('custom-header-data', '');
-        $expectedHeader = 'custom-header-data';
-
-        $pageRenderer = $this->createMock(PageRenderer::class);
-        $pageRenderer->expects($this->atLeastOnce())->method('addHeaderData')->with($expectedHeader);
-        $pageRenderer->expects($this->never())->method('addFooterData');
-        GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
-
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest));
-
-        $subject = $this->get(TestController::class);
-        $subject->view = $viewMock;
-        $subject->renderAssetsForRequest($request);
-    }
-
-    #[Test]
-    public function renderAssetsForRequestAssignsFooterDataFromViewIntoPageRenderer(): void
-    {
-        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
-        $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
-        );
-
-        $viewMock = $this->createMock(FluidViewAdapter::class);
-        $viewMock->expects($this->exactly(2))->method('renderSection')->willReturnOnConsecutiveCalls('', 'custom-footer-data');
-        $expectedFooter = 'custom-footer-data';
-
-        $pageRenderer = $this->createMock(PageRenderer::class);
-        $pageRenderer->expects($this->never())->method('addHeaderData');
-        $pageRenderer->expects($this->atLeastOnce())->method('addFooterData')->with($expectedFooter);
-        GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
-
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest));
-
-        $subject = $this->get(TestController::class);
-        $subject->view = $viewMock;
-        $subject->renderAssetsForRequest($request);
-    }
-
-    #[Test]
     public function addFlashMessageAddsFlashMessageToFlashMessageQueue(): void
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
 
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
-        $request = (new Request($serverRequest))
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('bar')
@@ -318,7 +274,7 @@ final class ActionControllerTest extends FunctionalTestCase
     {
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
 
         $testFilename = $this->createTestFile('testfile.txt', 'TYPO3 - Inspiring People To Share');
@@ -327,9 +283,9 @@ final class ActionControllerTest extends FunctionalTestCase
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setUploadedFiles(['fooParam' => [$uploadedFile]]);
 
-        $serverRequest = (new ServerRequest('https://example.com/', 'POST'))
+        $serverRequest = new ServerRequest('https://example.com/', 'POST')
             ->withAttribute('extbase', $extbaseRequestParameters);
-        $request = (new Request($serverRequest))
+        $request = new Request($serverRequest)
             ->withControllerExtensionName('ActionControllerTest')
             ->withControllerName('Test')
             ->withControllerActionName('bar')
@@ -346,10 +302,331 @@ final class ActionControllerTest extends FunctionalTestCase
         self::assertSame([$uploadedFile], $subject->arguments['fooParam']->getUploadedFiles());
     }
 
+    #[Test]
+    public function errorActionWithValidationErrorsForwardsFlashMessagesWithoutWritingToSession(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        // Create a referring request to ensure ForwardResponse is used
+        $referringRequest = [
+            '@extension' => 'ActionControllerTest',
+            '@controller' => 'Test',
+            '@action' => 'qux',
+        ];
+        $referringRequestSerialized = new HashService()->appendHmac(
+            json_encode($referringRequest),
+            HashScope::ReferringRequest->prefix(),
+            HashAlgo::SHA3_256
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('baz')
+            ->withPluginName('Pi1')
+            ->withArgument('bazParam', []) // Empty array will fail NotEmpty validation
+            ->withArgument('__referrer', ['@request' => $referringRequestSerialized]);
+
+        $subject = $this->get(TestController::class);
+        $response = $subject->processRequest($request);
+
+        // Verify the response is a ForwardResponse with flash messages
+        self::assertInstanceOf(ForwardResponse::class, $response);
+        self::assertSame(400, $response->getStatusCode());
+
+        // Verify flash messages are attached to ForwardResponse
+        $flashMessages = $response->getFlashMessages();
+        self::assertCount(1, $flashMessages);
+        $flashMessage = $flashMessages[0];
+        self::assertSame(ContextualFeedbackSeverity::ERROR, $flashMessage->getSeverity());
+        self::assertFalse($flashMessage->isSessionMessage(), 'Flash messages should not be written to session');
+    }
+
+    #[Test]
+    public function errorActionFlashMessagesAreTransferredViaExtbaseRequestParameters(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        // Create a referring request to ensure ForwardResponse is used
+        $referringRequest = [
+            '@extension' => 'ActionControllerTest',
+            '@controller' => 'Test',
+            '@action' => 'qux',
+        ];
+        $referringRequestSerialized = new HashService()->appendHmac(
+            json_encode($referringRequest),
+            HashScope::ReferringRequest->prefix(),
+            HashAlgo::SHA3_256
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('baz')
+            ->withPluginName('Pi1')
+            ->withArgument('bazParam', []) // Empty array will fail NotEmpty validation
+            ->withArgument('__referrer', ['@request' => $referringRequestSerialized]);
+
+        $subject = $this->get(TestController::class);
+        $response = $subject->processRequest($request);
+
+        // Verify the response is a ForwardResponse with flash messages
+        self::assertInstanceOf(ForwardResponse::class, $response);
+        self::assertSame(400, $response->getStatusCode());
+
+        // Verify flash messages are attached to ForwardResponse
+        $flashMessages = $response->getFlashMessages();
+        self::assertCount(1, $flashMessages);
+        $flashMessage = $flashMessages[0];
+        self::assertSame(ContextualFeedbackSeverity::ERROR, $flashMessage->getSeverity());
+        self::assertStringContainsString(TestController::class . '->bazAction()', $flashMessage->getMessage());
+    }
+
+    #[Test]
+    public function errorActionPreservesOriginalFlashMessagesFromExtbaseRequestParameters(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        // Create an ExtbaseRequestParameters with original flash messages (simulating a forwarded request)
+        $originalFlashMessage = new FlashMessage(
+            'Original error message',
+            'Original Error',
+            ContextualFeedbackSeverity::WARNING,
+            false
+        );
+
+        $extbaseRequestParameters = new ExtbaseRequestParameters();
+        $extbaseRequestParameters->setOriginalFlashMessages($originalFlashMessage);
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters);
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('qux')
+            ->withPluginName('Pi1');
+
+        $subject = $this->get(TestController::class);
+        $subject->processRequest($request);
+
+        // Verify the original flash message was restored from ExtbaseRequestParameters
+        $flashMessageQueue = $subject->getFlashMessageQueue();
+        $flashMessages = $flashMessageQueue->getAllMessages();
+        self::assertCount(1, $flashMessages);
+        $flashMessage = $flashMessages[0];
+        self::assertSame('Original error message', $flashMessage->getMessage());
+        self::assertSame(ContextualFeedbackSeverity::WARNING, $flashMessage->getSeverity());
+        self::assertFalse($flashMessage->isSessionMessage(), 'Restored flash messages should not be stored in session');
+    }
+
+    #[Test]
+    public function errorActionIsCalledWhenModelValidationFails(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        // Create a referring request to ensure ForwardResponse is used
+        $referringRequest = [
+            '@extension' => 'ActionControllerTest',
+            '@controller' => 'Test',
+            '@action' => 'qux',
+        ];
+        $referringRequestSerialized = new HashService()->appendHmac(
+            json_encode($referringRequest),
+            HashScope::ReferringRequest->prefix(),
+            HashAlgo::SHA3_256
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('validateModel')
+            ->withPluginName('Pi1')
+            ->withArgument('model', ['value' => '']) // Empty value will fail NotEmpty validation
+            ->withArgument('__referrer', ['@request' => $referringRequestSerialized]);
+
+        $subject = $this->get(TestController::class);
+        $response = $subject->processRequest($request);
+
+        // Verify the response is a ForwardResponse (errorAction was triggered)
+        self::assertInstanceOf(ForwardResponse::class, $response);
+        self::assertSame(400, $response->getStatusCode());
+
+        // Verify flash messages contain validation error and are not stored in session
+        $flashMessages = $response->getFlashMessages();
+        self::assertCount(1, $flashMessages);
+        self::assertSame(ContextualFeedbackSeverity::ERROR, $flashMessages[0]->getSeverity());
+        self::assertFalse($flashMessages[0]->isSessionMessage(), 'Flash messages should not be written to session');
+    }
+
+    #[Test]
+    public function actionIsExecutedWhenModelValidationPasses(): void
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('validateModel')
+            ->withPluginName('Pi1')
+            ->withArgument('model', ['value' => 'valid value']);
+
+        $subject = $this->get(TestController::class);
+        $response = $subject->processRequest($request);
+
+        // Verify the action was executed (not errorAction)
+        self::assertNotInstanceOf(ForwardResponse::class, $response);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('success:valid value', (string)$response->getBody());
+    }
+
+    #[Test]
+    public function configuredRateLimitIsAppliedToActionWhenValidationPassed(): void
+    {
+        // We must ensure to flush system caches, because previous tests could have resulted in a rate limit
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->flushCaches();
+
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('testRateLimit')
+            ->withPluginName('Pi1')
+            ->withArgument('model', ['value' => 'valid value']);
+
+        $subject = $this->get(TestController::class);
+
+        $response = $subject->processRequest($request);
+        self::assertSame(200, $response->getStatusCode(), 'First request should be allowed');
+        $response = $subject->processRequest($request);
+        self::assertSame(200, $response->getStatusCode(), 'Second request should be allowed');
+        $response = $subject->processRequest($request);
+        self::assertSame(429, $response->getStatusCode(), 'Third request should be rate limited');
+
+        // Verify that the default translated message is returned
+        self::assertStringContainsString('Too many requests. Please try again later.', (string)$response->getBody());
+    }
+
+    #[Test]
+    public function beforeActionRateLimitResponseEventIsDispatchedWhenRateLimitIsReached(): void
+    {
+        // We must ensure to flush system caches, because previous tests could have resulted in a rate limit
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->flushCaches();
+
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        $eventDispatcher = new class implements EventDispatcherInterface {
+            public function dispatch(object $event): object
+            {
+                if ($event instanceof BeforeActionRateLimitResponseEvent) {
+                    $response = $event->getResponse();
+                    $response = $response->withStatus(400);
+                    $event->setResponse($response);
+                }
+
+                return $event;
+            }
+        };
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('testRateLimit')
+            ->withPluginName('Pi1')
+            ->withArgument('model', ['value' => 'valid value']);
+
+        $subject = $this->get(TestController::class);
+        $subject->injectEventDispatcher($eventDispatcher);
+
+        $response = $subject->processRequest($request);
+        self::assertSame(200, $response->getStatusCode(), 'First request should be allowed');
+        $response = $subject->processRequest($request);
+        self::assertSame(200, $response->getStatusCode(), 'Second request should be allowed');
+        $response = $subject->processRequest($request);
+        self::assertSame(400, $response->getStatusCode(), 'Third request should be rate limited with status code 400 from event listener');
+
+        // Verify that the default translated message is returned
+        self::assertStringContainsString('Too many requests. Please try again later.', (string)$response->getBody());
+    }
+
+    #[Test]
+    public function configuredRateLimitIsNotAppliedToActionWhenValidationFailed(): void
+    {
+        // We must ensure to flush system caches, because previous tests could have resulted in a rate limit
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->flushCaches();
+
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+
+        // Create a referring request to ensure ForwardResponse is used
+        $referringRequest = [
+            '@extension' => 'ActionControllerTest',
+            '@controller' => 'Test',
+            '@action' => 'qux',
+        ];
+        $referringRequestSerialized = new HashService()->appendHmac(
+            json_encode($referringRequest),
+            HashScope::ReferringRequest->prefix(),
+            HashAlgo::SHA3_256
+        );
+
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName('ActionControllerTest')
+            ->withControllerName('Test')
+            ->withControllerActionName('testRateLimit')
+            ->withPluginName('Pi1')
+            ->withArgument('model', ['value' => '']) // Empty value will fail NotEmpty validation
+            ->withArgument('__referrer', ['@request' => $referringRequestSerialized]);
+
+        $subject = $this->get(TestController::class);
+
+        $response = $subject->processRequest($request);
+        self::assertSame(400, $response->getStatusCode());
+        self::assertInstanceOf(ForwardResponse::class, $response);
+        $response = $subject->processRequest($request);
+        self::assertSame(400, $response->getStatusCode());
+        self::assertInstanceOf(ForwardResponse::class, $response);
+        $response = $subject->processRequest($request);
+        self::assertSame(400, $response->getStatusCode());
+        self::assertInstanceOf(ForwardResponse::class, $response);
+    }
+
     /**
      * Helper function to create a test file with the given content.
      */
-    protected function createTestFile(string $filename, string $content): string
+    private function createTestFile(string $filename, string $content): string
     {
         $path = $this->instancePath . '/tmp';
         $testFilename = $path . $filename;

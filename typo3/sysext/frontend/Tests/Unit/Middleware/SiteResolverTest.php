@@ -24,7 +24,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Psr\Log\LoggerInterface;
-use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Configuration\SiteConfiguration;
@@ -36,28 +35,23 @@ use TYPO3\CMS\Core\Routing\RequestContextFactory;
 use TYPO3\CMS\Core\Routing\SiteMatcher;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\SiteFinder;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Frontend\Middleware\SiteResolver;
-use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class SiteResolverTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
-    protected SiteFinder&AccessibleObjectInterface $siteFinder;
-
-    protected RequestHandlerInterface $siteFoundRequestHandler;
-    protected string $originalLocale;
+    private RequestHandlerInterface $siteFoundRequestHandler;
+    private string $originalLocale;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->originalLocale = setlocale(LC_COLLATE, '0');
-        $this->siteFinder = $this->getAccessibleMock(SiteFinder::class, null, [], '', false);
 
         // A request handler which expects a site to be found.
-        $this->siteFoundRequestHandler = new class () implements RequestHandlerInterface {
+        $this->siteFoundRequestHandler = new class implements RequestHandlerInterface {
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
                 $site = $request->getAttribute('site', false);
@@ -76,8 +70,6 @@ final class SiteResolverTest extends UnitTestCase
             }
         };
 
-        $cacheManagerMock = $this->getMockBuilder(CacheManager::class)->disableOriginalConstructor()->getMock();
-        GeneralUtility::setSingletonInstance(CacheManager::class, $cacheManagerMock);
     }
 
     protected function tearDown(): void
@@ -114,8 +106,8 @@ final class SiteResolverTest extends UnitTestCase
         $requestContextFactory = new RequestContextFactory(new BackendEntryPointResolver());
         $subject = new SiteResolver(
             new SiteMatcher($featuresMock, $siteFinder, $requestContextFactory),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(ErrorController::class),
+            self::createStub(LoggerInterface::class),
+            self::createStub(ErrorController::class),
         );
 
         $request = new ServerRequest($incomingUrl, 'GET');
@@ -172,8 +164,8 @@ final class SiteResolverTest extends UnitTestCase
         $requestContextFactory = new RequestContextFactory(new BackendEntryPointResolver());
         $subject = new SiteResolver(
             new SiteMatcher($featuresMock, $siteFinder, $requestContextFactory),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(ErrorController::class),
+            self::createStub(LoggerInterface::class),
+            self::createStub(ErrorController::class),
         );
 
         $request = new ServerRequest($incomingUrl, 'GET');
@@ -267,8 +259,8 @@ final class SiteResolverTest extends UnitTestCase
         $requestContextFactory = new RequestContextFactory(new BackendEntryPointResolver());
         $subject = new SiteResolver(
             new SiteMatcher($featuresMock, $siteFinder, $requestContextFactory),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(ErrorController::class),
+            self::createStub(LoggerInterface::class),
+            self::createStub(ErrorController::class),
         );
 
         $request = new ServerRequest($incomingUrl, 'GET');
@@ -382,8 +374,8 @@ final class SiteResolverTest extends UnitTestCase
         $requestContextFactory = new RequestContextFactory(new BackendEntryPointResolver());
         $subject = new SiteResolver(
             new SiteMatcher($featuresMock, $siteFinder, $requestContextFactory),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(ErrorController::class),
+            self::createStub(LoggerInterface::class),
+            self::createStub(ErrorController::class),
         );
 
         $request = new ServerRequest($incomingUrl, 'GET');
@@ -406,7 +398,7 @@ final class SiteResolverTest extends UnitTestCase
         $mock = $this->getMockBuilder(Features::class)
             ->onlyMethods(['isFeatureEnabled'])
             ->getMock();
-        $mock->expects($this->any())
+        $mock->expects($this->atLeastOnce())
             ->method('isFeatureEnabled')
             ->with('security.frontend.allowInsecureSiteResolutionByQueryParameters')
             ->willReturn(false);
@@ -415,12 +407,14 @@ final class SiteResolverTest extends UnitTestCase
 
     private function createSiteFinder(Site ...$sites): SiteFinder
     {
-        $siteConfigurationMock = $this->createMock(SiteConfiguration::class);
+        $siteConfigurationMock = self::createStub(SiteConfiguration::class);
         $sitesArray = array_combine(
-            array_map(static function (Site $site) { return $site->getIdentifier(); }, $sites),
+            array_map(static function (Site $site) {
+                return $site->getIdentifier();
+            }, $sites),
             $sites
         );
         $siteConfigurationMock->method('getAllExistingSites')->willReturn($sitesArray);
-        return new SiteFinder($siteConfigurationMock, $this->createMock(FrontendInterface::class));
+        return new SiteFinder($siteConfigurationMock, self::createStub(FrontendInterface::class));
     }
 }

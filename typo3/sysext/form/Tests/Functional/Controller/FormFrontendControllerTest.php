@@ -17,19 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Form\Controller\FormFrontendController;
 use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
-use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FormFrontendControllerTest extends FunctionalTestCase
 {
     protected bool $initializeDatabase = false;
@@ -41,16 +41,14 @@ final class FormFrontendControllerTest extends FunctionalTestCase
     #[Test]
     public function overrideByFlexFormSettingsReturnsNoOverriddenConfigurationIfFlexformOverridesDisabled(): void
     {
-        $configurationServiceMock = $this->createMock(ConfigurationService::class);
+        $configurationServiceStub = self::createStub(ConfigurationService::class);
         $subjectMock = $this->getAccessibleMock(
             FormFrontendController::class,
             null,
             [
-                $configurationServiceMock,
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->get(FlexFormService::class),
+                $configurationServiceStub,
+                self::createStub(FormPersistenceManagerInterface::class),
                 $this->get(FlexFormTools::class),
-                $this->createMock(ConfigurationManagerInterface::class),
             ],
         );
         $sheetIdentifier = md5(
@@ -61,9 +59,9 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 'EmailToReceiver',
             ])
         );
-        $request = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = (new Request($request));
-        $contentObject = new ContentObjectRenderer();
+        $contentObject = $this->get(ContentObjectRenderer::class);
         $request = $request->withAttribute('currentContentObject', $contentObject);
         $contentObject->setRequest($request);
         $subjectMock->_set('request', $request);
@@ -99,7 +97,7 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 ],
             ]),
         ];
-        $configurationServiceMock->method('getPrototypeConfiguration')->with(self::anything())->willReturn([
+        $configurationServiceStub->method('getPrototypeConfiguration')->willReturn([
             'finishersDefinition' => [
                 'EmailToReceiver' => [
                     'FormEngine' => [
@@ -164,16 +162,14 @@ final class FormFrontendControllerTest extends FunctionalTestCase
     #[Test]
     public function overrideByFlexFormSettingsReturnsOverriddenConfigurationIfFlexformOverridesEnabled(): void
     {
-        $configurationServiceMock = $this->createMock(ConfigurationService::class);
+        $configurationServiceStub = self::createStub(ConfigurationService::class);
         $subjectMock = $this->getAccessibleMock(
             FormFrontendController::class,
             null,
             [
-                $configurationServiceMock,
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->get(FlexFormService::class),
+                $configurationServiceStub,
+                self::createStub(FormPersistenceManagerInterface::class),
                 $this->get(FlexFormTools::class),
-                $this->createMock(ConfigurationManagerInterface::class),
             ],
         );
         $sheetIdentifier = md5(
@@ -184,9 +180,9 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 'EmailToReceiver',
             ])
         );
-        $request = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = (new Request($request));
-        $contentObject = new ContentObjectRenderer();
+        $contentObject = $this->get(ContentObjectRenderer::class);
         $request = $request->withAttribute('currentContentObject', $contentObject);
         $contentObject->setRequest($request);
         $subjectMock->_set('request', $request);
@@ -222,7 +218,7 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 ],
             ]),
         ];
-        $configurationServiceMock->method('getPrototypeConfiguration')->with(self::anything())->willReturn([
+        $configurationServiceStub->method('getPrototypeConfiguration')->willReturn([
             'finishersDefinition' => [
                 'EmailToReceiver' => [
                     'FormEngine' => [
@@ -310,16 +306,14 @@ final class FormFrontendControllerTest extends FunctionalTestCase
     #[Test]
     public function overrideByFlexFormSettingsReturnsNotOverriddenConfigurationKeyIfFlexformOverridesAreNotRepresentedInFormEngineConfiguration(): void
     {
-        $configurationServiceMock = $this->createMock(ConfigurationService::class);
+        $configurationServiceStub = self::createStub(ConfigurationService::class);
         $mockController = $this->getAccessibleMock(
             FormFrontendController::class,
             null,
             [
-                $configurationServiceMock,
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->get(FlexFormService::class),
+                $configurationServiceStub,
+                self::createStub(FormPersistenceManagerInterface::class),
                 $this->get(FlexFormTools::class),
-                $this->createMock(ConfigurationManagerInterface::class),
             ],
         );
 
@@ -331,9 +325,9 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 'EmailToReceiver',
             ])
         );
-        $request = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $request = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = (new Request($request));
-        $contentObject = new ContentObjectRenderer();
+        $contentObject = $this->get(ContentObjectRenderer::class);
         $request = $request->withAttribute('currentContentObject', $contentObject);
         $contentObject->setRequest($request);
         $mockController->_set('request', $request);
@@ -369,7 +363,7 @@ final class FormFrontendControllerTest extends FunctionalTestCase
                 ],
             ]),
         ];
-        $configurationServiceMock->method('getPrototypeConfiguration')->with(self::anything())->willReturn([
+        $configurationServiceStub->method('getPrototypeConfiguration')->willReturn([
             'finishersDefinition' => [
                 'EmailToReceiver' => [
                     'FormEngine' => [

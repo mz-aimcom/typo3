@@ -11,13 +11,14 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property, state } from 'lit/decorators';
+import { customElement, property, state } from 'lit/decorators.js';
 import { html, LitElement, nothing, type TemplateResult } from 'lit';
-import { classMap } from 'lit/directives/class-map';
+import { classMap } from 'lit/directives/class-map.js';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import RegularEvent from '@typo3/core/event/regular-event';
-import { lll } from '@typo3/core/lit-helper';
+import labels from '~labels/backend.modules.content_security_policy';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import 'bootstrap'; // for data-bs-toggle="dropdown"
 
 enum CspReportAttribute {
   fixable= 'fixable',
@@ -96,6 +97,7 @@ export class CspReports extends LitElement {
   @state() suggestions: MutationSuggestion[] = [];
 
   private peripheralEvent: RegularEvent;
+  private previouslyFocusedRow: HTMLElement | null = null;
 
   public override connectedCallback(): void {
     super.connectedCallback();
@@ -114,41 +116,51 @@ export class CspReports extends LitElement {
     this.peripheralEvent?.release();
   }
 
+  protected override updated(changedProperties: Map<string, any>): void {
+    super.updated(changedProperties);
+    if (changedProperties.has('selectedReport') && this.selectedReport !== null) {
+      // Focus the details panel when a report is selected
+      this.updateComplete.then(() => {
+        const detailsPanel = this.querySelector('#report-details') as HTMLElement;
+        detailsPanel?.focus();
+      });
+    }
+  }
+
   protected override createRenderRoot(): HTMLElement | ShadowRoot {
     return this;
   }
 
   protected override render(): TemplateResult {
     return html`
-      <div class="infolist-container infolist-overlay">
+      <div class="infolist-container">
         <div class="infolist">
           <div class="infolist-header">
             ${this.renderNavigation()}
           </div>
-        </div>
-      </div>
-
-      <div class="infolist-container">
-        <div class="infolist">
           <div class="infolist-content">
             <div class="table-fit mb-0">
               <table class="table table-striped">
                 <thead>
                 <tr>
-                  <th>${lll('label.created') || 'Created'}</th>
-                  <th>${lll('label.scope') || 'Scope'}</th>
-                  <th>${lll('label.violation') || 'Violation'}</th>
-                  <th>${lll('label.uri') || 'URI'}</th>
+                  <th>${labels.get('module.label.created')}</th>
+                  <th>${labels.get('module.label.scope')}</th>
+                  <th>${labels.get('module.label.violation')}</th>
+                  <th>${labels.get('module.label.uri')}</th>
                   <th></th>
                 </tr>
                 </thead>
                 <tbody>
                 ${this.reports.length === 0 ? html`
-                  <tr><td colspan="5">${lll('label.label.noEntriesAvailable') || 'No entries available.'}</td></tr>
+                  <tr><td colspan="5">${labels.get('module.label.noEntriesAvailable')}</td></tr>
                 ` : nothing}
                 ${this.reports.map((report: SummarizedCspReport) => html`
                   <tr class=${classMap({ 'table-info': this.selectedReport === report })} data-mutation-group=${report.mutationHashes.join('-')}
-                      @click=${() => this.selectReport(report)}>
+                      @click=${() => this.selectReport(report)}
+                      @keydown=${(e: KeyboardEvent) => this.handleReportKeydown(e, report)}
+                      tabindex="0"
+                      role="button"
+                      aria-label="${labels.get('module.label.showDetails', [report.details.effectiveDirective, report.details.blockedUri])}">
                     <td>${report.created}</td>
                     <td>${report.scope}</td>
                     <td>
@@ -175,15 +187,15 @@ export class CspReports extends LitElement {
   protected renderNavigation(): TemplateResult {
     return html`
       <div class="btn-toolbar">
-        <button type="button" class="btn btn-default dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="${lll('label.scope') || 'Scope'}">
-          ${null === this.selectedScope ? lll('label.all') || 'ALL' : this.selectedScope}
+        <button type="button" class="btn btn-default dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="${labels.get('module.label.scope')}">
+          ${null === this.selectedScope ? labels.get('module.label.all') : this.selectedScope}
         </button>
         <ul class="dropdown-menu">
-          <button class="dropdown-item dropdown-item-spaced" title="${lll('label.all') || 'ALL'}" @click=${() => this.selectScope(null)}>
+          <button class="dropdown-item dropdown-item-spaced" title="${labels.get('module.label.all')}" @click=${() => this.selectScope(null)}>
             <span class="${null === this.selectedScope ? 'text-primary' : '' }">
               <typo3-backend-icon identifier="${null === this.selectedScope ? 'actions-dot' : 'empty-empty'}" size="small"></typo3-backend-icon>
             </span>
-            ${lll('label.all') || 'ALL'}
+            ${labels.get('module.label.all')}
           </button>
           ${this.scopes.map((scope: string) => html`
             <li>
@@ -195,8 +207,8 @@ export class CspReports extends LitElement {
               </button>
             </li>`)}
         </ul>
-        <button type="button" class="btn btn-danger" title="${lll('label.removeAll') || 'Remove all'}" @click=${() => this.invokeDeleteReportsAction()}>
-          ${lll('label.removeAll') || 'Remove all'}
+        <button type="button" class="btn btn-danger" title="${labels.get('module.label.removeAll')}" @click=${() => this.invokeDeleteReportsAction()}>
+          ${labels.get('module.label.removeAll')}
           ${this.selectedScope !== null ? html`"${this.selectedScope}"` : nothing}
         </button>
       </div>`;
@@ -207,7 +219,7 @@ export class CspReports extends LitElement {
       <div class="infolist-info-norecord">
         <div class="card mb-0">
           <div class="card-body">
-            <p>${ lll('label.guide.no_record_selected') || 'Select a row to see more information.'}</p>
+            <p>${labels.get('module.label.guide.no_record_selected')}</p>
           </div>
         </div>
       </div>
@@ -218,46 +230,46 @@ export class CspReports extends LitElement {
     const report = this.selectedReport;
     return html`${report ? html`
       <div class="infolist-info-record">
-        <div class="card mb-0">
+        <div class="card mb-0" tabindex="-1" id="report-details" @keydown=${(e: KeyboardEvent) => this.handleDetailsKeydown(e)}>
           <div class="card-header">
-            <h3>${ lll('label.details') || 'Details'}</h3>
+            <h3>${labels.get('module.label.details')}</h3>
           </div>
           <div class="card-body">
             <dl>
-              <dt>${ lll('label.directive') || 'Directive'} / ${ lll('label.disposition') || 'Disposition'}</dt>
+              <dt>${labels.get('module.label.directive')} / ${labels.get('module.label.disposition')}</dt>
               <dd>${report.details.effectiveDirective} / ${report.details.disposition}</dd>
 
-              <dt>${ lll('label.document_uri') || 'Document URI'}</dt>
+              <dt>${labels.get('module.label.document_uri')}</dt>
               <dd>${report.details.documentUri} ${this.renderCodeLocation(report)}</dd>
 
               ${report.details.sourceFile && report.details.sourceFile !== report.details.documentUri ? html`
-                <dt>${ lll('label.source_file') || 'Source File'}</dt>
+                <dt>${labels.get('module.label.source_file')}</dt>
                 <dd>${report.details.sourceFile}</dd>
               ` : nothing}
 
-              <dt>${ lll('label.blocked_uri') || 'Blocked URI'}</dt>
+              <dt>${labels.get('module.label.blocked_uri')}</dt>
               <dd>${report.details.blockedUri}</dd>
 
               ${report.details.scriptSample ? html`
-                <dt>${ lll('label.sample') || 'Sample'}</dt>
+                <dt>${labels.get('module.label.sample')}</dt>
                 <dd><code>${report.details.scriptSample}</code></dd>
               ` : nothing}
 
               ${report.meta.agent ? html`
-                <dt>${ lll('label.user_agent') || 'User Agent'}</dt>
+                <dt>${labels.get('module.label.user_agent')}</dt>
                 <dd><code>${report.meta.agent}</code></dd>
               ` : nothing}
 
-              <dt>${ lll('label.uuid') || 'UUID'}</dt>
+              <dt>${labels.get('module.label.uuid')}</dt>
               <dd><code>${report.uuid}</code></dd>
 
-              <dt>${ lll('label.summary') || 'Summary'}</dt>
+              <dt>${labels.get('module.label.summary')}</dt>
               <dd><code>${report.summary}</code></dd>
             </dl>
           </div>
           ${this.suggestions.length > 0 ? html`
             <div class="card-header">
-              <h3>${ lll('label.suggestions') || 'Suggestions'}</h3>
+              <h3>${labels.get('module.label.suggestions')}</h3>
             </div>
           ` : nothing}
           ${this.suggestions.map((suggestion: MutationSuggestion) => html`
@@ -271,7 +283,7 @@ export class CspReports extends LitElement {
               `)}
               <button class="btn btn-primary" @click=${() => this.invokeMutateReportAction(report, suggestion)}>
                 <typo3-backend-icon identifier="actions-check" size="small"></typo3-backend-icon>
-                ${ lll('button.apply') || 'Apply'}
+                ${labels.get('module.button.apply')}
               </button>
             </div>
           `)}
@@ -279,15 +291,15 @@ export class CspReports extends LitElement {
           <div class="card-footer">
             <button class="btn btn-default" @click=${() => this.selectReport(null)}>
               <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon>
-              ${ lll('button.close') || 'Close'}
+              ${labels.get('module.button.close')}
             </button>
             <button class="btn btn-default" @click=${() => this.invokeMuteReportAction(report)}>
               <typo3-backend-icon identifier="actions-ban" size="small"></typo3-backend-icon>
-              ${ lll('button.mute') || 'Mute'}
+              ${labels.get('module.button.mute')}
             </button>
             <button class="btn btn-default" @click=${() => this.invokeDeleteReportAction(report)}>
               <typo3-backend-icon identifier="actions-delete" size="small"></typo3-backend-icon>
-              ${ lll('button.delete') || 'Delete'}
+              ${labels.get('module.button.delete')}
             </button>
           </div>
         </div>
@@ -309,12 +321,73 @@ export class CspReports extends LitElement {
   private selectReport(report: SummarizedCspReport): void {
     this.suggestions = [];
     if (report !== null && this.selectedReport !== report) {
+      // Store the currently focused element before changing selection
+      this.previouslyFocusedRow = document.activeElement as HTMLElement;
       this.selectedReport = report;
       this.invokeHandleReportAction(report)
         .then((suggestions: MutationSuggestion[]) => this.suggestions = suggestions);
     } else {
       this.selectedReport = null;
+      // Restore focus to the previously focused row when closing
+      if (this.previouslyFocusedRow) {
+        this.updateComplete.then(() => {
+          this.previouslyFocusedRow?.focus();
+          this.previouslyFocusedRow = null;
+        });
+      }
     }
+  }
+
+  private handleReportKeydown(event: KeyboardEvent, report: SummarizedCspReport): void {
+    // Handle Enter/Space to select report
+    if (event.key === 'Enter' || event.key === 'Space' || event.key === ' ') {
+      event.preventDefault();
+      this.selectReport(report);
+      return;
+    }
+
+    // Arrow key navigation
+    const currentRow = event.currentTarget as HTMLElement;
+    let targetRow: HTMLElement | null = null;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        targetRow = currentRow.nextElementSibling as HTMLElement;
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        targetRow = currentRow.previousElementSibling as HTMLElement;
+        break;
+      case 'Home':
+        event.preventDefault();
+        targetRow = currentRow.parentElement?.firstElementChild as HTMLElement;
+        break;
+      case 'End':
+        event.preventDefault();
+        targetRow = currentRow.parentElement?.lastElementChild as HTMLElement;
+        break;
+      default:
+        return;
+    }
+
+    if (targetRow && targetRow.hasAttribute('tabindex')) {
+      targetRow.focus();
+    }
+  }
+
+  private handleDetailsKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.selectReport(null);
+    }
+  }
+
+  private focusFirstReportRow(): void {
+    this.updateComplete.then(() => {
+      const firstRow = this.querySelector('tbody tr[tabindex="0"]') as HTMLElement;
+      firstRow?.focus();
+    });
   }
 
   private selectScope(scope: string): void {
@@ -363,14 +436,16 @@ export class CspReports extends LitElement {
     (new AjaxRequest(this.controlUri))
       .post({ action: 'muteReport', summaries: [report.summary] })
       .then((response: AjaxResponse) => response.resolve('application/json'))
-      .then((response: CspReportUuids) => this.filterReports(...response.uuids));
+      .then((response: CspReportUuids) => this.filterReports(...response.uuids))
+      .then(() => this.focusFirstReportRow());
   }
 
   private invokeDeleteReportAction(report: SummarizedCspReport): void {
     (new AjaxRequest(this.controlUri))
       .post({ action: 'deleteReport', summaries: [report.summary] })
       .then((response: AjaxResponse) => response.resolve('application/json'))
-      .then((response: CspReportUuids) => this.filterReports(...response.uuids));
+      .then((response: CspReportUuids) => this.filterReports(...response.uuids))
+      .then(() => this.focusFirstReportRow());
   }
 
   private invokeDeleteReportsAction(): void {

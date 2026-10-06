@@ -40,7 +40,7 @@ final class TreeControllerTest extends FunctionalTestCase
     use SiteBasedTestTrait;
     use NormalizeTreeTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -590,8 +590,8 @@ final class TreeControllerTest extends FunctionalTestCase
                 sha1(random_bytes(10)),
                 [],
             ],
-            'search for "groups" (live value, but changed in workspace)' => [
-                'Groups',
+            'search for "EN: Groups" (live value, but changed in workspace)' => [
+                'EN: Groups', // Specific search for EN title to prevent translated pages with same title to be found
                 [],
             ],
             'search for "teams" (workspace value)' => [
@@ -768,7 +768,7 @@ final class TreeControllerTest extends FunctionalTestCase
     public function fetchDataActionConsidersPermissions(int $backendUser, array $expectation): void
     {
         $this->backendUser = $this->setUpBackendUser($backendUser);
-        $request = (new ServerRequest(new Uri('https://example.com')))->withQueryParams(['depth' => 1]);
+        $request = new ServerRequest(new Uri('https://example.com'))->withQueryParams(['depth' => 1]);
         $response = $this->get(TreeController::class)->fetchDataAction($request);
         $data = json_decode((string)$response->getBody(), true);
         $items = array_filter($data, static fn(array $page): bool => $page['depth'] <= 1);
@@ -821,7 +821,7 @@ final class TreeControllerTest extends FunctionalTestCase
     public function filterDataActionResolvesNestedPages(string $query, array $expectation): void
     {
         $filterProperties = ['identifier', 'depth', 'name', 'hasChildren'];
-        $request = (new ServerRequest(new Uri('https://example.com')))->withQueryParams(['q' => $query]);
+        $request = new ServerRequest(new Uri('https://example.com'))->withQueryParams(['q' => $query]);
         $response = $this->get(TreeController::class)->filterDataAction($request);
         $data = json_decode((string)$response->getBody(), true);
         $items = array_map(

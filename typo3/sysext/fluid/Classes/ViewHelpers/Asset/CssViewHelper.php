@@ -61,7 +61,7 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
     {
         // Add a tag builder, that does not html encode values, because rendering with encoding happens in AssetRenderer
         $this->setTagBuilder(
-            new class () extends TagBuilder {
+            new class extends TagBuilder {
                 public function addAttribute($attributeName, $attributeValue, $escapeSpecialCharacters = false): void
                 {
                     parent::addAttribute($attributeName, $attributeValue, false);
@@ -74,8 +74,9 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
     public function initializeArguments(): void
     {
         parent::initializeArguments();
+        $this->registerArgument('href', 'string', 'The URI of the stylesheet to be loaded. If omitted, the tag children are added as inline CSS.');
         $this->registerArgument('disabled', 'bool', 'Define whether or not the described stylesheet should be loaded and applied to the document.');
-        $this->registerArgument('useNonce', 'bool', 'Whether to use the global nonce value', false, false);
+        $this->registerArgument('csp', 'bool', 'Whether to collect a CSP hash value for this asset (default: true for external files, false for inline)', false, null);
         $this->registerArgument('identifier', 'string', 'Use this identifier within templates to only inject your CSS once, even though it is added multiple times.', true);
         $this->registerArgument('priority', 'boolean', 'Define whether the CSS should be included before other CSS. CSS will always be output in the <head> tag.', false, false);
         $this->registerArgument('inline', 'bool', 'Define whether or not the referenced file should be loaded as inline styles (Only to be used if \'href\' is set).', false, false);
@@ -91,11 +92,16 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
             $attributes['disabled'] = 'disabled';
         }
 
-        $file = $attributes['href'] ?? null;
+        $file = $this->arguments['href'] ?? $attributes['href'] ?? null;
+        if ($file === '') {
+            $file = null;
+        }
         unset($attributes['href']);
+        $isExternalFile = $file !== null && !($this->arguments['inline'] ?? false);
+        $useCsp = $this->resolveCspOption($isExternalFile);
         $options = [
             'priority' => $this->arguments['priority'],
-            'useNonce' => $this->arguments['useNonce'],
+            'csp' => $useCsp,
         ];
         if ($file !== null) {
             if ($this->arguments['inline'] ?? false) {
@@ -113,5 +119,15 @@ final class CssViewHelper extends AbstractTagBasedViewHelper
             }
         }
         return '';
+    }
+
+    private function resolveCspOption(bool $defaultForStatic): bool
+    {
+        $csp = $this->arguments['csp'];
+        if ($csp !== null) {
+            return (bool)$csp;
+        }
+        // Default: true for external files (allows hash collection), false for inline
+        return $defaultForStatic;
     }
 }

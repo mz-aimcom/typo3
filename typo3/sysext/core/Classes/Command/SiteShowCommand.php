@@ -17,17 +17,21 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Yaml\Yaml;
+use TYPO3\CMS\Core\Attribute\AsNonSchedulableCommand;
 use TYPO3\CMS\Core\Site\SiteFinder;
 
 /**
  * Command for showing the configuration of a site
  */
+#[AsCommand('site:show', 'Shows the configuration of the specified site.')]
+#[AsNonSchedulableCommand]
 class SiteShowCommand extends Command
 {
     public function __construct(protected readonly SiteFinder $siteFinder)
@@ -38,12 +42,16 @@ class SiteShowCommand extends Command
     /**
      * Defines the allowed options for this command
      */
-    protected function configure()
+    protected function configure(): void
     {
         $this->addArgument(
             'identifier',
             InputArgument::REQUIRED,
-            'The identifier of the site'
+            'The identifier of the site',
+            null,
+            function (): array {
+                return array_keys($this->siteFinder->getAllSites());
+            }
         );
     }
 

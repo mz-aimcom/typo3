@@ -26,6 +26,7 @@ use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\View\ViewInterface;
 
@@ -35,10 +36,10 @@ use TYPO3\CMS\Core\View\ViewInterface;
  * @internal This class is a specific Backend controller implementation and is not part of the TYPO3's Core API.
  */
 #[AsController]
-class ColumnSelectorController
+readonly class ColumnSelectorController
 {
-    private const PSEUDO_FIELDS = ['_REF_', '_PATH_'];
-    private const EXCLUDE_FILE_FIELDS = [
+    private const array PSEUDO_FIELDS = ['_REF_', '_PATH_'];
+    private const array EXCLUDE_FILE_FIELDS = [
         'pid', // Not relevant as all records are on pid=0
         'identifier', // Handled manually in listing
         'name', // Handled manually in listing
@@ -52,9 +53,9 @@ class ColumnSelectorController
     ];
 
     public function __construct(
-        protected readonly ResponseFactoryInterface $responseFactory,
-        protected readonly BackendViewFactory $backendViewFactory,
-        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected ResponseFactoryInterface $responseFactory,
+        protected BackendViewFactory $backendViewFactory,
+        protected TcaSchemaFactory $tcaSchemaFactory,
     ) {}
 
     /**
@@ -121,6 +122,10 @@ class ColumnSelectorController
             $fields = array_merge(BackendUtility::getAllowedFieldsForTable($table), self::PSEUDO_FIELDS);
         }
 
+        $excludedFields = $table !== '_FILE' && $this->tcaSchemaFactory->has($table)
+            ? $this->getExcludedRecordFields($this->tcaSchemaFactory->get($table))
+            : [];
+
         $columns = $specialColumns = $disabledColumns = [];
         foreach ($fields as $fieldName) {
             $concreteTableName = $table;
@@ -129,6 +134,8 @@ class ColumnSelectorController
             // concrete table name, which is either sys_file or sys_file_metadata.
             if ($table === '_FILE') {
                 [$concreteTableName, $fieldName] = explode('|', $fieldName);
+            } elseif (in_array($fieldName, $excludedFields, true)) {
+                continue;
             }
 
             // Hide field if disabled
@@ -145,7 +152,7 @@ class ColumnSelectorController
             $isDisabled = $fieldName === $labelFieldName;
 
             // Determine field label
-            $label = $schema->hasField($fieldName) ? $schema->getField($fieldName)->getLabel() : null;
+            $label = ($schema->hasField($fieldName) ? $schema->getField($fieldName)->getLabel() : '') ?: null;
             $label = $this->getLanguageService()->translateLabel(
                 $tsConfig['TCEFORM.'][$concreteTableName . '.'][$fieldName . '.']['label.'] ?? [],
                 $tsConfig['TCEFORM.'][$concreteTableName . '.'][$fieldName . '.']['label']
@@ -178,6 +185,36 @@ class ColumnSelectorController
         // Disabled columns go first, followed by standard columns
         // and special columns, which do not have a label.
         return array_merge($disabledColumns, $columns, $specialColumns);
+    }
+
+    /**
+     * Fields, which are not relevant in the listing and are therefore
+     * not selectable. Since those fields are configurable, their names
+     * are resolved from the schema of the corresponding table.
+     *
+     * @return list<string>
+     */
+    protected function getExcludedRecordFields(TcaSchema $schema): array
+    {
+        $excludedFields = [];
+
+        // Deleted records are never listed
+        if ($schema->hasCapability(TcaSchemaCapability::SoftDelete)) {
+            $excludedFields[] = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
+        }
+
+        // The translation source and the diff source fields are not editable
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            if ($languageCapability->hasTranslationSourceField()) {
+                $excludedFields[] = $languageCapability->getTranslationSourceField()->getName();
+            }
+            if ($languageCapability->hasDiffSourceField()) {
+                $excludedFields[] = $languageCapability->getDiffSourceField()->getName();
+            }
+        }
+
+        return $excludedFields;
     }
 
     /**

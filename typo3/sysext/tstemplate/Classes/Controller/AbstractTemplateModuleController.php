@@ -22,9 +22,11 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -33,7 +35,6 @@ use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
@@ -53,6 +54,7 @@ abstract class AbstractTemplateModuleController
     protected UriBuilder $uriBuilder;
     protected ConnectionPool $connectionPool;
     protected SiteFinder $siteFinder;
+    protected ComponentFactory $componentFactory;
     private DataHandler $dataHandler;
     private TcaSchemaFactory $tcaSchemaFactory;
 
@@ -84,6 +86,11 @@ abstract class AbstractTemplateModuleController
     public function injectTcaSchemaFactory(TcaSchemaFactory $tcaSchemaFactory)
     {
         $this->tcaSchemaFactory = $tcaSchemaFactory;
+    }
+
+    public function injectComponentFactory(ComponentFactory $componentFactory): void
+    {
+        $this->componentFactory = $componentFactory;
     }
 
     /**
@@ -133,22 +140,29 @@ abstract class AbstractTemplateModuleController
 
     protected function addPreviewButtonToDocHeader(ModuleTemplate $view, array $pageRecord): void
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-
         $previewUriBuilder = PreviewUriBuilder::create($pageRecord);
         if ($previewUriBuilder->isPreviewable()) {
-            $previewDataAttributes = $previewUriBuilder
-                ->withRootLine(BackendUtility::BEgetRootLine($pageRecord['uid']))
-                ->buildDispatcherDataAttributes();
-            $viewButton = $buttonBar->makeLinkButton()
-                ->setHref('#')
-                ->setDataAttributes($previewDataAttributes ?? [])
-                ->setDisabled(!$previewDataAttributes)
-                ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
-                ->setIcon($this->iconFactory->getIcon('actions-view-page', IconSize::SMALL))
-                ->setShowLabelText(true);
-            $buttonBar->addButton($viewButton, ButtonBar::BUTTON_POSITION_LEFT, 99);
+            $view->addButtonToButtonBar($this->componentFactory->createViewButton(
+                $previewUriBuilder
+                    ->withRootLine(BackendUtility::BEgetRootLine($pageRecord['uid']))
+                    ->buildDispatcherDataAttributes() ?? []
+            ), ButtonBar::BUTTON_POSITION_LEFT, 99);
         }
+    }
+
+    protected function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid, string $moduleTitle): void
+    {
+        $shortcutTitle = sprintf(
+            '%s: %s [%d]',
+            $moduleTitle,
+            BackendUtility::getRecordTitle('pages', $pageInfo),
+            $pageUid
+        );
+        $view->getDocHeaderComponent()->setShortcutContext(
+            $moduleIdentifier,
+            $shortcutTitle,
+            ['id' => $pageUid]
+        );
     }
 
     /**
@@ -269,6 +283,22 @@ abstract class AbstractTemplateModuleController
                 ->orderBy($schema->getCapability(TcaSchemaCapability::SortByField)->getFieldName());
         }
         return $queryBuilder;
+    }
+
+    /**
+     * Create a VisibilityAspect that simulates frontend-like behavior:
+     * hidden templates and templates outside their scheduled time window
+     * are excluded, as they would be in the frontend.
+     */
+    protected function createVisibilityAspect(): VisibilityAspect
+    {
+        // For the context of the TypoScript management backend, we want to
+        // edit TypoScript records that are hidden. But in a backend submodule like
+        // the ActiveTypoScriptController / TemplateAnalyzerController, only
+        // non-hidden records with matching time constraints should be evaluated,
+        // just like in the frontend.
+        return VisibilityAspect::create()
+            ->withIncludeHiddenPages(true);
     }
 
     protected function getLanguageService(): LanguageService

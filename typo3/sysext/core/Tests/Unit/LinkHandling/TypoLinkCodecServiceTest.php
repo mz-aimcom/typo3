@@ -30,7 +30,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class TypoLinkCodecServiceTest extends UnitTestCase
 {
-    protected TypoLinkCodecService $subject;
+    private TypoLinkCodecService $subject;
 
     protected function setUp(): void
     {
@@ -67,6 +67,57 @@ final class TypoLinkCodecServiceTest extends UnitTestCase
                     'additionalParams' => '&x=y',
                 ],
                 '19 _blank css-class "testtitle with whitespace" &x=y',
+            ],
+            'full parameter usage with rel' => [
+                [
+                    'url' => '19',
+                    'target' => '_blank',
+                    'class' => 'css-class',
+                    'title' => 'testtitle with whitespace',
+                    'additionalParams' => '&x=y',
+                    'rel' => 'noopener',
+                ],
+                '19 _blank css-class "testtitle with whitespace" &x=y noopener',
+            ],
+            'rel without additional parameters' => [
+                [
+                    'url' => 'foo',
+                    'rel' => 'nofollow',
+                ],
+                'foo - - - - nofollow',
+            ],
+            'rel with multiple values' => [
+                [
+                    'url' => 'foo',
+                    'rel' => 'noopener nofollow',
+                ],
+                'foo - - - - "noopener nofollow"',
+            ],
+            'download without custom filename' => [
+                [
+                    'url' => 't3://file?uid=42',
+                    'download' => 'true',
+                ],
+                't3://file?uid=42 - - - - - true',
+            ],
+            'download with custom filename' => [
+                [
+                    'url' => 't3://file?uid=42',
+                    'download' => 'report.pdf',
+                ],
+                't3://file?uid=42 - - - - - report.pdf',
+            ],
+            'full parameter usage with rel and download' => [
+                [
+                    'url' => 't3://file?uid=42',
+                    'target' => '_blank',
+                    'class' => 'css-class',
+                    'title' => 'my title',
+                    'additionalParams' => '',
+                    'rel' => 'noopener',
+                    'download' => 'custom name.pdf',
+                ],
+                't3://file?uid=42 _blank css-class "my title" - noopener "custom name.pdf"',
             ],
             'crazy title and partial items only' => [
                 [
@@ -178,6 +229,94 @@ final class TypoLinkCodecServiceTest extends UnitTestCase
                     'additionalParams' => '&X=y',
                 ],
             ],
+            'full parameter usage with rel' => [
+                '19 _blank css-class "testtitle with whitespace" &X=y noopener',
+                [
+                    'url' => '19',
+                    'target' => '_blank',
+                    'class' => 'css-class',
+                    'title' => 'testtitle with whitespace',
+                    'additionalParams' => '&X=y',
+                    'rel' => 'noopener',
+                ],
+            ],
+            'rel without additional parameters' => [
+                '19 - - - - nofollow',
+                [
+                    'url' => '19',
+                    'target' => '',
+                    'class' => '',
+                    'title' => '',
+                    'additionalParams' => '',
+                    'rel' => 'nofollow',
+                ],
+            ],
+            'rel with multiple values' => [
+                '19 - - - - "noopener nofollow"',
+                [
+                    'url' => '19',
+                    'target' => '',
+                    'class' => '',
+                    'title' => '',
+                    'additionalParams' => '',
+                    'rel' => 'noopener nofollow',
+                ],
+            ],
+            'empty rel symbol does not set rel key' => [
+                '19 _blank css-class "testtitle with whitespace" &X=y -',
+                [
+                    'url' => '19',
+                    'target' => '_blank',
+                    'class' => 'css-class',
+                    'title' => 'testtitle with whitespace',
+                    'additionalParams' => '&X=y',
+                ],
+            ],
+            'download without custom filename' => [
+                't3://file?uid=42 - - - - - true',
+                [
+                    'url' => 't3://file?uid=42',
+                    'target' => '',
+                    'class' => '',
+                    'title' => '',
+                    'additionalParams' => '',
+                    'download' => 'true',
+                ],
+            ],
+            'download with custom filename' => [
+                't3://file?uid=42 - - - - - report.pdf',
+                [
+                    'url' => 't3://file?uid=42',
+                    'target' => '',
+                    'class' => '',
+                    'title' => '',
+                    'additionalParams' => '',
+                    'download' => 'report.pdf',
+                ],
+            ],
+            'full parameter usage with rel and download' => [
+                't3://file?uid=42 _blank css-class "my title" - noopener "custom name.pdf"',
+                [
+                    'url' => 't3://file?uid=42',
+                    'target' => '_blank',
+                    'class' => 'css-class',
+                    'title' => 'my title',
+                    'additionalParams' => '',
+                    'rel' => 'noopener',
+                    'download' => 'custom name.pdf',
+                ],
+            ],
+            'empty download symbol does not set download key' => [
+                't3://file?uid=42 - - - - noopener -',
+                [
+                    'url' => 't3://file?uid=42',
+                    'target' => '',
+                    'class' => '',
+                    'title' => '',
+                    'additionalParams' => '',
+                    'rel' => 'noopener',
+                ],
+            ],
         ];
     }
 
@@ -198,7 +337,7 @@ final class TypoLinkCodecServiceTest extends UnitTestCase
         $listenerProvider = new ListenerProvider($container);
         $listenerProvider->addListener(BeforeTypoLinkEncodedEvent::class, 'before-typo-link-encoded-listener');
 
-        $result = (new TypoLinkCodecService(new EventDispatcher($listenerProvider)))->encode([
+        $result = new TypoLinkCodecService(new EventDispatcher($listenerProvider))->encode([
             'url' => 'https://example.com',
         ]);
 
@@ -227,7 +366,7 @@ final class TypoLinkCodecServiceTest extends UnitTestCase
         $listenerProvider = new ListenerProvider($container);
         $listenerProvider->addListener(AfterTypoLinkDecodedEvent::class, 'after-typo-link-decoded-listener');
 
-        $result = (new TypoLinkCodecService(new EventDispatcher($listenerProvider)))->decode('https://example.com');
+        $result = new TypoLinkCodecService(new EventDispatcher($listenerProvider))->decode('https://example.com');
 
         $expected = [
             'url' => 'https://example.com',

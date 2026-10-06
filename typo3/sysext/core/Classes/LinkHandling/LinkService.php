@@ -53,8 +53,9 @@ class LinkService implements SingletonInterface
     /**
      * LinkService constructor initializes the registered handlers.
      */
-    public function __construct()
-    {
+    public function __construct(
+        protected readonly EventDispatcherInterface $eventDispatcher,
+    ) {
         $registeredLinkHandlers = $GLOBALS['TYPO3_CONF_VARS']['SYS']['linkHandler'] ?? [];
         $registeredLinkHandlers = is_array($registeredLinkHandlers) ? $registeredLinkHandlers : [];
         /** @var array<string,class-string> $registeredLinkHandlers */
@@ -84,7 +85,6 @@ class LinkService implements SingletonInterface
      * Does NOT check if the page exists or the file exists.
      *
      * @param string $linkParameter could be "fileadmin/myfile.jpg", "info@typo3.org", "13" or "http://www.typo3.org"
-     * @throws UnknownLinkHandlerException
      */
     public function resolve(string $linkParameter): array
     {
@@ -141,7 +141,7 @@ class LinkService implements SingletonInterface
                 $result['type'] = self::TYPE_TELEPHONE;
             }
         } finally {
-            $result = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+            $result = $this->eventDispatcher->dispatch(
                 new AfterLinkResolvedByStringRepresentationEvent(
                     result: $result,
                     urn: $urn,

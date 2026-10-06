@@ -21,7 +21,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
@@ -30,42 +32,73 @@ use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Page\AssetRenderer;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Page\ResourceHashCollection;
 use TYPO3\CMS\Core\Resource\RelativeCssPathFixer;
-use TYPO3\CMS\Core\Resource\ResourceCompressor;
+use TYPO3\CMS\Core\Resource\StorageRepository;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
 use TYPO3\CMS\Core\Service\MarkerBasedTemplateService;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
+use TYPO3\CMS\Core\Tests\Functional\Fixtures\DummyFileCreationService;
 use TYPO3\CMS\Core\Type\DocType;
+use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class PageRendererTest extends FunctionalTestCase
 {
-    protected bool $initializeDatabase = false;
+    private DummyFileCreationService $file;
 
-    protected function createPageRenderer(): PageRenderer
+    protected function setUp(): void
     {
-        $container = $this->getContainer();
+        parent::setUp();
+        $this->file = new DummyFileCreationService($this->get(StorageRepository::class));
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        $this->file->cleanupCreatedFiles();
+    }
+
+    private function createPageRenderer(): PageRenderer
+    {
         return new PageRenderer(
-            $container->get('cache.assets'),
-            $container->get(MarkerBasedTemplateService::class),
-            $container->get(MetaTagManagerRegistry::class),
-            $container->get(AssetRenderer::class),
-            $container->get(AssetCollector::class),
-            new ResourceCompressor(),
-            new RelativeCssPathFixer(),
-            $container->get(LanguageServiceFactory::class),
-            $container->get(ResponseFactoryInterface::class),
-            $container->get(StreamFactoryInterface::class),
-            $container->get(IconRegistry::class),
+            new Context(),
+            $this->get('cache.assets'),
+            $this->get(MarkerBasedTemplateService::class),
+            $this->get(MetaTagManagerRegistry::class),
+            $this->get(AssetRenderer::class),
+            $this->get(AssetCollector::class),
+            new RelativeCssPathFixer($this->get(SystemResourceFactory::class), $this->get(SystemResourcePublisherInterface::class)),
+            $this->get(LanguageServiceFactory::class),
+            $this->get(ResponseFactoryInterface::class),
+            $this->get(StreamFactoryInterface::class),
+            $this->get(IconRegistry::class),
+            $this->get(SystemResourcePublisherInterface::class),
+            $this->get(SystemResourceFactory::class),
+            $this->get(ResourceHashCollection::class),
+            $this->get(DirectiveHashCollection::class),
         );
+    }
+
+    private function createRequest(int $requestType = SystemEnvironmentBuilder::REQUESTTYPE_FE): ServerRequest
+    {
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        return new ServerRequest('https://www.example.com/')
+            ->withAttribute('applicationType', $requestType)
+            ->withAttribute('normalizedParams', $normalizedParams);
     }
 
     #[Test]
     public function pageRendererRendersInsertsMainContentStringsInOutput(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $this->file->ensureFilesExistInStorage('/test.js');
+        $this->file->ensureFilesExistInStorage('/test-plain.js');
+        $request = $this->createRequest();
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $subject->setLanguage(new Locale(), $request);
 
         $prologueString = $expectedPrologueString = '<?xml version="1.0" encoding="utf-8" ?>';
         $subject->setXmlPrologAndDocType($prologueString);
@@ -87,10 +120,7 @@ final class PageRendererTest extends FunctionalTestCase
         $subject->setMetaTag('name', 'DC.Author', '<evil tag>');
         $subject->setMetaTag('property', 'og:image', '/path/to/image1.jpg', [], false);
         $subject->setMetaTag('property', 'og:image', '/path/to/image2.jpg', [], false);
-
-        // Unset meta tag
         $subject->setMetaTag('NaMe', 'randomTag', 'foobar');
-        $subject->removeMetaTag('name', 'RanDoMtAg');
 
         $inlineComment = StringUtility::getUniqueId('comment');
         $subject->addInlineComment($inlineComment);
@@ -100,32 +130,36 @@ final class PageRendererTest extends FunctionalTestCase
         $subject->addHeaderData($headerData);
 
         $subject->loadJavaScriptModule('@typo3/core/ajax/ajax-request.js');
-        $expectedJavaScriptModuleScriptRegExp = '#<script type="module" async="async" src="[^"]*typo3/sysext/core/Resources/Public/JavaScript/ajax/ajax-request\.js\?bust=[^"]*"></script>#';
+        // Where EXT:core serves its public resources from differs by installation mode.
+        $coreAssetPath = preg_quote((string)PathUtility::getSystemResourceUri('EXT:core/Resources/Public/'), '#');
+        $expectedJavaScriptModuleScriptRegExp = '#<script type="module" async="async" src="[^"]*' . $coreAssetPath . 'JavaScript/ajax/ajax-request\.js\?bust=[^"]*"></script>#';
 
         $subject->addJsLibrary(
             'test',
             '/fileadmin/test.js',
             'text/javascript',
-            false,
+            null,
             false,
             'wrapBeforeXwrapAfter',
-            false,
+            null,
             'X'
         );
-        $expectedJsLibraryRegExp = '#wrapBefore<script src="/fileadmin/test\\.(js|\\d+\\.js|js\\?\\d+)" type="text/javascript"></script>wrapAfter#';
+        $expectedJsLibraryRegExp = '#wrapBefore<script src="/fileadmin/test\\.js\?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript"></script>wrapAfter#';
 
-        $subject->addJsFile('/fileadmin/test.js', 'text/javascript', false, false, 'wrapBeforeXwrapAfter', false, 'X');
-        $expectedJsFileRegExp = '#wrapBefore<script src="/fileadmin/test\\.(js|\\d+\\.js|js\\?\\d+)" type="text/javascript"></script>wrapAfter#';
+        $subject->addJsFile('/fileadmin/test.js', 'text/javascript', null, false, 'wrapBeforeXwrapAfter', null, 'X');
+        $expectedJsFileRegExp = '#wrapBefore<script src="/fileadmin/test\\.js\?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript"></script>wrapAfter#';
 
-        $subject->addJsFile('/fileadmin/test-plain.js', '', false, false, 'wrapBeforeXwrapAfter', false, 'X');
-        $expectedJsFileWithoutTypeRegExp = '#wrapBefore<script src="/fileadmin/test-plain\\.(js|\\d+\\.js|js\\?\\d+)"></script>wrapAfter#';
+        $subject->addJsFile('/fileadmin/test-plain.js', '', null, false, 'wrapBeforeXwrapAfter', null, 'X');
+        $expectedJsFileWithoutTypeRegExp = '#wrapBefore<script src="/fileadmin/test-plain\\.js\?da39a3ee5e6b4b0d3255bfef95601890afd80709"></script>wrapAfter#';
 
         $jsInlineCode = $expectedJsInlineCodeString = 'var x = "' . StringUtility::getUniqueId('jsInline-') . '"';
         $subject->addJsInlineCode(StringUtility::getUniqueId(), $jsInlineCode);
 
-        $cssFile = StringUtility::getUniqueId('/cssFile-');
-        $expectedCssFileString = 'wrapBefore<link rel="stylesheet" href="' . $cssFile . '" media="print">wrapAfter';
-        $subject->addCssFile($cssFile, 'stylesheet', 'print', '', true, false, 'wrapBeforeXwrapAfter', false, 'X');
+        $cssFile = StringUtility::getUniqueId('cssFile-');
+        $absolutePath = $this->file->ensureFilesExistInPublicFolder('/typo3temp/assets/' . $cssFile);
+        $expectedCssUrl = '/' . PathUtility::stripPathSitePrefix($absolutePath) . '?' . filemtime($absolutePath);
+        $expectedCssFileString = 'wrapBefore<link rel="stylesheet" href="' . $expectedCssUrl . '" media="print">wrapAfter';
+        $subject->addCssFile('typo3temp/assets/' . $cssFile, 'stylesheet', 'print', '', null, false, 'wrapBeforeXwrapAfter', null, 'X');
 
         $expectedCssInlineBlockOnTopString = '/*general3*/' . LF . 'h1 {margin:20px;}' . LF . '/*general2*/' . LF . 'body {margin:20px;}';
         $subject->addCssInlineBlock('general2', 'body {margin:20px;}');
@@ -135,7 +169,7 @@ final class PageRendererTest extends FunctionalTestCase
         $subject->setBodyContent($expectedBodyContent);
 
         $state = serialize($subject->getState());
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
 
         self::assertStringContainsString($expectedPrologueString, $renderedString);
         self::assertStringContainsString($expectedTitleString, $renderedString);
@@ -155,15 +189,14 @@ final class PageRendererTest extends FunctionalTestCase
         self::assertStringContainsString('<meta name="author" content="foobar">', $renderedString);
         self::assertStringContainsString('<meta http-equiv="refresh" content="5">', $renderedString);
         self::assertStringContainsString('<meta name="dc.author" content="&lt;evil tag&gt;">', $renderedString);
-        self::assertStringNotContainsString('<meta name="randomtag" content="foobar">', $renderedString);
-        self::assertStringNotContainsString('<meta name="randomtag" content="foobar" />', $renderedString);
+        self::assertStringContainsString('<meta name="randomtag" content="foobar">', $renderedString);
         self::assertStringContainsString('<meta name="generator" content="TYPO3 CMS">', $renderedString);
         self::assertStringContainsString('<meta property="og:image" content="/path/to/image1.jpg">', $renderedString);
         self::assertStringContainsString('<meta property="og:image" content="/path/to/image2.jpg">', $renderedString);
 
         $stateBasedSubject = $this->createPageRenderer();
         $stateBasedSubject->updateState(unserialize($state, ['allowed_classes' => [Locale::class]]));
-        $stateBasedRenderedString = $stateBasedSubject->render();
+        $stateBasedRenderedString = $stateBasedSubject->render($request);
         self::assertStringContainsString($expectedPrologueString, $stateBasedRenderedString);
         self::assertStringContainsString($expectedTitleString, $stateBasedRenderedString);
         self::assertStringContainsString($expectedCharsetString, $stateBasedRenderedString);
@@ -182,8 +215,7 @@ final class PageRendererTest extends FunctionalTestCase
         self::assertStringContainsString('<meta name="author" content="foobar">', $stateBasedRenderedString);
         self::assertStringContainsString('<meta http-equiv="refresh" content="5">', $stateBasedRenderedString);
         self::assertStringContainsString('<meta name="dc.author" content="&lt;evil tag&gt;">', $stateBasedRenderedString);
-        self::assertStringNotContainsString('<meta name="randomtag" content="foobar">', $stateBasedRenderedString);
-        self::assertStringNotContainsString('<meta name="randomtag" content="foobar" />', $stateBasedRenderedString);
+        self::assertStringContainsString('<meta name="randomtag" content="foobar">', $stateBasedRenderedString);
         self::assertStringContainsString('<meta name="generator" content="TYPO3 CMS">', $stateBasedRenderedString);
         self::assertStringContainsString('<meta property="og:image" content="/path/to/image1.jpg">', $stateBasedRenderedString);
         self::assertStringContainsString('<meta property="og:image" content="/path/to/image2.jpg">', $stateBasedRenderedString);
@@ -201,36 +233,36 @@ final class PageRendererTest extends FunctionalTestCase
     #[Test]
     public function pageRendererRendersFooterValues(int $requestType): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', $requestType);
+        $this->file->ensureFilesExistInStorage('/test.js');
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $request = $this->createRequest($requestType);
+        $subject->setLanguage(new Locale(), $request);
 
         $subject->enableMoveJsFromHeaderToFooter();
 
         $footerData = $expectedFooterData = '<tag method="private" name="test" />';
         $subject->addFooterData($footerData);
 
-        $expectedJsFooterLibraryRegExp = '#wrapBefore<script src="/fileadmin/test\\.(js|\\d+\\.js|js\\?\\d+)" type="text/javascript"></script>wrapAfter#';
+        $expectedJsFooterLibraryRegExp = '#wrapBefore<script src="/fileadmin/test\\.js\?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript"></script>wrapAfter#';
         $subject->addJsFooterLibrary(
             'test',
             '/fileadmin/test.js',
             'text/javascript',
-            false,
+            null,
             false,
             'wrapBeforeXwrapAfter',
-            false,
+            null,
             'X'
         );
 
-        $expectedJsFooterRegExp = '#wrapBefore<script src="/fileadmin/test\\.(js|\\d+\\.js|js\\?\\d+)" type="text/javascript"></script>wrapAfter#';
+        $expectedJsFooterRegExp = '#wrapBefore<script src="/fileadmin/test\\.js\?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript"></script>wrapAfter#';
         $subject->addJsFooterFile(
             '/fileadmin/test.js',
             'text/javascript',
-            false,
+            null,
             false,
             'wrapBeforeXwrapAfter',
-            false,
+            null,
             'X'
         );
 
@@ -269,7 +301,7 @@ final class PageRendererTest extends FunctionalTestCase
             $expectedInlineAssignmentsPrefix = '<script>Object.assign(globalThis, {"TYPO3":{"settings":{';
         }
 
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
 
         self::assertStringContainsString($expectedFooterData, $renderedString);
         self::assertMatchesRegularExpression($expectedJsFooterLibraryRegExp, $renderedString);
@@ -285,19 +317,22 @@ final class PageRendererTest extends FunctionalTestCase
     #[Test]
     public function pageRendererRendersNomoduleJavascript(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $this->file->ensureFilesExistInStorage('/test.js');
+        $this->file->ensureFilesExistInStorage('/test2.js');
+        $this->file->ensureFilesExistInStorage('/test3.js');
+        $this->file->ensureFilesExistInStorage('/test4.js');
+        $request = $this->createRequest();
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $subject->setLanguage(new Locale(), $request);
 
         $subject->addJsFooterLibrary(
             'test',
             '/fileadmin/test.js',
             'text/javascript',
-            false,
+            null,
             false,
             '',
-            false,
+            null,
             '|',
             false,
             '',
@@ -305,16 +340,16 @@ final class PageRendererTest extends FunctionalTestCase
             '',
             true
         );
-        $expectedJsFooterLibrary = '<script src="/fileadmin/test.js" type="text/javascript" nomodule="nomodule"></script>';
+        $expectedJsFooterLibrary = '<script src="/fileadmin/test.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" nomodule="nomodule"></script>';
 
         $subject->addJsLibrary(
             'test2',
             '/fileadmin/test2.js',
             'text/javascript',
-            false,
+            null,
             false,
             '',
-            false,
+            null,
             '|',
             false,
             '',
@@ -322,15 +357,15 @@ final class PageRendererTest extends FunctionalTestCase
             '',
             true
         );
-        $expectedJsLibrary = '<script src="/fileadmin/test2.js" type="text/javascript" nomodule="nomodule"></script>';
+        $expectedJsLibrary = '<script src="/fileadmin/test2.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" nomodule="nomodule"></script>';
 
         $subject->addJsFile(
             '/fileadmin/test3.js',
             'text/javascript',
-            false,
+            null,
             false,
             '',
-            false,
+            null,
             '|',
             false,
             '',
@@ -338,15 +373,15 @@ final class PageRendererTest extends FunctionalTestCase
             '',
             true
         );
-        $expectedJsFile = '<script src="/fileadmin/test3.js" type="text/javascript" nomodule="nomodule"></script>';
+        $expectedJsFile = '<script src="/fileadmin/test3.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" nomodule="nomodule"></script>';
 
         $subject->addJsFooterFile(
             '/fileadmin/test4.js',
             'text/javascript',
-            false,
+            null,
             false,
             '',
-            false,
+            null,
             '|',
             false,
             '',
@@ -354,9 +389,9 @@ final class PageRendererTest extends FunctionalTestCase
             '',
             true
         );
-        $expectedJsFooter = '<script src="/fileadmin/test4.js" type="text/javascript" nomodule="nomodule"></script>';
+        $expectedJsFooter = '<script src="/fileadmin/test4.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" nomodule="nomodule"></script>';
 
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
 
         self::assertStringContainsString($expectedJsFooterLibrary, $renderedString);
         self::assertStringContainsString($expectedJsLibrary, $renderedString);
@@ -367,10 +402,13 @@ final class PageRendererTest extends FunctionalTestCase
     #[Test]
     public function pageRendererRendersDataAttributeInScriptTags(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $this->file->ensureFilesExistInStorage('/test.js');
+        $this->file->ensureFilesExistInStorage('/test2.js');
+        $this->file->ensureFilesExistInStorage('/test3.js');
+        $this->file->ensureFilesExistInStorage('/test4.js');
+        $request = $this->createRequest();
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $subject->setLanguage(new Locale(), $request);
 
         $subject->addJsFooterLibrary(
             'test',
@@ -381,7 +419,7 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedJsFooterLibrary = '<script src="/fileadmin/test.js" type="text/javascript" data-foo="JsFooterLibrary" data-bar="baz"></script>';
+        $expectedJsFooterLibrary = '<script src="/fileadmin/test.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" data-foo="JsFooterLibrary" data-bar="baz"></script>';
 
         $subject->addJsLibrary(
             'test2',
@@ -392,7 +430,7 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedJsLibrary = '<script src="/fileadmin/test2.js" type="text/javascript" data-foo="JsLibrary" data-bar="baz"></script>';
+        $expectedJsLibrary = '<script src="/fileadmin/test2.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" data-foo="JsLibrary" data-bar="baz"></script>';
 
         $subject->addJsFile(
             '/fileadmin/test3.js',
@@ -402,7 +440,7 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedJsFile = '<script src="/fileadmin/test3.js" type="text/javascript" data-foo="JsFile" data-bar="baz"></script>';
+        $expectedJsFile = '<script src="/fileadmin/test3.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" data-foo="JsFile" data-bar="baz"></script>';
 
         $subject->addJsFooterFile(
             '/fileadmin/test4.js',
@@ -412,9 +450,9 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedJsFooter = '<script src="/fileadmin/test4.js" type="text/javascript" data-foo="JsFooterFile" data-bar="baz"></script>';
+        $expectedJsFooter = '<script src="/fileadmin/test4.js?da39a3ee5e6b4b0d3255bfef95601890afd80709" type="text/javascript" data-foo="JsFooterFile" data-bar="baz"></script>';
 
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
 
         self::assertStringContainsString($expectedJsFooterLibrary, $renderedString);
         self::assertStringContainsString($expectedJsLibrary, $renderedString);
@@ -425,10 +463,10 @@ final class PageRendererTest extends FunctionalTestCase
     #[Test]
     public function pageRendererRendersDataAttributeInCssTags(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = $this->createRequest();
+        $this->file->ensureFilesExistInStorage('/test.css');
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $subject->setLanguage(new Locale(), $request);
 
         $subject->addCssFile(
             '/fileadmin/test.css',
@@ -437,7 +475,7 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedCssFile = '<link rel="stylesheet" href="/fileadmin/test.css" media="all" data-foo="CssFile" data-bar="baz">';
+        $expectedCssFile = '<link rel="stylesheet" href="/fileadmin/test.css?da39a3ee5e6b4b0d3255bfef95601890afd80709" media="all" data-foo="CssFile" data-bar="baz">';
 
         $subject->addCssLibrary(
             '/fileadmin/test.css',
@@ -446,9 +484,9 @@ final class PageRendererTest extends FunctionalTestCase
                 'data-bar' => 'baz',
             ]
         );
-        $expectedCssLibrary = '<link rel="stylesheet" href="/fileadmin/test.css" media="all" data-foo="CssLibrary" data-bar="baz">';
+        $expectedCssLibrary = '<link rel="stylesheet" href="/fileadmin/test.css?da39a3ee5e6b4b0d3255bfef95601890afd80709" media="all" data-foo="CssLibrary" data-bar="baz">';
 
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
 
         self::assertStringContainsString($expectedCssFile, $renderedString);
         self::assertStringContainsString($expectedCssLibrary, $renderedString);
@@ -457,21 +495,77 @@ final class PageRendererTest extends FunctionalTestCase
     #[Test]
     public function pageRendererRendersCDataBasedOnDocType(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest('https://www.example.com/'))
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = $this->createRequest();
         $subject = $this->createPageRenderer();
-        $subject->setLanguage(new Locale());
+        $subject->setLanguage(new Locale(), $request);
 
         $subject->addCssInlineBlock(StringUtility::getUniqueId(), 'body {margin:20px;}');
         $subject->addJsInlineCode(StringUtility::getUniqueId(), 'var x = "' . StringUtility::getUniqueId('jsInline-') . '"');
-        $renderedString = $subject->render();
+        $renderedString = $subject->render($request);
         self::assertStringNotContainsString('<![CDATA[', $renderedString);
 
         $subject->addCssInlineBlock(StringUtility::getUniqueId(), 'body {margin:20px;}');
         $subject->addJsInlineCode(StringUtility::getUniqueId(), 'var x = "' . StringUtility::getUniqueId('jsInline-') . '"');
-        $subject->setDocType(DocType::none);
-        $renderedString = $subject->render();
+        $subject->setDocType(DocType::none, $request);
+        $renderedString = $subject->render($request);
         self::assertMatchesRegularExpression('/<!\[CDATA\[(.|\n)*var\sx\s=(.|\n)*]]>/', $renderedString);
         self::assertMatchesRegularExpression('/<!\[CDATA\[(.|\n)*body\s{margin:20px;}(.|\n)*]]>/', $renderedString);
+    }
+
+    public static function loadJavaScriptLanguageStringsAddsProcessesLabelsToInlineLanguageLabelsDataProvider(): array
+    {
+        return [
+            'No processing' => [
+                'EXT:core/Tests/Functional/Page/Fixtures/locallang_pagerenderer.xlf',
+                '',
+                '',
+                [
+                    'inline_label_first_Key' => 'first',
+                    'inline_label_second_Key' => 'second',
+                    'thirdKey' => 'third',
+                ],
+            ],
+            'Respect $selectionPrefix' => [
+                'EXT:core/Tests/Functional/Page/Fixtures/locallang_pagerenderer.xlf',
+                'inline_',
+                '',
+                [
+                    'inline_label_first_Key' => 'first',
+                    'inline_label_second_Key' => 'second',
+                ],
+            ],
+            'Respect $stripFromSelectionName' => [
+                'EXT:core/Tests/Functional/Page/Fixtures/locallang_pagerenderer.xlf',
+                '',
+                'inline_',
+                [
+                    'label_first_Key' => 'first',
+                    'label_second_Key' => 'second',
+                    'thirdKey' => 'third',
+                ],
+            ],
+            'Respect $selectionPrefix and $stripFromSelectionName' => [
+                'EXT:core/Tests/Functional/Page/Fixtures/locallang_pagerenderer.xlf',
+                'inline_',
+                'inline_label_',
+                [
+                    'first_Key' => 'first',
+                    'second_Key' => 'second',
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('loadJavaScriptLanguageStringsAddsProcessesLabelsToInlineLanguageLabelsDataProvider')]
+    #[Test]
+    public function loadJavaScriptLanguageStringsAddsProcessesLabelsToInlineLanguageLabels(string $fileRef, string $selectionPrefix, string $stripFromSelectionName, array $expectation): void
+    {
+        $subject = $this->get(PageRenderer::class);
+        $subject->setLanguage(new Locale(), new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE));
+        $subject->addInlineLanguageLabelFile($fileRef, $selectionPrefix, $stripFromSelectionName);
+        $subjectMethodReflection = (new \ReflectionMethod($subject, 'loadJavaScriptLanguageStrings'));
+        $subjectMethodReflection->invoke($subject);
+        $subjectPropertyReflection = (new \ReflectionProperty($subject, 'inlineLanguageLabels'));
+        self::assertEquals($expectation, $subjectPropertyReflection->getValue($subject));
     }
 }

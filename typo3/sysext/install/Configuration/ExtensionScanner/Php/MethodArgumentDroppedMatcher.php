@@ -441,6 +441,18 @@ return [
             'Breaking-102151-XMLPrologueAlwaysAddedInFlexArray2Xml.rst',
         ],
     ],
+    'TYPO3\CMS\Core\Domain\Repository\PageRepository->resolveShortcutPage' => [
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-107654-RemoveRandomSubpageOptionOfDoktypeShortcut.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->makeControl' => [
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-107884-ReworkActionsToUseButtonsAPI.rst',
+        ],
+    ],
     /** Note (leave this at the bottom):
      *  The FQCN object definitions here are not actually checked, only
      *  the method name itself. That means, never list generic method names

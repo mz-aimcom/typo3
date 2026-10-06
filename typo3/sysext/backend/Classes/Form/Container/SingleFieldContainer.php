@@ -118,8 +118,8 @@ class SingleFieldContainer extends AbstractContainer
             $parameterArray['itemFormElName']
         );
 
-        $requestFormEngineUpdate =
-            (!empty($this->data['processedTca']['ctrl']['type']) && $fieldName === $typeField)
+        $requestFormEngineUpdate
+            = (!empty($this->data['processedTca']['ctrl']['type']) && $fieldName === $typeField)
             || (isset($parameterArray['fieldConf']['onChange']) && $parameterArray['fieldConf']['onChange'] === 'reload');
         if ($requestFormEngineUpdate) {
             $askForUpdate = $backendUser->jsConfirmation(JsConfirmation::TYPE_CHANGE);
@@ -154,7 +154,7 @@ class SingleFieldContainer extends AbstractContainer
             'foreign_selector' => '',
             'foreign_field' => '',
         ];
-        if (count($this->data['inlineStructure']['stable'] ?? []) > 0) {
+        if (($this->data['inlineStructure']['stable'] ?? []) !== []) {
             $searchArray = [
                 '%OR' => [
                     'config' => [
@@ -226,11 +226,11 @@ class SingleFieldContainer extends AbstractContainer
      * @param string $type Use '%AND' or '%OR' for comparison
      * @return bool The result of the comparison
      */
-    protected function arrayCompareComplex($subjectArray, $searchArray, $type = ''): bool
+    protected function arrayCompareComplex(array $subjectArray, array $searchArray, string $type = ''): bool
     {
         $localMatches = 0;
         $localEntries = 0;
-        if (is_array($searchArray) && !empty($searchArray)) {
+        if ($searchArray !== []) {
             // If no type was passed, try to determine
             if (!$type) {
                 reset($searchArray);

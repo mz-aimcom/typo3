@@ -23,6 +23,8 @@ use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\RteCKEditor\Form\Element\Event\AfterGetExternalPluginsEvent;
@@ -36,17 +38,6 @@ use TYPO3\CMS\RteCKEditor\Form\Element\Event\BeforePrepareConfigurationForEditor
  */
 class RichTextElement extends AbstractFormElement
 {
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
     /**
      * Default field wizards enabled for this element.
      *
@@ -82,6 +73,8 @@ class RichTextElement extends AbstractFormElement
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly UriBuilder $uriBuilder,
         private readonly Locales $locales,
+        private readonly SystemResourcePublisherInterface $resourcePublisher,
+        private readonly SystemResourceFactory $systemResourceFactory,
     ) {}
 
     /**
@@ -339,7 +332,7 @@ class RichTextElement extends AbstractFormElement
                 'configName' => $configuration['configName'] ?? $pluginName,
             ];
             unset($configuration['configName']);
-            // CKEditor4 style config, unused in CKEditor5 and not forwarded to the resutling plugin config
+            // CKEditor 4 style config, unused in CKEditor 5 and not forwarded to the resutling plugin config
             unset($configuration['resource']);
 
             if ($configuration['route'] ?? null) {
@@ -378,7 +371,11 @@ class RichTextElement extends AbstractFormElement
         foreach ($configuration as $key => $value) {
             if (is_array($value)) {
                 $configuration[$key] = $this->replaceAbsolutePathsToRelativeResourcesPath($value);
-            } elseif (is_string($value) && PathUtility::isExtensionPath(strtoupper($value))) {
+            } elseif (is_string($value)
+                && $value !== ''
+                // @todo: this check should vanish, once not every config key is iterated over
+                && PathUtility::isExtensionPath(strtoupper($value), true)
+            ) {
                 $configuration[$key] = $this->resolveUrlPath($value);
             }
         }
@@ -386,17 +383,12 @@ class RichTextElement extends AbstractFormElement
     }
 
     /**
-     * Resolves an EXT: syntax file to an absolute web URL
+     * Resolves system resources an absolute web URL
      */
     protected function resolveUrlPath(string $value): string
     {
-        if (str_contains($value, '?')) {
-            return PathUtility::getPublicResourceWebPath($value);
-        }
-        $value = GeneralUtility::getFileAbsFileName($value);
-        $value = GeneralUtility::createVersionNumberedFilename($value);
-        return PathUtility::getAbsoluteWebPath($value);
-
+        $resource = $this->systemResourceFactory->createPublicResource($value);
+        return (string)$this->resourcePublisher->generateUri($resource, null);
     }
 
     /**
@@ -427,8 +419,8 @@ class RichTextElement extends AbstractFormElement
             ->getConfiguration();
 
         // Set the UI language of the editor if not hard-coded by the existing configuration
-        if (empty($configuration['language']) ||
-            (is_array($configuration['language']) && empty($configuration['language']['ui']))
+        if (empty($configuration['language'])
+            || (is_array($configuration['language']) && empty($configuration['language']['ui']))
         ) {
             $userLang = (string)($this->getBackendUser()->user['lang'] ?: 'en');
             $configuration['language']['ui'] = $userLang === 'default' ? 'en' : $userLang;

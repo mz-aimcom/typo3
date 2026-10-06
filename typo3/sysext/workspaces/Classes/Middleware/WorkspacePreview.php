@@ -58,12 +58,15 @@ final class WorkspacePreview implements MiddlewareInterface
     /**
      * The GET parameter to be used (also the cookie name)
      */
-    private const PREVIEW_KEY = 'ADMCMD_prev';
+    private const string PREVIEW_KEY = 'ADMCMD_prev';
 
     private bool $previewNotificationEnabled = false;
     private ?string $previewMessage = null;
 
-    public function __construct(private readonly Context $context) {}
+    public function __construct(
+        private readonly Context $context,
+        private readonly ConnectionPool $connectionPool,
+    ) {}
 
     /**
      * Initializes a possible preview user (by checking for GET/cookie of name "ADMCMD_prev")
@@ -272,7 +275,7 @@ final class WorkspacePreview implements MiddlewareInterface
      */
     private function getPreviewData(string $keyword)
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_preview');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_preview');
         return $queryBuilder
             ->select('*')
             ->from('sys_preview')
@@ -324,7 +327,7 @@ final class WorkspacePreview implements MiddlewareInterface
                 $styles[] = 'background: #fff3cd';
                 $styles[] = 'border: 1px solid #ffeeba';
                 $styles[] = 'font-family: sans-serif';
-                $styles[] = 'font-size: 14px';
+                $styles[] = 'font-size: .875em';
                 $styles[] = 'font-weight: bold';
                 $styles[] = 'color: #856404';
                 $styles[] = 'z-index: 20000';
@@ -343,7 +346,7 @@ final class WorkspacePreview implements MiddlewareInterface
      */
     private function getWorkspaceTitle(int $workspaceId): string
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_workspace');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_workspace');
         $title = $queryBuilder
             ->select('title')
             ->from('sys_workspace')
@@ -379,7 +382,7 @@ final class WorkspacePreview implements MiddlewareInterface
 
     private function getLanguageService(): LanguageService
     {
-        return $GLOBALS['LANG'] ?? GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('default');
+        return $GLOBALS['LANG'] ?? GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('en');
     }
 
     /**

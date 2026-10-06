@@ -20,15 +20,17 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Form\FormDataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataProvider\TcaFlexPrepare;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class TcaFlexPrepareTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     #[Test]
     public function addDataKeepsExistingDataStructure(): void
     {
-        $input = [
+        $input = $this->addTcaSchemata([
             'systemLanguageRows' => [],
             'tableName' => 'aTableName',
             'databaseRow' => [
@@ -65,15 +67,15 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
+        ]);
         $expected = $input;
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
     }
 
     #[Test]
     public function addDataSetsParsedDataStructureArray(): void
     {
-        $input = [
+        $input = $this->addTcaSchemata([
             'systemLanguageRows' => [],
             'tableName' => 'aTableName',
             'databaseRow' => [
@@ -106,10 +108,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
-
-        $GLOBALS['TCA']['aTableName']['columns'] = $input['processedTca']['columns'];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        ]);
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['dataStructureIdentifier']
@@ -133,13 +132,13 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
             'meta' => [],
         ];
 
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
     }
 
     #[Test]
     public function addDataSetsParsedDataStructureArrayWithSheets(): void
     {
-        $input = [
+        $input = $this->addTcaSchemata([
             'systemLanguageRows' => [],
             'tableName' => 'aTableName',
             'databaseRow' => [
@@ -177,10 +176,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
-
-        $GLOBALS['TCA']['aTableName']['columns'] = $input['processedTca']['columns'];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        ]);
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['dataStructureIdentifier']
@@ -205,13 +201,13 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
             'meta' => [],
         ];
 
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
     }
 
     #[Test]
     public function addDataInitializesDatabaseRowValueIfNoDataStringIsGiven(): void
     {
-        $input = [
+        $input = $this->addTcaSchemata([
             'databaseRow' => [],
             'tableName' => 'aTableName',
             'systemLanguageRows' => [],
@@ -229,10 +225,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
-
-        $GLOBALS['TCA']['aTableName']['columns'] = $input['processedTca']['columns'];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        ]);
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['dataStructureIdentifier']
@@ -246,13 +239,13 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
             'meta' => [],
         ];
 
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
     }
 
     #[Test]
     public function addDataSetsParsedDataStructureArrayRecursive(): void
     {
-        $input = [
+        $input = $this->addTcaSchemata([
             'systemLanguageRows' => [],
             'tableName' => 'aTableName',
             'databaseRow' => [
@@ -321,10 +314,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
-
-        $GLOBALS['TCA']['aTableName']['columns'] = $input['processedTca']['columns'];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+        ]);
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['dataStructureIdentifier']
@@ -381,7 +371,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
             'meta' => [],
         ];
 
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
     }
 
     /**
@@ -400,7 +390,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
             ],
         ];
 
-        $input = [
+        $input = $this->addTcaSchemata([
             'systemLanguageRows' => [],
             'tableName' => 'aTableName',
             'databaseRow' => [
@@ -442,7 +432,7 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ],
                 ],
             ],
-        ];
+        ]);
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['ds']['meta'] = [];
@@ -452,6 +442,19 @@ final class TcaFlexPrepareTest extends FunctionalTestCase
                     ['container_1']['el']
                         ['select_section_1'] = $columnConfig;
 
-        self::assertEquals($expected, (new TcaFlexPrepare($this->get(FlexFormTools::class), $this->get(TcaSchemaFactory::class)))->addData($input));
+        self::assertEquals($expected, new TcaFlexPrepare($this->get(FlexFormTools::class))->addData($input));
+    }
+
+    private function addTcaSchemata(array $result): array
+    {
+        if (isset($result['tcaSchemata'])) {
+            return $result;
+        }
+        $tca = $result['fullTca'] ?? $GLOBALS['TCA'];
+        if (!isset($tca[$result['tableName']]) && isset($result['processedTca'])) {
+            $tca[$result['tableName']] = $result['processedTca'];
+        }
+        $result['tcaSchemata'] = $this->get(TcaSchemaBuilder::class)->buildFromStructure($tca);
+        return $result;
     }
 }

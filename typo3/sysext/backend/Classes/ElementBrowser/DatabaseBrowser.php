@@ -18,13 +18,23 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\ElementBrowser;
 
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Context\PageContextFactory;
 use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\RecordList\ElementBrowserRecordList;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Tree\View\LinkParameterProviderInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Backend\View\RecordSearchBoxComponent;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
+use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Routing\SiteMatcher;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -48,6 +58,28 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
      */
     protected $expandPage;
     protected array $modTSconfig = [];
+
+    public function __construct(
+        IconFactory $iconFactory,
+        PageRenderer $pageRenderer,
+        UriBuilder $uriBuilder,
+        ExtensionConfiguration $extensionConfiguration,
+        BackendViewFactory $backendViewFactory,
+        TcaSchemaFactory $tcaSchemaFactory,
+        ComponentFactory $componentFactory,
+        protected readonly SiteMatcher $siteMatcher,
+        protected readonly PageContextFactory $pageContextFactory,
+    ) {
+        parent::__construct(
+            $iconFactory,
+            $pageRenderer,
+            $uriBuilder,
+            $extensionConfiguration,
+            $backendViewFactory,
+            $tcaSchemaFactory,
+            $componentFactory,
+        );
+    }
 
     protected function initialize(ServerRequestInterface $request)
     {
@@ -90,7 +122,7 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
     {
         $this->getBackendUser()->initializeWebmountsForElementBrowser();
         $this->modTSconfig = BackendUtility::getPagesTSconfig((int)$this->expandPage)['mod.']['web_list.'] ?? [];
-        [, , , $allowedTables] = explode('|', $this->bparams);
+        $allowedTables = $this->browserParameters->allowedTypes;
 
         $withTree = true;
         if ($allowedTables !== '' && $allowedTables !== '*') {
@@ -130,7 +162,7 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
             return $content;
         }
         $this->pageRenderer->setBodyContent('<body ' . $this->getBodyTagParameters() . '>' . $content);
-        return $this->pageRenderer->render();
+        return $this->pageRenderer->render($this->getRequest());
     }
 
     /**
@@ -156,10 +188,9 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
         $out = '';
         // Create the header, showing the current page for which the listing is.
         // Includes link to the page itself, if pages are amount allowed tables.
-        $titleLen = (int)$backendUser->uc['titleLen'];
         $mainPageRecord = BackendUtility::getRecordWSOL('pages', $this->expandPage);
         if (is_array($mainPageRecord)) {
-            $pText = htmlspecialchars(GeneralUtility::fixed_lgd_cs($mainPageRecord['title'], $titleLen));
+            $pText = htmlspecialchars(BackendUtility::cropToTitleLength($mainPageRecord['title']));
 
             $out .= '<p>' . $this->iconFactory->getIconForRecord('pages', $mainPageRecord, IconSize::SMALL)->render() . '&nbsp;';
             if (in_array('pages', $tablesArr, true)) {
@@ -179,11 +210,11 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
 
         $permsClause = $backendUser->getPagePermsClause(Permission::PAGE_SHOW);
         $pageInfo = BackendUtility::readPageAccess($this->expandPage, $permsClause);
-        $existingModuleData = $backendUser->getModuleData('web_list');
-        $moduleData = new ModuleData('web_list', is_array($existingModuleData) ? $existingModuleData : []);
+        $existingModuleData = $backendUser->getModuleData('records');
+        $moduleData = new ModuleData('records', is_array($existingModuleData) ? $existingModuleData : []);
 
         $dbList = GeneralUtility::makeInstance(ElementBrowserRecordList::class);
-        $dbList->setRequest($request);
+        $dbList->setRequest($this->getRequestWithLanguageContext($request, (int)$this->expandPage, $backendUser));
         $dbList->setModuleData($moduleData);
         $dbList->setOverrideUrlParameters($this->getUrlParameters([]), $request);
         $dbList->setIsEditable(false);
@@ -193,16 +224,10 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
         $dbList->displayRecordDownload = false;
         $dbList->tableList = implode(',', $tablesArr);
 
-        // a string like "data[pages][79][storage_pid]"
-        [$fieldPointerString] = explode('|', $this->bparams);
-        // parts like: data, pages], 79], storage_pid]
-        $fieldPointerParts = explode('[', $fieldPointerString);
-
-        $relatingTableName = substr(($fieldPointerParts[1] ?? ''), 0, -1);
-        $relatingFieldName = substr(($fieldPointerParts[3] ?? ''), 0, -1);
-
-        if ($relatingTableName && $relatingFieldName) {
-            $dbList->setRelatingTableAndField($relatingTableName, $relatingFieldName);
+        // Extract relating table and field from field reference (e.g., "data[pages][79][storage_pid]")
+        $fieldReferenceParts = $this->browserParameters->getFieldReferenceParts();
+        if ($fieldReferenceParts['tableName'] !== '' && $fieldReferenceParts['fieldName'] !== '') {
+            $dbList->setRelatingTableAndField($fieldReferenceParts['tableName'], $fieldReferenceParts['fieldName']);
         }
 
         $selectedTable = (string)($request->getParsedBody()['table'] ?? $request->getQueryParams()['table'] ?? '');
@@ -211,7 +236,7 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
         $pointer = (int)($request->getParsedBody()['pointer'] ?? $request->getQueryParams()['pointer'] ?? 0);
 
         $dbList->start(
-            $this->expandPage,
+            (int)$this->expandPage,
             $selectedTable,
             MathUtility::forceIntegerInRange($pointer, 0, 100000),
             $searchWord,
@@ -228,26 +253,44 @@ class DatabaseBrowser extends AbstractElementBrowser implements ElementBrowserIn
         return $out;
     }
 
+    /**
+     * Builds a request carrying a PageContext of its own, scoped to the page being
+     * browsed and populated with all languages available on its site. Without this,
+     * DatabaseRecordList::getSelectedLanguageIds() would fall back to the ModuleData
+     * persisted by the Web > List module (both share the "records" module identifier),
+     * silently reusing whatever language filter was last set there.
+     */
+    private function getRequestWithLanguageContext(ServerRequestInterface $request, int $pageId, BackendUserAuthentication $backendUser): ServerRequestInterface
+    {
+        $site = $this->siteMatcher->matchByPageId($pageId);
+        $languageIds = array_keys($site->getAvailableLanguages($backendUser, false, $pageId));
+        $request = $request->withAttribute('site', $site);
+        $pageContext = $this->pageContextFactory->createWithLanguages($request, $pageId, $languageIds, $backendUser);
+        return $request->withAttribute('pageContext', $pageContext);
+    }
+
     protected function renderSearchBox(ServerRequestInterface $request, ElementBrowserRecordList $dblist, string $searchWord, int $searchLevels): string
     {
         return GeneralUtility::makeInstance(RecordSearchBoxComponent::class)
             ->setAllowedSearchLevels((array)($this->modTSconfig['searchLevel.']['items.'] ?? []))
             ->setSearchWord($searchWord)
             ->setSearchLevel($searchLevels)
-            ->render($request, $dblist->listURL('', '-1', 'pointer,searchTerm'));
+            ->render($request, $dblist->listURL('', null, 'pointer,searchTerm'));
     }
 
     /**
      * @param array $values Array of values to include into the parameters
-     * @return string[] Array of parameters which have to be added to URLs
+     * @return array<string,mixed> Array of parameters which have to be added to URLs
      */
     public function getUrlParameters(array $values): array
     {
         $pid = $values['pid'] ?? $this->expandPage;
-        return [
-            'mode' => 'db',
-            'expandPage' => $pid,
-            'bparams' => $this->bparams,
-        ];
+        return array_merge(
+            [
+                'mode' => 'db',
+                'expandPage' => $pid,
+            ],
+            $this->browserParameters->toQueryParameters()
+        );
     }
 }

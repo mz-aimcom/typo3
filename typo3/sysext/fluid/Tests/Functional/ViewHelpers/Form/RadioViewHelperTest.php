@@ -31,6 +31,8 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 
 final class RadioViewHelperTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     public static function renderDataProvider(): array
     {
         return [
@@ -49,10 +51,10 @@ final class RadioViewHelperTest extends FunctionalTestCase
     #[Test]
     public function render(string $template, string $expected): void
     {
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 
     #[Test]
@@ -60,7 +62,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
     {
         $formObject = new \stdClass();
         $formObject->someProperty = false;
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:form object="{formObject}" fieldNamePrefix="myFieldPrefix" objectName="myObjectName"><f:form.radio value="foo" property="someProperty" checked="true" /></f:form>');
@@ -74,7 +76,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
     {
         $formObject = new \stdClass();
         $formObject->someProperty = true;
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:form object="{formObject}" fieldNamePrefix="myFieldPrefix" objectName="myObjectName"><f:form.radio value="foo" property="someProperty" /></f:form>');
@@ -88,7 +90,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
     {
         $formObject = new \stdClass();
         $formObject->someProperty = [];
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:form object="{formObject}" fieldNamePrefix="myFieldPrefix" objectName="myObjectName"><f:form.radio value="foo" property="someProperty" /></f:form>');
@@ -102,7 +104,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
     {
         $formObject = new \stdClass();
         $formObject->someProperty = '';
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:form object="{formObject}" fieldNamePrefix="myFieldPrefix" objectName="myObjectName"><f:form.radio value="foo" property="someProperty" /></f:form>');
@@ -116,7 +118,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
     {
         $formObject = new \stdClass();
         $formObject->someProperty = null;
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:form object="{formObject}" fieldNamePrefix="myFieldPrefix" objectName="myObjectName"><f:form.radio value="foo" property="someProperty" /></f:form>');
@@ -135,7 +137,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
         $propertyResult->addError(new Error('invalidProperty', 2));
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setOriginalRequestMappingResults($mappingResult);
-        $psr7Request = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)
+        $psr7Request = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = new Request($psr7Request);
 
@@ -157,7 +159,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
         $propertyResult->addError(new Error('invalidProperty', 2));
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setOriginalRequestMappingResults($mappingResult);
-        $psr7Request = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)
+        $psr7Request = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = new Request($psr7Request);
 
@@ -178,7 +180,7 @@ final class RadioViewHelperTest extends FunctionalTestCase
         $propertyResult->addError(new Error('invalidProperty', 2));
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setOriginalRequestMappingResults($mappingResult);
-        $psr7Request = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)
+        $psr7Request = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = new Request($psr7Request);
 

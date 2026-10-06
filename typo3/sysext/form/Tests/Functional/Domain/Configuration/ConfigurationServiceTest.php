@@ -17,8 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Domain\Configuration;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConfigurationManagerInterface;
@@ -26,10 +28,12 @@ use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
 use TYPO3\CMS\Form\Domain\Configuration\Exception\PropertyException;
 use TYPO3\CMS\Form\Domain\Configuration\Exception\PrototypeNotFoundException;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinition\Validators\ValidationDto;
+use TYPO3\CMS\Form\Event\AfterFormDefinitionValidationConfigurationIsBuiltEvent;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ConfigurationServiceTest extends FunctionalTestCase
 {
     protected bool $initializeDatabase = false;
@@ -37,8 +41,8 @@ final class ConfigurationServiceTest extends FunctionalTestCase
     #[Test]
     public function getPrototypeConfigurationReturnsPrototypeConfiguration(): void
     {
-        $configurationManagerMock = $this->createMock(ExtFormConfigurationManagerInterface::class);
-        $configurationManagerMock->method('getYamlConfiguration')
+        $configurationManagerStub = self::createStub(ExtFormConfigurationManagerInterface::class);
+        $configurationManagerStub->method('getYamlConfiguration')
             ->willReturn([
                 'prototypes' => [
                     'standard' => [
@@ -47,11 +51,12 @@ final class ConfigurationServiceTest extends FunctionalTestCase
                 ],
             ]);
         $subject = new ConfigurationService(
-            $this->createMock(ExtbaseConfigurationManagerInterface::class),
-            $configurationManagerMock,
-            $this->createMock(TranslationService::class),
-            $this->createMock(PhpFrontend::class),
-            $this->createMock(PhpFrontend::class),
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            $configurationManagerStub,
+            self::createStub(TranslationService::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $expected = [
             'key' => 'value',
@@ -62,19 +67,20 @@ final class ConfigurationServiceTest extends FunctionalTestCase
     #[Test]
     public function getPrototypeConfigurationThrowsExceptionIfNoPrototypeFound(): void
     {
-        $configurationManagerMock = $this->createMock(ExtFormConfigurationManagerInterface::class);
-        $configurationManagerMock->method('getYamlConfiguration')
+        $configurationManagerStub = self::createStub(ExtFormConfigurationManagerInterface::class);
+        $configurationManagerStub->method('getYamlConfiguration')
             ->willReturn([
                 'prototypes' => [
                     'noStandard' => [],
                 ],
             ]);
         $subject = new ConfigurationService(
-            $this->createMock(ExtbaseConfigurationManagerInterface::class),
-            $configurationManagerMock,
-            $this->createMock(TranslationService::class),
-            $this->createMock(PhpFrontend::class),
-            $this->createMock(PhpFrontend::class),
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            $configurationManagerStub,
+            self::createStub(TranslationService::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $this->expectException(PrototypeNotFoundException::class);
         $this->expectExceptionCode(1475924277);
@@ -82,10 +88,49 @@ final class ConfigurationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function getFormConfigurationReturnsTypedConfiguration(): void
+    {
+        $configurationManagerStub = self::createStub(ExtFormConfigurationManagerInterface::class);
+        $configurationManagerStub->method('getYamlConfiguration')
+            ->willReturn([
+                'persistenceManager' => ['sortAscending' => false],
+                'formManager' => ['selectablePrototypesConfiguration' => [
+                    100 => [
+                        'identifier' => 'sitePackage',
+                        'label' => 'formManager.selectablePrototypesConfiguration.sitePackage.label',
+                        'newFormTemplates' => [
+                            100 => [
+                                'templatePath' => 'EXT:site_package/Resources/Private/Forms/Contact.yaml',
+                                'label' => 'formManager.selectablePrototypesConfiguration.sitePackage.newFormTemplates.contact.label',
+                            ],
+                        ],
+                    ],
+                ]],
+                'prototypes' => [
+                    'sitePackage' => ['customSetting' => ['enabled' => true]],
+                ],
+            ]);
+        $subject = new ConfigurationService(
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            $configurationManagerStub,
+            self::createStub(TranslationService::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(EventDispatcherInterface::class),
+        );
+
+        $configuration = $subject->getFormConfiguration();
+
+        self::assertFalse($configuration->persistenceManager->sortAscending);
+        self::assertSame(['sitePackage'], $configuration->formManager->getSelectablePrototypeIdentifiers());
+        self::assertTrue($configuration->prototypes->get('sitePackage')?->get('customSetting.enabled'));
+    }
+
+    #[Test]
     public function getSelectablePrototypeNamesDefinedInFormEditorSetupReturnsPrototypes(): void
     {
-        $configurationManagerMock = $this->createMock(ExtFormConfigurationManagerInterface::class);
-        $configurationManagerMock->method('getYamlConfiguration')
+        $configurationManagerStub = self::createStub(ExtFormConfigurationManagerInterface::class);
+        $configurationManagerStub->method('getYamlConfiguration')
             ->willReturn([
                 'formManager' => [
                     'selectablePrototypesConfiguration' => [
@@ -102,11 +147,12 @@ final class ConfigurationServiceTest extends FunctionalTestCase
                 ],
             ]);
         $subject = new ConfigurationService(
-            $this->createMock(ExtbaseConfigurationManagerInterface::class),
-            $configurationManagerMock,
-            $this->createMock(TranslationService::class),
-            $this->createMock(PhpFrontend::class),
-            $this->createMock(PhpFrontend::class),
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            $configurationManagerStub,
+            self::createStub(TranslationService::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(PhpFrontend::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $expected = [
             'standard',
@@ -566,115 +612,6 @@ final class ConfigurationServiceTest extends FunctionalTestCase
         self::assertTrue($subjectMock->isFormElementTypeDefinedInFormSetup($validationDto));
         $validationDto = new ValidationDto('standard', 'Foo');
         self::assertFalse($subjectMock->isFormElementTypeDefinedInFormSetup($validationDto));
-    }
-
-    #[Test]
-    public function addAdditionalPropertyPathsFromHookThrowsExceptionIfHookResultIsNoFormDefinitionValidation(): void
-    {
-        $this->expectException(PropertyException::class);
-        $this->expectExceptionCode(1528633966);
-        $subjectMock = $this->getAccessibleMock(ConfigurationService::class, null, [], '', false);
-        $input = ['dummy'];
-        $subjectMock->_call('addAdditionalPropertyPathsFromHook', '', '', $input, []);
-    }
-
-    #[Test]
-    public function addAdditionalPropertyPathsFromHookThrowsExceptionIfPrototypeDoesNotMatch(): void
-    {
-        $this->expectException(PropertyException::class);
-        $this->expectExceptionCode(1528634966);
-        $subjectMock = $this->getAccessibleMock(ConfigurationService::class, null, [], '', false);
-        $validationDto = new ValidationDto('Bar', 'Foo');
-        $input = [$validationDto];
-        $subjectMock->_call('addAdditionalPropertyPathsFromHook', '', 'standard', $input, []);
-    }
-
-    #[Test]
-    public function addAdditionalPropertyPathsFromHookThrowsExceptionIfFormElementTypeDoesNotMatch(): void
-    {
-        $this->expectException(PropertyException::class);
-        $this->expectExceptionCode(1528633967);
-        $subjectMock = $this->getAccessibleMock(
-            ConfigurationService::class,
-            ['isFormElementTypeDefinedInFormSetup'],
-            [],
-            '',
-            false
-        );
-        $subjectMock->method('isFormElementTypeDefinedInFormSetup')->willReturn(false);
-        $validationDto = new ValidationDto('standard', 'Text');
-        $input = [$validationDto];
-        $subjectMock->_call('addAdditionalPropertyPathsFromHook', '', 'standard', $input, []);
-    }
-
-    #[Test]
-    public function addAdditionalPropertyPathsFromHookThrowsExceptionIfPropertyCollectionNameIsInvalid(): void
-    {
-        $this->expectException(PropertyException::class);
-        $this->expectExceptionCode(1528636941);
-        $subjectMock = $this->getAccessibleMock(
-            ConfigurationService::class,
-            ['isFormElementTypeDefinedInFormSetup'],
-            [],
-            '',
-            false
-        );
-        $subjectMock->method('isFormElementTypeDefinedInFormSetup')->willReturn(true);
-        $validationDto = new ValidationDto('standard', 'Text', null, null, 'Bar', 'Baz');
-        $input = [$validationDto];
-        $subjectMock->_call('addAdditionalPropertyPathsFromHook', '', 'standard', $input, []);
-    }
-
-    #[Test]
-    public function addAdditionalPropertyPathsFromHookAddPaths(): void
-    {
-        $subjectMock = $this->getAccessibleMock(
-            ConfigurationService::class,
-            ['isFormElementTypeDefinedInFormSetup'],
-            [],
-            '',
-            false
-        );
-        $subjectMock->method('isFormElementTypeDefinedInFormSetup')->willReturn(true);
-        $input = [
-            new ValidationDto('standard', 'Text', null, 'options.xxx', 'validators', 'Baz'),
-            new ValidationDto('standard', 'Text', null, 'options.yyy', 'validators', 'Baz'),
-            new ValidationDto('standard', 'Text', null, 'options.zzz', 'validators', 'Custom'),
-            new ValidationDto('standard', 'Text', null, 'properties.xxx'),
-            new ValidationDto('standard', 'Text', null, 'properties.yyy'),
-            new ValidationDto('standard', 'Custom', null, 'properties.xxx'),
-        ];
-        $expected = [
-            'formElements' => [
-                'Text' => [
-                    'collections' => [
-                        'validators' => [
-                            'Baz' => [
-                                'additionalPropertyPaths' => [
-                                    'options.xxx',
-                                    'options.yyy',
-                                ],
-                            ],
-                            'Custom' => [
-                                'additionalPropertyPaths' => [
-                                    'options.zzz',
-                                ],
-                            ],
-                        ],
-                    ],
-                    'additionalPropertyPaths' => [
-                        'properties.xxx',
-                        'properties.yyy',
-                    ],
-                ],
-                'Custom' => [
-                    'additionalPropertyPaths' => [
-                        'properties.xxx',
-                    ],
-                ],
-            ],
-        ];
-        self::assertSame($expected, $subjectMock->_call('addAdditionalPropertyPathsFromHook', '', 'standard', $input, []));
     }
 
     public static function buildFormDefinitionValidationConfigurationFromFormEditorSetupDataProvider(): array
@@ -1220,25 +1157,55 @@ final class ConfigurationServiceTest extends FunctionalTestCase
     #[Test]
     public function buildFormDefinitionValidationConfigurationFromFormEditorSetup(array $configuration, array $expected): void
     {
-        $translationServiceMock = $this->createMock(TranslationService::class);
-        $translationServiceMock->method('translateValuesRecursive')->willReturnArgument(0);
+        $translationServiceStub = self::createStub(TranslationService::class);
+        $translationServiceStub->method('translateValuesRecursive')->willReturnArgument(0);
+        $eventDispatcherStub = self::createStub(EventDispatcherInterface::class);
+        $eventDispatcherStub->method('dispatch')->willReturnArgument(0);
         $subjectMock = $this->getAccessibleMock(
             ConfigurationService::class,
+            ['getPrototypeConfiguration'],
             [
-                'getPrototypeConfiguration',
-                'executeBuildFormDefinitionValidationConfigurationHooks',
-            ],
-            [
-                $this->createMock(ExtbaseConfigurationManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $translationServiceMock,
-                $this->createMock(FrontendInterface::class),
-                $this->createMock(FrontendInterface::class),
+                self::createStub(ExtbaseConfigurationManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                $translationServiceStub,
+                self::createStub(FrontendInterface::class),
+                self::createStub(FrontendInterface::class),
+                $eventDispatcherStub,
             ],
         );
         $subjectMock->method('getPrototypeConfiguration')->willReturn($configuration);
-        $subjectMock->method('executeBuildFormDefinitionValidationConfigurationHooks')->willReturnArgument(1);
         self::assertSame($expected, $subjectMock->_call('buildFormDefinitionValidationConfigurationFromFormEditorSetup', 'standard'));
+    }
+
+    #[Test]
+    public function afterFormDefinitionValidationConfigurationIsBuiltEventIsDispatched(): void
+    {
+        $translationServiceStub = self::createStub(TranslationService::class);
+        $translationServiceStub->method('translateValuesRecursive')->willReturnArgument(0);
+        $dispatchedEvent = null;
+        $eventDispatcherStub = self::createStub(EventDispatcherInterface::class);
+        $eventDispatcherStub->method('dispatch')->willReturnCallback(
+            static function (object $event) use (&$dispatchedEvent): object {
+                $dispatchedEvent = $event;
+                return $event;
+            }
+        );
+        $subjectMock = $this->getAccessibleMock(
+            ConfigurationService::class,
+            ['getPrototypeConfiguration'],
+            [
+                self::createStub(ExtbaseConfigurationManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                $translationServiceStub,
+                self::createStub(FrontendInterface::class),
+                self::createStub(FrontendInterface::class),
+                $eventDispatcherStub,
+            ],
+        );
+        $subjectMock->method('getPrototypeConfiguration')->willReturn([]);
+        $subjectMock->_call('buildFormDefinitionValidationConfigurationFromFormEditorSetup', 'standard');
+        self::assertInstanceOf(AfterFormDefinitionValidationConfigurationIsBuiltEvent::class, $dispatchedEvent);
+        self::assertSame('standard', $dispatchedEvent->getPrototypeName());
     }
 
     public static function formElementPropertyHasLimitedAllowedValuesDefinedWithinFormEditorSetupDataProvider(): array

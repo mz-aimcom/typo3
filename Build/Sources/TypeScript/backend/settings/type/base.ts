@@ -16,7 +16,7 @@
 
 import { LitElement, type PropertyDeclaration, type ReactiveElement } from 'lit';
 import { defaultConverter } from '@lit/reactive-element';
-import { property } from 'lit/decorators';
+import { property } from 'lit/decorators.js';
 
 export const internals = Symbol('internals');
 const privateInternals = Symbol('privateInternals');
@@ -36,7 +36,7 @@ export abstract class BaseElement<
   @property({ type: String }) key: string;
   @property({ type: String }) formid: string;
   @property({ type: Boolean }) readonly: boolean = false;
-  @property({ type: Object }) enum: Record<string, string>;
+  @property({ type: Object }) enum: Record<string, string> | undefined;
   @property({ type: Boolean }) debug: boolean = false;
   @property({ type: Object }) options: OptionsType;
 

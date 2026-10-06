@@ -44,13 +44,13 @@ final class SlugRedirectChangeItemTest extends UnitTestCase
         self::assertNotSame($changeItem, $extendedChangeItem);
     }
 
-    protected function createInitialChangeItem(): SlugRedirectChangeItem
+    private function createInitialChangeItem(): SlugRedirectChangeItem
     {
         return new SlugRedirectChangeItem(
             defaultLanguagePageId: 1,
             pageId: 1,
-            site: $this->createMock(Site::class),
-            siteLanguage: $this->createMock(SiteLanguage::class),
+            site: self::createStub(Site::class),
+            siteLanguage: self::createStub(SiteLanguage::class),
             original: ['uid' => 1, 'sys_language_uid' => 0, 'slug' => '/initial'],
             sourcesCollection: new RedirectSourceCollection(),
             changed: null

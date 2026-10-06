@@ -18,8 +18,8 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Frontend\Typolink;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -38,18 +38,18 @@ use TYPO3\CMS\Frontend\Event\AfterLinkIsGeneratedEvent;
  * Contains all logic for the infamous typolink() functionality.
  */
 #[Autoconfigure(public: true)]
-class LinkFactory implements LoggerAwareInterface
+readonly class LinkFactory
 {
     use DefaultJavaScriptAssetTrait;
-    use LoggerAwareTrait;
 
     public function __construct(
-        protected readonly LinkService $linkService,
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly TypoLinkCodecService $typoLinkCodecService,
+        protected LinkService $linkService,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected TypoLinkCodecService $typoLinkCodecService,
         #[Autowire(service: 'cache.runtime')]
-        protected readonly FrontendInterface $runtimeCache,
-        protected readonly SiteFinder $siteFinder,
+        protected FrontendInterface $runtimeCache,
+        protected SiteFinder $siteFinder,
+        protected LoggerInterface $logger,
     ) {}
 
     /**
@@ -71,7 +71,7 @@ class LinkFactory implements LoggerAwareInterface
             $linkParameter = trim((string)($linkConfiguration['parameter'] ?? ''));
         }
         try {
-            [$linkParameter, $target, $classList, $title] = $this->resolveTypolinkParameterString($linkParameter, $linkConfiguration);
+            [$linkParameter, $target, $classList, $title, $rel, $download] = $this->resolveTypolinkParameterString($linkParameter, $linkConfiguration);
         } catch (UnableToLinkException $e) {
             $this->logger->warning($e->getMessage(), ['linkConfiguration' => $linkConfiguration]);
             throw $e;
@@ -85,10 +85,13 @@ class LinkFactory implements LoggerAwareInterface
 
         // Enrich the link result with resolved attributes and run post processing
         $linkResult = $this->addAdditionalAnchorTagAttributes($linkResult, $linkConfiguration, $contentObjectRenderer);
+        if ($rel !== '') {
+            $linkResult = $linkResult->withAttribute('rel', $rel);
+        }
 
         // Check, if the target is coded as a JS open window link:
         $linkResult = $this->addJavaScriptOpenWindowInformationAttributes($linkResult, $linkConfiguration, $contentObjectRenderer);
-        $linkResult = $this->addSecurityRelValues($linkResult);
+        $linkResult = $this->addSecurityRelValues($linkResult, $contentObjectRenderer);
         // Title attribute, will override any title attribute from ->addAdditionalAnchorTagAttributes()
         $title = $title ?: trim((string)$contentObjectRenderer->stdWrapValue('title', $linkConfiguration));
         if (!empty($title)) {
@@ -97,6 +100,10 @@ class LinkFactory implements LoggerAwareInterface
         // Class attribute, will override any class attribute from ->addAdditionalAnchorTagAttributes()
         if (!empty($classList)) {
             $linkResult = $linkResult->withAttribute('class', $classList);
+        }
+        // Download attribute
+        if ($download !== '') {
+            $linkResult = $linkResult->withAttribute('download', $download === 'true' ? '' : $download);
         }
 
         if ($linkConfiguration['userFunc'] ?? false) {
@@ -150,24 +157,6 @@ class LinkFactory implements LoggerAwareInterface
                     'exception' => $e,
                 ]);
                 // Only return the link text directly
-                throw $e;
-            }
-        } elseif ($builderType !== null) {
-            /** @var AbstractTypolinkBuilder $linkBuilder */
-            $linkBuilder = GeneralUtility::makeInstance($builderType, $contentObjectRenderer);
-            try {
-                $request = $contentObjectRenderer->getRequest();
-                $request = $request->withAttribute('currentContentObject', $contentObjectRenderer);
-                if (!method_exists($linkBuilder, 'buildLink')) {
-                    trigger_error($builderType . ' is not a valid TypolinkBuilderInterface, and will stop working in TYPO3 v15.0', E_USER_DEPRECATED);
-                }
-                return $linkBuilder->_build($linkDetails, $linkText, $target, $linkConfiguration, $request, $contentObjectRenderer);
-            } catch (UnableToLinkException $e) {
-                $this->logger->debug('Unable to link "{text}"', [
-                    'text' => $e->getLinkText(),
-                    'exception' => $e,
-                ]);
-                // Only return the link text directly (done in cObj->typolink)
                 throw $e;
             }
         } elseif (isset($linkDetails['url'])) {
@@ -239,6 +228,8 @@ class LinkFactory implements LoggerAwareInterface
             $linkParameterParts['target'],
             $linkParameterParts['class'],
             $linkParameterParts['title'],
+            $linkParameterParts['rel'] ?? '',
+            $linkParameterParts['download'] ?? '',
         ];
     }
 
@@ -297,21 +288,31 @@ class LinkFactory implements LoggerAwareInterface
         return $linkResult;
     }
 
-    protected function addSecurityRelValues(LinkResultInterface $linkResult): LinkResultInterface
+    protected function addSecurityRelValues(LinkResultInterface $linkResult, ContentObjectRenderer $contentObjectRenderer): LinkResultInterface
     {
         $target = (string)($linkResult->getTarget() ?: $linkResult->getAttribute('data-window-target'));
-        if (in_array($target, ['', null, '_self', '_parent', '_top'], true) || $this->isInternalUrl($linkResult->getUrl())) {
+        if (in_array($target, ['', null, '_self', '_parent', '_top'], true) || $this->isInternalUrl($linkResult->getUrl(), $contentObjectRenderer->getRequest())) {
             return $linkResult;
         }
-        $relAttributeValue = 'noreferrer';
+
+        // build array of existing rel attribute values
         if ($linkResult->getAttribute('rel') !== null) {
-            $existingAttributeValue = $linkResult->getAttribute('rel');
-            $relAttributeValue = implode(' ', array_unique(array_merge(
-                [$relAttributeValue],
-                GeneralUtility::trimExplode(' ', $existingAttributeValue)
-            )));
+            $relAttributeArray = GeneralUtility::trimExplode(' ', $linkResult->getAttribute('rel'));
+        } else {
+            $relAttributeArray = [];
         }
-        return $linkResult->withAttribute('rel', $relAttributeValue);
+
+        // neither "noopener" nor "noreferrer" exists
+        if (!array_intersect(['noopener', 'noreferrer'], $relAttributeArray)) {
+            $typoScriptConfigArray = $contentObjectRenderer->getRequest()->getAttribute('frontend.typoscript')?->getConfigArray();
+            if (isset($typoScriptConfigArray['linkSecurityRelValue']) && strtolower($typoScriptConfigArray['linkSecurityRelValue']) === 'noopener') {
+                $relAttributeArray[] = 'noopener';
+            } else {
+                $relAttributeArray[] = 'noreferrer';
+            }
+        }
+
+        return $linkResult->withAttribute('rel', implode(' ', $relAttributeArray));
     }
 
     /**
@@ -321,9 +322,9 @@ class LinkFactory implements LoggerAwareInterface
      * whether the given host is any. If so, the url is considered internal.
      *
      * Note: It would be good to move this to EXT:core/Classes/Site which accepts also a PSR-7 request and
-     * also accepts a PSR-7 Uri to move away from GeneralUtility::isOnCurrentHost
+     * also accepts a PSR-7 Uri.
      */
-    protected function isInternalUrl(string $url): bool
+    protected function isInternalUrl(string $url, ServerRequestInterface $request): bool
     {
         $parsedUrl = parse_url($url);
         $foundDomains = 0;
@@ -339,7 +340,7 @@ class LinkFactory implements LoggerAwareInterface
                     ++$foundDomains;
                     break;
                 }
-                if ($site->getBase()->getHost() === '' && GeneralUtility::isOnCurrentHost($url)) {
+                if ($site->getBase()->getHost() === '' && GeneralUtility::isOnCurrentHost($url, $request)) {
                     ++$foundDomains;
                     break;
                 }

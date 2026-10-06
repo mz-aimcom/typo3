@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Resource\Index\MetaDataRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -31,6 +32,12 @@ class MetaDataAspect implements \ArrayAccess, \Countable, \Iterator
      * This flag is used to treat a possible recursion between $this->get() and $this->file->getUid()
      */
     private bool $loaded = false;
+
+    /**
+     * Identifies the context the metadata was fetched from the database for. Stays NULL for
+     * metadata that was handed in via add() or offsetSet(), so such data is never dropped.
+     */
+    private ?string $resolvedForContext = null;
 
     private int $indexPosition = 0;
 
@@ -61,11 +68,40 @@ class MetaDataAspect implements \ArrayAccess, \Countable, \Iterator
      */
     public function get(): array
     {
-        if (!$this->loaded) {
+        $currentContext = $this->getContextIdentifier();
+        if (!$this->loaded || ($this->resolvedForContext !== null && $this->resolvedForContext !== $currentContext)) {
             $this->loaded = true;
+            $this->resolvedForContext = $currentContext;
             $this->metaData = $this->loadFromRepository();
         }
         return $this->metaData;
+    }
+
+    /**
+     * The metadata record is resolved for the language and workspace of the current context, so a
+     * loaded record must not be reused once that context changed within the same request. This is
+     * relevant whenever more than one language is rendered in a single process, for instance a
+     * command controller, a cache warmup or an Extbase query for a specific language.
+     *
+     * @todo The language is still not an input of the resolution: MetaDataRepository::findByFileUid()
+     *       resolves for whatever the current context happens to be, so an explicitly requested
+     *       language - Extbase query settings or a cloned Context as used by PageLinkBuilder,
+     *       HrefLangGenerator or language menus - is ignored. It should become an explicit argument
+     *       instead, and this cache should be keyed by it rather than by the current context.
+     *       FileReference::getProperties() memoizes the merged metadata and uses this identifier for
+     *       the very same reason, which is why it is exposed at all.
+     *
+     * @internal
+     */
+    public function getContextIdentifier(): string
+    {
+        $context = GeneralUtility::makeInstance(Context::class);
+        return implode('-', [
+            $context->getPropertyFromAspect('language', 'contentId', 0),
+            $context->getPropertyFromAspect('language', 'overlayType', ''),
+            implode(',', $context->getPropertyFromAspect('language', 'fallbackChain', [])),
+            $context->getPropertyFromAspect('workspace', 'id', 0),
+        ]);
     }
 
     public function offsetExists(mixed $offset): bool
@@ -140,11 +176,16 @@ class MetaDataAspect implements \ArrayAccess, \Countable, \Iterator
      */
     public function save(): void
     {
+        $metaDataRepository = $this->getMetaDataRepository();
         $metaDataInDatabase = $this->loadFromRepository();
         if ($metaDataInDatabase === []) {
-            $this->metaData = $this->getMetaDataRepository()->createMetaDataRecord($this->file->getUid(), $this->metaData);
+            // The record may be deleted in the current workspace only, it is updated live then
+            $metaDataInDatabase = $metaDataRepository->findDefaultLanguageRecordByFileUid($this->file->getUid());
+        }
+        if ($metaDataInDatabase === []) {
+            $this->metaData = $metaDataRepository->createMetaDataRecord($this->file->getUid(), $this->metaData);
         } else {
-            $this->metaData = $this->getMetaDataRepository()->update($this->file->getUid(), $this->metaData, $metaDataInDatabase);
+            $this->metaData = $metaDataRepository->update($this->file->getUid(), $this->metaData, $metaDataInDatabase);
         }
     }
 
@@ -166,6 +207,6 @@ class MetaDataAspect implements \ArrayAccess, \Countable, \Iterator
 
     protected function loadFromRepository(): array
     {
-        return $this->getMetaDataRepository()->findByFileUid((int)$this->file->getUid());
+        return $this->getMetaDataRepository()->findByFileUid($this->file->getUid());
     }
 }

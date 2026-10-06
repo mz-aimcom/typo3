@@ -20,12 +20,10 @@ namespace TYPO3\CMS\Tstemplate\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Http\RedirectResponse;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\TypoScript\AST\AstBuilderInterface;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
 use TYPO3\CMS\Core\TypoScript\AST\Traverser\AstTraverser;
@@ -144,7 +142,7 @@ class ConstantEditorController extends AbstractTemplateModuleController
         $rootLine = GeneralUtility::makeInstance(RootlineUtility::class, $pageUid)->get();
         $site = $request->getAttribute('site');
         $rootLine = $this->getScopedRootline($site, $rootLine);
-        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid);
+        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid, $this->createVisibilityAspect());
         $constantIncludeTree = $this->treeBuilder->getTreeBySysTemplateRowsAndSite('constants', $sysTemplateRows, $this->losslessTokenizer, $site);
         $constantAstBuilderVisitor = GeneralUtility::makeInstance(IncludeTreeCommentAwareAstBuilderVisitor::class);
         $this->treeTraverser->traverse($constantIncludeTree, [$constantAstBuilderVisitor]);
@@ -190,11 +188,11 @@ class ConstantEditorController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewButtonToDocHeader($view, $pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_ceditor.xlf:submodule.title'));
         if (!empty($relevantCategories)) {
-            $this->addSaveButtonToDocHeader($view);
+            $view->addButtonToButtonBar($this->componentFactory->createSaveButton('TypoScriptConstantEditorController'));
         }
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
@@ -240,7 +238,7 @@ class ConstantEditorController extends AbstractTemplateModuleController
         $rootLine = GeneralUtility::makeInstance(RootlineUtility::class, $pageUid)->get();
         $site = $request->getAttribute('site');
         $rootLine = $this->getScopedRootline($site, $rootLine);
-        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid);
+        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid, $this->createVisibilityAspect());
         $constantIncludeTree = $this->treeBuilder->getTreeBySysTemplateRowsAndSite('constants', $sysTemplateRows, $this->losslessTokenizer, $site);
         $constantAstBuilderVisitor = GeneralUtility::makeInstance(IncludeTreeCommentAwareAstBuilderVisitor::class);
         $this->treeTraverser->traverse($constantIncludeTree, [$constantAstBuilderVisitor]);
@@ -281,8 +279,9 @@ class ConstantEditorController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewButtonToDocHeader($view, $pageRecord);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_ceditor.xlf:submodule.title'));
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -456,36 +455,5 @@ class ConstantEditorController extends AbstractTemplateModuleController
             unset($templateConstantsArray[$lineNum]);
         }
         return $templateConstantsArray;
-    }
-
-    private function addSaveButtonToDocHeader(ModuleTemplate $view): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $saveButton = $buttonBar->makeInputButton()
-            ->setName('_savedok')
-            ->setValue('1')
-            ->setForm('TypoScriptConstantEditorController')
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.saveDoc'))
-            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
-            ->setShowLabelText(true);
-        $buttonBar->addButton($saveButton);
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_ceditor.xlf:submodule.title'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
     }
 }

@@ -17,24 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\Element;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Backend\CodeEditor\CodeEditorConfiguration;
 use TYPO3\CMS\Backend\CodeEditor\Mode;
-use TYPO3\CMS\Backend\CodeEditor\Registry\ModeRegistry;
 use TYPO3\CMS\Backend\Form\Element\JsonElement;
 use TYPO3\CMS\Backend\Form\NodeExpansion\FieldInformation;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
-use TYPO3\CMS\Core\Cache\CacheManager;
-use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
-use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class JsonElementTest extends UnitTestCase
 {
-    protected bool $resetSingletonInstances = true;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -59,13 +55,13 @@ final class JsonElementTest extends UnitTestCase
             ],
         ];
 
-        $nodeFactoryMock = $this->createMock(NodeFactory::class);
-        $fieldInformationMock = $this->createMock(FieldInformation::class);
-        $fieldInformationMock->method('render')->willReturn(['html' => '']);
-        $nodeFactoryMock->method('create')->with(self::anything())->willReturn($fieldInformationMock);
+        $nodeFactoryStub = self::createStub(NodeFactory::class);
+        $fieldInformationStub = self::createStub(FieldInformation::class);
+        $fieldInformationStub->method('render')->willReturn(['html' => '']);
+        $nodeFactoryStub->method('create')->willReturn($fieldInformationStub);
 
-        $subject = new JsonElement();
-        $subject->injectNodeFactory($nodeFactoryMock);
+        $subject = new JsonElement(self::createStub(CodeEditorConfiguration::class));
+        $subject->injectNodeFactory($nodeFactoryStub);
         $subject->setData($data);
         $result = $subject->render();
 
@@ -73,6 +69,39 @@ final class JsonElementTest extends UnitTestCase
         self::assertStringContainsString('<typo3-formengine-element-json', $result['html']);
         self::assertStringContainsString('placeholder="placeholder"', $result['html']);
         self::assertStringContainsString('&quot;foo&quot;: &quot;bar&quot;', $result['html']);
+    }
+
+    #[Test]
+    public function renderKeepsUnicodeCharactersUnescaped(): void
+    {
+        $data = [
+            'parameterArray' => [
+                'itemFormElName' => 'config',
+                'itemFormElValue' => ['größe' => 'Bär', 'language' => '日本語'],
+                'fieldConf' => [
+                    'label' => 'foo',
+                    'config' => [
+                        'type' => 'json',
+                        'enableCodeEditor' => false,
+                    ],
+                ],
+            ],
+        ];
+
+        $nodeFactoryStub = self::createStub(NodeFactory::class);
+        $fieldInformationStub = self::createStub(FieldInformation::class);
+        $fieldInformationStub->method('render')->willReturn(['html' => '']);
+        $nodeFactoryStub->method('create')->willReturn($fieldInformationStub);
+
+        $subject = new JsonElement(self::createStub(CodeEditorConfiguration::class));
+        $subject->injectNodeFactory($nodeFactoryStub);
+        $subject->setData($data);
+        $result = $subject->render();
+
+        self::assertStringContainsString('&quot;größe&quot;: &quot;Bär&quot;', $result['html']);
+        self::assertStringContainsString('&quot;language&quot;: &quot;日本語&quot;', $result['html']);
+        self::assertStringNotContainsString('\u00e4', $result['html']);
+        self::assertStringNotContainsString('\u65e5', $result['html']);
     }
 
     #[Test]
@@ -94,25 +123,16 @@ final class JsonElementTest extends UnitTestCase
             ],
         ];
 
-        GeneralUtility::setSingletonInstance(PackageManager::class, $this->createMock(PackageManager::class));
+        $codeEditorConfigurationStub = self::createStub(CodeEditorConfiguration::class);
+        $codeEditorConfigurationStub->method('getDefaultMode')->willReturn(new Mode(JavaScriptModuleInstruction::create('foo')));
 
-        $cacheManagerMock = $this->createMock(CacheManager::class);
-        $cacheMock = $this->createMock(FrontendInterface::class);
-        $cacheManagerMock->method('getCache')->with('assets')->willReturn($cacheMock);
-        $cacheMock->method('get')->withAnyParameters()->willReturn([]);
-        GeneralUtility::setSingletonInstance(CacheManager::class, $cacheManagerMock);
+        $nodeFactoryStub = self::createStub(NodeFactory::class);
+        $fieldInformationStub = self::createStub(FieldInformation::class);
+        $fieldInformationStub->method('render')->willReturn(['html' => '']);
+        $nodeFactoryStub->method('create')->willReturn($fieldInformationStub);
 
-        $modeRegistryMock = $this->createMock(ModeRegistry::class);
-        $modeRegistryMock->method('getDefaultMode')->willReturn(new Mode(JavaScriptModuleInstruction::create('foo')));
-        GeneralUtility::setSingletonInstance(ModeRegistry::class, $modeRegistryMock);
-
-        $nodeFactoryMock = $this->createMock(NodeFactory::class);
-        $fieldInformationMock = $this->createMock(FieldInformation::class);
-        $fieldInformationMock->method('render')->willReturn(['html' => '']);
-        $nodeFactoryMock->method('create')->with(self::anything())->willReturn($fieldInformationMock);
-
-        $subject = new JsonElement();
-        $subject->injectNodeFactory($nodeFactoryMock);
+        $subject = new JsonElement($codeEditorConfigurationStub);
+        $subject->injectNodeFactory($nodeFactoryStub);
         $subject->setData($data);
         $result = $subject->render();
 

@@ -31,21 +31,10 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  */
 final class TablePermissionElement extends AbstractFormElement
 {
-    private const Permissions = [
+    private const array Permissions = [
         'none' => 'none',
         'select' => 'select',
         'modify' => 'modify',
-    ];
-
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
     ];
 
     public function __construct(
@@ -201,13 +190,12 @@ final class TablePermissionElement extends AbstractFormElement
         return implode(LF, $html);
     }
 
-    protected function getIconForTable(string $icon): ?string
+    private function getIconForTable(string $icon): string
     {
-
         return FormEngineUtility::getIconHtml($icon);
     }
 
-    protected function getRecordSelectionCheckActions(array $optionsToShow, bool $readOnly): string
+    private function getRecordSelectionCheckActions(array $optionsToShow, bool $readOnly): string
     {
         $checkboxOptions = [
             'all' => '
@@ -257,7 +245,7 @@ final class TablePermissionElement extends AbstractFormElement
         }
 
         return '
-            <div class="btn-group dropdown">
+            <div class="dropdown">
                 <button type="button" class="dropdown-toggle dropdown-toggle-link t3js-multi-record-selection-check-actions-toggle" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false" ' . ($readOnly ? ' disabled="disabled"' : '') . '>
                     <core:icon identifier="actions-selection" size="small" />
                     ' . $this->iconFactory->getIcon('actions-selection', IconSize::SMALL)->render() . '

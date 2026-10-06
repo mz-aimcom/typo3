@@ -17,8 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Service;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Extensionmanager\Domain\Model\DownloadQueue;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
@@ -30,16 +33,18 @@ use TYPO3\CMS\Extensionmanager\Utility\FileHandlingUtility;
 use TYPO3\CMS\Extensionmanager\Utility\InstallUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class ExtensionManagementServiceTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected ExtensionManagementService $managementService;
-    protected DependencyUtility&MockObject $dependencyUtilityMock;
-    protected InstallUtility&MockObject $installUtilityMock;
-    protected DownloadQueue $downloadQueue;
-    protected ExtensionDownloaderRemoteInterface&MockObject $remoteMock;
-    protected FileHandlingUtility&MockObject $fileHandlingUtilityMock;
+    private ExtensionManagementService $managementService;
+    private DependencyUtility&MockObject $dependencyUtilityMock;
+    private InstallUtility&MockObject $installUtilityMock;
+    private DownloadQueue $downloadQueue;
+    private ExtensionDownloaderRemoteInterface&MockObject $remoteMock;
+    private FileHandlingUtility&Stub $fileHandlingUtilityStub;
 
     public function setUp(): void
     {
@@ -47,14 +52,14 @@ final class ExtensionManagementServiceTest extends UnitTestCase
         $GLOBALS['TYPO3_CONF_VARS']['EXTENSIONS']['extensionmanager']['offlineMode'] = false;
         $this->remoteMock = $this->createMock(ExtensionDownloaderRemoteInterface::class);
         $remoteRegistryMock = $this->createMock(RemoteRegistry::class);
-        $remoteRegistryMock->method('hasRemote')->with(self::anything())->willReturn(true);
-        $remoteRegistryMock->method('getRemote')->with(self::anything())->willReturn($this->remoteMock);
-        $this->fileHandlingUtilityMock = $this->createMock(FileHandlingUtility::class);
+        $remoteRegistryMock->expects($this->atMost(PHP_INT_MAX))->method('hasRemote')->with(self::anything())->willReturn(true);
+        $remoteRegistryMock->expects($this->atMost(PHP_INT_MAX))->method('getRemote')->with(self::anything())->willReturn($this->remoteMock);
+        $this->fileHandlingUtilityStub = self::createStub(FileHandlingUtility::class);
 
         $this->downloadQueue = new DownloadQueue();
         $this->managementService = new ExtensionManagementService(
             $remoteRegistryMock,
-            $this->fileHandlingUtilityMock,
+            $this->fileHandlingUtilityStub,
             $this->downloadQueue,
             new NoopEventDispatcher()
         );
@@ -70,17 +75,17 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function installDownloadsExtensionIfNecessary(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foobar');
-        $extension->setVersion('1.0.0');
+        $extension->extensionKey = 'foobar';
+        $extension->version = '1.0.0';
         // an extension with a uid means it needs to be downloaded
-        $extension->_setProperty('uid', 123);
-        $extension->_setProperty('remote', 'ter');
+        $extension->uid = 123;
+        $extension->remote = 'ter';
 
         $this->remoteMock->expects($this->once())->method('downloadExtension')->with(
-            $extension->getExtensionKey(),
-            $extension->getVersion(),
-            $this->fileHandlingUtilityMock,
-            $extension->getMd5hash(),
+            $extension->extensionKey,
+            $extension->version,
+            $this->fileHandlingUtilityStub,
+            $extension->md5hash,
             'Local'
         );
         $this->managementService->installExtension($extension);
@@ -102,7 +107,7 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function installExtensionWillReturnInstalledExtensions(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foo');
+        $extension->extensionKey = 'foo';
 
         $result = $this->managementService->installExtension($extension);
         self::assertSame(['installed' => ['foo' => 'foo']], $result);
@@ -112,10 +117,10 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function installExtensionWillReturnDownloadedExtensions(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foo');
-        $extension->_setProperty('remote', 'ter');
+        $extension->extensionKey = 'foo';
+        $extension->remote = 'ter';
         $this->downloadQueue->addExtensionToQueue($extension);
-        $this->installUtilityMock->method('enrichExtensionWithDetails')->with('foo')->willReturn([
+        $this->installUtilityMock->expects($this->atMost(PHP_INT_MAX))->method('enrichExtensionWithDetails')->with('foo')->willReturn([
             'key' => 'foo',
             'remote' => 'ter',
         ]);
@@ -130,10 +135,10 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function installExtensionWillReturnUpdatedExtensions(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foo');
-        $extension->_setProperty('remote', 'ter');
+        $extension->extensionKey = 'foo';
+        $extension->remote = 'ter';
         $this->downloadQueue->addExtensionToQueue($extension, 'update');
-        $this->installUtilityMock->method('enrichExtensionWithDetails')->with('foo')->willReturn([
+        $this->installUtilityMock->expects($this->atMost(PHP_INT_MAX))->method('enrichExtensionWithDetails')->with('foo')->willReturn([
             'key' => 'foo',
             'remote' => 'ter',
         ]);
@@ -152,7 +157,7 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function markExtensionForDownloadAddsExtensionToDownloadQueueAndChecksDependencies(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foo');
+        $extension->extensionKey = 'foo';
         $this->dependencyUtilityMock->method('hasDependencyErrors')->willReturn(false);
         $this->dependencyUtilityMock->expects($this->once())->method('checkDependencies')->with($extension);
 
@@ -165,7 +170,7 @@ final class ExtensionManagementServiceTest extends UnitTestCase
     public function markExtensionForUpdateAddsExtensionToUpdateQueueAndChecksDependencies(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foo');
+        $extension->extensionKey = 'foo';
         $this->dependencyUtilityMock->method('hasDependencyErrors')->willReturn(false);
         $this->dependencyUtilityMock->expects($this->once())->method('checkDependencies')->with($extension);
 

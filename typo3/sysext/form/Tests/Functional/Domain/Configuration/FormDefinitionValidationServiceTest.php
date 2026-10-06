@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Domain\Configuration;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Crypto\HashService;
@@ -26,6 +27,7 @@ use TYPO3\CMS\Form\Domain\Configuration\FormDefinition\Validators\ValidationDto;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinitionValidationService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FormDefinitionValidationServiceTest extends FunctionalTestCase
 {
     protected bool $initializeDatabase = false;
@@ -170,7 +172,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528588037);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -188,7 +190,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528538222);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -207,7 +209,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528538252);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -228,7 +230,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528538252);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -236,7 +238,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
             [
                 'test' => 'xxx1',
                 '_orig_test' => [
-                    'hmac' => (new HashService())->hmac(serialize(['text-1', 'test', 'xxx']), '54321'),
+                    'hmac' => new HashService()->hmac(serialize(['text-1', 'test', 'xxx']), '54321'),
                 ],
             ],
             '54321',
@@ -248,7 +250,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     #[DoesNotPerformAssertions]
     public function validateAllPropertyValuesFromCreatableFormElementOkWithValidHmac(): void
     {
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -257,7 +259,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
                 'test' => 'xxx',
                 '_orig_test' => [
                     'value' => 'xxx',
-                    'hmac' => (new HashService())->hmac(serialize(['text-1', 'test', 'xxx']), '54321'),
+                    'hmac' => new HashService()->hmac(serialize(['text-1', 'test', 'xxx']), '54321'),
                 ],
             ],
             '54321',
@@ -270,7 +272,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528591585);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -288,7 +290,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528538222);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -307,7 +309,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528538252);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -328,7 +330,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     {
         $this->expectException(PropertyException::class);
         $this->expectExceptionCode(1528591586);
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -337,7 +339,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
                 'test' => 'xxx1',
                 '_orig_test' => [
                     'value' => 'xxx',
-                    'hmac' => (new HashService())->hmac(serialize(['text-1', 'validators', 'StringLength', 'test', 'xxx']), '54321'),
+                    'hmac' => new HashService()->hmac(serialize(['text-1', 'validators', 'StringLength', 'test', 'xxx']), '54321'),
                 ],
             ],
             '54321',
@@ -349,7 +351,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
     #[DoesNotPerformAssertions]
     public function validateAllPropertyValuesFromCreatablePropertyCollectionElementOkWithValidHmac(): void
     {
-        $configurationService = $this->createMock(ConfigurationService::class);
+        $configurationService = self::createStub(ConfigurationService::class);
         $this->getContainer()->set(ConfigurationService::class, $configurationService); // @phpstan-ignore-line
         $subjectMock = $this->getAccessibleMock(FormDefinitionValidationService::class, null, [], '', false);
         $subjectMock->_call(
@@ -358,7 +360,7 @@ final class FormDefinitionValidationServiceTest extends FunctionalTestCase
                 'test' => 'xxx',
                 '_orig_test' => [
                     'value' => 'xxx',
-                    'hmac' => (new HashService())->hmac(serialize(['text-1', 'validators', 'StringLength', 'test', 'xxx']), '54321'),
+                    'hmac' => new HashService()->hmac(serialize(['text-1', 'validators', 'StringLength', 'test', 'xxx']), '54321'),
                 ],
             ],
             '54321',

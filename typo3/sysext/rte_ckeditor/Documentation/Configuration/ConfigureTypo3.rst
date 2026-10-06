@@ -62,7 +62,7 @@ How to change values
 
 See the :ref:`Page TSconfig reference,
 chapter Setting Page TSconfig <t3tsref:setting-page-tsconfig>`. This chapter
-also expains how to verify the settings.
+also explains how to verify the settings.
 
 ..  _config-typo3-global-configuration:
 
@@ -86,7 +86,7 @@ How to change values
 --------------------
 
 Usually, Global Configuration can be configured in the backend in
-:guilabel:`Admin Tools > Settings > Configure Installation-Wide Options`.
+:guilabel:`System > Settings > Configure Installation-Wide Options`.
 
 However, the settings relevant for rich text editing, :php:`$GLOBALS['TYPO3_CONF_VARS']['RTE']['Presets']`
 cannot be configured in the backend.

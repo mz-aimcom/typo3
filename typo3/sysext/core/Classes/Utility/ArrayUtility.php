@@ -22,7 +22,7 @@ use TYPO3\CMS\Core\Utility\Exception\MissingArrayPathException;
 /**
  * Class with helper functions for array handling
  */
-class ArrayUtility
+readonly class ArrayUtility
 {
     /**
      * Validates the given $arrayToTest by checking if an element is not in $allowedArrayKeys.
@@ -170,8 +170,8 @@ class ArrayUtility
      * @param array $array Input array
      * @param array|string $path Path within the array
      * @param string $delimiter Defined path delimiter, default /
-     * @throws \RuntimeException if the path is empty, or if the path does not exist
-     * @throws \InvalidArgumentException if the path is neither array nor string
+     * @throws \RuntimeException if the path is empty
+     * @throws MissingArrayPathException if a configured path segment does not exist in the array
      */
     public static function getValueByPath(array $array, array|string $path, string $delimiter = '/'): mixed
     {
@@ -360,7 +360,7 @@ class ArrayUtility
         if (empty($arrays)) {
             return $arrays;
         }
-        $sortResult = uasort($arrays, static function (array $a, array $b) use ($key, $ascending) {
+        uasort($arrays, static function (array $a, array $b) use ($key, $ascending) {
             if (!isset($a[$key], $b[$key])) {
                 throw new \RuntimeException('The specified sorting key "' . $key . '" is not available in the given array.', 1373727309);
             }
@@ -372,9 +372,6 @@ class ArrayUtility
             }
             return $ascending ? strcasecmp((string)$a[$key], (string)$b[$key]) : strcasecmp((string)$b[$key], (string)$a[$key]);
         });
-        if (!$sortResult) {
-            throw new \RuntimeException('The function uasort() failed for unknown reasons.', 1373727329);
-        }
         return $arrays;
     }
 
@@ -686,8 +683,8 @@ class ArrayUtility
                     self::mergeRecursiveWithOverrule($original[$key], $overrule[$key], $addKeys, $includeEmptyValues, $enableUnsetFeature);
                 }
             } elseif (
-                ($addKeys || isset($original[$key])) &&
-                ($includeEmptyValues || $overrule[$key])
+                ($addKeys || isset($original[$key]))
+                && ($includeEmptyValues || $overrule[$key])
             ) {
                 $original[$key] = $overrule[$key];
             }
@@ -764,14 +761,12 @@ class ArrayUtility
             $getValueFunc = null;
         }
         // Do the filtering:
-        if (is_array($keepItems)) {
-            $keepItems = array_flip($keepItems);
-            foreach ($array as $key => $value) {
-                // Get the value to compare by using the callback function:
-                $keepValue = isset($getValueFunc) ? $getValueFunc($value) : $value;
-                if (!isset($keepItems[$keepValue])) {
-                    unset($array[$key]);
-                }
+        $keepItems = array_flip($keepItems);
+        foreach ($array as $key => $value) {
+            // Get the value to compare by using the callback function:
+            $keepValue = isset($getValueFunc) ? $getValueFunc($value) : $value;
+            if (!isset($keepItems[$keepValue])) {
+                unset($array[$key]);
             }
         }
 
@@ -1001,5 +996,22 @@ class ArrayUtility
         }
 
         return $array1;
+    }
+
+    /**
+     * Determines whether all (nested) array values are scalar values or `null`.
+     */
+    public static function containsOnlyScalarValues(array $array): bool
+    {
+        foreach ($array as $value) {
+            if (is_array($value)) {
+                if (!self::containsOnlyScalarValues($value)) {
+                    return false;
+                }
+            } elseif (!is_scalar($value) && $value !== null) {
+                return false;
+            }
+        }
+        return true;
     }
 }

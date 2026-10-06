@@ -17,26 +17,29 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Resource;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileReference;
+use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FileReferenceTest extends UnitTestCase
 {
-    protected function prepareFixture(array $fileReferenceProperties, array $originalFileProperties): FileReference&MockObject&AccessibleObjectInterface
+    private function prepareFixture(array $fileReferenceProperties, array $originalFileProperties): FileReference&MockObject&AccessibleObjectInterface
     {
         $fixture = $this->getAccessibleMock(FileReference::class, null, [], '', false);
-        $originalFileMock = $this->createMock(File::class);
-        $originalFileMock->method('getProperties')
+        $originalFileStub = self::createStub(File::class);
+        $originalFileStub->method('getProperties')
             ->willReturn(
                 $originalFileProperties
             );
-        $fixture->_set('originalFile', $originalFileMock);
+        $fixture->_set('originalFile', $originalFileStub);
         $fixture->_set('propertiesOfFileReference', $fileReferenceProperties);
 
         return $fixture;
@@ -98,7 +101,7 @@ final class FileReferenceTest extends UnitTestCase
 
     #[DataProvider('propertiesDataProvider')]
     #[Test]
-    public function getPropertyThrowsExceptionForNotAvailableProperty(array $fileReferenceProperties, array $originalFileProperties): void
+    public function getPropertyThrowsExceptionForNotAvailableProperty(array $fileReferenceProperties, array $originalFileProperties, array $_): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1314226805);
@@ -111,7 +114,8 @@ final class FileReferenceTest extends UnitTestCase
     #[Test]
     public function getPropertyDoesNotThrowExceptionForPropertyOnlyAvailableInOriginalFile(
         array $fileReferenceProperties,
-        array $originalFileProperties
+        array $originalFileProperties,
+        array $_,
     ): void {
         $fixture = $this->prepareFixture($fileReferenceProperties, $originalFileProperties);
         self::assertSame($originalFileProperties['file_only_property'], $fixture->getProperty('file_only_property'));
@@ -121,7 +125,8 @@ final class FileReferenceTest extends UnitTestCase
     #[Test]
     public function getReferencePropertyThrowsExceptionForPropertyOnlyAvailableInOriginalFile(
         array $fileReferenceProperties,
-        array $originalFileProperties
+        array $originalFileProperties,
+        array $_,
     ): void {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1360684914);
@@ -149,5 +154,24 @@ final class FileReferenceTest extends UnitTestCase
     {
         $fixture = $this->prepareFixture(['description' => null], []);
         self::assertSame('', $fixture->getDescription());
+    }
+
+    #[Test]
+    public function processIsDelegatedToTheOriginalFile(): void
+    {
+        $processedFile = self::createStub(ProcessedFile::class);
+        $originalFile = $this->createMock(File::class);
+        $originalFile->expects($this->once())
+            ->method('process')
+            ->with(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, ['width' => 100])
+            ->willReturn($processedFile);
+
+        $fixture = $this->getAccessibleMock(FileReference::class, null, [], '', false);
+        $fixture->_set('originalFile', $originalFile);
+
+        self::assertSame(
+            $processedFile,
+            $fixture->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, ['width' => 100])
+        );
     }
 }

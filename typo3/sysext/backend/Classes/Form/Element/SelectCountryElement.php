@@ -31,17 +31,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 final class SelectCountryElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -150,8 +139,8 @@ final class SelectCountryElement extends AbstractFormElement
             $options .= ($optionGroup ? '<optgroup label="' . htmlspecialchars($selectItemGroup['header']['title'], ENT_COMPAT, 'UTF-8', false) . '">' : '');
 
             foreach ($selectItemGroup['items'] as $item) {
-                $options .= '<option value="' . htmlspecialchars($item['value']) . '" data-icon="' .
-                    htmlspecialchars($item['icon']) . '"'
+                $options .= '<option value="' . htmlspecialchars($item['value']) . '" data-icon="'
+                    . htmlspecialchars($item['icon']) . '"'
                     . ($item['selected'] ? ' selected="selected"' : '') . '>' . htmlspecialchars($item['title'], ENT_COMPAT, 'UTF-8', false) . '</option>';
             }
             $hasIcons = !empty($item['icon']);

@@ -51,7 +51,7 @@ final readonly class DataHandlerAuthenticationContext
         array $fieldArray,
         DataHandler $dataHandler
     ): void {
-        if ($dataHandler->isImporting || $dataHandler->bypassAccessCheckForRecords) {
+        if ($dataHandler->isImporting) {
             return;
         }
         $request = $this->sudoModeInterceptor->currentRequest;
@@ -103,10 +103,10 @@ final readonly class DataHandlerAuthenticationContext
             $event = new SudoModeRequiredEvent($claim);
             $this->eventDispatcher->dispatch($event);
             if ($event->isVerificationRequired()) {
-                throw (new VerificationRequiredException(
+                throw new VerificationRequiredException(
                     'Authentication Context Confirmation Required',
                     1743597646
-                ))->withClaim($claim);
+                )->withClaim($claim);
             }
         }
 

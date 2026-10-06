@@ -22,7 +22,7 @@ interface MetaTagManagerInterface
     /**
      * Add a property
      */
-    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = '');
+    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = ''): void;
 
     /**
      * Get a specific property that is set before
@@ -41,11 +41,15 @@ interface MetaTagManagerInterface
 
     /**
      * Render all registered properties of this manager
+     *
+     * @todo: Consider changing to "renderAllProperties(DocType $doctype): string" in v15 or later
      */
     public function renderAllProperties(): string;
 
     /**
      * Render a meta tag for a specific property
+     *
+     * @todo: Consider changing to "renderProperty(string $property, DocType $doctype): string" in v15 or later
      */
     public function renderProperty(string $property): string;
 
@@ -53,12 +57,12 @@ interface MetaTagManagerInterface
      * Remove one property from the MetaTagManager
      * If there are multiple occurrences of a property, they all will be removed
      */
-    public function removeProperty(string $property, string $type = '');
+    public function removeProperty(string $property, string $type = ''): void;
 
     /**
      * Unset all properties of this MetaTagManager
      */
-    public function removeAllProperties();
+    public function removeAllProperties(): void;
 
     public function getState(): array;
 

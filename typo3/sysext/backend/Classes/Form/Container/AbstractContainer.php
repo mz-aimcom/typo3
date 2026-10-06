@@ -19,6 +19,7 @@ use TYPO3\CMS\Backend\Form\AbstractNode;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -119,7 +120,7 @@ abstract class AbstractContainer extends AbstractNode
 
     /**
      * Render tabs with label and content. Used by TabsContainer and FlexFormTabsContainer.
-     * Re-uses the template Tabs.html which is also used by ModuleTemplate.php.
+     * Re-uses the template Tabs.fluid.html which is also used by ModuleTemplate.php.
      *
      * @param array $menuItems Tab elements, each element is an array with "label" and "content"
      * @param string $domId DOM id attribute, will be appended with an iteration number per tab.
@@ -144,11 +145,30 @@ abstract class AbstractContainer extends AbstractNode
             $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['fieldName'];
             $legend .= ' <code>[' . htmlspecialchars($fieldName) . ']</code>';
         }
-        return '<fieldset><legend class="form-label t3js-formengine-label">' . $legend . '</legend>' . $fieldContent . '</fieldset>';
+        $description = $this->renderDescription();
+        return '<fieldset><legend class="form-label t3js-formengine-label">' . $legend . '</legend>' . $description . $fieldContent . '</fieldset>';
+    }
+
+    protected function renderDescription(): string
+    {
+        $description = (string)($this->data['parameterArray']['fieldConf']['description'] ?? '');
+        if ($description === '') {
+            return '';
+        }
+        $description = $this->getLanguageService()->sL($description);
+        if ($description === '') {
+            return '';
+        }
+        return '<div class="form-description">' . nl2br(htmlspecialchars($description)) . '</div>';
     }
 
     protected function getBackendUserAuthentication(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
+    }
+
+    protected function getLanguageService(): LanguageService
+    {
+        return $GLOBALS['LANG'];
     }
 }

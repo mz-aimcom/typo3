@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Form\Exception\DatabaseRecordException;
 use TYPO3\CMS\Backend\Form\FormDataCompiler;
 use TYPO3\CMS\Backend\Form\FormDataGroup\TcaDatabaseRecord;
@@ -27,7 +28,8 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\Field\GroupFieldType;
+use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
@@ -37,12 +39,12 @@ use TYPO3\CMS\Core\Versioning\VersionState;
  */
 class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProviderInterface
 {
-    private const FILE_REFERENCE_TABLE = 'sys_file_reference';
-    private const FOREIGN_SELECTOR = 'uid_local';
+    private const string FILE_REFERENCE_TABLE = 'sys_file_reference';
+    private const string FOREIGN_SELECTOR = 'uid_local';
 
     public function __construct(
         private readonly InlineStackProcessor $inlineStackProcessor,
-        private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly LoggerInterface $logger,
     ) {}
 
     public function addData(array $result): array
@@ -60,12 +62,16 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
                 continue;
             }
 
-            if (!($GLOBALS['TCA'][self::FILE_REFERENCE_TABLE] ?? false)) {
+            if (!$result['tcaSchemata']->has(self::FILE_REFERENCE_TABLE)) {
                 throw new \RuntimeException('Table ' . self::FILE_REFERENCE_TABLE . ' does not exists', 1664364262);
             }
+            $fileReferenceSchema = $result['tcaSchemata']->get(self::FILE_REFERENCE_TABLE);
+            if (!$fileReferenceSchema->hasField(self::FOREIGN_SELECTOR)) {
+                throw new \RuntimeException('Table ' . self::FILE_REFERENCE_TABLE . ' has no column ' . self::FOREIGN_SELECTOR, 1770975128);
+            }
 
-            $childConfiguration = $GLOBALS['TCA'][self::FILE_REFERENCE_TABLE]['columns'][self::FOREIGN_SELECTOR]['config'] ?? [];
-            if (($childConfiguration['type'] ?? '') !== 'group' || !($childConfiguration['allowed'] ?? false)) {
+            $childField = $fileReferenceSchema->getField(self::FOREIGN_SELECTOR);
+            if (!$childField instanceof GroupFieldType || $childField->getAllowedSchemaNames() === []) {
                 throw new \UnexpectedValueException(
                     'Table ' . $result['tableName'] . ' field ' . $fieldName . ' points to field '
                     . self::FOREIGN_SELECTOR . ' of table ' . self::FILE_REFERENCE_TABLE . ', but this field '
@@ -112,15 +118,15 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
     protected function initializeParentSysLanguageUid(array $result, string $fieldName): array
     {
         if (($parentLanguageFieldName = (string)($result['processedTca']['ctrl']['languageField'] ?? '')) === ''
-            || !($GLOBALS['TCA'][self::FILE_REFERENCE_TABLE]['ctrl']['languageField'] ?? false)
+            || !$result['tcaSchemata']->get(self::FILE_REFERENCE_TABLE)->hasCapability(TcaSchemaCapability::Language)
             || isset($result['processedTca']['columns'][$fieldName]['config']['inline']['parentSysLanguageUid'])
             || !isset($result['databaseRow'][$parentLanguageFieldName])
         ) {
             return $result;
         }
 
-        $result['processedTca']['columns'][$fieldName]['config']['inline']['parentSysLanguageUid'] =
-            is_array($result['databaseRow'][$parentLanguageFieldName])
+        $result['processedTca']['columns'][$fieldName]['config']['inline']['parentSysLanguageUid']
+            = is_array($result['databaseRow'][$parentLanguageFieldName])
                 ? (int)($result['databaseRow'][$parentLanguageFieldName][0] ?? 0)
                 : (int)$result['databaseRow'][$parentLanguageFieldName];
 
@@ -170,7 +176,8 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
         $result['databaseRow'][$fieldName] = implode(',', $fileReferenceUidsOfDefaultLanguageRecord);
 
         if ($result['inlineCompileExistingChildren']) {
-            foreach ($this->getSubstitutedWorkspacedUids($fileReferenceUidsOfDefaultLanguageRecord) as $uid) {
+            $fileReferenceSchema = $result['tcaSchemata']->get(self::FILE_REFERENCE_TABLE);
+            foreach ($this->getSubstitutedWorkspacedUids($fileReferenceUidsOfDefaultLanguageRecord, $fileReferenceSchema) as $uid) {
                 try {
                     $compiledFileReference = $this->compileFileReference($result, $fieldName, $uid);
                     $result['processedTca']['columns'][$fieldName]['children'][] = $compiledFileReference;
@@ -200,7 +207,8 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
             );
         }
         $result['databaseRow'][$fieldName] = implode(',', $fileReferenceUidsOfLocalizedOverlay);
-        $fileReferenceUidsOfLocalizedOverlay = $this->getSubstitutedWorkspacedUids($fileReferenceUidsOfLocalizedOverlay);
+        $fileReferenceSchema = $result['tcaSchemata']->get(self::FILE_REFERENCE_TABLE);
+        $fileReferenceUidsOfLocalizedOverlay = $this->getSubstitutedWorkspacedUids($fileReferenceUidsOfLocalizedOverlay, $fileReferenceSchema);
         if ($result['inlineCompileExistingChildren']) {
             $tableNameWithDefaultRecords = $result['tableName'];
             $fileReferenceUidsOfDefaultLanguageRecord = $this->getSubstitutedWorkspacedUids(
@@ -209,11 +217,12 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
                     $tableNameWithDefaultRecords,
                     $result['defaultLanguageRow']['uid'],
                     $result['defaultLanguageRow'][$fieldName]
-                )
+                ),
+                $fileReferenceSchema
             );
 
             // Find which records are localized, which records are not localized and which are localized but miss default language record
-            $fieldNameWithDefaultLanguageUid = (string)($GLOBALS['TCA'][self::FILE_REFERENCE_TABLE]['ctrl']['transOrigPointerField'] ?? '');
+            $fieldNameWithDefaultLanguageUid = $fileReferenceSchema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName() ?? '';
             $showPossibleLocalizationRecords = $fieldConfig['appearance']['showPossibleLocalizationRecords'] ?? false;
             foreach ($fileReferenceUidsOfLocalizedOverlay as $localizedUid) {
                 try {
@@ -241,7 +250,7 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
                         // This localized child has a default language record. Remove this record from list of default language records
                         $fileReferenceUidsOfDefaultLanguageRecord = array_diff($fileReferenceUidsOfDefaultLanguageRecord, [$uidOfDefaultLanguageRecord]);
                     }
-                    $uidOfDefaultLanguageRecordWorkspaceVersionArray = $this->getSubstitutedWorkspacedUids([$uidOfDefaultLanguageRecord]);
+                    $uidOfDefaultLanguageRecordWorkspaceVersionArray = $this->getSubstitutedWorkspacedUids([$uidOfDefaultLanguageRecord], $fileReferenceSchema);
                     if (!empty($uidOfDefaultLanguageRecordWorkspaceVersionArray)
                         && in_array($uidOfDefaultLanguageRecordWorkspaceVersionArray[0], $fileReferenceUidsOfDefaultLanguageRecord, true)
                     ) {
@@ -301,6 +310,10 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
                     'inlineTopMostParentUid' => $result['inlineTopMostParentUid'] ?: $inlineTopMostParent['uid'] ?? '',
                     'inlineTopMostParentTableName' => $result['inlineTopMostParentTableName'] ?: $inlineTopMostParent['table'] ?? '',
                     'inlineTopMostParentFieldName' => $result['inlineTopMostParentFieldName'] ?: $inlineTopMostParent['field'] ?? '',
+                    // pass through schemata as they are immutable once they are set
+                    'tcaSchemata' => $result['tcaSchemata'],
+                    // pass through fullTca as it is immutable once set
+                    'fullTca' => $result['fullTca'],
                 ],
                 GeneralUtility::makeInstance(TcaDatabaseRecord::class)
             );
@@ -312,10 +325,10 @@ class TcaFiles extends AbstractDatabaseRecordProvider implements FormDataProvide
      * @param int[] $connectedUids List of file reference uids
      * @return int[] List of substituted uids
      */
-    protected function getSubstitutedWorkspacedUids(array $connectedUids): array
+    protected function getSubstitutedWorkspacedUids(array $connectedUids, TcaSchema $fileReferenceSchema): array
     {
         $workspace = $this->getBackendUser()->workspace;
-        if ($workspace === 0 || !$this->tcaSchemaFactory->get(self::FILE_REFERENCE_TABLE)->hasCapability(TcaSchemaCapability::Workspace)) {
+        if ($workspace === 0 || !$fileReferenceSchema->hasCapability(TcaSchemaCapability::Workspace)) {
             return $connectedUids;
         }
         $substitutedUids = [];

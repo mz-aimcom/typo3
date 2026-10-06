@@ -18,6 +18,7 @@ namespace TYPO3\CMS\Frontend\ContentObject;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Frontend\Resource\FileCollectionSorting;
 use TYPO3\CMS\Frontend\Resource\FileCollector;
 
 /**
@@ -36,9 +37,7 @@ class FilesContentObject extends AbstractContentObject
         if (!empty($conf['if.']) && !$this->cObj->checkIf($conf['if.'])) {
             return '';
         }
-        $frontendController = $this->hasTypoScriptFrontendController()
-            ? $this->getTypoScriptFrontendController()
-            : null;
+        $register = $this->request->getAttribute('frontend.register.stack')->current();
         // Store the original "currentFile" within a variable so it can be re-applied later-on
         $originalFileInContentObject = $this->cObj->getCurrentFile();
 
@@ -56,9 +55,7 @@ class FilesContentObject extends AbstractContentObject
         $limit = (int)$this->cObj->stdWrapValue('maxItems', $conf, $availableFileObjectCount);
         $end = MathUtility::forceIntegerInRange($start + $limit, $start, $availableFileObjectCount);
 
-        if ($frontendController !== null) {
-            $frontendController->register['FILES_COUNT'] = min($limit, $availableFileObjectCount);
-        }
+        $register->set('FILES_COUNT', min($limit, $availableFileObjectCount));
         $fileObjectCounter = 0;
         $keys = array_keys($fileObjects);
 
@@ -66,10 +63,7 @@ class FilesContentObject extends AbstractContentObject
         for ($i = $start; $i < $end; $i++) {
             $key = $keys[$i];
             $fileObject = $fileObjects[$key];
-
-            if ($frontendController !== null) {
-                $frontendController->register['FILE_NUM_CURRENT'] = $fileObjectCounter;
-            }
+            $register->set('FILE_NUM_CURRENT', $fileObjectCounter);
             $this->cObj->setCurrentFile($fileObject);
             $content .= $this->cObj->cObjGetSingle($splitConf[$key]['renderObj'], $splitConf[$key]['renderObj.'], 'renderObj');
             $fileObjectCounter++;
@@ -85,10 +79,8 @@ class FilesContentObject extends AbstractContentObject
     /**
      * Function to check for references, collections, folders and
      * accumulates into one etc.
-     *
-     * @return FileCollector
      */
-    protected function findAndSortFiles(array $conf)
+    protected function findAndSortFiles(array $conf): FileCollector
     {
         $fileCollector = $this->getFileCollector();
 
@@ -138,7 +130,9 @@ class FilesContentObject extends AbstractContentObject
         // Enable sorting for multiple fileObjects
         $sortingProperty = (string)$this->cObj->stdWrapValue('sorting', $conf);
         if ($sortingProperty !== '') {
-            $sortingDirection = $this->cObj->stdWrapValue('direction', $conf['sorting.'] ?? []);
+            $sortingDirection = FileCollectionSorting::fromKeyword(
+                (string)$this->cObj->stdWrapValue('direction', $conf['sorting.'] ?? [], FileCollectionSorting::Ascending->value),
+            );
             $fileCollector->sort($sortingProperty, $sortingDirection);
         }
 
@@ -151,7 +145,7 @@ class FilesContentObject extends AbstractContentObject
      * @param array $configuration TypoScript configuration
      * @param array $element The parent element referencing to files
      */
-    protected function addFileReferences(array $configuration, array $element, FileCollector $fileCollector)
+    protected function addFileReferences(array $configuration, array $element, FileCollector $fileCollector): void
     {
         // It's important that this always stays "fieldName" and not be renamed to "field" as it would otherwise collide with the stdWrap key of that name
         $referencesFieldName = $this->cObj->stdWrapValue('fieldName', $configuration['references.'] ?? []);

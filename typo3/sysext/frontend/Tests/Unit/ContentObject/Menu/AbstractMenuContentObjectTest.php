@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Frontend\Tests\Unit\ContentObject\Menu;
 use Doctrine\DBAL\Result;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Container\ContainerInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Database\Connection;
@@ -28,10 +29,10 @@ use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Domain\Page;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\LinkHandling\PageTypeLinkResolver;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\Frontend\Page\PageInformation;
 use TYPO3\CMS\Frontend\Tests\Unit\ContentObject\Menu\Fixtures\AbstractMenuContentObjectFixture;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
@@ -46,11 +47,11 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
 
     private function prepareSectionIndexTest(): void
     {
-        $connectionMock = $this->createMock(Connection::class);
-        $connectionMock->method('getExpressionBuilder')->willReturn(new ExpressionBuilder($connectionMock));
-        $connectionMock->method('quoteIdentifier')->willReturnArgument(0)->withAnyParameters();
+        $connectionMock = self::createStub(Connection::class);
+        $connectionMock->method('getExpressionBuilder')->willReturn(new ExpressionBuilder($connectionMock, self::createStub(ContainerInterface::class)));
+        $connectionMock->method('quoteIdentifier')->willReturnArgument(0);
         $connectionPoolMock = $this->createMock(ConnectionPool::class);
-        $connectionPoolMock->method('getConnectionForTable')->with('tt_content')->willReturn($connectionMock);
+        $connectionPoolMock->expects($this->atMost(PHP_INT_MAX))->method('getConnectionForTable')->with('tt_content')->willReturn($connectionMock);
         GeneralUtility::addInstance(ConnectionPool::class, $connectionPoolMock);
     }
 
@@ -78,23 +79,6 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
     }
 
     #[Test]
-    public function sectionIndexThrowsAnExceptionIfTheInternalQueryFails(): void
-    {
-        $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionCode(1337334849);
-        $this->prepareSectionIndexTest();
-        $pageRepository = $this->createMock(PageRepository::class);
-        $pageRepository->expects($this->once())->method('getPage')->willReturn(['uid' => 10]);
-        $cObject = $this->createMock(ContentObjectRenderer::class);
-        $cObject->expects($this->once())->method('exec_getQuery')->willReturn(0);
-        $subject = new AbstractMenuContentObjectFixture();
-        $subject->sys_page = $pageRepository;
-        $subject->id = 10;
-        $subject->parent_cObj = $cObject;
-        $subject->sectionIndex('field');
-    }
-
-    #[Test]
     public function sectionIndexReturnsOverlaidRowBasedOnTheLanguageOfTheGivenPage(): void
     {
         $this->prepareSectionIndexTest();
@@ -109,8 +93,9 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
         $context = new Context();
         $context->setAspect('language', new LanguageAspect(1, 1, LanguageAspect::OVERLAYS_MIXED));
         GeneralUtility::setSingletonInstance(Context::class, $context);
-        $tcaFactoryMocked = $this->createMock(TcaSchemaFactory::class);
-        $pageRepository = $this->getMockBuilder(PageRepository::class)->setConstructorArgs([$context, $tcaFactoryMocked])->onlyMethods(['init', 'getPage', 'getLanguageOverlay'])->getMock();
+        $tcaFactoryStubed = self::createStub(TcaSchemaFactory::class);
+        $pageTypeLinkResolverStubed = self::createStub(PageTypeLinkResolver::class);
+        $pageRepository = $this->getMockBuilder(PageRepository::class)->setConstructorArgs([$context, $tcaFactoryStubed, $pageTypeLinkResolverStubed])->onlyMethods(['getPage', 'getLanguageOverlay'])->getMock();
         $pageRepository->expects($this->once())->method('getPage')->willReturn(['sys_language_uid' => 1]);
         $pageRepository->expects($this->once())->method('getLanguageOverlay')->willReturn(['uid' => 0, 'header' => 'OVERLAID']);
         $subject->sys_page = $pageRepository;
@@ -164,7 +149,7 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
     public function sectionIndexFilters(int $expectedAmount, array $dataRow): void
     {
         $this->prepareSectionIndexTest();
-        $statementMock = $this->createMock(Result::class);
+        $statementMock = self::createStub(Result::class);
         $statementMock->method('fetchAssociative')->willReturn($dataRow, false);
         $subject = new AbstractMenuContentObjectFixture();
         $subject->mconf = [
@@ -173,8 +158,7 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
             ],
         ];
         $pageRepository = $this->createMock(PageRepository::class);
-        $pageRepository->expects($this->once())->method('getPage')->willReturn(['sys_language_uid' => 1]);
-        $pageRepository->expects($this->once())->method('getPage')->willReturn([]);
+        $pageRepository->expects($this->once())->method('getPage')->willReturn(['uid' => 1]);
         $subject->sys_page = $pageRepository;
         $cObject = $this->createMock(ContentObjectRenderer::class);
         $cObject->expects($this->once())->method('exec_getQuery')->willReturn($statementMock);
@@ -221,7 +205,7 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
     public function sectionIndexQueriesWithDifferentColPos(array $configuration, string $colPosFromStdWrapValue, string $whereClausePrefix): void
     {
         $this->prepareSectionIndexTest();
-        $statementMock = $this->createMock(Result::class);
+        $statementMock = self::createStub(Result::class);
         $statementMock->method('fetchAssociative')->willReturn([]);
         $subject = new AbstractMenuContentObjectFixture();
         $subject->mconf = ['sectionIndex.' => $configuration];
@@ -337,8 +321,6 @@ final class AbstractMenuContentObjectTest extends UnitTestCase
         $subject->request = $request;
         $cObjectMock = $this->createMock(ContentObjectRenderer::class);
         $cObjectMock->expects($this->once())->method('stdWrapValue')->with('excludeUidList', ['excludeUidList' => $excludeUidList])->willReturn($excludeUidList);
-        $typoScriptFrontendControllerMock = $this->createMock(TypoScriptFrontendController::class);
-        $cObjectMock->method('getTypoScriptFrontendController')->willReturn($typoScriptFrontendControllerMock);
         $subject->parent_cObj = $cObjectMock;
         $pageRepository = $this->createMock(PageRepository::class);
         $pageRepository->expects($this->once())->method('getMenu')->willReturn($menuItems);

@@ -35,8 +35,6 @@ use TYPO3Tests\BlogExample\Domain\Repository\BlogRepository;
 
 final class Typo3DbBackendTest extends FunctionalTestCase
 {
-    protected bool $resetSingletonInstances = true;
-
     protected array $testExtensionsToLoad = [
         'typo3/sysext/extbase/Tests/Functional/Fixtures/Extensions/blog_example',
     ];
@@ -57,7 +55,7 @@ final class Typo3DbBackendTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/Fixtures/Typo3DbBackendTestImport.csv');
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $request = (new ServerRequest())
+        $request = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $blogRepository = $this->get(BlogRepository::class);

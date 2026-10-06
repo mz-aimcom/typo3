@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Configuration\Tca;
 
+use TYPO3\CMS\Core\Schema\LanguageMarker;
+
 /**
  * Automatically "enrich" TCA. This mainly adds "columns" definitions
  * based on "ctrl" settings. This is *not* for migration or preparation.
@@ -51,7 +53,7 @@ final readonly class TcaEnrichment
             $disabledFieldName = $tableDefinition['ctrl']['enablecolumns']['disabled'] ?? null;
             if ($disabledFieldName && !is_array($tableDefinition['columns'][$disabledFieldName] ?? null)) {
                 $tca[$table]['columns'][$disabledFieldName] = [
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.enabled',
+                    'label' => 'core.db.general:enabled',
                     'exclude' => true,
                     'config' => [
                         'type' => 'check',
@@ -77,7 +79,7 @@ final readonly class TcaEnrichment
             if ($starttimeFieldName && !is_array($tableDefinition['columns'][$starttimeFieldName] ?? null)) {
                 $tca[$table]['columns'][$starttimeFieldName] = [
                     'exclude' => true,
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.starttime',
+                    'label' => 'core.db.general:starttime',
                     'config' => [
                         'type' => 'datetime',
                         'default' => 0,
@@ -95,7 +97,7 @@ final readonly class TcaEnrichment
             if ($endtimeFieldName && !is_array($tableDefinition['columns'][$endtimeFieldName] ?? null)) {
                 $tca[$table]['columns'][$endtimeFieldName] = [
                     'exclude' => true,
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.endtime',
+                    'label' => 'core.db.general:endtime',
                     'config' => [
                         'type' => 'datetime',
                         'default' => 0,
@@ -116,7 +118,7 @@ final readonly class TcaEnrichment
             if ($feGroupFieldName && !is_array($tableDefinition['columns'][$feGroupFieldName] ?? null)) {
                 $tca[$table]['columns'][$feGroupFieldName] = [
                     'exclude' => true,
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.fe_group',
+                    'label' => 'core.db.general:fe_group',
                     'config' => [
                         'type' => 'select',
                         'renderType' => 'selectMultipleSideBySide',
@@ -124,15 +126,15 @@ final readonly class TcaEnrichment
                         'maxitems' => 20,
                         'items' => [
                             [
-                                'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.hide_at_login',
+                                'label' => 'core.db.general:fe_group.hide_at_login',
                                 'value' => -1,
                             ],
                             [
-                                'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.any_login',
+                                'label' => 'core.db.general:fe_group.any_login',
                                 'value' => -2,
                             ],
                             [
-                                'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.usergroups',
+                                'label' => 'core.db.general:fe_group.usergroups',
                                 'value' => '--div--',
                             ],
                         ],
@@ -152,7 +154,7 @@ final readonly class TcaEnrichment
             if ($editLockFieldName && !is_array($tableDefinition['columns'][$editLockFieldName] ?? null)) {
                 $tca[$table]['columns'][$editLockFieldName] = [
                     'displayCond' => 'HIDE_FOR_NON_ADMINS',
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:editlock',
+                    'label' => 'core.db.general:editlock',
                     'config' => [
                         'type' => 'check',
                         'renderType' => 'checkboxToggle',
@@ -170,7 +172,7 @@ final readonly class TcaEnrichment
             if ($descriptionFieldName && !is_array($tableDefinition['columns'][$descriptionFieldName] ?? null)) {
                 $tca[$table]['columns'][$descriptionFieldName] = [
                     'exclude' => true,
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.description',
+                    'label' => 'core.db.general:description',
                     'config' => [
                         'type' => 'text',
                         'rows' => 5,
@@ -190,7 +192,7 @@ final readonly class TcaEnrichment
             if ($languageFieldName && !is_array($tableDefinition['columns'][$languageFieldName] ?? null)) {
                 $tca[$table]['columns'][$languageFieldName] = [
                     'exclude' => true,
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.language',
+                    'label' => 'core.db.general:language',
                     'config' => [
                         'type' => 'language',
                     ],
@@ -202,7 +204,7 @@ final readonly class TcaEnrichment
 
     /**
      * When 'languageField' is set, 'transOrigPointerField' must be set as well.
-     * We silently add 'transOrigPointerField' if that iss not the case.
+     * We silently add 'transOrigPointerField' if that is not the case.
      *
      * @todo: This obviously needs a consolidation in ctrl. We should have a single, probably
      *        boolean ctrl toggle to make a table 'localization' aware, with core then handling
@@ -227,7 +229,7 @@ final readonly class TcaEnrichment
                 $languageFieldName = $tableDefinition['ctrl']['languageField'];
                 $tca[$table]['columns'][$transOrigPointerFieldName] = [
                     'displayCond' => 'FIELD:' . $languageFieldName . ':>:0',
-                    'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.l18n_parent',
+                    'label' => 'core.db.general:l18n_parent',
                     'config' => [
                         'type' => 'select',
                         'renderType' => 'selectSingle',
@@ -238,7 +240,7 @@ final readonly class TcaEnrichment
                             ],
                         ],
                         'foreign_table' => $table,
-                        'foreign_table_where' => 'AND {#' . $table . '}.{#pid}=###CURRENT_PID### AND {#' . $table . '}.{#' . $languageFieldName . '} IN (-1,0)',
+                        'foreign_table_where' => 'AND {#' . $table . '}.{#pid}=###CURRENT_PID### AND {#' . $table . '}.{#' . $languageFieldName . '} IN (' . LanguageMarker::ALL_LANGUAGES . ',0)',
                         'default' => 0,
                     ],
                 ];

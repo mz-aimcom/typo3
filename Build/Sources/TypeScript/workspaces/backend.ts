@@ -16,7 +16,6 @@ import DocumentService from '@typo3/core/document-service';
 import { html } from 'lit';
 import '@typo3/backend/element/icon-element';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
-import '@typo3/backend/input/clearable';
 import '@typo3/workspaces/renderable/record-table';
 import '@typo3/backend/element/pagination';
 import Workspaces from './workspaces';
@@ -30,6 +29,13 @@ import { selector } from '@typo3/core/literals';
 import IconHelper from '@typo3/workspaces/utility/icon-helper';
 import DeferredAction from '@typo3/backend/action-button/deferred-action';
 import type { PaginationElement } from '@typo3/backend/element/pagination';
+import labels from '~labels/workspaces.messages';
+
+/**
+ * Stage ID for the publish execute action.
+ * @deprecated Will be removed in TYPO3 v16.0. Use explicit publish actions instead.
+ */
+const STAGE_PUBLISH_EXECUTE_ID = -20;
 
 enum Identifiers {
   searchForm = '#workspace-settings-form',
@@ -198,6 +204,7 @@ class Backend extends Workspaces {
       const row = target.closest('tr') as HTMLTableRowElement;
       const newUrl = TYPO3.settings.FormEngine.moduleUrl
         + '&returnUrl=' + encodeURIComponent(document.location.href)
+        + '&module=' + encodeURIComponent(top.TYPO3.ModuleMenu.App.getCurrentModule())
         + '&id=' + TYPO3.settings.Workspaces.id + '&edit[' + row.dataset.table + '][' + row.dataset.uid + ']=edit';
 
       window.location.href = newUrl;
@@ -268,19 +275,14 @@ class Backend extends Workspaces {
       }
     }).delegateTo(document, Identifiers.searchTextField);
 
-    const searchTextField = document.querySelector(Identifiers.searchTextField) as HTMLInputElement;
-    if (searchTextField !== null) {
-      searchTextField.clearable(
-        {
-          onClear: (): void => {
-            const searchSubmitButton = document.querySelector(Identifiers.searchSubmitBtn) as HTMLButtonElement;
-            searchSubmitButton.disabled = true;
-            this.settings.filterTxt = '';
-            this.getWorkspaceInfos();
-          },
-        },
-      );
-    }
+    new RegularEvent('search', (_event: Event, target: HTMLInputElement) => {
+      if (target.value === '') {
+        const searchSubmitButton = document.querySelector(Identifiers.searchSubmitBtn) as HTMLButtonElement;
+        searchSubmitButton.disabled = true;
+        this.settings.filterTxt = '';
+        this.getWorkspaceInfos();
+      }
+    }).delegateTo(document, Identifiers.searchTextField);
 
     // checkboxes in the table
     new RegularEvent('multiRecordSelection:checkbox:state:changed', this.handleCheckboxStateChanged).bindTo(document);
@@ -288,7 +290,7 @@ class Backend extends Workspaces {
     // Listen for depth changes
     new RegularEvent('change', (event: Event, target: HTMLSelectElement) => {
       const depth = target.value;
-      Persistent.set('moduleData.workspaces_admin.depth', depth);
+      Persistent.set('moduleData.workspaces_publish.depth', depth);
       this.settings.depth = depth;
       this.getWorkspaceInfos();
     }).delegateTo(document, Identifiers.depthSelector);
@@ -298,7 +300,7 @@ class Backend extends Workspaces {
 
     // Listen for language changes
     new RegularEvent('change', (event: Event, target: HTMLSelectElement) => {
-      Persistent.set('moduleData.workspaces_admin.language', target.value);
+      Persistent.set('moduleData.workspaces_publish.language', target.value);
       this.settings.language = target.value;
       this.sendRemoteRequest(
         this.generateRemotePayloadBody('getWorkspaceInfos', this.settings),
@@ -311,7 +313,7 @@ class Backend extends Workspaces {
 
     new RegularEvent('change', (event: Event, target: HTMLSelectElement) => {
       const stage = target.value;
-      Persistent.set('moduleData.workspaces_admin.stage', stage);
+      Persistent.set('moduleData.workspaces_publish.stage', stage);
       this.settings.stage = stage;
       this.getWorkspaceInfos();
     }).delegateTo(document, Identifiers.stagesSelector);
@@ -402,7 +404,10 @@ class Backend extends Workspaces {
     if (direction === 'next') {
       nextStage = row.dataset.nextStage;
       stageWindowAction = 'sendToNextStageWindow';
-      stageExecuteAction = 'sendToNextStageExecute';
+      // Use explicit publish action when the next stage is the publish execute stage
+      stageExecuteAction = parseInt(nextStage, 10) === STAGE_PUBLISH_EXECUTE_ID
+        ? 'publishRecordExecute'
+        : 'sendToNextStageExecute';
     } else if (direction === 'prev') {
       nextStage = row.dataset.prevStage;
       stageWindowAction = 'sendToPrevStageWindow';
@@ -473,6 +478,7 @@ class Backend extends Workspaces {
     }
 
     const workspacesRecordTable = document.querySelector('typo3-workspaces-record-table');
+    workspacesRecordTable.additionalColumns = result.additionalColumns ?? {};
     workspacesRecordTable.results = result.data;
   }
 
@@ -521,12 +527,15 @@ class Backend extends Workspaces {
         filterFields: true
       }),
     ).then(async (response: AjaxResponse): Promise<void> => {
-      const item = (await response.resolve())[0].result.data[0];
-      const modalButtons = [];
+      const details = await response.resolve();
+      const item = details[0]?.result.data[0];
+      if (item === undefined) {
+        return;
+      }
 
+      const modalButtons = [];
       const content = document.createElement('typo3-workspaces-record-information');
       content.record = item;
-      content.TYPO3lang = TYPO3.lang;
 
       if (item.label_PrevStage !== false && tableRow.dataset.stage !== tableRow.dataset.prevStage) {
         modalButtons.push({
@@ -554,7 +563,7 @@ class Backend extends Workspaces {
         });
       }
       modalButtons.push({
-        text: TYPO3.lang.close,
+        text: labels.get('close'),
         active: true,
         btnClass: 'btn-info',
         name: 'cancel',
@@ -563,7 +572,9 @@ class Backend extends Workspaces {
 
       Modal.advanced({
         type: Modal.types.default,
-        title: TYPO3.lang['window.recordInformation'].replace('{0}', (tableRow.querySelector('.t3js-title-workspace') as HTMLElement).innerText.trim()),
+        title: labels.get('window.recordInformation', {
+          '0': (tableRow.querySelector('.t3js-title-workspace') as HTMLElement).innerText.trim()
+        }),
         content: content,
         severity: SeverityEnum.info,
         buttons: modalButtons,
@@ -595,12 +606,12 @@ class Backend extends Workspaces {
     const tableRow = target.closest('tr') as HTMLTableRowElement;
 
     const modal = Modal.confirm(
-      TYPO3.lang['window.discard.title'],
-      TYPO3.lang['window.discard.message'],
+      labels.get('window.discard.title'),
+      labels.get('window.discard.message'),
       SeverityEnum.warning,
       [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
@@ -609,7 +620,7 @@ class Backend extends Workspaces {
           },
         },
         {
-          text: TYPO3.lang.ok,
+          text: labels.get('ok'),
           btnClass: 'btn-warning',
           name: 'ok',
         },
@@ -676,8 +687,8 @@ class Backend extends Workspaces {
 
   private readonly openIntegrityWarningModal = (): ModalElement => {
     const modal = Modal.confirm(
-      TYPO3.lang['window.integrity_warning.title'],
-      html`<p>${TYPO3.lang['integrity.hasIssuesDescription']}<br>${TYPO3.lang['integrity.hasIssuesQuestion']}</p>`,
+      labels.get('window.integrity_warning.title'),
+      html`<p>${labels.get('integrity.hasIssuesDescription')}<br>${labels.get('integrity.hasIssuesQuestion')}</p>`,
       SeverityEnum.warning
     );
     modal.addEventListener('button.clicked', (): void => modal.hideModal());
@@ -687,26 +698,25 @@ class Backend extends Workspaces {
 
   private renderPublishModal(row: HTMLTableRowElement): void {
     const modal = Modal.advanced({
-      title: TYPO3.lang['window.publish.title'],
-      content: TYPO3.lang['window.publish.message'],
+      title: labels.get('window.publish.title'),
+      content: labels.get('window.publish.message'),
       severity: SeverityEnum.info,
       staticBackdrop: true,
       buttons: [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           btnClass: 'btn-default',
           trigger: function(): void {
             modal.hideModal();
           },
         }, {
-          text: TYPO3.lang.label_doaction_publish,
+          text: labels.get('label_doaction_publish'),
           btnClass: 'btn-info',
           action: new DeferredAction(async (): Promise<void> => {
             await this.sendRemoteRequest(
               this.generateRemotePayloadBody('publishSingleRecord', [
                 row.dataset.table,
-                row.dataset.t3ver_oid,
-                row.dataset.uid,
+                row.dataset.uid, // versioned UID - live ID is resolved automatically
               ]),
             );
             this.getWorkspaceInfos();
@@ -719,19 +729,19 @@ class Backend extends Workspaces {
 
   private renderSelectionActionModal(selectedAction: string, affectedRecords: Array<object>): void {
     const modal = Modal.advanced({
-      title: TYPO3.lang['window.selectionAction.title'],
-      content: html`<p>${TYPO3.lang['tooltip.' + selectedAction + 'Selected']}</p>`,
+      title: labels.get('window.selectionAction.title'),
+      content: html`<p>${labels.get('tooltip.' + selectedAction + 'Selected' as 'tooltip.publishSelected'|'tooltip.discardSelected')}</p>`,
       severity: SeverityEnum.warning,
       staticBackdrop: true,
       buttons: [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           btnClass: 'btn-default',
           trigger: function(): void {
             modal.hideModal();
           },
         }, {
-          text: TYPO3.lang['label_doaction_' + selectedAction],
+          text: labels.get('label_doaction_' + selectedAction as 'label_doaction_publish'|'label_doaction_discard'),
           btnClass: 'btn-warning',
           action: new DeferredAction(async (): Promise<void> => {
             await this.sendRemoteRequest(
@@ -794,11 +804,11 @@ class Backend extends Workspaces {
     switch (selectedAction) {
       case 'publish':
         massAction = 'publishEntireWorkspace';
-        continueButtonLabel = TYPO3.lang.label_doaction_publish;
+        continueButtonLabel = labels.get('label_doaction_publish');
         break;
       case 'discard':
         massAction = 'discardEntireWorkspace';
-        continueButtonLabel = TYPO3.lang.label_doaction_discard;
+        continueButtonLabel = labels.get('label_doaction_discard');
         break;
       default:
         throw 'Invalid mass action ' + selectedAction + ' called.';
@@ -818,16 +828,16 @@ class Backend extends Workspaces {
     };
 
     const modal = Modal.advanced({
-      title: TYPO3.lang['window.massAction.title'],
+      title: labels.get('window.massAction.title'),
       content: html`
-        <p>${TYPO3.lang['tooltip.' + selectedAction + 'All']}</p>
-        <p>${TYPO3.lang['tooltip.affectWholeWorkspace']}</p>
+        <p>${labels.get('tooltip.' + selectedAction + 'All' as 'tooltip.publishAll'|'tooltip.discardAll')}</p>
+        <p>${labels.get('tooltip.affectWholeWorkspace')}</p>
       `,
       severity: SeverityEnum.warning,
       staticBackdrop: true,
       buttons: [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           btnClass: 'btn-default',
           trigger: function(): void {
             modal.hideModal();
@@ -863,6 +873,11 @@ class Backend extends Workspaces {
   private sendToSpecificStageAction(event: Event, target: HTMLInputElement): void {
     const affectedRecords: Array<{ [key: string]: number | string }> = [];
     const stage = target.value;
+    const stageId = parseInt(stage, 10);
+    // Use explicit publish action when the target stage is the publish execute stage
+    const executeAction = stageId === STAGE_PUBLISH_EXECUTE_ID
+      ? 'publishCollectionExecute'
+      : 'sendToSpecificStageExecute';
     for (let i = 0; i < this.markedRecordsForMassAction.length; ++i) {
       const affected = this.markedRecordsForMassAction[i].split(':');
       affectedRecords.push({
@@ -884,7 +899,7 @@ class Backend extends Workspaces {
             nextStage: stage,
           };
           this.sendRemoteRequest([
-            this.generateRemotePayloadBody('sendToSpecificStageExecute', [serializedForm]),
+            this.generateRemotePayloadBody(executeAction, [serializedForm]),
             this.generateRemotePayloadBody('getWorkspaceInfos', this.settings),
           ]).then(async (response: AjaxResponse): Promise<void> => {
             const actionResponse = await response.resolve();
@@ -931,11 +946,11 @@ class Backend extends Workspaces {
       }
 
       Modal.show(
-        TYPO3.lang.previewLink,
+        labels.get('previewLink'),
         list,
         SeverityEnum.info,
         [{
-          text: TYPO3.lang.ok,
+          text: labels.get('ok'),
           active: true,
           btnClass: 'btn-info',
           name: 'ok',

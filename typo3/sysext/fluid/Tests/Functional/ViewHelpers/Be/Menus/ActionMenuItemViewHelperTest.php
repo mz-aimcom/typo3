@@ -29,6 +29,8 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 
 final class ActionMenuItemViewHelperTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     public static function isRenderedDataProvider(): array
     {
         return [
@@ -66,7 +68,7 @@ final class ActionMenuItemViewHelperTest extends FunctionalTestCase
     #[Test]
     public function isRendered(string $source, array $variables, string $expectation): void
     {
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource($source);

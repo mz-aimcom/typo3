@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Filelist\ElementBrowser;
 
 use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Backend\View\FolderUtilityRenderer;
+use TYPO3\CMS\Backend\View\ResourceUtilityRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Filelist\Matcher\Matcher;
@@ -38,7 +38,7 @@ class CreateFolderBrowser extends AbstractResourceBrowser
     protected function initialize(ServerRequestInterface $request): void
     {
         parent::initialize($request);
-        $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/create-folder.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/resource-creation.js');
     }
 
     protected function initVariables(ServerRequestInterface $request): void
@@ -57,8 +57,8 @@ class CreateFolderBrowser extends AbstractResourceBrowser
             $markup = [];
 
             // Build the folder creation form
-            $folderUtilityRenderer = GeneralUtility::makeInstance(FolderUtilityRenderer::class, $this);
-            $markup[] = $folderUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
+            $resourceUtilityRenderer = GeneralUtility::makeInstance(ResourceUtilityRenderer::class, $this);
+            $markup[] = $resourceUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
 
             // Create the filelist
             $this->filelist->start(
@@ -73,7 +73,7 @@ class CreateFolderBrowser extends AbstractResourceBrowser
             $markup[] = '<div class="row justify-content-between mb-2">';
             $markup[] = '    <div class="col-auto"></div>';
             $markup[] = '    <div class="col-auto">';
-            $markup[] = '        ' . $this->getSortingModeButtons($this->filelist->mode);
+            $markup[] = '        ' . $this->getSortingModeButtons();
             $markup[] = '        ' . $this->getViewModeButton();
             $markup[] = '    </div>';
             $markup[] = '</div>';
@@ -91,11 +91,11 @@ class CreateFolderBrowser extends AbstractResourceBrowser
         $this->view->assign('content', $contentHtml);
         $this->view->assign('contentOnly', $contentOnly);
 
-        $content = $this->view->render('ElementBrowser/CreateFolder');
+        $content = $this->view->render('ElementBrowser/ResourceCreation');
         if ($contentOnly) {
             return $content;
         }
         $this->pageRenderer->setBodyContent('<body ' . $this->getBodyTagParameters() . '>' . $content);
-        return $this->pageRenderer->render();
+        return $this->pageRenderer->render($this->getRequest());
     }
 }

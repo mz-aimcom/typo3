@@ -21,15 +21,19 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locales;
+use TYPO3\CMS\Form\Domain\Model\FormDefinition;
 use TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement;
 use TYPO3\CMS\Form\Domain\Model\FormElements\Page;
 use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
+use TYPO3\CMS\Form\Domain\Translation\FormTranslationKeychainBuilder;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class TranslationServiceTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     private TranslationService $subject;
     protected array $testExtensionsToLoad = ['typo3/sysext/form/Tests/Functional/Fixtures/Extensions/form_labels'];
 
@@ -38,13 +42,13 @@ final class TranslationServiceTest extends FunctionalTestCase
         parent::setUp();
         $this->subject = new TranslationService(
             $this->get(LanguageServiceFactory::class),
-            $this->get('cache.runtime'),
-            new Locales()
+            new Locales(),
+            new FormTranslationKeychainBuilder(),
         );
     }
 
     #[Test]
-    public function translateReturnsExistingDefaultLanguageKeyIfFullExtDefaultLanguageKeyIsRequested(): void
+    public function translateResolvesFullExtPath(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM EN', $this->subject->translate(
@@ -53,7 +57,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsExistingDefaultLanguageKeyIfFullLLLExtDefaultLanguageKeyIsRequested(): void
+    public function translateResolvesFullLLLExtPath(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM EN', $this->subject->translate(
@@ -62,7 +66,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsExistingDefaultLanguageKeyIfDefaultLanguageKeyIsRequestedAndDefaultValueIsGiven(): void
+    public function translateResolvesExistingKeyEvenIfDefaultValueIsGiven(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM EN', $this->subject->translate(
@@ -75,7 +79,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsEmptyStringIfNonExistingDefaultLanguageKeyIsRequested(): void
+    public function translateReturnsEmptyStringForNonExistingKey(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('', $this->subject->translate(
@@ -84,7 +88,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsDefaultValueIfNonExistingDefaultLanguageKeyIsRequestedAndDefaultValueIsGiven(): void
+    public function translateReturnsDefaultValueForNonExistingKey(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('defaultValue', $this->subject->translate(
@@ -97,7 +101,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsExistingLanguageKeyForLanguageIfExtPathLanguageKeyIsRequested(): void
+    public function translateResolvesExistingKeyForLanguage(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM DE', $this->subject->translate(
@@ -109,7 +113,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsDefaultValueIfNonExistingLanguageKeyForLanguageIsRequestedAndDefaultValueIsGiven(): void
+    public function translateReturnsDefaultValueForNonExistingKeyWithLanguage(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('defaultValue', $this->subject->translate(
@@ -122,7 +126,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsEmptyStringIfNonExistingLanguageKeyForLanguageIsRequested(): void
+    public function translateReturnsEmptyStringForNonExistingKeyWithLanguage(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('', $this->subject->translate(
@@ -134,7 +138,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsExistingDefaultLanguageKeyIfDefaultLanguageKeyIsRequestedAndExtFilePathIsGiven(): void
+    public function translateResolvesKeyWithSeparateExtFilePath(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM EN', $this->subject->translate(
@@ -145,7 +149,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateReturnsExistingDefaultLanguageKeyIfDefaultLanguageKeyIsRequestedAndLLLExtFilePathIsGiven(): void
+    public function translateResolvesKeyWithSeparateLLLExtFilePath(): void
     {
         $xlfPath = 'EXT:form_labels/Resources/Private/Language/locallang_form.xlf';
         self::assertEquals('FORM EN', $this->subject->translate(
@@ -187,7 +191,7 @@ final class TranslationServiceTest extends FunctionalTestCase
         self::assertEquals($expected, $this->subject->translateValuesRecursive($input, $xlfPaths));
     }
 
-    public static function translateFormElementValueTranslatesFluidAdditionalAttributesDataProvider(): array
+    public static function translateFormElementValueFluidAdditionalAttributesDataProvider(): array
     {
         return [
             [null, []],
@@ -199,7 +203,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    #[DataProvider('translateFormElementValueTranslatesFluidAdditionalAttributesDataProvider')]
+    #[DataProvider('translateFormElementValueFluidAdditionalAttributesDataProvider')]
     public function translateFormElementValueTranslatesFluidAdditionalAttributes(mixed $fluidAdditionalAttributes, array $expected): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
@@ -230,15 +234,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['fluidAdditionalAttributes'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['fluidAdditionalAttributes'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesLabelForConcreteFormAndElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -266,16 +270,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier LABEL EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesLabelForConcreteFormAndElementWithEmptyLabel(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -303,16 +307,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier LABEL EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueNotTranslateLabelForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsEmptyAndPropertyShouldNotBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueSkipsEmptyLabelWhenTranslateIfEmptyIsDisabled(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -340,15 +344,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals('', $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals('', $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelForConcreteFormElementIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesLabelForConcreteElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -376,15 +380,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals('form-element-identifier LABEL EN 1', $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals('form-element-identifier LABEL EN 1', $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelForFormElementTypeIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesLabelByElementType(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -412,16 +416,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier LABEL EN 2';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslatePropertyForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementPropertyIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesPropertyForConcreteFormAndElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -454,15 +458,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['placeholder'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['placeholder'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueNotTranslatePropertyForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementPropertyIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationNotExists(): void
+    public function translateFormElementValueKeepsPropertyIfNoTranslationExists(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -495,15 +499,183 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['placeholder'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['placeholder'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateRenderingOptionForConcreteFormAndConcreteSectionElementIfElementRenderingOptionsContainsATranslationFilesAndElementRenderingOptionIsNotEmptyAndRenderingOptionShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesDefaultValueForConcreteFormAndElement(): void
+    {
+        $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
+        $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
+
+        $formRuntimeIdentifier = 'form-runtime-identifier';
+        $formElementIdentifier = 'form-element-identifier';
+
+        $formRuntimeRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $formRuntimeXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElementRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $textElementXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $expected = 'form-element-identifier DEFAULTVALUE EN';
+
+        $formDefinition = new FormDefinition('test-form');
+        $page = new Page('test-page');
+        $formDefinition->addPage($page);
+        $formElement = new GenericFormElement($formElementIdentifier, 'Text');
+        $page->addElement($formElement);
+        $formElement->setOptions([
+            'defaultValue' => 'some default value',
+            'renderingOptions' => $formElementRenderingOptions,
+        ]);
+
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['defaultValue'], $formRuntimeStub));
+    }
+
+    #[Test]
+    public function translateFormElementValueKeepsDefaultValueIfNoTranslationExists(): void
+    {
+        $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
+        $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
+
+        $formRuntimeIdentifier = 'another-form-runtime-identifier';
+        $formElementIdentifier = 'another-form-element-identifier';
+
+        $formRuntimeRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $formRuntimeXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElementRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $textElementXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $expected = 'some default value';
+
+        $formDefinition = new FormDefinition('test-form');
+        $page = new Page('test-page');
+        $formDefinition->addPage($page);
+        $formElement = new GenericFormElement($formElementIdentifier, 'Textarea');
+        $page->addElement($formElement);
+        $formElement->setOptions([
+            'defaultValue' => 'some default value',
+            'renderingOptions' => $formElementRenderingOptions,
+        ]);
+
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['defaultValue'], $formRuntimeStub));
+    }
+
+    #[Test]
+    public function translateFormElementValueResolvesDefaultValueForConcreteElement(): void
+    {
+        $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
+        $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
+
+        $formRuntimeIdentifier = 'another-form-runtime-identifier';
+        $formElementIdentifier = 'form-element-identifier';
+
+        $formRuntimeRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $formRuntimeXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElementRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $textElementXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $expected = 'form-element-identifier DEFAULTVALUE EN 1';
+
+        $formDefinition = new FormDefinition('test-form');
+        $page = new Page('test-page');
+        $formDefinition->addPage($page);
+        $formElement = new GenericFormElement($formElementIdentifier, 'Text');
+        $page->addElement($formElement);
+        $formElement->setOptions([
+            'defaultValue' => 'some default value',
+            'renderingOptions' => $formElementRenderingOptions,
+        ]);
+
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['defaultValue'], $formRuntimeStub));
+    }
+
+    #[Test]
+    public function translateFormElementValueResolvesDefaultValueByElementType(): void
+    {
+        $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
+        $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
+
+        $formRuntimeIdentifier = 'another-form-runtime-identifier';
+        $formElementIdentifier = 'another-form-element-identifier';
+
+        $formRuntimeRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $formRuntimeXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $formElementRenderingOptions = [
+            'translation' => [
+                'translationFiles' => $textElementXlfPaths,
+                'translatePropertyValueIfEmpty' => true,
+            ],
+        ];
+
+        $expected = 'form-element-identifier DEFAULTVALUE EN 2';
+
+        $formDefinition = new FormDefinition('test-form');
+        $page = new Page('test-page');
+        $formDefinition->addPage($page);
+        $formElement = new GenericFormElement($formElementIdentifier, 'Text');
+        $page->addElement($formElement);
+        $formElement->setOptions([
+            'defaultValue' => 'some default value',
+            'renderingOptions' => $formElementRenderingOptions,
+        ]);
+
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['defaultValue'], $formRuntimeStub));
+    }
+
+    #[Test]
+    public function translateFormElementValueResolvesRenderingOptionForConcreteFormAndSectionElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -531,16 +703,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier nextButtonLabel EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['nextButtonLabel'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['nextButtonLabel'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateOptionsPropertyForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementOptionsPropertyIsAnArrayAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesOptionsForConcreteFormAndElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -579,15 +751,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['options'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['options'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateOptionsPropertyForConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementOptionsPropertyIsAnArrayAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesOptionsForConcreteElement(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -626,15 +798,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['options'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['options'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFinisherOptionTranslateOptionForConcreteFormIfFinisherTranslationOptionsContainsATranslationFilesAndFinisherOptionIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFinisherOptionResolvesOptionForConcreteForm(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -654,16 +826,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'translatePropertyValueIfEmpty' => true,
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier SaveToDatabase subject EN';
-        self::assertEquals($expected, $this->subject->translateFinisherOption($mockFormRuntime, $finisherIdentifier, 'subject', 'subject value', $finisherRenderingOptions));
+        self::assertEquals($expected, $this->subject->translateFinisherOption($formRuntimeStub, $finisherIdentifier, 'subject', 'subject value', $finisherRenderingOptions));
     }
 
     #[Test]
-    public function translateFinisherOptionTranslateOptionIfFinisherTranslationOptionsContainsATranslationFilesAndFinisherOptionIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFinisherOptionResolvesOptionByFinisherType(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_text.xlf'];
@@ -683,16 +855,16 @@ final class TranslationServiceTest extends FunctionalTestCase
             'translatePropertyValueIfEmpty' => true,
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'form-element-identifier SaveToDatabase subject EN 1';
-        self::assertEquals($expected, $this->subject->translateFinisherOption($mockFormRuntime, $finisherIdentifier, 'subject', 'subject value', $finisherRenderingOptions));
+        self::assertEquals($expected, $this->subject->translateFinisherOption($formRuntimeStub, $finisherIdentifier, 'subject', 'subject value', $finisherRenderingOptions));
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelForConcreteFormAndConcreteElementFromFormRuntimeTranslationFilesIfElementRenderingOptionsContainsNoTranslationFilesAndElementLabelIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueFallsBackToFormRuntimeTranslationFiles(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
 
@@ -712,12 +884,12 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => [],
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'my-form-runtime-identifier my-form-element-identifier LABEL EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
@@ -725,7 +897,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
 
-        $formRuntime = $this->createMock(FormRuntime::class);
+        $formRuntime = self::createStub(FormRuntime::class);
         $formRuntime->method('getIdentifier')->willReturn('my-form-runtime-identifier');
         $formRuntime->method('getRenderingOptions')->willReturn([
             'translation' => [
@@ -734,7 +906,7 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ]);
 
-        $element = $this->createMock(RootRenderableInterface::class);
+        $element = self::createStub(RootRenderableInterface::class);
         $element->method('getIdentifier')->willReturn('my-form-element-with-translation-arguments');
         $element->method('getType')->willReturn(RootRenderableInterface::class);
         $element->method('getLabel')->willReturn('See %s or %s');
@@ -754,7 +926,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateFinisherOptionTranslateOptionForConcreteFormFromFormRuntimeIfFinisherTranslationOptionsContainsNoTranslationFilesAndFinisherOptionIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFinisherOptionFallsBackToFormRuntimeTranslationFiles(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
 
@@ -768,12 +940,12 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
         $expected = 'my-form-runtime-identifier form-element-identifier SaveToDatabase subject EN';
-        self::assertEquals($expected, $this->subject->translateFinisherOption($mockFormRuntime, $finisherIdentifier, 'subject', 'subject value'));
+        self::assertEquals($expected, $this->subject->translateFinisherOption($formRuntimeStub, $finisherIdentifier, 'subject', 'subject value'));
     }
 
     #[Test]
@@ -785,11 +957,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->createMock(FormRuntime::class);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
         self::assertSame(
             'subject value',
-            $this->subject->translateFinisherOption($mockFormRuntime, 'SaveToDatabaseFinisher', 'subject', 'subject value', $finisherRenderingOptions)
+            $this->subject->translateFinisherOption($formRuntimeStub, 'SaveToDatabaseFinisher', 'subject', 'subject value', $finisherRenderingOptions)
         );
     }
 
@@ -798,7 +970,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
 
-        $formRuntime = $this->createMock(FormRuntime::class);
+        $formRuntime = self::createStub(FormRuntime::class);
         $formRuntime->method('getIdentifier')->willReturn('my-form-runtime-identifier');
         $formRuntime->method('getRenderingOptions')->willReturn([
             'translation' => [
@@ -819,7 +991,7 @@ final class TranslationServiceTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function translateFormElementValueTranslateLabelFromAdditionalTranslationForConcreteFormAndConcreteElementIfElementRenderingOptionsContainsATranslationFilesAndElementLabelIsNotEmptyAndPropertyShouldBeTranslatedAndTranslationExists(): void
+    public function translateFormElementValueResolvesLabelFromAdditionalTranslationFile(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_form.xlf'];
         $textElementXlfPaths = [
@@ -852,15 +1024,15 @@ final class TranslationServiceTest extends FunctionalTestCase
             'renderingOptions' => $formElementRenderingOptions,
         ]);
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions'], [], '', false);
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
 
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementTranslateFormWithContentElementUidIfFormContainsNoOriginalIdentifier(): void
+    public function translateFormElementResolvesWithContentElementUidSuffix(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_01.xlf'];
 
@@ -875,11 +1047,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
@@ -887,14 +1059,14 @@ final class TranslationServiceTest extends FunctionalTestCase
         ]);
 
         $expected = 'form-runtime-identifier-42 submitButtonLabel EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($mockFormRuntime, ['submitButtonLabel'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formRuntimeStub, ['submitButtonLabel'], $formRuntimeStub));
 
         $expected = 'form-runtime-identifier-42 form-element-identifierlabel EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementTranslateFormWithContentElementUidIfFormContainsOriginalIdentifier(): void
+    public function translateFormElementResolvesWithOriginalIdentifier(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_02.xlf'];
 
@@ -910,11 +1082,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
@@ -922,16 +1094,15 @@ final class TranslationServiceTest extends FunctionalTestCase
         ]);
 
         $expected = 'form-runtime-identifier submitButtonLabel EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($mockFormRuntime, ['submitButtonLabel'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formRuntimeStub, ['submitButtonLabel'], $formRuntimeStub));
 
         $expected = 'form-runtime-identifier form-element-identifierlabel EN';
-        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementErrorTranslateErrorFromFormWithContentElementUidIfFormContainsNoOriginalIdentifier(): void
+    public function translateFormElementErrorResolvesWithContentElementUidSuffix(): void
     {
-        self::markTestSkipped('translateFormElementError() calls getProperties() on RootRenderableInterface, which fails. See #100477');
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_01.xlf'];
 
         $formRuntimeIdentifier = 'form-runtime-identifier-42';
@@ -944,11 +1115,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
@@ -957,16 +1128,15 @@ final class TranslationServiceTest extends FunctionalTestCase
         ]);
 
         $expected = 'form-runtime-identifier-42 error 123 EN';
-        self::assertEquals($expected, $this->subject->translateFormElementError($mockFormRuntime, 123, [], 'default value', $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementError($formRuntimeStub, 123, [], 'default value', $formRuntimeStub));
 
         $expected = 'form-runtime-identifier-42 form-element-identifier error 123 EN';
-        self::assertEquals($expected, $this->subject->translateFormElementError($formElement, 123, [], 'default value', $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementError($formElement, 123, [], 'default value', $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementErrorTranslateErrorFromFormWithContentElementUidIfFormContainsOriginalIdentifier(): void
+    public function translateFormElementErrorResolvesWithOriginalIdentifier(): void
     {
-        self::markTestSkipped('translateFormElementError() calls getProperties() on RootRenderableInterface, which fails. See #100477');
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_02.xlf'];
 
         $formRuntimeIdentifier = 'form-runtime-identifier-42';
@@ -980,11 +1150,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
@@ -993,14 +1163,14 @@ final class TranslationServiceTest extends FunctionalTestCase
         ]);
 
         $expected = 'form-runtime-identifier error 123 EN';
-        self::assertEquals($expected, $this->subject->translateFormElementError($mockFormRuntime, 123, [], 'default value', $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementError($formRuntimeStub, 123, [], 'default value', $formRuntimeStub));
 
         $expected = 'form-runtime-identifier form-element-identifier error 123 EN';
-        self::assertEquals($expected, $this->subject->translateFormElementError($formElement, 123, [], 'default value', $mockFormRuntime));
+        self::assertEquals($expected, $this->subject->translateFormElementError($formElement, 123, [], 'default value', $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFinisherOptionTranslateOptionFromFormWithContentElementUidIfFormContainsNoOriginalIdentifier(): void
+    public function translateFinisherOptionResolvesWithContentElementUidSuffix(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_01.xlf'];
 
@@ -1013,18 +1183,18 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $expected = 'form-runtime-identifier-42 FooFinisher test EN';
-        self::assertEquals($expected, $this->subject->translateFinisherOption($mockFormRuntime, 'Foo', 'test', 'value', []));
+        self::assertEquals($expected, $this->subject->translateFinisherOption($formRuntimeStub, 'Foo', 'test', 'value', []));
     }
 
     #[Test]
-    public function translateFinisherOptionTranslateOptionFromFormWithContentElementUidIfFormContainsOriginalIdentifier(): void
+    public function translateFinisherOptionResolvesWithOriginalIdentifier(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_ceuid_suffix_02.xlf'];
 
@@ -1038,18 +1208,18 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $expected = 'form-runtime-identifier FooFinisher test EN';
-        self::assertEquals($expected, $this->subject->translateFinisherOption($mockFormRuntime, 'Foo', 'test', 'value', []));
+        self::assertEquals($expected, $this->subject->translateFinisherOption($formRuntimeStub, 'Foo', 'test', 'value', []));
     }
 
     #[Test]
-    public function translateFormElementErrorTranslatesErrorsWithEmptyTranslatedValues(): void
+    public function translateFormElementErrorHandlesEmptyTranslatedValues(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_empty_values.xlf'];
 
@@ -1064,11 +1234,11 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
@@ -1076,12 +1246,12 @@ final class TranslationServiceTest extends FunctionalTestCase
             'properties' => [],
         ]);
 
-        self::assertEquals('0', $this->subject->translateFormElementError($formElement, 123, [], 'default value', $mockFormRuntime));
-        self::assertEquals('default value', $this->subject->translateFormElementError($formElement, 124, [], 'default value', $mockFormRuntime));
+        self::assertEquals('0', $this->subject->translateFormElementError($formElement, 123, [], 'default value', $formRuntimeStub));
+        self::assertEquals('default value', $this->subject->translateFormElementError($formElement, 124, [], 'default value', $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFormElementTranslatesFormElementsWithEmptyTranslatedValues(): void
+    public function translateFormElementValueHandlesEmptyTranslatedValues(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_empty_values.xlf'];
 
@@ -1097,23 +1267,23 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
         $formElement = new GenericFormElement($formElementIdentifier, 'Text');
         $formElement->setOptions([
             'label' => 'test',
         ]);
 
-        self::assertEquals('0', $this->subject->translateFormElementValue($mockFormRuntime, ['submitButtonLabel'], $mockFormRuntime));
-        self::assertEquals('test', $this->subject->translateFormElementValue($formElement, ['label'], $mockFormRuntime));
+        self::assertEquals('0', $this->subject->translateFormElementValue($formRuntimeStub, ['submitButtonLabel'], $formRuntimeStub));
+        self::assertEquals('test', $this->subject->translateFormElementValue($formElement, ['label'], $formRuntimeStub));
     }
 
     #[Test]
-    public function translateFinisherOptionTranslatesFinisherOptionsWithEmptyTranslatedValues(): void
+    public function translateFinisherOptionHandlesEmptyTranslatedValues(): void
     {
         $formRuntimeXlfPaths = ['EXT:form_labels/Resources/Private/Language/locallang_empty_values.xlf'];
 
@@ -1127,13 +1297,13 @@ final class TranslationServiceTest extends FunctionalTestCase
             ],
         ];
 
-        $mockFormRuntime = $this->getAccessibleMock(FormRuntime::class, ['getIdentifier', 'getRenderingOptions', 'getType'], [], '', false);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
 
-        $mockFormRuntime->method('getIdentifier')->willReturn($formRuntimeIdentifier);
-        $mockFormRuntime->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
-        $mockFormRuntime->method('getType')->willReturn('Form');
+        $formRuntimeStub->method('getIdentifier')->willReturn($formRuntimeIdentifier);
+        $formRuntimeStub->method('getRenderingOptions')->willReturn($formRuntimeRenderingOptions);
+        $formRuntimeStub->method('getType')->willReturn('Form');
 
-        self::assertEquals('0', $this->subject->translateFinisherOption($mockFormRuntime, 'Foo', 'test1', 'value', []));
-        self::assertEquals('value', $this->subject->translateFinisherOption($mockFormRuntime, 'Foo', 'test2', 'value', []));
+        self::assertEquals('0', $this->subject->translateFinisherOption($formRuntimeStub, 'Foo', 'test1', 'value', []));
+        self::assertEquals('value', $this->subject->translateFinisherOption($formRuntimeStub, 'Foo', 'test2', 'value', []));
     }
 }

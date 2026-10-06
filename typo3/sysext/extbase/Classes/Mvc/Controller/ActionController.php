@@ -20,13 +20,13 @@ use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriInterface;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\PropagateResponseException;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
-use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -34,8 +34,11 @@ use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Core\View\ViewInterface;
+use TYPO3\CMS\Extbase\Authorization\AuthorizationFailureReason;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
+use TYPO3\CMS\Extbase\Event\Mvc\BeforeActionAuthorizationDeniedEvent;
 use TYPO3\CMS\Extbase\Event\Mvc\BeforeActionCallEvent;
+use TYPO3\CMS\Extbase\Event\Mvc\BeforeActionRateLimitResponseEvent;
 use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Mvc\Controller\Exception\RequiredArgumentMissingException;
 use TYPO3\CMS\Extbase\Mvc\Exception\InvalidArgumentNameException;
@@ -52,10 +55,12 @@ use TYPO3\CMS\Extbase\Reflection\ReflectionService;
 use TYPO3\CMS\Extbase\Security\HashScope;
 use TYPO3\CMS\Extbase\Service\ExtensionService;
 use TYPO3\CMS\Extbase\Service\FileHandlingService;
+use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
 use TYPO3\CMS\Extbase\Validation\Validator\ConjunctionValidator;
 use TYPO3\CMS\Extbase\Validation\ValidatorResolver;
 use TYPO3\CMS\Fluid\View\FluidViewAdapter;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
+use TYPO3\CMS\Frontend\Page\PageAccessFailureReasons;
 
 /**
  * A multi action controller. This is by far the most common base class for Controllers.
@@ -101,6 +106,8 @@ abstract class ActionController implements ControllerInterface
     protected FileHandlingService $fileHandlingService;
     protected RequestInterface $request;
     protected UriBuilder $uriBuilder;
+    protected RateLimitRegistry $rateLimitRegistry;
+    protected AuthorizeRegistry $authorizeRegistry;
 
     /**
      * Contains the settings of the current extension
@@ -200,6 +207,16 @@ abstract class ActionController implements ControllerInterface
         $this->fileHandlingService = $fileHandlingService;
     }
 
+    public function injectRateLimitRegistry(RateLimitRegistry $rateLimitRegistry): void
+    {
+        $this->rateLimitRegistry = $rateLimitRegistry;
+    }
+
+    public function injectAuthorizeRegistry(AuthorizeRegistry $authorizeRegistry): void
+    {
+        $this->authorizeRegistry = $authorizeRegistry;
+    }
+
     /**
      * @internal
      */
@@ -268,8 +285,8 @@ abstract class ActionController implements ControllerInterface
      * Adds the needed validators to the Arguments:
      *
      * - Validators checking the data type from the param annotation
-     * - Custom validators specified with validate annotations.
-     * - Model-based validators (validate annotations in the model)
+     * - Custom validators specified with #[Validate] attributes.
+     * - Model-based validators (#[Validate] attributes in the model)
      * - Custom model validator classes
      *
      * @internal
@@ -285,8 +302,8 @@ abstract class ActionController implements ControllerInterface
         /** @var Argument $argument */
         foreach ($this->arguments as $argument) {
             $classSchemaMethodParameter = $classSchemaMethod->getParameter($argument->getName());
-            // At this point validation is skipped if there is an IgnoreValidation annotation.
-            // @todo: IgnoreValidation annotations could be evaluated in the ClassSchema and result in
+            // At this point validation is skipped if there is an #[IgnoreValidation] attribute.
+            // @todo: IgnoreValidation attributes could be evaluated in the ClassSchema and result in
             //        no validators being applied to the method parameter.
             if ($classSchemaMethodParameter->ignoreValidation()) {
                 continue;
@@ -294,11 +311,15 @@ abstract class ActionController implements ControllerInterface
             /** @var ConjunctionValidator $validator */
             $validator = $this->validatorResolver->createValidator(ConjunctionValidator::class);
             foreach ($classSchemaMethodParameter->getValidators() as $validatorDefinition) {
-                $validatorInstance = $this->validatorResolver->createValidator(
-                    $validatorDefinition['className'],
-                    $validatorDefinition['options'],
-                    $this->request
-                );
+                if (isset($validatorDefinition['constraint'])) {
+                    $validatorInstance = $validatorDefinition['constraint'];
+                } else {
+                    $validatorInstance = $this->validatorResolver->createValidator(
+                        $validatorDefinition['className'],
+                        $validatorDefinition['options'],
+                        $this->request,
+                    );
+                }
                 if ($validatorInstance !== null) {
                     $validator->addValidator($validatorInstance);
                 }
@@ -314,21 +335,16 @@ abstract class ActionController implements ControllerInterface
         }
     }
 
-    /**
-     * Collects the base validators which were defined for the data type of each
-     * controller argument and adds them to the argument's validator chain.
-     *
-     * @internal
-     */
-    public function initializeControllerArgumentsBaseValidators(): void
+    protected function initializeStateFromExtbaseRequestParameters(): void
     {
-        /** @var Argument $argument */
-        foreach ($this->arguments as $argument) {
-            $validator = $this->validatorResolver->getBaseValidatorConjunction(
-                $argument->getDataType(),
-                $this->request
-            );
-            $argument->setValidator($validator);
+        $extbaseRequestParameters = $this->request->getAttribute('extbase');
+        if (!$extbaseRequestParameters instanceof ExtbaseRequestParameters) {
+            return;
+        }
+        $flashMessageQueue = $this->getFlashMessageQueue();
+        foreach ($extbaseRequestParameters->getOriginalFlashMessages() as $flashMessage) {
+            $flashMessage->setStoreInSession(false);
+            $flashMessageQueue->enqueue($flashMessage);
         }
     }
 
@@ -346,6 +362,7 @@ abstract class ActionController implements ControllerInterface
         $this->actionMethodName = $this->resolveActionMethodName();
         $this->initializeActionMethodArguments();
         $this->initializeActionMethodValidators();
+        $this->initializeStateFromExtbaseRequestParameters();
         $this->mvcPropertyMappingConfigurationService->initializePropertyMappingConfigurationFromRequest($request, $this->arguments);
         $this->fileHandlingService->initializeFileUploadConfigurationsFromRequest($request, $this->arguments);
         $this->initializeAction();
@@ -365,40 +382,7 @@ abstract class ActionController implements ControllerInterface
             $this->initializeView($this->view);
         }
         $response = $this->callActionMethod($request);
-        $this->renderAssetsForRequest($request);
         return $response;
-    }
-
-    /**
-     * Method which initializes assets that should be attached to the response
-     * for the given $request, which contains parameters that an override can
-     * use to determine which assets to add via PageRenderer.
-     *
-     * This default implementation will attempt to render the sections "HeaderAssets"
-     * and "FooterAssets" from the template that is being rendered, inserting the
-     * rendered content into either page header or footer, as appropriate. Both
-     * sections are optional and can be used one or both in combination.
-     *
-     * You can add assets with this method without worrying about duplicates, if
-     * for example you do this in a plugin that gets used multiple time on a page.
-     *
-     * @internal
-     */
-    protected function renderAssetsForRequest(RequestInterface $request): void
-    {
-        if (!($this->view instanceof FluidViewAdapter)) {
-            return;
-        }
-        $pageRenderer = GeneralUtility::makeInstance(PageRenderer::class);
-        $variables = ['request' => $request, 'arguments' => $this->arguments];
-        $headerAssets = $this->view->renderSection('HeaderAssets', $variables, true);
-        $footerAssets = $this->view->renderSection('FooterAssets', $variables, true);
-        if (!empty(trim($headerAssets))) {
-            $pageRenderer->addHeaderData($headerAssets);
-        }
-        if (!empty(trim($footerAssets))) {
-            $pageRenderer->addFooterData($footerAssets);
-        }
     }
 
     /**
@@ -442,7 +426,15 @@ abstract class ActionController implements ControllerInterface
                 $preparedArguments[] = $argument->getValue();
             }
 
-            $this->eventDispatcher->dispatch(new BeforeActionCallEvent(static::class, $this->actionMethodName, $preparedArguments));
+            if (($authorizeResponse = $this->performAuthorizationChecks($request, $preparedArguments)) !== null) {
+                return $authorizeResponse;
+            }
+
+            if (($rateLimitResponse = $this->handleRateLimit($request)) !== null) {
+                return $rateLimitResponse;
+            }
+
+            $this->eventDispatcher->dispatch(new BeforeActionCallEvent(static::class, $this->actionMethodName, $preparedArguments, $this->request));
             $actionResult = $this->{$this->actionMethodName}(...$preparedArguments);
         } else {
             $actionResult = $this->{$this->errorMethodName}();
@@ -492,18 +484,9 @@ abstract class ActionController implements ControllerInterface
         }
         $configuration = $this->configurationManager->getConfiguration(ConfigurationManagerInterface::CONFIGURATION_TYPE_FRAMEWORK);
         $extensionKey = $this->request->getControllerExtensionKey();
-        $templateRootPaths = ['EXT:' . $extensionKey . '/Resources/Private/Templates/'];
-        if (!empty($configuration['view']['templateRootPaths']) && is_array($configuration['view']['templateRootPaths'])) {
-            $templateRootPaths = array_merge($templateRootPaths, ArrayUtility::sortArrayWithIntegerKeys($configuration['view']['templateRootPaths']));
-        }
-        $layoutRootPaths = ['EXT:' . $extensionKey . '/Resources/Private/Layouts/'];
-        if (!empty($configuration['view']['layoutRootPaths']) && is_array($configuration['view']['layoutRootPaths'])) {
-            $layoutRootPaths = array_merge($layoutRootPaths, ArrayUtility::sortArrayWithIntegerKeys($configuration['view']['layoutRootPaths']));
-        }
-        $partialRootPaths = ['EXT:' . $extensionKey . '/Resources/Private/Partials/'];
-        if (!empty($configuration['view']['partialRootPaths']) && is_array($configuration['view']['partialRootPaths'])) {
-            $partialRootPaths = array_merge($partialRootPaths, ArrayUtility::sortArrayWithIntegerKeys($configuration['view']['partialRootPaths']));
-        }
+        $templateRootPaths = $this->addDefaultPathToPaths($configuration['view']['templateRootPaths'] ?? [], 'EXT:' . $extensionKey . '/Resources/Private/Templates/');
+        $layoutRootPaths = $this->addDefaultPathToPaths($configuration['view']['layoutRootPaths'] ?? [], 'EXT:' . $extensionKey . '/Resources/Private/Layouts/');
+        $partialRootPaths = $this->addDefaultPathToPaths($configuration['view']['partialRootPaths'] ?? [], 'EXT:' . $extensionKey . '/Resources/Private/Partials/');
         if ($this->defaultViewObjectName === null) {
             $viewFactoryData = new ViewFactoryData(
                 templateRootPaths: $templateRootPaths,
@@ -531,22 +514,51 @@ abstract class ActionController implements ControllerInterface
     }
 
     /**
+     * Adds extbase's default template path to the configured list of
+     * template paths. The default path is usually used as a fallback if
+     * no paths are specified or if the template cannot be found in any
+     * of the configured paths. However, if the default path is already
+     * present in the configured paths, the specified position takes
+     * precedence. This allows the default path to be "moved" within
+     * the list of paths via configuration.
+     *
+     * @return string[]
+     * @internal
+     */
+    protected function addDefaultPathToPaths(mixed $paths, string $defaultPath): array
+    {
+        if (!is_array($paths) || empty($paths)) {
+            $paths = [$defaultPath];
+        } else {
+            $paths = ArrayUtility::sortArrayWithIntegerKeys($paths);
+            if (!in_array($defaultPath, $paths)) {
+                $paths = array_merge([$defaultPath], $paths);
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
      * A special action which is called if the originally intended action could
      * not be called, for example if the arguments were not valid.
      *
      * The default implementation sets a flash message, request errors and forwards back
      * to the originating action. This is suitable for most actions dealing with form input.
-     *
-     * We clear the page cache by default on an error as well, as we need to make sure the
-     * data is re-evaluated when the user changes something.
      */
     protected function errorAction(): ResponseInterface
     {
-        $this->addErrorFlashMessage();
         if (($response = $this->forwardToReferringRequest()) !== null) {
+            if ($response instanceof ForwardResponse) {
+                // Add flash messages to queue
+                $this->addErrorFlashMessage();
+                // Extract all pending flash messages out of th queue and ensure they
+                // are passed along the response but without invoking the session.
+                $flashMessages = $this->getFlashMessageQueue()->getAllMessagesAndFlush();
+                $response = $response->withFlashMessages(...$flashMessages);
+            }
             return $response->withStatus(400);
         }
-
         $response = $this->htmlResponse($this->getFlattenedValidationErrorMessage());
         return $response->withStatus(400);
     }
@@ -560,8 +572,8 @@ abstract class ActionController implements ControllerInterface
     protected function addErrorFlashMessage(): void
     {
         $errorFlashMessage = $this->getErrorFlashMessage();
-        if ($errorFlashMessage !== false) {
-            $this->addFlashMessage($errorFlashMessage, '', ContextualFeedbackSeverity::ERROR);
+        if (is_string($errorFlashMessage)) {
+            $this->addFlashMessage($errorFlashMessage, '', ContextualFeedbackSeverity::ERROR, false);
         }
     }
 
@@ -582,7 +594,6 @@ abstract class ActionController implements ControllerInterface
      * to the originating request. This effectively ends processing of the current request, so do not
      * call this method before you have finished the necessary business logic!
      *
-     *
      * @internal
      */
     protected function forwardToReferringRequest(): ?ResponseInterface
@@ -592,13 +603,19 @@ abstract class ActionController implements ControllerInterface
         $referringRequestArguments = $extbaseRequestParameters->getInternalArgument('__referrer') ?? null;
         if (is_string($referringRequestArguments['@request'] ?? null)) {
             $referrerArray = json_decode(
-                $this->hashService->validateAndStripHmac($referringRequestArguments['@request'], HashScope::ReferringRequest->prefix()),
+                $this->hashService->validateAndStripHmac($referringRequestArguments['@request'], HashScope::ReferringRequest->prefix(), HashAlgo::SHA3_256),
                 true
             );
             $arguments = [];
             if (is_string($referringRequestArguments['arguments'] ?? null)) {
+                /* @phpstan-ignore unserialize.allowedClasses.insecure (Integrity check already happens via HMAC validation) */
                 $arguments = unserialize(
-                    base64_decode($this->hashService->validateAndStripHmac($referringRequestArguments['arguments'], HashScope::ReferringArguments->prefix()))
+                    base64_decode($this->hashService->validateAndStripHmac(
+                        $referringRequestArguments['arguments'],
+                        HashScope::ReferringArguments->prefix(),
+                        HashAlgo::SHA3_256
+                    )),
+                    ['allowed_classes' => true]
                 );
             }
             $replacedArguments = array_replace_recursive($arguments, $referrerArray);
@@ -615,7 +632,7 @@ abstract class ActionController implements ControllerInterface
                 }
                 $nonExtbaseBaseArguments[$argumentName] = $argumentValue;
             }
-            return (new ForwardResponse((string)($replacedArguments['@action'] ?? 'index')))
+            return new ForwardResponse((string)($replacedArguments['@action'] ?? 'index'))
                 ->withControllerName((string)($replacedArguments['@controller'] ?? 'Standard'))
                 ->withExtensionName((string)($replacedArguments['@extension'] ?? ''))
                 ->withArguments($nonExtbaseBaseArguments)
@@ -649,9 +666,7 @@ abstract class ActionController implements ControllerInterface
         ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::OK,
         bool $storeInSession = true
     ): void {
-        /* @var FlashMessage $flashMessage */
-        $flashMessage = GeneralUtility::makeInstance(
-            FlashMessage::class,
+        $flashMessage = new FlashMessage(
             $messageBody,
             $messageTitle,
             $severity,
@@ -710,7 +725,7 @@ abstract class ActionController implements ControllerInterface
         if (MathUtility::canBeInterpretedAsInteger($pageUid)) {
             $this->uriBuilder->setTargetPageUid((int)$pageUid);
         }
-        if (GeneralUtility::getIndpEnv('TYPO3_SSL')) {
+        if ($this->request->getAttribute('normalizedParams')->isHttps()) {
             $this->uriBuilder->setAbsoluteUriScheme('https');
         }
         $uri = $this->uriBuilder->uriFor($actionName, $arguments, $controllerName, $extensionName);
@@ -737,7 +752,7 @@ abstract class ActionController implements ControllerInterface
      */
     protected function addBaseUriIfNecessary(string $uri): string
     {
-        return GeneralUtility::locationHeaderUrl($uri);
+        return GeneralUtility::locationHeaderUrl($uri, $this->request);
     }
 
     /**
@@ -773,10 +788,10 @@ abstract class ActionController implements ControllerInterface
             ConfigurationManagerInterface::CONFIGURATION_TYPE_FRAMEWORK
         );
 
-        $handleTargetNotFoundException = $exception instanceof TargetNotFoundException &&
-            (bool)($configuration['mvc']['showPageNotFoundIfTargetNotFoundException'] ?? false);
-        $handleRequiredArgumentMissingException = $exception instanceof RequiredArgumentMissingException &&
-            (bool)($configuration['mvc']['showPageNotFoundIfRequiredArgumentIsMissingException'] ?? false);
+        $handleTargetNotFoundException = $exception instanceof TargetNotFoundException
+            && (bool)($configuration['mvc']['showPageNotFoundIfTargetNotFoundException'] ?? false);
+        $handleRequiredArgumentMissingException = $exception instanceof RequiredArgumentMissingException
+            && (bool)($configuration['mvc']['showPageNotFoundIfRequiredArgumentIsMissingException'] ?? false);
 
         if ($handleTargetNotFoundException || $handleRequiredArgumentMissingException) {
             $response = GeneralUtility::makeInstance(ErrorController::class)->pageNotFoundAction(
@@ -864,5 +879,89 @@ abstract class ActionController implements ControllerInterface
         return $this->responseFactory->createResponse()
             ->withHeader('Content-Type', 'application/json; charset=utf-8')
             ->withBody($this->streamFactory->createStream(($json ?? $this->view->render())));
+    }
+
+    /**
+     * Handles rate-limiting for the given action request. Checks if the current request exceeds
+     * a possible defined rate limit for the action method and generates an appropriate response
+     * if the limit is reached.
+     *
+     * @internal
+     * @return ResponseInterface|null The rate-limited response if the limit is exceeded, or null if no rate-limiting applies.
+     */
+    protected function handleRateLimit(RequestInterface $request): ?ResponseInterface
+    {
+        $rateLimiter = $this->rateLimitRegistry->createLimiter(static::class, $this->actionMethodName, $this->request);
+        if ($rateLimiter === null) {
+            return null;
+        }
+
+        $rateLimit = $this->rateLimitRegistry->getRateLimit(static::class, $this->actionMethodName);
+        $limit = $rateLimiter->consume();
+        if ($limit->isAccepted()) {
+            return null;
+        }
+
+        $customMessage = null;
+        if ($rateLimit->message !== '') {
+            $customMessage = LocalizationUtility::translate($rateLimit->message, $this->request->getControllerExtensionName());
+        }
+        $message = $customMessage ?? LocalizationUtility::translate('ratelimit.action.defaultmessage', 'extbase');
+
+        $response = $this->responseFactory->createResponse()
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withStatus(429)
+            ->withBody($this->streamFactory->createStream($message));
+
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeActionRateLimitResponseEvent($request, static::class, $this->actionMethodName, $rateLimit, $response)
+        );
+
+        return $event->getResponse();
+    }
+
+    /**
+     * Performs authorization checks for actions with the #[Authorize] attribute. If access is denied, a HTTP 403
+     * response is propagated. This behavior can be customized by implementing a event listener for the
+     * {@see BeforeActionAuthorizationDeniedEvent}.
+     *
+     * @internal
+     */
+    protected function performAuthorizationChecks(RequestInterface $request, array $preparedArguments): ?ResponseInterface
+    {
+        $result = $this->authorizeRegistry->checkAuthorization($this, $this->actionMethodName, $preparedArguments);
+
+        if ($result === null || $result->isAllowed()) {
+            return null;
+        }
+
+        $message = match ($result->failureReason) {
+            AuthorizationFailureReason::NOT_LOGGED_IN => 'Access denied: Login required',
+            AuthorizationFailureReason::MISSING_GROUP => 'Access denied: Insufficient permissions',
+            AuthorizationFailureReason::CALLBACK_DENIED, null => 'Access denied',
+        };
+
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeActionAuthorizationDeniedEvent(
+                $request,
+                static::class,
+                $this->actionMethodName,
+                $result->failedAttribute,
+                $result->failureReason,
+            )
+        );
+
+        if (!$event->getResponse()) {
+            $response = GeneralUtility::makeInstance(ErrorController::class)->accessDeniedAction(
+                $this->request,
+                $message,
+                [
+                    'code' => PageAccessFailureReasons::ACCESS_DENIED_GENERAL,
+                ]
+            );
+            throw new PropagateResponseException($response, 1761287264);
+        }
+
+        return $event->getResponse();
     }
 }

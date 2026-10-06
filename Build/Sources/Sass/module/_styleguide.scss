@@ -1,4 +1,4 @@
-.module-styleguide .module-body {
+.module-styleguide .module-body-container {
     display: flex;
     gap: 2.5rem;
     flex-wrap: wrap;
@@ -54,6 +54,7 @@
     .example-container {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: var(--typo3-spacing);
 
         &.example-container--large-spacing {
@@ -81,9 +82,14 @@
     box-shadow: var(--typo3-example-box-shadow);
     margin-bottom: calc(var(--typo3-example-margin-bottom) * 1.5);
 
-    .styleguide-example-content {
-        @include background-checkered();
-        padding: var(--typo3-example-content-padding);
+    > *:first-child {
+        border-start-start-radius: calc(var(--typo3-example-border-radius) - var(--typo3-example-border-width));
+        border-start-end-radius: calc(var(--typo3-example-border-radius) - var(--typo3-example-border-width));
+    }
+
+    > *:last-child {
+        border-end-start-radius: calc(var(--typo3-example-border-radius) - var(--typo3-example-border-width));
+        border-end-end-radius: calc(var(--typo3-example-border-radius) - var(--typo3-example-border-width));
     }
 
     .styleguide-example-code {
@@ -136,6 +142,8 @@
 @container (min-width: 740px) {
     .styleguide-navigation {
         position: sticky;
-        top: 0;
+        top: calc(var(--module-docheader-sticky-height) + var(--module-body-padding-y));
+        max-height: calc(100dvh - var(--module-docheader-height) - var(--module-body-padding-y) * 2);
+        overflow: auto;
     }
 }

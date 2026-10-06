@@ -35,6 +35,7 @@ use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\DomainObject\AbstractDomainObject;
@@ -53,9 +54,11 @@ use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ComparisonInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConstraintInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\DynamicOperandInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\EquiJoinCondition;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\FunctionExpressionInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\JoinInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\LowerCaseInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\NotInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrderingInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\PropertyValueInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SelectorInterface;
@@ -100,6 +103,7 @@ class Typo3DbQueryParser
         protected readonly DataMapper $dataMapper,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
         protected readonly ConnectionPool $connectionPool,
+        protected readonly PageRepository $pageRepository,
     ) {}
 
     /**
@@ -168,6 +172,7 @@ class Typo3DbQueryParser
             $leftSource = $source->getLeft();
             $leftTableName = $leftSource->getSelectorName();
             $this->queryBuilder = $this->connectionPool->getQueryBuilderForTable($leftTableName);
+            $this->queryBuilder->getRestrictions()->removeAll();
             $leftTableAlias = $this->getUniqueAlias($leftTableName);
             $this->queryBuilder
                 ->select($leftTableAlias . '.*')
@@ -205,12 +210,23 @@ class Typo3DbQueryParser
     /**
      * Transforms orderings into SQL.
      *
-     * @param array $orderings An array of orderings (Qom\Ordering)
+     * @param array $orderings An array of orderings (Qom\Ordering or legacy propertyName => direction)
      * @throws UnsupportedOrderException
      */
     protected function parseOrderings(array $orderings, SourceInterface $source): void
     {
         foreach ($orderings as $propertyName => $order) {
+            // New API: OrderingInterface objects
+            if ($order instanceof OrderingInterface) {
+                // parseOperand() already returns a fully quoted identifier or SQL expression
+                // (e.g. CONCAT("table"."column", …)), so it must be added to the underlying
+                // concrete query builder directly to avoid quoteIdentifier() being applied twice.
+                $sql = $this->parseOperand($order->getOperand(), $source);
+                $this->queryBuilder->getConcreteQueryBuilder()->addOrderBy($sql, $order->getOrder());
+                continue;
+            }
+
+            // Legacy API: propertyName => direction
             if ($order !== QueryInterface::ORDER_ASCENDING && $order !== QueryInterface::ORDER_DESCENDING) {
                 throw new UnsupportedOrderException('Unsupported order encountered.', 1242816074);
             }
@@ -296,7 +312,7 @@ class Typo3DbQueryParser
             $columnName = $this->dataMapper->convertPropertyNameToColumnName($propertyName, $className);
             $dataMap = $this->dataMapper->getDataMap($className);
             $columnMap = $dataMap->getColumnMap($propertyName);
-            $typeOfRelation = $columnMap instanceof ColumnMap ? $columnMap->typeOfRelation : null;
+            $typeOfRelation = $columnMap->typeOfRelation ?? null;
             if ($typeOfRelation === Relation::HAS_AND_BELONGS_TO_MANY) {
                 /** @var ColumnMap $columnMap */
                 $relationTableName = (string)$columnMap->relationTableName;
@@ -379,8 +395,8 @@ class Typo3DbQueryParser
                 }
                 if (!$hasValue) {
                     throw new BadConstraintException(
-                        'The IN operator needs a non-empty value list to compare against. ' .
-                        'The given value list is empty.',
+                        'The IN operator needs a non-empty value list to compare against. '
+                        . 'The given value list is empty.',
                         1484828466
                     );
                 }
@@ -473,10 +489,7 @@ class Typo3DbQueryParser
         ParameterType|Type|ArrayParameterType|null $forceType = null,
         ?ColumnMap $columnMap = null,
     ): string {
-        if ($value instanceof DomainObjectInterface
-            && $value->_hasProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID)
-            && $value->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID) > 0
-        ) {
+        if ($value instanceof DomainObjectInterface && $value->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID) > 0) {
             $plainValue = (int)$value->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID);
         } else {
             $plainValue = $this->dataMapper->getPlainValue($value, $columnMap);
@@ -495,6 +508,8 @@ class Typo3DbQueryParser
             $constraintSQL = 'LOWER(' . $this->parseOperand($operand->getOperand(), $source, $columnMapOut) . ')';
         } elseif ($operand instanceof UpperCaseInterface) {
             $constraintSQL = 'UPPER(' . $this->parseOperand($operand->getOperand(), $source, $columnMapOut) . ')';
+        } elseif ($operand instanceof FunctionExpressionInterface) {
+            $constraintSQL = $this->parseFunctionExpression($operand, $source);
         } elseif ($operand instanceof PropertyValueInterface) {
             $propertyName = $operand->getPropertyName();
             $className = '';
@@ -518,6 +533,27 @@ class Typo3DbQueryParser
             throw new \InvalidArgumentException('Given operand has invalid type "' . get_class($operand) . '".', 1395710211);
         }
         return $constraintSQL;
+    }
+
+    /**
+     * Parses a function expression (CONCAT, TRIM, COALESCE) into SQL.
+     */
+    protected function parseFunctionExpression(FunctionExpressionInterface $expression, SourceInterface $source): string
+    {
+        $functionName = $expression->getFunctionName();
+        $operands = $expression->getOperands();
+        $parsedOperands = [];
+
+        foreach ($operands as $operand) {
+            if ($operand instanceof DynamicOperandInterface) {
+                $parsedOperands[] = $this->parseOperand($operand, $source);
+            } elseif (is_string($operand)) {
+                // Literal string value - use named parameter to prevent SQL injection
+                $parsedOperands[] = $this->queryBuilder->createNamedParameter($operand);
+            }
+        }
+
+        return $functionName . '(' . implode(', ', $parsedOperands) . ')';
     }
 
     /**
@@ -657,11 +693,10 @@ class Typo3DbQueryParser
      */
     protected function getFrontendConstraintStatement(string $tableName, string $tableAlias, bool $ignoreEnableFields, array $enableFieldsToBeIgnored, bool $includeDeleted): string
     {
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
         $statement = '';
         if ($ignoreEnableFields && !$includeDeleted) {
             if (!empty($enableFieldsToBeIgnored)) {
-                $constraints = $pageRepository->getDefaultConstraints($tableName, $enableFieldsToBeIgnored, $tableAlias);
+                $constraints = $this->pageRepository->getDefaultConstraints($tableName, $enableFieldsToBeIgnored, $tableAlias);
                 if ($constraints !== []) {
                     $statement = implode(' AND ', $constraints);
                 }
@@ -673,7 +708,7 @@ class Typo3DbQueryParser
                 }
             }
         } elseif (!$ignoreEnableFields && !$includeDeleted) {
-            $constraints = $pageRepository->getDefaultConstraints($tableName, [], $tableAlias);
+            $constraints = $this->pageRepository->getDefaultConstraints($tableName, [], $tableAlias);
             if ($constraints !== []) {
                 $statement = implode(' AND ', $constraints);
             }
@@ -736,14 +771,14 @@ class Typo3DbQueryParser
         if (!$languageAspect->getContentId()) {
             return $this->queryBuilder->expr()->in(
                 $tableAlias . '.' . $languageField,
-                [$languageAspect->getContentId(), -1]
+                [$languageAspect->getContentId(), LanguageMarker::ALL_LANGUAGES]
             );
         }
 
         if (!$languageAspect->doOverlays()) {
             return $this->queryBuilder->expr()->in(
                 $tableAlias . '.' . $languageField,
-                [$languageAspect->getContentId(), -1]
+                [$languageAspect->getContentId(), LanguageMarker::ALL_LANGUAGES]
             );
         }
 
@@ -761,7 +796,7 @@ class Typo3DbQueryParser
 
         $andConditions = [];
         // records in language 'all'
-        $andConditions[] = $this->queryBuilder->expr()->eq($tableAlias . '.' . $languageField, -1);
+        $andConditions[] = $this->queryBuilder->expr()->eq($tableAlias . '.' . $languageField, LanguageMarker::ALL_LANGUAGES);
         // translated records where a default language exists
         $andConditions[] = $this->queryBuilder->expr()->and(
             $this->queryBuilder->expr()->eq($tableAlias . '.' . $languageField, $languageAspect->getContentId()),

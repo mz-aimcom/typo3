@@ -22,8 +22,6 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -44,12 +42,13 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * @internal This class is a specific Backend controller implementation and is not part of the TYPO3's Core API.
  */
 #[AsController]
-final class PageTsConfigRecordsOverviewController
+final readonly class PageTsConfigRecordsOverviewController
 {
     public function __construct(
-        private readonly IconFactory $iconFactory,
-        private readonly UriBuilder $uriBuilder,
-        private readonly ModuleTemplateFactory $moduleTemplateFactory,
+        private IconFactory $iconFactory,
+        private UriBuilder $uriBuilder,
+        private ModuleTemplateFactory $moduleTemplateFactory,
+        private ConnectionPool $connectionPool,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -74,7 +73,7 @@ final class PageTsConfigRecordsOverviewController
 
         // The page will show only if there is a valid page and if this page may be viewed by the user.
         if ($pageRecord !== []) {
-            $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+            $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         }
 
         $accessContent = false;
@@ -85,7 +84,11 @@ final class PageTsConfigRecordsOverviewController
             }
             $view->assign('id', $pageId);
             // Setting up the buttons and the module menu for the doc header
-            $this->addShortcutButtonToDocHeader($view, $currentModule, $pageId);
+            $view->getDocHeaderComponent()->setShortcutContext(
+                $currentModule->getIdentifier(),
+                $this->getLanguageService()->sL($currentModule->getTitle()),
+                ['id' => $pageId]
+            );
         }
         $view->assign('accessContent', $accessContent);
         $pagesUsingTSConfig = $this->getOverviewOfPagesUsingTSConfig($currentModule);
@@ -102,7 +105,7 @@ final class PageTsConfigRecordsOverviewController
      */
     private function getOverviewOfPagesUsingTSConfig(ModuleInterface $currentModule): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
@@ -196,16 +199,6 @@ final class PageTsConfigRecordsOverviewController
             $lines = $this->getList($currentModule, $pageArray[$identifier . '.'] ?? [], $lines, $pageDepth + 1);
         }
         return $lines;
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, ModuleInterface $currentModule, ?int $pageId): void
-    {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($currentModule->getIdentifier())
-            ->setDisplayName($this->getLanguageService()->sL($currentModule->getTitle()))
-            ->setArguments(['id' => $pageId]);
-        $buttonBar->addButton($shortcutButton, ButtonBar::BUTTON_POSITION_RIGHT);
     }
 
     private function getLanguageService(): LanguageService

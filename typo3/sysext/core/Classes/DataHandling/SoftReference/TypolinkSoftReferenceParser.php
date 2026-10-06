@@ -18,12 +18,11 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\DataHandling\SoftReference;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\DataHandling\Event\AppendLinkHandlerElementsEvent;
 use TYPO3\CMS\Core\LinkHandling\Exception\UnknownLinkHandlerException;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
-use TYPO3\CMS\Core\Resource\FileInterface;
+use TYPO3\CMS\Core\Resource\AbstractFile;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
@@ -101,17 +100,7 @@ class TypolinkSoftReferenceParser extends AbstractSoftReferenceParser
             $linkData = $linkService->resolve($link_param);
             switch ($linkData['type']) {
                 case LinkService::TYPE_RECORD:
-                    $referencePageId = $referenceTable === 'pages'
-                        ? $referenceUid
-                        : (int)(BackendUtility::getRecord($referenceTable, $referenceUid)['pid'] ?? 0);
-                    if ($referencePageId) {
-                        $pageTsConfig = BackendUtility::getPagesTSconfig($referencePageId);
-                        $table = $pageTsConfig['TCEMAIN.']['linkHandler.'][$linkData['identifier'] . '.']['configuration.']['table'] ?? $linkData['identifier'];
-                    } else {
-                        // Backwards compatibility for the old behaviour, where the identifier was saved as the table.
-                        $table = $linkData['identifier'];
-                    }
-                    $finalTagParts['table'] = $table;
+                    $finalTagParts['table'] = $this->resolveRecordLinkTable($linkData['identifier'], $referenceTable, $referenceUid);
                     $finalTagParts['uid'] = $linkData['uid'];
                     break;
                 case LinkService::TYPE_PAGE:
@@ -127,7 +116,7 @@ class TypolinkSoftReferenceParser extends AbstractSoftReferenceParser
                 case LinkService::TYPE_UNKNOWN:
                     if (isset($linkData['file'])) {
                         $finalTagParts['type'] = LinkService::TYPE_FILE;
-                        $linkData['file'] = $linkData['file'] instanceof FileInterface ? $linkData['file']->getUid() : $linkData['file'];
+                        $linkData['file'] = $linkData['file'] instanceof AbstractFile ? $linkData['file']->getUid() : $linkData['file'];
                     } else {
                         $pU = parse_url($link_param);
                         parse_str($pU['query'] ?? '', $query);
@@ -200,7 +189,7 @@ class TypolinkSoftReferenceParser extends AbstractSoftReferenceParser
             case LinkService::TYPE_FILE:
                 // Process files referenced by their FAL uid
                 if (isset($tLP['file'])) {
-                    $fileId = $tLP['file'] instanceof FileInterface ? $tLP['file']->getUid() : $tLP['file'];
+                    $fileId = $tLP['file'] instanceof AbstractFile ? $tLP['file']->getUid() : $tLP['file'];
                     // Token and substitute value
                     $elements[$tokenID . ':' . $idx]['subst'] = [
                         'type' => 'db',

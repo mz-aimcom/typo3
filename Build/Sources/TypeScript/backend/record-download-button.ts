@@ -11,12 +11,11 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, type TemplateResult, LitElement } from 'lit';
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
+import { PseudoButtonLitElement } from '@typo3/backend/element/pseudo-button';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
-import Severity from '@typo3/backend/severity';
 import Modal from '@typo3/backend/modal';
-import { lll } from '@typo3/core/lit-helper';
+import listLabels from '~labels/core.mod_web_list';
 
 enum Selectors {
   formatSelector = '.t3js-record-download-format-selector',
@@ -32,38 +31,14 @@ enum Selectors {
  * </typo3-recordlist-record-download-button>
  */
 @customElement('typo3-recordlist-record-download-button')
-export class RecordDownloadButton extends LitElement {
-  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
+export class RecordDownloadButton extends PseudoButtonLitElement {
   @property({ type: String }) url: string;
   @property({ type: String }) subject: string;
   @property({ type: String }) ok: string;
   @property({ type: String }) close: string;
 
-  public constructor() {
-    super();
-    this.addEventListener('click', (e: Event): void => {
-      e.preventDefault();
-      this.showDownloadConfigurationModal();
-    });
-    this.addEventListener('keydown', (e: KeyboardEvent): void => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.showDownloadConfigurationModal();
-      }
-    });
-  }
-
-  public override connectedCallback(): void {
-    if (!this.hasAttribute('role')) {
-      this.setAttribute('role', 'button');
-    }
-    if (!this.hasAttribute('tabindex')) {
-      this.setAttribute('tabindex', '0');
-    }
-  }
-
-  protected override render(): TemplateResult {
-    return html`<slot></slot>`;
+  protected override buttonActivated(): void {
+    this.showDownloadConfigurationModal();
   }
 
   private showDownloadConfigurationModal(): void {
@@ -80,26 +55,25 @@ export class RecordDownloadButton extends LitElement {
       type: Modal.types.ajax,
       buttons: [
         {
-          text: this.close || lll('button.close') || 'Close',
+          text: this.close || listLabels.get('button.close'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
           trigger: (): void => modal.hideModal(),
         },
         {
-          text: this.ok || lll('button.ok') || 'Download',
-          btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.info),
+          text: this.ok || listLabels.get('button.ok'),
+          btnClass: 'btn-primary',
           name: 'download',
-          trigger: (): void => {
-            const form: HTMLFormElement = modal.querySelector('form');
-            form?.submit();
-            modal.hideModal();
-          }
+          form: 'downloadSettingsForm',
         }
       ],
       ajaxCallback: (): void => {
+        const form: HTMLFormElement = modal.querySelector('form');
         const formatSelect: HTMLSelectElement = modal.querySelector(Selectors.formatSelector);
         const formatOptions: NodeListOf<HTMLDivElement> = modal.querySelectorAll(Selectors.formatOptions);
+
+        form?.addEventListener('submit', (): void => modal.hideModal());
 
         if (formatSelect === null || !formatOptions.length) {
           // Return in case elements do not exist in the ajax loaded modal content

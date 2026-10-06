@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Authentication\Mfa\Provider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Authentication\Mfa\Provider\RecoveryCodes;
@@ -24,9 +25,10 @@ use TYPO3\CMS\Core\Crypto\PasswordHashing\BcryptPasswordHash;
 use TYPO3\CMS\Core\Tests\Unit\Authentication\Mfa\Provider\Fixtures\Crypto\PasswordHashing\NoopPasswordHash;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class RecoveryCodesTest extends UnitTestCase
 {
-    protected RecoveryCodes $subject;
+    private RecoveryCodes $subject;
 
     protected function setUp(): void
     {
@@ -107,7 +109,7 @@ final class RecoveryCodesTest extends UnitTestCase
 
         $codes = $this->subject->generatedHashedRecoveryCodes(['12345678', '87654321']);
 
-        self::assertTrue((new BcryptPasswordHash())->isValidSaltedPW((string)$codes[0]));
+        self::assertTrue(new BcryptPasswordHash()->isValidSaltedPW((string)$codes[0]));
         self::assertCount(2, $codes);
     }
 
@@ -141,7 +143,7 @@ final class RecoveryCodesTest extends UnitTestCase
     public function verifyRecoveryCodeUsesTheCorrectHashInstanceTest(): void
     {
         $code = '18742989';
-        $codes = [(new NoopPasswordHash())->getHashedPassword($code)];
+        $codes = [new NoopPasswordHash()->getHashedPassword($code)];
 
         // Ensure we have another default hash instance
         $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordHashing'] = [

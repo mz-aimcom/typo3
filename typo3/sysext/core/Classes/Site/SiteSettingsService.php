@@ -33,7 +33,6 @@ use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteSettings;
 use TYPO3\CMS\Core\Site\Set\SetRegistry;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * @internal
@@ -97,8 +96,8 @@ readonly class SiteSettingsService
         $defaultSettings = $minify ? $this->siteSettingsFactory->createSettings($site->getSets(), null) : null;
 
         // Settings from config/sites/*/settings.yaml only (our persistence target)
-        $localSettings = $this->siteSettingsFactory->loadLocalSettings($site->getIdentifier()) ??
-            $site->getRawConfiguration()['settings'] ?? [];
+        $localSettings = $this->siteSettingsFactory->loadLocalSettings($site->getIdentifier())
+            ?? $site->getRawConfiguration()['settings'] ?? [];
 
         return SettingsDiff::create(
             $localSettings,
@@ -112,7 +111,7 @@ readonly class SiteSettingsService
         try {
             $this->siteWriter->writeSettings($site->getIdentifier(), $settings);
         } catch (SiteConfigurationWriteException $e) {
-            $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $e->getMessage(), '', ContextualFeedbackSeverity::ERROR, true);
+            $flashMessage = new FlashMessage($e->getMessage(), '', ContextualFeedbackSeverity::ERROR, true);
             $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
         }

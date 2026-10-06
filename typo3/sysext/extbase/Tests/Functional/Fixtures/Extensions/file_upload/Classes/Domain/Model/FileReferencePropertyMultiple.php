@@ -17,22 +17,22 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\FileUpload\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation\FileUpload;
+use TYPO3\CMS\Extbase\Attribute\FileUpload;
 use TYPO3\CMS\Extbase\Domain\Model\FileReference;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 
 class FileReferencePropertyMultiple extends AbstractEntity
 {
-    #[FileUpload([
-        'validation' => [
+    #[FileUpload(
+        validation: [
             'required' => true,
             'maxFiles' => 2,
             'fileSize' => ['minimum' => '0K', 'maximum' => '2M'],
             'mimeType' => ['allowedMimeTypes' => ['image/jpeg', 'image/png']],
         ],
-        'uploadFolder' => '1:/user_upload/folder_for_files/',
-    ])]
+        uploadFolder: '1:/user_upload/folder_for_files/',
+    )]
     /**
      * @var ObjectStorage<FileReference>
      */

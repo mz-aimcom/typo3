@@ -36,7 +36,7 @@ class GoogleMapsHandler
 {
     use HandlerTrait;
 
-    private const DOMAIN_NAMES = [
+    private const array DOMAIN_NAMES = [
         'fonts.googleapis.com',
         'maps.googleapis.com',
         'fonts.gstatic.com',
@@ -50,7 +50,7 @@ class GoogleMapsHandler
     {
         if (!isset(self::$suggestion)) {
             self::$suggestion = $this->createGoogleMapsSuggestion();
-            self::$policyNarrative = (new Policy())->mutate(self::$suggestion->collection);
+            self::$policyNarrative = new Policy()->mutate(self::$suggestion->collection);
         }
     }
 

@@ -36,7 +36,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 final readonly class RecordFinder
 {
-    public function __construct(private ConnectionPool $connectionPool) {}
+    public function __construct(
+        private ConnectionPool $connectionPool,
+        private SiteFinder $siteFinder,
+        private StorageRepository $storageRepository,
+    ) {}
 
     /**
      * Returns an uid list of existing styleguide demo top level pages.
@@ -113,7 +117,7 @@ final readonly class RecordFinder
     public function findIdsOfDemoLanguages(): array
     {
         try {
-            $site = GeneralUtility::makeInstance(SiteFinder::class)->getSiteByRootPageId($this->findUidsOfStyleguideEntryPages()[0]);
+            $site = $this->siteFinder->getSiteByRootPageId($this->findUidsOfStyleguideEntryPages()[0]);
         } catch (SiteNotFoundException $e) {
             return [];
         }
@@ -134,7 +138,7 @@ final readonly class RecordFinder
     public function findHighestLanguageId(): int
     {
         $lastLanguageId = 0;
-        foreach (GeneralUtility::makeInstance(SiteFinder::class)->getAllSites() as $site) {
+        foreach ($this->siteFinder->getAllSites() as $site) {
             foreach ($site->getAllLanguages() as $language) {
                 if ($language->getLanguageId() > $lastLanguageId) {
                     $lastLanguageId = $language->getLanguageId();
@@ -164,10 +168,8 @@ final readonly class RecordFinder
             ->executeQuery()
             ->fetchAllAssociative();
         $result = [];
-        if (is_array($rows)) {
-            foreach ($rows as $row) {
-                $result[] = $row['uid'];
-            }
+        foreach ($rows as $row) {
+            $result[] = $row['uid'];
         }
         return $result;
     }
@@ -192,10 +194,8 @@ final readonly class RecordFinder
             ->executeQuery()
             ->fetchAllAssociative();
         $result = [];
-        if (is_array($rows)) {
-            foreach ($rows as $row) {
-                $result[] = $row['uid'];
-            }
+        foreach ($rows as $row) {
+            $result[] = $row['uid'];
         }
         return $result;
     }
@@ -221,10 +221,8 @@ final readonly class RecordFinder
             ->executeQuery()
             ->fetchAllAssociative();
         $result = [];
-        if (is_array($rows)) {
-            foreach ($rows as $row) {
-                $result[] = $row['uid'];
-            }
+        foreach ($rows as $row) {
+            $result[] = $row['uid'];
         }
         return $result;
     }
@@ -236,8 +234,7 @@ final readonly class RecordFinder
      */
     public function findDemoFileObjects(string $path = 'styleguide'): array
     {
-        $storageRepository = GeneralUtility::makeInstance(StorageRepository::class);
-        $storage = $storageRepository->findByUid(1);
+        $storage = $this->storageRepository->findByUid(1);
         $folder = $storage->getRootLevelFolder();
         $folder = $folder->getSubfolder($path);
         return $folder->getFiles();
@@ -248,8 +245,7 @@ final readonly class RecordFinder
      */
     public function findDemoFolderObject(): Folder
     {
-        $storageRepository = GeneralUtility::makeInstance(StorageRepository::class);
-        $storage = $storageRepository->findByUid(1);
+        $storage = $this->storageRepository->findByUid(1);
         $folder = $storage->getRootLevelFolder();
         return $folder->getSubfolder('styleguide');
     }
@@ -296,11 +292,8 @@ final readonly class RecordFinder
         }
 
         $rows = $queryBuilder->orderBy('pid', 'DESC')->executeQuery()->fetchAllAssociative();
-        $result = [];
-        if (is_array($rows)) {
-            $result = array_column($rows, 'uid');
-            sort($result);
-        }
+        $result = array_column($rows, 'uid');
+        sort($result);
 
         return $result;
     }

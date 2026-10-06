@@ -27,7 +27,7 @@ final class TypeRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    private const LANGUAGE_PRESETS = [
+    private const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'websiteTitle' => 'Site EN'],
     ];
 
@@ -99,7 +99,7 @@ final class TypeRenderingTest extends FunctionalTestCase
         if ($type !== null) {
             $queryParameters['type'] = $type;
         }
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withQueryParameters($queryParameters));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withQueryParameters($queryParameters));
         self::assertStringContainsString($expected, (string)$response->getBody());
     }
 }

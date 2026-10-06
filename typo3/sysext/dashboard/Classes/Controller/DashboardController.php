@@ -30,12 +30,12 @@ use TYPO3\CMS\Dashboard\DashboardInitializationService;
  * @internal
  */
 #[AsController]
-class DashboardController
+readonly class DashboardController
 {
     public function __construct(
-        protected readonly PageRenderer $pageRenderer,
-        protected readonly DashboardInitializationService $dashboardInitializationService,
-        protected readonly ModuleTemplateFactory $moduleTemplateFactory,
+        protected PageRenderer $pageRenderer,
+        protected DashboardInitializationService $dashboardInitializationService,
+        protected ModuleTemplateFactory $moduleTemplateFactory,
     ) {}
 
     public function mainAction(ServerRequestInterface $request): ResponseInterface
@@ -45,7 +45,7 @@ class DashboardController
         $view = $this->moduleTemplateFactory->create($request);
         $this->preparePageRenderer();
         $this->addFrontendResources();
-        $view->setTitle($this->getLanguageService()->sL('LLL:EXT:dashboard/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'));
+        $view->setTitle($this->getLanguageService()->translate('title', 'dashboard.module'));
         $view->getDocHeaderComponent()->disable();
 
         return $view->renderResponse('Dashboard/Main');
@@ -75,7 +75,6 @@ class DashboardController
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/dashboard/dashboard.js');
         $this->pageRenderer->addCssFile('EXT:dashboard/Resources/Public/Css/dashboard.css');
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:dashboard/Resources/Private/Language/locallang.xlf');
     }
 
     protected function getBackendUser(): BackendUserAuthentication

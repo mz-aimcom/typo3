@@ -17,27 +17,25 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataProvider\TcaRadioItems;
+use TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider\Fixtures\ItemsProcessor1;
+use TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider\Fixtures\ItemsProcessor2;
+use TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider\Fixtures\ItemsProcessorForTestingExceptionsForRadioItems;
+use TYPO3\CMS\Core\DataHandling\ItemProcessingService;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TcaRadioItemsTest extends UnitTestCase
 {
-    /**
-     * Tear down
-     */
-    protected function tearDown(): void
-    {
-        GeneralUtility::purgeInstances();
-        parent::tearDown();
-    }
-
     #[Test]
     public function addDataThrowsExceptionIfRadioItemsNotDefined(): void
     {
@@ -56,11 +54,11 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
 
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1438594829);
-        (new TcaRadioItems())->addData($input);
+        new TcaRadioItems()->addData($input);
     }
 
     #[Test]
@@ -86,10 +84,10 @@ final class TcaRadioItemsTest extends UnitTestCase
         ];
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
 
         $expected = $input;
-        self::assertSame($expected, (new TcaRadioItems())->addData($input));
+        self::assertSame($expected, new TcaRadioItems()->addData($input));
     }
 
     #[Test]
@@ -113,11 +111,11 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
 
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1438607163);
-        (new TcaRadioItems())->addData($input);
+        new TcaRadioItems()->addData($input);
     }
 
     #[Test]
@@ -143,11 +141,11 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
 
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1438607164);
-        (new TcaRadioItems())->addData($input);
+        new TcaRadioItems()->addData($input);
     }
 
     #[Test]
@@ -173,11 +171,11 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
 
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1438607165);
-        (new TcaRadioItems())->addData($input);
+        new TcaRadioItems()->addData($input);
     }
 
     #[Test]
@@ -210,8 +208,8 @@ final class TcaRadioItemsTest extends UnitTestCase
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['items'][0]['label'] = 'translated';
 
-        self::assertSame($expected, (new TcaRadioItems())->addData($input));
-        (new TcaRadioItems())->addData($input);
+        self::assertSame($expected, new TcaRadioItems()->addData($input));
+        new TcaRadioItems()->addData($input);
     }
 
     #[Test]
@@ -229,6 +227,19 @@ final class TcaRadioItemsTest extends UnitTestCase
             'databaseRow' => [],
             'effectivePid' => 42,
             'site' => new Site('aSite', 456, []),
+            // Set some dummy TSconfig to avoid \TYPO3\CMS\Core\DataHandling\ItemProcessingService::processItems()
+            // trying to retrieve some, which will fail in a unit test context
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'aTable.' => [
+                        'aField.' => [
+                            'itemsProcFunc.' => [
+                                'foo',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
             'processedTca' => [
                 'columns' => [
                     'aField' => [
@@ -248,9 +259,16 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
+        $flashMessageService = $this->createMock(FlashMessageService::class);
+        $flashMessageQueue = self::createStub(FlashMessageQueue::class);
+        $flashMessageService->expects($this->atMost(PHP_INT_MAX))->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
 
-        $items = (new TcaRadioItems())->addData($input)['processedTca']['columns']['aField']['config']['items'];
+        $subject = new TcaRadioItems();
+        $subject->injectItemProcessingService(
+            $this->getItemProcessingServiceInstance($flashMessageService)
+        );
+        $items = $subject->addData($input)['processedTca']['columns']['aField']['config']['items'];
 
         self::assertCount(1, $items);
         self::assertSame('foo', $items[0]['label']);
@@ -258,7 +276,76 @@ final class TcaRadioItemsTest extends UnitTestCase
     }
 
     #[Test]
-    public function addDataItemsProcFuncReceivesParameters(): void
+    public function addDataCallsItemsProcessors(): void
+    {
+        $input = [
+            'tableName' => 'aTable',
+            'inlineParentUid' => 1,
+            'inlineParentTableName' => 'aTable',
+            'inlineParentFieldName' => 'aField',
+            'inlineParentConfig' => [],
+            'inlineTopMostParentUid' => 1,
+            'inlineTopMostParentTableName' => 'topMostTable',
+            'inlineTopMostParentFieldName' => 'topMostField',
+            'databaseRow' => [],
+            'effectivePid' => 42,
+            'site' => new Site('aSite', 456, []),
+            // Set some dummy TSconfig to avoid \TYPO3\CMS\Core\DataHandling\ItemProcessingService::processItems()
+            // trying to retrieve some, which will fail in a unit test context
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'aTable.' => [
+                        'aField.' => [
+                            'itemsProcFunc.' => [
+                                'foo',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'aField' => [
+                        'config' => [
+                            'type' => 'radio',
+                            'items' => [],
+                            'itemsProcessors' => [
+                                100 => [
+                                    'class' => ItemsProcessor2::class,
+                                ],
+                                50 => [
+                                    'class' => ItemsProcessor1::class,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $languageService = $this->createMock(LanguageService::class);
+        $GLOBALS['LANG'] = $languageService;
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
+        $flashMessageService = $this->createMock(FlashMessageService::class);
+        $flashMessageQueue = self::createStub(FlashMessageQueue::class);
+        $flashMessageService->expects($this->atMost(PHP_INT_MAX))->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
+
+        $subject = new TcaRadioItems();
+        $subject->injectItemProcessingService(
+            $this->getItemProcessingServiceInstance($flashMessageService)
+        );
+        $items = $subject->addData($input)['processedTca']['columns']['aField']['config']['items'];
+
+        // Check that 2 items have been added, with the expected properties and in the expected order
+        self::assertCount(2, $items);
+        self::assertSame('label1', $items[0]->getLabel());
+        self::assertSame('value1', $items[0]->getValue());
+        self::assertSame('label2', $items[1]->getLabel());
+        self::assertSame('value2', $items[1]->getValue());
+    }
+
+    #[Test]
+    public function addDataItemsProcFuncOrItemsProcessorsReceiveParameters(): void
     {
         $input = [
             'tableName' => 'aTable',
@@ -280,6 +367,11 @@ final class TcaRadioItemsTest extends UnitTestCase
                         'aField.' => [
                             'itemsProcFunc.' => [
                                 'itemParamKey' => 'itemParamValue',
+                            ],
+                            'itemsProcessors.' => [
+                                '100.' => [
+                                    'itemParamKey' => 'itemParamValue',
+                                ],
                             ],
                         ],
                     ],
@@ -316,6 +408,14 @@ final class TcaRadioItemsTest extends UnitTestCase
                                     throw new \UnexpectedValueException('broken', 1476109434);
                                 }
                             },
+                            'itemsProcessors' => [
+                                100 => [
+                                    'class' => ItemsProcessorForTestingExceptionsForRadioItems::class,
+                                    'parameters' => [
+                                        'hello' => 'world',
+                                    ],
+                                ],
+                            ],
                         ],
                     ],
                 ],
@@ -324,17 +424,18 @@ final class TcaRadioItemsTest extends UnitTestCase
 
         $languageService = $this->createMock(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $languageService->method('sL')->with(self::anything())->willReturnArgument(0);
-        $flashMessage = $this->createMock(FlashMessage::class);
-        GeneralUtility::addInstance(FlashMessage::class, $flashMessage);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturnArgument(0);
         $flashMessageService = $this->createMock(FlashMessageService::class);
         $flashMessageQueue = $this->createMock(FlashMessageQueue::class);
-        $flashMessageService->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
+        $flashMessageService->expects($this->atMost(PHP_INT_MAX))->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
 
         // itemsProcFunc must NOT have raised an exception
-        $flashMessageQueue->expects($this->never())->method('enqueue')->with($flashMessage);
+        $flashMessageQueue->expects($this->never())->method('enqueue')->with(self::isInstanceOf(FlashMessage::class));
 
         $subject = new TcaRadioItems();
+        $subject->injectItemProcessingService(
+            $this->getItemProcessingServiceInstance($flashMessageService)
+        );
         $subject->injectFlashMessageService($flashMessageService);
         $subject->addData($input);
     }
@@ -389,17 +490,91 @@ final class TcaRadioItemsTest extends UnitTestCase
         ];
 
         $languageService = $this->createMock(LanguageService::class);
-        $languageService->method('sL')->with(self::anything())->willReturn('');
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturn('');
         $GLOBALS['LANG'] = $languageService;
-        $flashMessage = $this->createMock(FlashMessage::class);
-        GeneralUtility::addInstance(FlashMessage::class, $flashMessage);
         $flashMessageService = $this->createMock(FlashMessageService::class);
         $flashMessageQueue = $this->createMock(FlashMessageQueue::class);
-        $flashMessageService->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
+        $flashMessageService->expects($this->atMost(PHP_INT_MAX))->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
 
-        $flashMessageQueue->expects($this->atLeastOnce())->method('enqueue')->with($flashMessage);
+        $flashMessageQueue->expects($this->atLeastOnce())->method('enqueue')->with(self::isInstanceOf(FlashMessage::class));
 
         $subject = new TcaRadioItems();
+        $subject->injectItemProcessingService(
+            $this->getItemProcessingServiceInstance($flashMessageService)
+        );
+        $subject->injectFlashMessageService($flashMessageService);
+        $subject->addData($input);
+    }
+
+    #[Test]
+    public function addDataItemsProcessorsEnqueuesFlashMessageOnException(): void
+    {
+        $input = [
+            'tableName' => 'aTable',
+            'inlineParentUid' => 1,
+            'inlineParentTableName' => 'aTable',
+            'inlineParentFieldName' => 'aField',
+            'inlineParentConfig' => [],
+            'inlineTopMostParentUid' => 1,
+            'inlineTopMostParentTableName' => 'topMostTable',
+            'inlineTopMostParentFieldName' => 'topMostField',
+            'databaseRow' => [
+                'aField' => 'aValue',
+            ],
+            'effectivePid' => 42,
+            'site' => new Site('aSite', 456, []),
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'aTable.' => [
+                        'aField.' => [
+                            'itemsProcessors.' => [
+                                '100.' => [
+                                    'unexpectedKey' => 'unexpectedValue',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'aField' => [
+                        'config' => [
+                            'type' => 'radio',
+                            'aKey' => 'aValue',
+                            'items' => [
+                                0 => [
+                                    'label' => 'foo',
+                                    'value' => 'bar',
+                                ],
+                            ],
+                            'itemsProcessors' => [
+                                100 => [
+                                    'class' => ItemsProcessorForTestingExceptionsForRadioItems::class,
+                                    'parameters' => [
+                                        'hello' => 'world',
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $languageService = $this->createMock(LanguageService::class);
+        $languageService->expects($this->atMost(PHP_INT_MAX))->method('sL')->with(self::anything())->willReturn('');
+        $GLOBALS['LANG'] = $languageService;
+        $flashMessageService = $this->createMock(FlashMessageService::class);
+        $flashMessageQueue = $this->createMock(FlashMessageQueue::class);
+        $flashMessageService->expects($this->atMost(PHP_INT_MAX))->method('getMessageQueueByIdentifier')->with(self::anything())->willReturn($flashMessageQueue);
+
+        $flashMessageQueue->expects($this->atLeastOnce())->method('enqueue')->with(self::isInstanceOf(FlashMessage::class));
+
+        $subject = new TcaRadioItems();
+        $subject->injectItemProcessingService(
+            $this->getItemProcessingServiceInstance($flashMessageService)
+        );
         $subject->injectFlashMessageService($flashMessageService);
         $subject->addData($input);
     }
@@ -452,7 +627,16 @@ final class TcaRadioItemsTest extends UnitTestCase
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['items'][0]['label'] = 'labelOverride';
 
-        self::assertSame($expected, (new TcaRadioItems())->addData($input));
-        (new TcaRadioItems())->addData($input);
+        self::assertSame($expected, new TcaRadioItems()->addData($input));
+        new TcaRadioItems()->addData($input);
+    }
+
+    private function getItemProcessingServiceInstance(FlashMessageService $flashMessageService): ItemProcessingService
+    {
+        return new ItemProcessingService(
+            self::createStub(SiteFinder::class),
+            self::createStub(TcaSchemaFactory::class),
+            $flashMessageService,
+        );
     }
 }

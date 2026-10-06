@@ -19,13 +19,18 @@ namespace TYPO3\CMS\Core\Session\Backend;
 
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
+use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Session\Backend\Exception\SessionNotCreatedException;
 use TYPO3\CMS\Core\Session\Backend\Exception\SessionNotFoundException;
 use TYPO3\CMS\Core\Session\Backend\Exception\SessionNotUpdatedException;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * This session backend takes these optional configuration options: 'hostname' (default '127.0.0.1'),
- * 'database' (default 0), 'port' (default 3679) and 'password' (no default value).
+ * 'database' (default 0), 'port' (default 3679), 'username' (no default value) and 'password' (no default value).
+ *
+ * @todo: Declare this class final.
  */
 class RedisSessionBackend implements SessionBackendInterface, HashableSessionBackendInterface, LoggerAwareInterface
 {
@@ -83,8 +88,8 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
         if (isset($this->configuration['database'])) {
             if (!is_int($this->configuration['database'])) {
                 throw new \InvalidArgumentException(
-                    'The specified database number is of type "' . gettype($this->configuration['database']) .
-                    '" but an integer is expected.',
+                    'The specified database number is of type "' . gettype($this->configuration['database'])
+                    . '" but an integer is expected.',
                     1481270871
                 );
             }
@@ -96,13 +101,20 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
                 );
             }
         }
+
+        if (!is_string($this->configuration['password'] ?? '')) {
+            throw new \InvalidArgumentException(
+                'The specified password must be a string. To authenticate with a username and password'
+                . ' tuple, use the separate "username" and "password" options.',
+                1780850765
+            );
+        }
     }
 
     public function hash(string $sessionId): string
     {
-        // The sha1 hash ensures we have good length for the key.
-        $key = sha1($GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] . 'core-session-backend');
-        return hash_hmac('sha256', $sessionId, $key);
+        return GeneralUtility::makeInstance(HashService::class)
+            ->hmac($sessionId, 'core-session-backend', HashAlgo::SHA3_256);
     }
 
     /**
@@ -214,10 +226,16 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
         foreach ($this->getAll() as $sessionRecord) {
             if (!($sessionRecord['ses_userid'] ?? false)) {
                 if ($maximumAnonymousLifetime > 0 && ($sessionRecord['ses_tstamp'] + $maximumAnonymousLifetime) < $GLOBALS['EXEC_TIME']) {
-                    $this->redis->del($this->getSessionKeyName($sessionRecord['ses_id']));
+                    $result = $this->redis->del($this->getSessionKeyName($sessionRecord['ses_id']));
+                    if ($result === false) {
+                        $this->logRedisCommandFailure('del', 'collectGarbage()');
+                    }
                 }
             } elseif (($sessionRecord['ses_tstamp'] + $maximumLifetime) < $GLOBALS['EXEC_TIME']) {
-                $this->redis->del($this->getSessionKeyName($sessionRecord['ses_id']));
+                $result = $this->redis->del($this->getSessionKeyName($sessionRecord['ses_id']));
+                if ($result === false) {
+                    $this->logRedisCommandFailure('del', 'collectGarbage()');
+                }
             }
         }
     }
@@ -251,12 +269,11 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
             );
         }
 
-        if (isset($this->configuration['password'])
-            && $this->configuration['password'] !== ''
-            && !$this->redis->auth($this->configuration['password'])
+        if ($this->getAuthentication() !== null
+            && !$this->redis->auth($this->getAuthentication())
         ) {
             throw new \RuntimeException(
-                'The given password was not accepted by the redis server.',
+                'Authentication to Redis failed”.',
                 1481270961
             );
         }
@@ -270,6 +287,25 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
                 1481270987
             );
         }
+    }
+
+    protected function getAuthentication(): array|string|null
+    {
+        $username = $this->configuration['username'] ?? null;
+        $password = $this->configuration['password'] ?? null;
+
+        return match (true) {
+            // Username and password configured for authentication, build associative array
+            // out of possible and supported array variants by `php-redis::auth()`.
+            ($username !== null && $password !== null) => [
+                'user' => $username,
+                'pass' => $password,
+            ],
+            // Password-only authentication configured.
+            ($username === null && $password !== null) => $password,
+            // No authentication configured.
+            default => null,
+        };
     }
 
     /**
@@ -316,8 +352,15 @@ class RedisSessionBackend implements SessionBackendInterface, HashableSessionBac
         return $this->applicationIdentifier . $sessionId;
     }
 
-    protected function getSessionTimeout(): int
+    protected function logRedisCommandFailure(string $command, string $method): void
     {
-        return (int)($GLOBALS['TYPO3_CONF_VARS'][$this->identifier]['sessionTimeout'] ?? 86400);
+        $this->logger->warning(
+            'Redis command {command} failed in {method}.',
+            [
+                'command' => $command,
+                'method' => $method,
+                'error' => $this->redis->getLastError(),
+            ]
+        );
     }
 }

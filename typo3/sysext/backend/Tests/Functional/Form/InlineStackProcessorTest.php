@@ -20,10 +20,13 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Form;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\InlineStackProcessor;
+use TYPO3\CMS\Core\Schema\SchemaCollection;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class InlineStackProcessorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     public static function structureStringIsParsedDataProvider(): array
     {
         return [
@@ -248,7 +251,7 @@ final class InlineStackProcessorTest extends FunctionalTestCase
     public function getStructureFromStringParsesStructureString(string $string, array $expectedInlineStructure, array $_): void
     {
         $subject = new InlineStackProcessor();
-        self::assertEquals($expectedInlineStructure, $subject->getStructureFromString($string));
+        self::assertEquals($expectedInlineStructure, $subject->getStructureFromString($string, new SchemaCollection([])));
     }
 
     #[DataProvider('structureStringIsParsedDataProvider')]
@@ -256,7 +259,7 @@ final class InlineStackProcessorTest extends FunctionalTestCase
     public function getFormPrefixFromStructureReturnsExpectedString(string $string, array $_, array $expectedFormName): void
     {
         $subject = new InlineStackProcessor();
-        $structure = $subject->getStructureFromString($string);
+        $structure = $subject->getStructureFromString($string, new SchemaCollection([]));
         self::assertEquals($expectedFormName['form'], $subject->getFormPrefixFromStructure($structure));
     }
 
@@ -265,7 +268,7 @@ final class InlineStackProcessorTest extends FunctionalTestCase
     public function getDomObjectIdPrefixFromStructureReturnsExpectedString(string $string, array $_, array $expectedFormName): void
     {
         $subject = new InlineStackProcessor();
-        $structure = $subject->getStructureFromString($string);
+        $structure = $subject->getStructureFromString($string, new SchemaCollection([]));
         self::assertEquals($expectedFormName['object'], $subject->getDomObjectIdPrefixFromStructure($structure, 'pageId'));
     }
 }

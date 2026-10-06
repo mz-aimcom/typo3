@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\ContextMenu\ItemProviders;
 
+use TYPO3\CMS\Backend\Domain\Repository\Localization\LocalizationRepository;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -25,7 +26,6 @@ use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 
 /**
@@ -149,7 +149,8 @@ class RecordProvider extends AbstractProvider
 
     public function __construct(
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
-        protected readonly UriBuilder $uriBuilder
+        protected readonly UriBuilder $uriBuilder,
+        protected readonly LocalizationRepository $localizationRepository,
     ) {
         parent::__construct();
     }
@@ -353,8 +354,8 @@ class RecordProvider extends AbstractProvider
             $confirmMessage = sprintf(
                 $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:mess.'
                     . ($this->clipboard->currentMode() === 'copy' ? 'copy' : 'move') . '_' . $type),
-                GeneralUtility::fixed_lgd_cs($selItem['_RECORD_TITLE'], (int)$this->backendUser->uc['titleLen']),
-                GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($this->table, $this->record), (int)$this->backendUser->uc['titleLen'])
+                BackendUtility::cropToTitleLength($selItem['_RECORD_TITLE']),
+                BackendUtility::cropToTitleLength(BackendUtility::getRecordTitle($this->table, $this->record))
             );
             $attributes += [
                 'data-title' => $title,
@@ -376,8 +377,7 @@ class RecordProvider extends AbstractProvider
         $attributes = [];
         if ($this->backendUser->jsConfirmation(JsConfirmation::DELETE)) {
             $title = $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:mess.delete.title');
-
-            $recordInfo = GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($this->table, $this->record), (int)$this->backendUser->uc['titleLen']);
+            $recordInfo = BackendUtility::cropToTitleLength(BackendUtility::getRecordTitle($this->table, $this->record));
             if ($this->backendUser->shallDisplayDebugInformation()) {
                 $recordInfo .= ' [' . $this->table . ':' . $this->record['uid'] . ']';
             }
@@ -390,11 +390,13 @@ class RecordProvider extends AbstractProvider
                 $this->record['uid'],
                 LF . $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.referencesToRecord')
             );
-            $confirmMessage .= BackendUtility::translationCount(
-                $this->table,
-                $this->record['uid'],
-                LF . $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.translationsOfRecord')
-            );
+            $translationCount = count($this->localizationRepository->getRecordTranslations($this->table, $this->record));
+            if ($translationCount > 0) {
+                $confirmMessage .= LF . sprintf(
+                    $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.translationsOfRecord'),
+                    $translationCount
+                );
+            }
 
             $attributes += [
                 'data-title' => $title,
@@ -469,7 +471,7 @@ class RecordProvider extends AbstractProvider
         $access = !$this->isRecordLocked()
             && $this->backendUser->check('tables_modify', $this->table)
             && $this->hasPagePermission(Permission::CONTENT_EDIT)
-            && $this->backendUser->recordEditAccessInternals($this->table, $this->record);
+            && $this->backendUser->checkRecordEditAccess($this->table, $this->record)->isAllowed;
         return $access;
     }
 
@@ -486,7 +488,7 @@ class RecordProvider extends AbstractProvider
      */
     protected function isDeletionDisabledInTS(): bool
     {
-        return (bool)\trim(
+        return (bool)trim(
             $this->backendUser->getTSConfig()['options.']['disableDelete.'][$this->table]
             ?? $this->backendUser->getTSConfig()['options.']['disableDelete']
             ?? ''

@@ -24,7 +24,6 @@ use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\Service\ResourceConsistencyService;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Validation\ResultException;
 use TYPO3\CMS\Core\Validation\ResultRenderingTrait;
 use TYPO3\CMS\Reports\Status;
@@ -34,11 +33,15 @@ use TYPO3\CMS\Reports\StatusProviderInterface;
 /**
  * Performs several checks about the FAL status
  */
-class FalStatus implements StatusProviderInterface
+readonly class FalStatus implements StatusProviderInterface
 {
     use ResultRenderingTrait;
 
-    public function __construct(private readonly ResourceConsistencyService $resourceConsistencyService) {}
+    public function __construct(
+        private ResourceConsistencyService $resourceConsistencyService,
+        private ConnectionPool $connectionPool,
+        private StorageRepository $storageRepository,
+    ) {}
 
     /**
      * Determines the status of the FAL index.
@@ -78,19 +81,9 @@ class FalStatus implements StatusProviderInterface
         $message = '';
         $severity = ContextualFeedbackSeverity::OK;
 
-        $storageRepository = GeneralUtility::makeInstance(StorageRepository::class);
-        $storageObjects = $storageRepository->findAll();
-        $storages = [];
-
-        foreach ($storageObjects as $storageObject) {
-            // We only check missing files for storages that are online
-            if ($storageObject->isOnline()) {
-                $storages[$storageObject->getUid()] = $storageObject;
-            }
-        }
-
+        $storages = $this->getBrowsableStorages();
         if (!empty($storages)) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file');
             $count = $queryBuilder
                 ->count('*')
                 ->from('sys_file')
@@ -112,7 +105,7 @@ class FalStatus implements StatusProviderInterface
             $value = sprintf($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_missingFilesCount'), $count);
             $severity = ContextualFeedbackSeverity::WARNING;
 
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_file');
             $files = $queryBuilder
                 ->select('identifier', 'storage')
                 ->from('sys_file')
@@ -140,17 +133,14 @@ class FalStatus implements StatusProviderInterface
             }
         }
 
-        return GeneralUtility::makeInstance(ReportStatus::class, $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_missingFiles'), $value, $message, $severity);
+        return new ReportStatus($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_missingFiles'), $value, $message, $severity);
     }
 
     protected function getConsistencyCheckStatus(): ReportStatus
     {
         // @todo for performance reasons, consider using this only in CLI context as `ExtendedStatusProviderInterface`
 
-        $storages = array_filter(
-            GeneralUtility::makeInstance(StorageRepository::class)->findAll(),
-            static fn(ResourceStorage $storage): bool => $storage->isOnline()
-        );
+        $storages = $this->getBrowsableStorages();
         $inconsistenciesMessage = '';
         foreach ($storages as $storage) {
             $inconsistencies = $this->checkFolderConsistency($storage->getRootLevelFolder());
@@ -167,23 +157,22 @@ class FalStatus implements StatusProviderInterface
             }
         }
         if ($inconsistenciesMessage === '') {
-            return GeneralUtility::makeInstance(
-                ReportStatus::class,
+            return new ReportStatus(
                 'Consistency check',
                 'No inconsistencies found in these storages',
-                $this->wrapInHtmlUnorderedList(array_map(
+                // make sure we have a list of strings (0… index) with `array_values` to ensure correct rendering
+                $this->wrapInHtmlUnorderedList(array_values(array_map(
                     static fn(ResourceStorage $storage): string => sprintf(
                         '%s (id: %d)',
                         $storage->getName(),
                         $storage->getUid()
                     ),
                     $storages,
-                )),
+                ))),
                 ContextualFeedbackSeverity::OK,
             );
         }
-        return GeneralUtility::makeInstance(
-            ReportStatus::class,
+        return new ReportStatus(
             'Consistency Status',
             'Inconsistent files have been found',
             $inconsistenciesMessage,
@@ -207,7 +196,7 @@ class FalStatus implements StatusProviderInterface
                 );
             }
         }
-        foreach ($folder->getSubFolders() as $subFolder) {
+        foreach ($folder->getSubfolders() as $subFolder) {
             $inconsistencies = [...$inconsistencies, ...$this->checkFolderConsistency($subFolder)];
         }
         return $inconsistencies;
@@ -239,6 +228,23 @@ class FalStatus implements StatusProviderInterface
                 array_values($items)
             ))
         );
+    }
+
+    /**
+     * Filter available storages that are actually browsable
+     *
+     * @return array<int,ResourceStorage>
+     */
+    protected function getBrowsableStorages(): array
+    {
+        $storages = [];
+        foreach ($this->storageRepository->findAll() as $storageObject) {
+            if ($storageObject->isBrowsable()) {
+                $storages[$storageObject->getUid()] = $storageObject;
+            }
+        }
+
+        return $storages;
     }
 
     protected function getLanguageService(): LanguageService

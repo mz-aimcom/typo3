@@ -28,7 +28,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @internal
  */
-class QueryHelper
+readonly class QueryHelper
 {
     /**
      * Takes an input, possibly prefixed with ORDER BY, and explodes it into
@@ -47,18 +47,65 @@ class QueryHelper
             return [];
         }
         $input = preg_replace('/^(?:ORDER[[:space:]]*BY[[:space:]]*)+/i', '', trim($input)) ?: '';
-        $orderExpressions = GeneralUtility::trimExplode(',', $input, true);
+        $orderExpressions = array_filter(array_map('trim', self::splitOutsideParentheses($input, ',')), static fn(string $value): bool => $value !== '');
 
         return array_map(
             static function (string $expression): array {
-                $fieldNameOrderArray = GeneralUtility::trimExplode(' ', $expression, true);
+                $fieldNameOrderArray = array_filter(self::splitOutsideParentheses($expression, ' '), static fn(string $value): bool => $value !== '');
                 $fieldName = $fieldNameOrderArray[0] ?? null;
                 $order = $fieldNameOrderArray[1] ?? null;
 
                 return [$fieldName, $order];
             },
-            $orderExpressions
+            array_values($orderExpressions)
         );
+    }
+
+    /**
+     * Splits a string on the given single-character delimiter, ignoring
+     * occurrences of the delimiter inside round brackets or quotes, e.g.
+     * to keep "FIND_IN_SET(aField, "1,2,3")" intact when splitting on ",".
+     *
+     * @return string[]
+     */
+    private static function splitOutsideParentheses(string $subject, string $delimiter): array
+    {
+        if (!str_contains($subject, '(') && !str_contains($subject, '"') && !str_contains($subject, "'")) {
+            return GeneralUtility::trimExplode($delimiter, $subject);
+        }
+
+        $parts = [];
+        $current = '';
+        $depth = 0;
+        $quote = null;
+        foreach (str_split($subject) as $char) {
+            if ($quote !== null) {
+                $current .= $char;
+                if ($char === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($char === '"' || $char === "'") {
+                $quote = $char;
+                $current .= $char;
+                continue;
+            }
+            if ($char === '(') {
+                $depth++;
+            } elseif ($char === ')') {
+                $depth--;
+            }
+            if ($char === $delimiter && $depth === 0) {
+                $parts[] = $current;
+                $current = '';
+                continue;
+            }
+            $current .= $char;
+        }
+        $parts[] = $current;
+
+        return $parts;
     }
 
     /**
@@ -132,8 +179,9 @@ class QueryHelper
         ];
 
         // Check if the tableName is quoted
-        if ($matchQuotingStartCharacters[$input[0]] ?? false) {
-            $quoteCharacter .= $matchQuotingStartCharacters[$input[0]];
+        $firstCharOfInputValue = $input[0] ?? '';
+        if ($matchQuotingStartCharacters[$firstCharOfInputValue] ?? false) {
+            $quoteCharacter .= $matchQuotingStartCharacters[$firstCharOfInputValue];
             $input = substr($input, 1);
             $tableName = strtok($input, $quoteCharacter);
         } else {
@@ -158,7 +206,7 @@ class QueryHelper
         // Catch the edge case that the table name is unquoted and the
         // table alias is actually quoted. This will not work in the case
         // that the quoted table alias contains whitespace.
-        $firstCharacterOfTableAlias = $tableAlias[0] ?? null;
+        $firstCharacterOfTableAlias = $tableAlias[0] ?? '';
         if ($matchQuotingStartCharacters[$firstCharacterOfTableAlias] ?? false) {
             $tableAlias = substr((string)$tableAlias, 1, -1);
         }
@@ -246,6 +294,7 @@ class QueryHelper
         } elseif ($format === 'date' || $persistenceType === 'date') {
             $datetime = $datetime->setTime(0, 0, 0);
         }
+        // datetimesec is a "normal" date and needs no removal/adjustment of seconds or date.
 
         // Native DATETIME, DATE or TIME field
         if (in_array($persistenceType, self::getDateTimeTypes(), true)) {

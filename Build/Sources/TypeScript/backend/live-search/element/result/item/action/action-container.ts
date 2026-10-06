@@ -12,7 +12,7 @@
  */
 
 import DocumentService from '@typo3/core/document-service';
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { css, html, LitElement, type TemplateResult } from 'lit';
 import { type Action } from './action';
 import type { ResultItemActionInterface, ResultItemInterface } from '../item';
@@ -110,6 +110,7 @@ export class ActionList extends LitElement {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
+    // @todo Enter should (probably) be handled in keydown, like buttons do
     if (!['Enter', ' '].includes(e.key)) {
       return;
     }

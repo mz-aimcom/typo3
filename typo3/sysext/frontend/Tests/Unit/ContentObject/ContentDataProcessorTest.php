@@ -18,7 +18,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Frontend\Tests\Unit\ContentObject;
 
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
 use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Frontend\ContentObject\ContentDataProcessor;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
@@ -28,19 +27,18 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ContentDataProcessorTest extends UnitTestCase
 {
-    protected ContentDataProcessor $contentDataProcessor;
-    protected Container $container;
-    protected MockObject&DataProcessorRegistry $dataProcessorRegistryMock;
+    private ContentDataProcessor $contentDataProcessor;
+    private Container $container;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->container = new Container();
-        $this->dataProcessorRegistryMock = $this->getMockBuilder(DataProcessorRegistry::class)->disableOriginalConstructor()->getMock();
-        $this->dataProcessorRegistryMock->method('getDataProcessor')->willReturn(null);
+        $dataProcessorRegistryMock = self::createStub(DataProcessorRegistry::class);
+        $dataProcessorRegistryMock->method('getDataProcessor')->willReturn(null);
         $this->contentDataProcessor = new ContentDataProcessor(
             $this->container,
-            $this->dataProcessorRegistryMock
+            $dataProcessorRegistryMock
         );
     }
 
@@ -49,14 +47,13 @@ final class ContentDataProcessorTest extends UnitTestCase
     {
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1427455378);
-        $contentObjectRendererStub = new ContentObjectRenderer();
         $config = [
             'dataProcessing.' => [
                 '10' => 'fooClass',
             ],
         ];
         $variables = [];
-        $this->contentDataProcessor->process($contentObjectRendererStub, $config, $variables);
+        $this->contentDataProcessor->process(self::createStub(ContentObjectRenderer::class), $config, $variables);
     }
 
     #[Test]
@@ -64,20 +61,18 @@ final class ContentDataProcessorTest extends UnitTestCase
     {
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1427455377);
-        $contentObjectRendererStub = new ContentObjectRenderer();
         $config = [
             'dataProcessing.' => [
                 '10' => static::class,
             ],
         ];
         $variables = [];
-        $this->contentDataProcessor->process($contentObjectRendererStub, $config, $variables);
+        $this->contentDataProcessor->process(self::createStub(ContentObjectRenderer::class), $config, $variables);
     }
 
     #[Test]
     public function processorClassIsCalled(): void
     {
-        $contentObjectRendererStub = new ContentObjectRenderer();
         $config = [
             'dataProcessing.' => [
                 '10' => DataProcessorFixture::class,
@@ -87,7 +82,7 @@ final class ContentDataProcessorTest extends UnitTestCase
         $variables = [];
         self::assertSame(
             ['foo' => 'bar'],
-            $this->contentDataProcessor->process($contentObjectRendererStub, $config, $variables)
+            $this->contentDataProcessor->process(self::createStub(ContentObjectRenderer::class), $config, $variables)
         );
     }
 
@@ -96,7 +91,6 @@ final class ContentDataProcessorTest extends UnitTestCase
     {
         $this->expectException(\UnexpectedValueException::class);
         $this->expectExceptionCode(1635927108);
-        $contentObjectRendererStub = new ContentObjectRenderer();
         $this->container->set(static::class, $this);
         $config = [
             'dataProcessing.' => [
@@ -104,13 +98,12 @@ final class ContentDataProcessorTest extends UnitTestCase
             ],
         ];
         $variables = [];
-        $this->contentDataProcessor->process($contentObjectRendererStub, $config, $variables);
+        $this->contentDataProcessor->process(self::createStub(ContentObjectRenderer::class), $config, $variables);
     }
 
     #[Test]
     public function processorServiceIsCalled(): void
     {
-        $contentObjectRendererStub = new ContentObjectRenderer();
         $this->container->set('dataProcessorFixture', new DataProcessorFixture());
         $config = [
             'dataProcessing.' => [
@@ -121,7 +114,7 @@ final class ContentDataProcessorTest extends UnitTestCase
         $variables = [];
         self::assertSame(
             ['foo' => 'bar'],
-            $this->contentDataProcessor->process($contentObjectRendererStub, $config, $variables)
+            $this->contentDataProcessor->process(self::createStub(ContentObjectRenderer::class), $config, $variables)
         );
     }
 }

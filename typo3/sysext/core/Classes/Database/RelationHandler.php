@@ -25,6 +25,7 @@ use TYPO3\CMS\Core\DataHandling\PlainDataResolver;
 use TYPO3\CMS\Core\DataHandling\ReferenceIndexUpdater;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
+use TYPO3\CMS\Core\Schema\Field\GroupFieldType;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -267,10 +268,10 @@ class RelationHandler
             // the "columns" part of TCA for a table.
             if ($this->tcaSchemaFactory->has($mmOppositeTable)) {
                 $oppositeSchema = $this->tcaSchemaFactory->get($mmOppositeTable);
-                $mmOppositeAllowed = $oppositeSchema->hasField($conf['MM_opposite_field']) ? ($oppositeSchema->getField($conf['MM_opposite_field'])->getConfiguration()['allowed'] ?? '') : '';
-                if ($mmOppositeAllowed !== '') {
-                    $mmOppositeAllowedTables = explode(',', $mmOppositeAllowed);
-                    if ($mmOppositeAllowed === '*' || count($mmOppositeAllowedTables) > 1) {
+                $mmOppositeField = $oppositeSchema->hasField($conf['MM_opposite_field']) ? $oppositeSchema->getField($conf['MM_opposite_field']) : null;
+                if ($mmOppositeField instanceof GroupFieldType) {
+                    $mmOppositeAllowedTables = $mmOppositeField->getAllowedSchemaNames();
+                    if ($mmOppositeField->allowsAllSchemata() || count($mmOppositeAllowedTables) > 1) {
                         $this->MM_isMultiTableRelationship = $mmOppositeAllowedTables[0];
                     }
                 }
@@ -991,14 +992,14 @@ class RelationHandler
             if (!(MathUtility::canBeInterpretedAsInteger($updateToUid) && $updateToUid > 0)) {
                 $updateToUid = 0;
             }
-            $fields = 'uid,pid,' . $foreign_field;
+            $fields = ['uid', 'pid', $foreign_field];
             // Consider the symmetric field if defined:
             if ($symmetric_field) {
-                $fields .= ',' . $symmetric_field;
+                $fields[] = $symmetric_field;
             }
             // Consider workspaces if defined and currently used:
             if ($schema->isWorkspaceAware()) {
-                $fields .= ',t3ver_wsid,t3ver_state,t3ver_oid';
+                $fields = [...$fields, 't3ver_wsid', 't3ver_state', 't3ver_oid'];
             }
             // Update all items
             foreach ($this->itemArray as $val) {

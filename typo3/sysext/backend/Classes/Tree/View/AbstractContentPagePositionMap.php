@@ -98,14 +98,12 @@ abstract class AbstractContentPagePositionMap
                 )
                 ->orderBy('sorting');
 
-            if ((string)$this->cur_sys_language !== '') {
-                $queryBuilder->andWhere(
-                    $queryBuilder->expr()->eq(
-                        'sys_language_uid',
-                        $queryBuilder->createNamedParameter($this->cur_sys_language, Connection::PARAM_INT)
-                    )
-                );
-            }
+            $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    'sys_language_uid',
+                    $queryBuilder->createNamedParameter($this->cur_sys_language, Connection::PARAM_INT)
+                )
+            );
 
             $res = $queryBuilder->executeQuery();
             $lines[$colPos] = [
@@ -232,8 +230,8 @@ abstract class AbstractContentPagePositionMap
             }
 
             // Create the table content
-            $tableContent =
-                '<colgroup>' . str_repeat('<col span="1" style="width: calc(100% / ' . $colCount . ')">', $colCount) . '</colgroup>'
+            $tableContent
+                = '<colgroup>' . str_repeat('<col span="1" style="width: calc(100% / ' . $colCount . ')">', $colCount) . '</colgroup>'
                 . '<tbody>' . implode(LF, $tableRows) . '</tbody>';
         } else {
             // Build position map based on TCA colPos configuration
@@ -287,10 +285,6 @@ abstract class AbstractContentPagePositionMap
     protected function getColumnsConfiguration(int $pageId): array
     {
         $backendLayout = $this->backendLayoutView->getBackendLayoutForPage($pageId);
-        if (!$backendLayout) {
-            return [];
-        }
-
         $items = [];
         // Prepare the columns configuration (using named keys, etc.)
         foreach ($backendLayout->getUsedColumns() as $colPos => $label) {

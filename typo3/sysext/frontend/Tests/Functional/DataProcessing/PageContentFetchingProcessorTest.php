@@ -19,8 +19,13 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\DataProcessing;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Page\ContentAreaCollection;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
+use TYPO3\CMS\Frontend\DataProcessing\PageContentFetchingProcessor;
+use TYPO3\CMS\Frontend\Page\PageInformation;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\Scenario\DataHandlerFactory;
 use TYPO3\TestingFramework\Core\Functional\Framework\DataHandling\Scenario\DataHandlerWriter;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
@@ -30,7 +35,7 @@ final class PageContentFetchingProcessorTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en-US'],
     ];
 
@@ -77,7 +82,7 @@ final class PageContentFetchingProcessorTest extends FunctionalTestCase
     #[Test]
     public function homeLayoutIsRendered(): void
     {
-        $response = $this->executeFrontendSubRequest((new InternalRequest('https://acme.com/'))->withPageId(1000));
+        $response = $this->executeFrontendSubRequest(new InternalRequest('https://acme.com/')->withPageId(1000));
         $body = (string)$response->getBody();
         self::assertStringContainsString('Welcome to ACME guitars', $body);
         self::assertStringContainsString('Carousel Items will show up: 2', $body);
@@ -89,11 +94,31 @@ final class PageContentFetchingProcessorTest extends FunctionalTestCase
     #[Test]
     public function productDetailLayoutIsRendered(): void
     {
-        $response = $this->executeFrontendSubRequest((new InternalRequest('https://acme.com/'))->withPageId(1110));
+        $response = $this->executeFrontendSubRequest(new InternalRequest('https://acme.com/')->withPageId(1110));
         $body = (string)$response->getBody();
         self::assertStringContainsString('Hero is our flagship', $body);
         self::assertStringContainsString('Get a hero for yourself', $body);
+        self::assertStringContainsString('News / Flash Sale (optional, collect em all)', $body);
         self::assertStringContainsString('Flash Info for all products', $body);
         self::assertStringContainsString('If you read this you are at the end.', $body);
+        self::assertStringContainsString('[allowedContent: hero]', $body);
+    }
+
+    #[Test]
+    public function pageWithoutResolvedPageLayoutIsProcessedWithoutContentAreas(): void
+    {
+        $pageInformation = new PageInformation();
+        $pageInformation->setId(1000);
+        $pageInformation->setContentFromPid(1000);
+        $request = new ServerRequest('https://acme.com/')
+            ->withAttribute('frontend.page.information', $pageInformation);
+        $contentObjectRenderer = $this->get(ContentObjectRenderer::class);
+        $contentObjectRenderer->setRequest($request);
+
+        $processedData = $this->get(PageContentFetchingProcessor::class)
+            ->process($contentObjectRenderer, [], [], []);
+
+        self::assertInstanceOf(ContentAreaCollection::class, $processedData['content']);
+        self::assertFalse($processedData['content']->has('main'));
     }
 }

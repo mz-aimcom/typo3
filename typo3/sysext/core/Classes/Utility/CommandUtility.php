@@ -89,12 +89,12 @@ class CommandUtility
      *
      * @see Process
      */
-    public static function exec(string|array $command, ?array &$output = null, int &$returnValue = 0): string|false
+    public static function exec(string|array $command, ?array &$output = null, int &$returnValue = 0, ?float $timeout = 60): string|false
     {
         if (is_string($command)) {
-            $process = Process::fromShellCommandline($command);
+            $process = Process::fromShellCommandline($command, null, null, null, $timeout);
         } else {
-            $process = new Process($command);
+            $process = new Process($command, null, null, null, $timeout);
         }
 
         try {
@@ -153,8 +153,8 @@ class CommandUtility
         if ($parameters && $command !== 'identify') {
             // Use legacy processor_stripColorProfileCommand setting if defined, otherwise
             // use the preferred configuration option processor_stripColorProfileParameters
-            $stripColorProfileCommand = $gfxConf['processor_stripColorProfileCommand'] ??
-                implode(' ', array_map(CommandUtility::escapeShellArgument(...), $gfxConf['processor_stripColorProfileParameters'] ?? []));
+            $stripColorProfileCommand = $gfxConf['processor_stripColorProfileCommand']
+                ?? implode(' ', array_map(CommandUtility::escapeShellArgument(...), $gfxConf['processor_stripColorProfileParameters'] ?? []));
             // Determine whether the strip profile action has be disabled by TypoScript:
             if ($gfxConf['processor_stripColorProfileByDefault']
                 && $stripColorProfileCommand !== ''
@@ -365,7 +365,7 @@ class CommandUtility
             foreach ($paths as $path) {
                 // Make absolute path of relative
                 if (!str_starts_with($path, '/')) {
-                    $path = Environment::getPublicPath() . '/' . $path;
+                    $path = Environment::getProjectPath() . '/' . $path;
                 }
                 if (!isset(self::$paths[$path])) {
                     if (@is_dir($path)) {

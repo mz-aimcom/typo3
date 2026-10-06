@@ -18,14 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\Core\ViewHelper;
 
 use Psr\Container\ContainerInterface;
-use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\DependencyInjection\FailsafeContainer;
-use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperCollection;
 use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperInterface;
-use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
 
 /**
  * Class whose purpose is dedicated to resolving classes which
@@ -43,9 +38,8 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolverDelegateInterface;
  * to effectively create aliases for the Fluid core ViewHelpers
  * to be loaded in the TYPO3\CMS\ViewHelpers scope as well.
  *
- * Default ViewHelper namespaces are read TYPO3 configuration at:
- *
- * $GLOBALS['TYPO3_CONF_VARS']['SYS']['fluid']['namespaces']
+ * Default ViewHelper namespaces are read from the extension-level
+ * configuration file "Configuration/Fluid/Namespaces.php".
  *
  * Extending this array allows third party ViewHelper providers
  * to automatically add or extend namespaces which then become
@@ -61,24 +55,13 @@ class ViewHelperResolver extends \TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperRes
     /**
      * ViewHelperResolver constructor
      *
-     * Loads namespaces defined in global TYPO3 configuration. Overlays `f:`
-     * with `f:debug:` when Fluid debugging is enabled in the admin panel,
-     * causing debugging-specific ViewHelpers to be resolved in that case.
-     *
      * @internal constructor, use `ViewHelperResolverFactory->create()` instead
      */
-    public function __construct(ContainerInterface $container, array $namespaces)
+    public function __construct(ContainerInterface $container, array $namespaces, array $resolverDelegates = [])
     {
         $this->container = $container;
         $this->namespaces = $namespaces;
-        if (($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
-            && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isFrontend()
-            && $this->getBackendUser() instanceof BackendUserAuthentication
-        ) {
-            if ($this->getBackendUser()->uc['AdminPanel']['preview_showFluidDebug'] ?? false) {
-                $this->namespaces['f'][] = 'TYPO3\\CMS\\Fluid\\ViewHelpers\\Debug';
-            }
-        }
+        $this->resolverDelegates = $resolverDelegates;
     }
 
     /**
@@ -87,9 +70,9 @@ class ViewHelperResolver extends \TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperRes
     public function createViewHelperInstanceFromClassName($viewHelperClassName): ViewHelperInterface
     {
         if ($this->container instanceof FailsafeContainer) {
-            // The install tool creates VH instances using makeInstance to not rely on symfony DI here,
-            // otherwise we'd have to have all install-tool used ones in ServiceProvider.php. However,
-            // none of the install tool used VH's use injection.
+            // Install tool: makeInstance() resolves via the FailsafeContainer when the VH is
+            // registered there, else via `new`. VHs with required constructor arguments used by
+            // install-tool templates must be wired in install/Classes/ServiceProvider.php.
             /** @var ViewHelperInterface $viewHelperInstance */
             $viewHelperInstance = GeneralUtility::makeInstance($viewHelperClassName);
             return $viewHelperInstance;
@@ -103,38 +86,5 @@ class ViewHelperResolver extends \TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperRes
             $viewHelperInstance = new $viewHelperClassName();
         }
         return $viewHelperInstance;
-    }
-
-    /**
-     * Creates a ViewHelperResolver delegate object based on a ViewHelper
-     * namespace string. The logic here is: If a ViewHelper namespace is
-     * defined with an existing class name, that class will be responsible
-     * for resolving the ViewHelpers in that namespace (= it is a
-     * ViewHelperResolver  delegate). If no such class exists, the default
-     * ViewHelper resolving is used (implemented in ViewHelperCollection).
-     * The default implementation by Fluid is extended to support dependency
-     * injection in ViewHelperResolver delegates.
-     */
-    public function createResolverDelegateInstanceFromClassName(string $delegateClassName): ViewHelperResolverDelegateInterface
-    {
-        if ($this->container instanceof FailsafeContainer && class_exists($delegateClassName)) {
-            // The install tool creates resolver instances using makeInstance
-            // to not rely on symfony DI. Currently the install tool doesn't
-            // use any custom resolvers, however this might change in the future.
-            return GeneralUtility::makeInstance($delegateClassName);
-        }
-        if ($this->container->has($delegateClassName)) {
-            return $this->container->get($delegateClassName);
-        }
-        if (class_exists($delegateClassName)) {
-            return new $delegateClassName();
-        }
-        // Fall back to default ViewHelper resolving logic
-        return new ViewHelperCollection($delegateClassName);
-    }
-
-    protected function getBackendUser(): ?BackendUserAuthentication
-    {
-        return $GLOBALS['BE_USER'] ?? null;
     }
 }

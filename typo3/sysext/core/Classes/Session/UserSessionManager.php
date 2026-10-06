@@ -17,10 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Session;
 
+use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Authentication\IpLocker;
+use TYPO3\CMS\Core\Clock\SystemClock;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Http\CookieScopeTrait;
 use TYPO3\CMS\Core\Http\NormalizedParams;
@@ -63,18 +65,20 @@ class UserSessionManager implements LoggerAwareInterface
     protected SessionBackendInterface $sessionBackend;
     protected IpLocker $ipLocker;
     protected string $loginType;
+    protected ClockInterface $clock;
 
     /**
      * Constructor. Marked as internal, as it is recommended to use the factory method "create"
      *
      * @internal it is recommended to use the factory method "create"
      */
-    public function __construct(SessionBackendInterface $sessionBackend, int $sessionLifetime, IpLocker $ipLocker, string $loginType)
+    public function __construct(SessionBackendInterface $sessionBackend, int $sessionLifetime, IpLocker $ipLocker, string $loginType, ?ClockInterface $clock = null)
     {
         $this->sessionBackend = $sessionBackend;
         $this->sessionLifetime = $sessionLifetime;
         $this->ipLocker = $ipLocker;
         $this->loginType = $loginType;
+        $this->clock = $clock ?? new SystemClock();
     }
 
     protected function setGarbageCollectionTimeoutForAnonymousSessions(int $garbageCollectionForAnonymousSessions = 0): void
@@ -110,7 +114,7 @@ class UserSessionManager implements LoggerAwareInterface
     public function createAnonymousSession(): UserSession
     {
         $randomSessionId = $this->createSessionId();
-        return UserSession::createNonFixated($randomSessionId);
+        return UserSession::createNonFixated($randomSessionId, $this->clock->now()->getTimestamp());
     }
 
     /**
@@ -132,7 +136,7 @@ class UserSessionManager implements LoggerAwareInterface
      */
     public function hasExpired(UserSession $session): bool
     {
-        return $this->sessionLifetime === 0 || $GLOBALS['EXEC_TIME'] > $session->getLastUpdated() + $this->sessionLifetime;
+        return $this->sessionLifetime === 0 || $this->clock->now()->getTimestamp() > $session->getLastUpdated() + $this->sessionLifetime;
     }
 
     /**
@@ -142,7 +146,7 @@ class UserSessionManager implements LoggerAwareInterface
      */
     public function willExpire(UserSession $session, int $gracePeriod): bool
     {
-        return $GLOBALS['EXEC_TIME'] >= ($session->getLastUpdated() + $this->sessionLifetime) - $gracePeriod;
+        return $this->clock->now()->getTimestamp() >= ($session->getLastUpdated() + $this->sessionLifetime) - $gracePeriod;
     }
 
     /**
@@ -152,12 +156,11 @@ class UserSessionManager implements LoggerAwareInterface
      * @param UserSession $session The user session to fixate
      * @param bool $isPermanent If `true`, the session will get the `ses_permanent` flag
      * @return UserSession a new session object with an updated `ses_tstamp` (allowing to keep the session alive)
-     *
-     * @throws Backend\Exception\SessionNotCreatedException
      */
     public function fixateAnonymousSession(UserSession $session, bool $isPermanent = false): UserSession
     {
-        $sessionIpLock = $this->ipLocker->getSessionIpLock((string)GeneralUtility::getIndpEnv('REMOTE_ADDR'));
+        // @todo: Refactor. Get Request or at least remote address hand over
+        $sessionIpLock = $this->ipLocker->getSessionIpLock(NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress());
         $sessionRecord = $session->toArray();
         $sessionRecord['ses_iplock'] = $sessionIpLock;
         // Ensure the user is not set, as this is always an anonymous session (see elevateToFixatedUserSession)
@@ -188,11 +191,12 @@ class UserSessionManager implements LoggerAwareInterface
         // Delete any session entry first
         $this->sessionBackend->remove($sessionId);
         // Re-create session entry
-        $sessionIpLock = $this->ipLocker->getSessionIpLock((string)GeneralUtility::getIndpEnv('REMOTE_ADDR'));
+        // @todo: Refactor. Get Request or at least remote address hand over
+        $sessionIpLock = $this->ipLocker->getSessionIpLock(NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress());
         $sessionRecord = [
             'ses_iplock' => $sessionIpLock,
             'ses_userid' => $userId,
-            'ses_tstamp' => $GLOBALS['EXEC_TIME'],
+            'ses_tstamp' => $this->clock->now()->getTimestamp(),
             'ses_data' => '',
         ];
         if ($isPermanent) {
@@ -210,9 +214,6 @@ class UserSessionManager implements LoggerAwareInterface
      * @param string $sessionId The session id
      * @param array $existingSessionRecord If given, this session record will be used instead of fetching again
      * @param bool $anonymous If true session will be regenerated as anonymous session
-     *
-     * @throws Backend\Exception\SessionNotCreatedException
-     * @throws SessionNotFoundException
      */
     public function regenerateSession(
         string $sessionId,
@@ -238,7 +239,6 @@ class UserSessionManager implements LoggerAwareInterface
      * greater than "last updated + a specified grace-time").
      *
      * @return UserSession a modified user session with a last updated value if needed
-     * @throws Backend\Exception\SessionNotUpdatedException
      */
     public function updateSessionTimestamp(UserSession $session): UserSession
     {
@@ -276,12 +276,11 @@ class UserSessionManager implements LoggerAwareInterface
     }
 
     /**
-     * Calls the session backends `collectGarbage()` method
+     * Calls the session backends `collectGarbage()` method with the given probability in percent.
      */
     public function collectGarbage(int $garbageCollectionProbability = 1): void
     {
-        // If we're lucky we'll get to clean up old sessions
-        if (random_int(0, mt_getrandmax()) % 100 <= $garbageCollectionProbability) {
+        if (rand(0, 99) < $garbageCollectionProbability) {
             $this->sessionBackend->collectGarbage(
                 $this->sessionLifetime > 0 ? $this->sessionLifetime : self::GARBAGE_COLLECTION_LIFETIME,
                 $this->garbageCollectionForAnonymousSessions
@@ -300,8 +299,6 @@ class UserSessionManager implements LoggerAwareInterface
     /**
      * Tries to fetch a user session form the session backend.
      * If none is given, an anonymous session will be created.
-     *
-     * @return UserSession|null The created user session object or null
      */
     protected function getSessionFromSessionId(string $id): ?UserSession
     {
@@ -315,13 +312,14 @@ class UserSessionManager implements LoggerAwareInterface
             }
             // If the session does not match the current IP lock, it should be treated as invalid
             // and a new session should be created.
+            // @todo: Refactor. Get Request or at least remote address hand over
             if ($this->ipLocker->validateRemoteAddressAgainstSessionIpLock(
-                (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress(),
                 $sessionRecord['ses_iplock']
             )) {
                 return UserSession::createFromRecord($id, $sessionRecord);
             }
-        } catch (SessionNotFoundException $e) {
+        } catch (SessionNotFoundException) {
             return null;
         }
 
@@ -335,14 +333,8 @@ class UserSessionManager implements LoggerAwareInterface
      *
      * Ideally, this factory encapsulates all `TYPO3_CONF_VARS` options, so
      * the actual object does not need to consider any global state.
-     *
-     * @param string $loginType
-     * @param int|null $sessionLifetime
-     * @param SessionManager|null $sessionManager
-     * @param IpLocker|null $ipLocker
-     * @return static
      */
-    public static function create(string $loginType, ?int $sessionLifetime = null, ?SessionManager $sessionManager = null, ?IpLocker $ipLocker = null): self
+    public static function create(string $loginType, ?int $sessionLifetime = null, ?SessionManager $sessionManager = null, ?IpLocker $ipLocker = null, ?ClockInterface $clock = null): self
     {
         $sessionManager = $sessionManager ?? GeneralUtility::makeInstance(SessionManager::class);
         $ipLocker = $ipLocker ?? GeneralUtility::makeInstance(
@@ -352,7 +344,7 @@ class UserSessionManager implements LoggerAwareInterface
         );
         $lifetime = (int)($GLOBALS['TYPO3_CONF_VARS'][$loginType]['lifetime'] ?? 0);
         $sessionLifetime = $sessionLifetime ?? (int)$GLOBALS['TYPO3_CONF_VARS'][$loginType]['sessionTimeout'];
-        if ($sessionLifetime > 0 && $sessionLifetime < $lifetime && $lifetime > 0) {
+        if ($sessionLifetime > 0 && $sessionLifetime < $lifetime) {
             // If server session timeout is non-zero but less than client session timeout: Copy this value instead.
             $sessionLifetime = $lifetime;
         }
@@ -361,7 +353,8 @@ class UserSessionManager implements LoggerAwareInterface
             $sessionManager->getSessionBackend($loginType),
             $sessionLifetime,
             $ipLocker,
-            $loginType
+            $loginType,
+            $clock ?? new SystemClock()
         );
         if ($loginType === 'FE') {
             $object->setGarbageCollectionTimeoutForAnonymousSessions((int)($GLOBALS['TYPO3_CONF_VARS']['FE']['sessionDataLifetime'] ?? 0));
@@ -372,9 +365,6 @@ class UserSessionManager implements LoggerAwareInterface
     /**
      * Recreates a `UserSession` object from the existing session data - keeping `new` state.
      * This method shall be used to reflect updated low-level session data in corresponding `UserSession` object.
-     *
-     * @param array|null $sessionRecord
-     * @throws SessionNotFoundException
      */
     protected function recreateUserSession(UserSession $session, ?array $sessionRecord = null): UserSession
     {

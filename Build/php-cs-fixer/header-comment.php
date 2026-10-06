@@ -25,7 +25,6 @@ $finder = PhpCsFixer\Finder::create()
         __DIR__ . '/../../typo3/sysext',
         __DIR__ . '/../../Build',
     ])
-    ->exclude('Acceptance/Support/_generated') // EXT:core
     ->exclude('node_modules')
     // Configuration files do not need header comments
     ->exclude('Configuration')
@@ -33,12 +32,12 @@ $finder = PhpCsFixer\Finder::create()
     ->notName('ext_localconf.php')
     ->notName('ext_tables.php')
     ->notName('ext_emconf.php')
+    ->notName('framework-packages.php')
     // ClassAliasMap files do not need header comments
     ->notName('ClassAliasMap.php')
     // CodeSnippets and Examples in Documentation do not need header comments
     ->exclude('Documentation')
     // Third-party inclusion files should not have a changed comment
-    ->notName('Rfc822AddressesParser.php')
     ->notName('ClassMapGenerator.php')
 ;
 
@@ -55,7 +54,7 @@ LICENSE.txt file that was distributed with this source code.
 The TYPO3 project - inspiring people to share!
 COMMENT;
 
-return (new \PhpCsFixer\Config())
+return new \PhpCsFixer\Config()
     ->setParallelConfig(\PhpCsFixer\Runner\Parallel\ParallelConfigFactory::detect())
     ->setRiskyAllowed(false)
     ->setRules([

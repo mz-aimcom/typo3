@@ -7,13 +7,11 @@ services:
   TYPO3\CMS\Backend\:
     resource: '../Classes/*'
 
-  TYPO3\CMS\Backend\Command\ResetPasswordCommand:
-    tags:
-      - { name: 'console.command', command: 'backend:resetpassword', description: 'Trigger a password reset for a backend user', schedulable: false }
-
-  TYPO3\CMS\Backend\Command\CreateBackendUserCommand:
-    tags:
-      - { name: 'console.command', command: 'backend:user:create', description: 'Create a backend user', schedulable: false }
+  backend.middlewares:
+    class: ArrayObject
+    factory: ['@TYPO3\CMS\Core\Http\MiddlewareStackResolver', 'resolve']
+    arguments: ['backend']
+    public: true
 
   TYPO3\CMS\Backend\Clipboard\Clipboard:
     shared: false
@@ -29,6 +27,16 @@ services:
   # Not a service, not injectable
   TYPO3\CMS\Backend\Module\ModuleInterface: ~
 
+  # Breadcrumb component with providers
+  TYPO3\CMS\Backend\Template\Components\Breadcrumb:
+    arguments:
+      $providers: !tagged_iterator backend.breadcrumb.provider
+
+  # Auto-tag breadcrumb providers
+  _instanceof:
+    TYPO3\CMS\Backend\Breadcrumb\BreadcrumbProviderInterface:
+      tags: ['backend.breadcrumb.provider']
+
   TYPO3\CMS\Backend\Search\LiveSearch\SearchProviderRegistry:
     arguments:
       - !tagged_iterator livesearch.provider
@@ -40,6 +48,11 @@ services:
   TYPO3\CMS\Backend\Search\LiveSearch\PageRecordProvider:
     tags:
       - { name: 'livesearch.provider', priority: 60 }
+
+  # Localization handler registry
+  TYPO3\CMS\Backend\Localization\LocalizationHandlerRegistry:
+    arguments:
+      - !tagged_iterator backend.localization.handler
 
   TYPO3\CMS\Backend\ElementBrowser\DatabaseBrowser:
     shared: false
@@ -54,14 +67,13 @@ services:
       - !tagged_iterator backend.toolbar.item
 
   backendPasswordRecovery.rateLimiterFactory:
-    class: Symfony\Component\RateLimiter\RateLimiterFactory
+    class: TYPO3\CMS\Core\RateLimiter\RateLimiterFactory
     arguments:
       $config:
         id: 'backend-password-recovery'
         policy: 'sliding_window'
         limit: 3
         interval: '30 minutes'
-      $storage: '@TYPO3\CMS\Core\RateLimiter\Storage\CachingFrameworkStorage'
 
   TYPO3\CMS\Backend\Authentication\PasswordReset:
     arguments:

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\FormProtection;
 
+use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -39,13 +40,13 @@ use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
  * Since TYPO3 v12, this class can and should be used as a factory to be injected into other
  * controllers or middlewares, to handle FormProtections for HTTP Requests.
  */
-class FormProtectionFactory
+readonly class FormProtectionFactory
 {
     public function __construct(
-        protected readonly FlashMessageService $flashMessageService,
-        protected readonly LanguageServiceFactory $languageServiceFactory,
-        protected readonly Registry $registry,
-        protected readonly FrontendInterface $runtimeCache
+        protected FlashMessageService $flashMessageService,
+        protected LanguageServiceFactory $languageServiceFactory,
+        protected FrontendInterface $runtimeCache,
+        protected ContainerInterface $container,
     ) {}
 
     /**
@@ -130,7 +131,7 @@ class FormProtectionFactory
                 return [
                     BackendFormProtection::class,
                     $user,
-                    $this->registry,
+                    $this->container->get(Registry::class),
                     $this->getMessageClosure(
                         $this->languageServiceFactory->createFromUserPreferences($user),
                         $this->flashMessageService->getMessageQueueByIdentifier(),
@@ -182,8 +183,7 @@ class FormProtectionFactory
     protected function getMessageClosure(LanguageService $languageService, FlashMessageQueue $messageQueue, bool $isAjaxCall): \Closure
     {
         return static function () use ($languageService, $messageQueue, $isAjaxCall) {
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.formProtection.tokenInvalid'),
                 '',
                 ContextualFeedbackSeverity::ERROR,

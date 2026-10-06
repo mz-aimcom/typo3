@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Utility;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
@@ -32,6 +34,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class ExtensionManagementUtilityTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -49,7 +53,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
         parent::tearDown();
     }
 
-    protected function createMockPackageManagerWithMockPackage(string $packageKey, array $packageMethods = ['getPackagePath', 'getPackageKey']): MockObject&PackageManager
+    private function createMockPackageManagerWithMockPackage(string $packageKey, array $packageMethods = ['getPackagePath', 'getPackageKey']): MockObject&PackageManager
     {
         $packagePath = Environment::getVarPath() . '/tests/' . $packageKey . '/';
         GeneralUtility::mkdir_deep($packagePath);
@@ -75,6 +79,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                     [$packageKey, true],
                 ]);
         $packageManager
+                ->expects($this->atMost(PHP_INT_MAX))
                 ->method('getPackage')
                 ->with(self::equalTo($packageKey))
                 ->willReturn($package);
@@ -1118,6 +1123,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
         /** @var Package&MockObject $package */
         $package = $packageManager->getPackage($extensionKey);
         $package
+                ->expects($this->atMost(PHP_INT_MAX))
                 ->method('getPackageMetaData')
                 ->willReturn($packageMetaData);
         ExtensionManagementUtility::setPackageManager($packageManager);
@@ -1254,7 +1260,6 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
         ];
         $item = ['label' => 'mylabel', 'value' => 'examplekey', 'icon' => 'apps-pagetree-folder-contains'];
         ExtensionManagementUtility::addRecordType($item, 'aField', [], '', $table);
-        /** @phpstan-ignore-next-line PHPStan does not understand that the items array gets updated.. */
         self::assertEquals('default', $GLOBALS['TCA'][$table]['columns']['aTypeField']['config']['items'][0]['group']);
     }
 
@@ -1266,15 +1271,15 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
         ];
         yield 'spaces and commas are removed' => [
             ', aField, ',
-            'aField,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+            'aField,--div--;core.form.tabs:extended,',
         ];
         yield 'extended div is added' => [
             'fieldX, --palette--;;foo, fieldX1, fieldY',
-            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;core.form.tabs:extended,',
         ];
         yield 'extended is not added if already somewhere in place' => [
-            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended, anotherField,',
-            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended, anotherField,',
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;core.form.tabs:extended, anotherField,',
+            'fieldX, --palette--;;foo, fieldX1, fieldY,--div--;core.form.tabs:extended, anotherField,',
         ];
     }
 
@@ -1308,13 +1313,13 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 ['label' => 'foo', 'value' => 'foo'],
                 ['label' => 'bar', 'value' => 'bar'],
                 ['label' => 'baz', 'value' => 'baz'],
-                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'iconOverlay' => null, 'group' => 'custom', 'description' => 'foobar'],
             ],
         ];
         yield 'before field' => [
             'before:foo',
             [
-                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'iconOverlay' => null, 'group' => 'custom', 'description' => 'foobar'],
                 ['label' => 'foo', 'value' => 'foo'],
                 ['label' => 'bar', 'value' => 'bar'],
                 ['label' => 'baz', 'value' => 'baz'],
@@ -1324,7 +1329,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             'after:foo',
             [
                 ['label' => 'foo', 'value' => 'foo'],
-                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'iconOverlay' => null, 'group' => 'custom', 'description' => 'foobar'],
                 ['label' => 'bar', 'value' => 'bar'],
                 ['label' => 'baz', 'value' => 'baz'],
             ],
@@ -1333,7 +1338,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             'replace:bar',
             [
                 ['label' => 'foo', 'value' => 'foo'],
-                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'group' => 'custom', 'description' => 'foobar'],
+                ['label' => 'myLabel', 'value' => 'myValue', 'icon' => 'apps-pagetree-folder-contains', 'iconOverlay' => null, 'group' => 'custom', 'description' => 'foobar'],
                 ['label' => 'baz', 'value' => 'baz'],
             ],
         ];
@@ -1376,6 +1381,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => $extKey,
                 'icon' => null,
+                'iconOverlay' => null,
                 'group' => 'plugins',
                 'description' => null,
             ],
@@ -1394,6 +1400,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => 'felogin',
                 'icon' => 'content-form-login',
+                'iconOverlay' => null,
                 'group' => 'plugins',
                 'description' => null,
             ],
@@ -1416,6 +1423,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                 'label' => 'label',
                 'value' => 'felogin',
                 'icon' => 'content-form-login',
+                'iconOverlay' => null,
                 'group' => 'plugins',
                 'description' => null,
             ],
@@ -1507,6 +1515,34 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
                     'my_group' => 'my_group_label',
                 ],
             ],
+            'add a new group after without referenced group moved to bottom' => [
+                'my_group',
+                'my_group_label',
+                'after',
+                [
+                    'default' => 'default_label',
+                    'special' => 'special_label',
+                ],
+                [
+                    'default' => 'default_label',
+                    'special' => 'special_label',
+                    'my_group' => 'my_group_label',
+                ],
+            ],
+            'add a new group before without referenced group moved to bottom' => [
+                'my_group',
+                'my_group_label',
+                'before',
+                [
+                    'default' => 'default_label',
+                    'special' => 'special_label',
+                ],
+                [
+                    'default' => 'default_label',
+                    'special' => 'special_label',
+                    'my_group' => 'my_group_label',
+                ],
+            ],
             'add a new group which already exists does nothing' => [
                 'my_group',
                 'my_group_label',
@@ -1534,7 +1570,7 @@ final class ExtensionManagementUtilityTest extends UnitTestCase
             $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups'] = $existingGroups;
         }
         ExtensionManagementUtility::addTcaSelectItemGroup('tt_content', 'CType', $groupId, $groupLabel, $position);
-        self::assertEquals($expectedGroups, $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups']);
+        self::assertSame($expectedGroups, $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['itemGroups']);
     }
 
     #[Test]

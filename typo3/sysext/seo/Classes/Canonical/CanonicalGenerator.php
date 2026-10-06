@@ -21,8 +21,10 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Domain\Page;
+use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\RootlineUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
@@ -41,6 +43,8 @@ readonly class CanonicalGenerator
     public function __construct(
         private EventDispatcherInterface $eventDispatcher,
         private PageRenderer $pageRenderer,
+        private RecordFactory $recordFactory,
+        private PageRepository $pageRepository,
     ) {}
 
     public function generate(array $params): string
@@ -51,8 +55,8 @@ readonly class CanonicalGenerator
         $canonicalGenerationDisabledException = null;
 
         $href = '';
+        $typoScriptConfigArray = $request->getAttribute('frontend.typoscript')->getConfigArray();
         try {
-            $typoScriptConfigArray = $request->getAttribute('frontend.typoscript')->getConfigArray();
             if ($typoScriptConfigArray['disableCanonical'] ?? false) {
                 throw new CanonicalGenerationDisabledException('Generation of the canonical tag is disabled via TypoScript "disableCanonical"', 1706104146);
             }
@@ -72,18 +76,21 @@ readonly class CanonicalGenerator
             }
         } catch (CanonicalGenerationDisabledException $canonicalGenerationDisabledException) {
         } finally {
+            /** @var Page $page */
+            $page = $this->recordFactory->createFromDatabaseRow('pages', $pageRecord);
             $event = $this->eventDispatcher->dispatch(
-                new ModifyUrlForCanonicalTagEvent($request, new Page($pageRecord), $href, $canonicalGenerationDisabledException)
+                new ModifyUrlForCanonicalTagEvent($request, $page, $href, $canonicalGenerationDisabledException)
             );
             $href = $event->getUrl();
         }
 
         if ($href !== '') {
+            $docType = DocType::createFromConfigurationKey($typoScriptConfigArray['doctype'] ?? '');
             $canonical = '<link ' . GeneralUtility::implodeAttributes([
                 'rel' => 'canonical',
                 'href' => $href,
-            ], true) . ($this->pageRenderer->getDocType()->isXmlCompliant() ? '/' : '') . '>' . LF;
-            $request->getAttribute('frontend.controller')->additionalHeaderData[] = $canonical;
+            ], true) . ($docType->isXmlCompliant() ? '/' : '') . '>' . LF;
+            $this->pageRenderer->addHeaderData($canonical);
             return $canonical;
         }
         return '';
@@ -91,9 +98,8 @@ readonly class CanonicalGenerator
 
     protected function checkForCanonicalLink(ServerRequestInterface $request): string
     {
-        $typoScriptFrontendController = $request->getAttribute('frontend.controller');
         $pageRecord = $request->getAttribute('frontend.page.information')->getPageRecord();
-        $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $typoScriptFrontendController);
+        $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
         $cObj->setRequest($request);
         $cObj->start($pageRecord, 'pages');
         if (!empty($pageRecord['canonical_link'])) {
@@ -113,12 +119,11 @@ readonly class CanonicalGenerator
         if ($id !== $contentPid) {
             $targetPid = $contentPid;
             if ($targetPid > 0) {
-                $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-                $targetPageRecord = $pageRepository->getPage($contentPid, true);
+                $targetPageRecord = $this->pageRepository->getPage($contentPid, true);
                 if (!empty($targetPageRecord['canonical_link'])) {
                     $targetPid = $targetPageRecord['canonical_link'];
                 }
-                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $request->getAttribute('frontend.controller'));
+                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
                 $cObj->setRequest($request);
                 $cObj->start($request->getAttribute('frontend.page.information')->getPageRecord(), 'pages');
                 return $cObj->createUrl([
@@ -146,7 +151,7 @@ readonly class CanonicalGenerator
         $pageInformation = clone $pageInformation;
         $pageInformation->setMountPoint('');
         $request = $request->withAttribute('frontend.page.information', $pageInformation);
-        $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $request->getAttribute('frontend.controller'));
+        $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
         $cObj->setRequest($request);
         $cObj->start($pageInformation->getPageRecord(), 'pages');
         return $cObj->createUrl([
@@ -158,7 +163,8 @@ readonly class CanonicalGenerator
                     ',',
                     CanonicalizationUtility::getParamsToExcludeForCanonicalizedUrl(
                         $id,
-                        (array)$GLOBALS['TYPO3_CONF_VARS']['FE']['additionalCanonicalizedUrlParameters']
+                        (array)$GLOBALS['TYPO3_CONF_VARS']['FE']['additionalCanonicalizedUrlParameters'],
+                        $request
                     )
                 ),
             ],

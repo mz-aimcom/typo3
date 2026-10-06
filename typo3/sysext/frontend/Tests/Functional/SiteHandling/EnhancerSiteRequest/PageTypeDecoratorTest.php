@@ -38,8 +38,8 @@ final class PageTypeDecoratorTest extends AbstractEnhancerSiteRequestTestCase
                 ->withMergedApplicables($pageTypeDeclaration)
                 ->withVariables($pageTypeDeclaration->getVariables());
 
-            $testSetWithoutEnhancers =
-                TestSet::create($testSet)
+            $testSetWithoutEnhancers
+                = TestSet::create($testSet)
                     ->withMergedApplicables(LanguageContext::create(0))
                     ->withTargetPageId(3000)
                     ->withUrl(
@@ -72,8 +72,8 @@ final class PageTypeDecoratorTest extends AbstractEnhancerSiteRequestTestCase
                 ->withMergedApplicables($pageTypeDeclaration)
                 ->withVariables($pageTypeDeclaration->getVariables());
 
-            $testSetForPageContainingIndexInSlug =
-                TestSet::create($testSet)
+            $testSetForPageContainingIndexInSlug
+                = TestSet::create($testSet)
                     ->withMergedApplicables(LanguageContext::create(0))
                     ->withTargetPageId(3200)
                     ->withUrl(
@@ -116,7 +116,6 @@ final class PageTypeDecoratorTest extends AbstractEnhancerSiteRequestTestCase
         $expectation['pageId'] = $testSet->getTargetPageId();
         $expectation['languageId'] = $expectedLanguageId;
         $expectation['requestQueryParams'] = $allParameters;
-        $expectation['_GET'] = $allParameters;
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($targetUri),

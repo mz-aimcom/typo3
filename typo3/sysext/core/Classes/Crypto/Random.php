@@ -26,11 +26,11 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  */
 readonly class Random
 {
-    private const DEFAULT_PASSWORD_LENGTH = 16;
-    private const LOWERCASE_CHARACTERS = 'abcdefghijklmnopqrstuvwxyz';
-    private const UPPERCASE_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    private const SPECIAL_CHARACTERS = '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~';
-    private const DIGIT_CHARACTERS = '1234567890';
+    private const int DEFAULT_PASSWORD_LENGTH = 16;
+    private const string LOWERCASE_CHARACTERS = 'abcdefghijklmnopqrstuvwxyz';
+    private const string UPPERCASE_CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    private const string SPECIAL_CHARACTERS = '!"#$%&\'()*+,-./:;<=>?@[\]^_`{|}~';
+    private const string DIGIT_CHARACTERS = '1234567890';
 
     /**
      * Generates cryptographic secure pseudo-random bytes
@@ -54,6 +54,14 @@ readonly class Random
     public function generateRandomHexString(int $length): string
     {
         return substr(bin2hex($this->generateRandomBytes((int)(($length + 1) / 2))), 0, $length);
+    }
+
+    /**
+     * Generates cryptographic secure pseudo-random base64 string
+     */
+    public function generateRandomBase64String(int $length): string
+    {
+        return substr(StringUtility::base64urlEncode($this->generateRandomBytes((int)ceil(($length / 4) * 3))), 0, $length);
     }
 
     /**
@@ -116,17 +124,9 @@ readonly class Random
                 $password .= $characters[random_int(0, $charactersCount - 1)];
             }
 
-            $password = (new Randomizer())->shuffleBytes($password);
+            $password = new Randomizer()->shuffleBytes($password);
         }
 
         return $password;
-    }
-
-    /**
-     * Generates cryptographic secure pseudo-random base64 string
-     */
-    protected function generateRandomBase64String(int $length): string
-    {
-        return substr(StringUtility::base64urlEncode($this->generateRandomBytes((int)ceil(($length / 4) * 3))), 0, $length);
     }
 }

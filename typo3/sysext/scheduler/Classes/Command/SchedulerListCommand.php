@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Scheduler\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Helper\TableCell;
@@ -28,28 +29,31 @@ use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\ConsoleSectionOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Attribute\AsNonSchedulableCommand;
 use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Domain\Repository\SchedulerTaskRepository;
+use TYPO3\CMS\Scheduler\Task\TaskStatus;
 
 /**
  * CLI command for EXT:scheduler to list tasks
  */
+#[AsCommand('scheduler:list', 'Lists all TYPO3 Scheduler tasks.')]
+#[AsNonSchedulableCommand]
 class SchedulerListCommand extends Command
 {
     protected SymfonyStyle $io;
 
     public function __construct(
-        protected readonly Context $context,
         protected readonly SchedulerTaskRepository $taskRepository,
     ) {
         parent::__construct();
     }
 
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->addOption(
@@ -78,11 +82,11 @@ class SchedulerListCommand extends Command
         $languageService = $this->getLanguageService();
 
         $tableHeader = [
-            $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.id'),
-            $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:task'),
-            $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.description'),
-            $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.frequency'),
-            $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status'),
+            $languageService->sL('scheduler.messages:label.id'),
+            $languageService->sL('scheduler.messages:task'),
+            $languageService->sL('scheduler.messages:label.description'),
+            $languageService->sL('scheduler.messages:label.frequency'),
+            $languageService->sL('scheduler.messages:status'),
         ];
 
         $tableSection = $output->section();
@@ -94,6 +98,7 @@ class SchedulerListCommand extends Command
         $table->setRows($rows);
         $table->setColumnMaxWidth(1, 50);
         $table->setColumnMaxWidth(2, 50);
+        $table->setColumnMaxWidth(4, 50);
         $table->render();
 
         $bufferedData = $tableBuffer->fetch();
@@ -105,8 +110,7 @@ class SchedulerListCommand extends Command
             $interval = (int)($input->getOption('watch') ?: 1);
             $infoSection->write('Watching tasks every ' . $interval . ' seconds, press CTRL+C to stop watching');
 
-            /** @phpstan-ignore-next-line  */
-            while (true) {
+            while (true) { // @phpstan-ignore while.alwaysTrue (intentional infinite loop for CLI watch mode, terminated by CTRL+C signal)
                 sleep($interval);
                 $this->updateTable($input, $table, $tableBuffer, $tableSection);
             }
@@ -127,8 +131,8 @@ class SchedulerListCommand extends Command
             }
 
             // Flag as disabled group
-            $groupDisabledLabel = $group['hidden'] ? '<fg=yellow>' . $this->getLanguageService()->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.disabled') . '</>' : '';
-            $groupLabel = ($group['groupName'] ?? $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.noGroup')) . ' (id:' . $uid . ') ' . $groupDisabledLabel;
+            $groupDisabledLabel = $group['hidden'] ? '<fg=yellow>' . $this->getLanguageService()->sL('scheduler.messages:status.disabled') . '</>' : '';
+            $groupLabel = ($group['groupName'] ?? $languageService->sL('scheduler.messages:label.noGroup')) . ' (id:' . $uid . ') ' . $groupDisabledLabel;
 
             $rows[] = [new TableSeparator(['colspan' => 5])];
             $rows[] = [new TableCell('<options=bold>' . $groupLabel . '</>', ['colspan' => 5])];
@@ -136,33 +140,27 @@ class SchedulerListCommand extends Command
 
             foreach ($group['tasks'] as $task) {
                 $progress = $task['progress'] ?? false;
-                $runningLabel = '<fg=green>' . $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.running') . ($progress ? ' (' . $progress . ')' : '') . '</>';
                 $taskStatus = [];
 
-                if ($task['isRunning']) {
-                    $taskStatus[] =  $runningLabel;
-                }
-
-                $now = $this->context->getAspect('date')->get('timestamp');
-
-                // Flag as late
-                if ($task['nextExecution'] && $task['nextExecution'] < $now && !(int)$group['hidden'] && !(int)$task['disabled']) {
-                    $taskStatus[] = '<fg=yellow>' . $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.late') . '</>';
-                }
-
-                // Flag as disabled
-                if ($task['disabled'] && !$task['isRunning']) {
-                    $taskStatus[] = '<fg=yellow>' . $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.disabled') . '</>';
-                }
-
-                // Flag as error
-                if ($task['lastExecutionFailureMessage'] ?? false) {
-                    $taskStatus[] = '<fg=red>' . $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.failure') . '</>';
-                }
-
-                // Flag as disabled by group
-                if ($group['hidden'] && !$task['isRunning']) {
-                    $taskStatus[] = '<fg=yellow>' . $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:status.disabledByGroup') . '</>';
+                /** @var TaskStatus $status */
+                foreach ($task['statuses'] as $status) {
+                    $color = match ($status->severity) {
+                        ContextualFeedbackSeverity::OK => 'green',
+                        ContextualFeedbackSeverity::INFO => 'blue',
+                        ContextualFeedbackSeverity::WARNING => 'yellow',
+                        ContextualFeedbackSeverity::ERROR => 'red',
+                        ContextualFeedbackSeverity::NOTICE => 'gray',
+                    };
+                    $label = $languageService->sL($status->label);
+                    if ($status->type === 'running' && $progress) {
+                        $label .= ' (' . $progress . ')';
+                    }
+                    // The console has no tooltip, so the more detailed message
+                    // (e.g. the failure reason) is shown inline instead.
+                    if ($status->message !== '') {
+                        $label .= ' (' . vsprintf($languageService->sL($status->message), $status->messageArguments) . ')';
+                    }
+                    $taskStatus[] = '<fg=' . $color . '>' . $label . '</>';
                 }
 
                 $taskTitle = $task['fullTitle'] . (empty($task['additionalInformation']) ? '' : ' (' . $task['additionalInformation'] . ')');
@@ -181,7 +179,7 @@ class SchedulerListCommand extends Command
 
     private function getLanguageService(): LanguageService
     {
-        return GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('default');
+        return GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('en');
     }
 
     protected function updateTable(InputInterface $input, Table $table, BufferedOutput $buffer, ConsoleSectionOutput $tableSection): void

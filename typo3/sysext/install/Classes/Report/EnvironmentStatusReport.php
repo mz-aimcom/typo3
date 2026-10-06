@@ -58,9 +58,6 @@ class EnvironmentStatusReport implements StatusProviderInterface, ExtendedStatus
      */
     public function getDetailedStatus()
     {
-        if (Environment::isCli()) {
-            return [];
-        }
         return $this->getStatusInternal(true);
     }
 
@@ -113,7 +110,7 @@ class EnvironmentStatusReport implements StatusProviderInterface, ExtendedStatus
             $message = '';
             if ($verbose) {
                 foreach ($statusObjects as $statusObject) {
-                    $message .= '### ' . $statusObject->getTitle() . ': ' . $statusObject->getSeverity()->value . CRLF;
+                    $message .= '### ' . $statusObject->getTitle() . ': ' . $statusObject->getSeverity()->name . CRLF;
                 }
             }
 
@@ -127,8 +124,7 @@ class EnvironmentStatusReport implements StatusProviderInterface, ExtendedStatus
                     $message = $this->getLanguageService()->sL($pathToXliff . ':environment.status.message.' . $type);
                 }
                 $severity = constant('\TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::' . strtoupper($type));
-                $statusArray[] = GeneralUtility::makeInstance(
-                    Status::class,
+                $statusArray[] = new Status(
                     $this->getLanguageService()->sL($pathToXliff . ':environment.status.title'),
                     sprintf($this->getLanguageService()->sL($pathToXliff . ':environment.status.value'), $value),
                     $message,

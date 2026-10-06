@@ -24,7 +24,7 @@ use TYPO3\CMS\Install\WebserverType;
  */
 final readonly class DefaultFactory
 {
-    private const TEMPLATE_PATH = __DIR__ . '/../../Resources/Private/FolderStructureTemplateFiles';
+    private const string TEMPLATE_PATH = __DIR__ . '/../../Resources/Private/FolderStructureTemplateFiles';
 
     /**
      * Get default structure object hierarchy
@@ -87,6 +87,11 @@ final readonly class DefaultFactory
                                         'type' => DirectoryNode::class,
                                         'targetPermission' => $directoryPermission,
                                     ],
+                                    [
+                                        'name' => 'transient',
+                                        'type' => DirectoryNode::class,
+                                        'targetPermission' => $directoryPermission,
+                                    ],
                                 ],
                             ],
                         ],
@@ -143,7 +148,7 @@ final readonly class DefaultFactory
             }
         } else {
             // This is when the public path is a subfolder (e.g. public/ or web/)
-            $publicPath = substr(Environment::getPublicPath(), strlen(Environment::getProjectPath()) + 1);
+            $publicPath = rtrim(Environment::getRelativePublicPath(), '/');
 
             $publicPathSubStructure = [
                 [
@@ -239,6 +244,11 @@ final readonly class DefaultFactory
                             ],
                             [
                                 'name' => 'lock',
+                                'type' => DirectoryNode::class,
+                                'targetPermission' => $directoryPermission,
+                            ],
+                            [
+                                'name' => 'transient',
                                 'type' => DirectoryNode::class,
                                 'targetPermission' => $directoryPermission,
                             ],
@@ -370,11 +380,6 @@ final readonly class DefaultFactory
             'type' => DirectoryNode::class,
             'targetPermission' => $directoryPermission,
             'children' => [
-                [
-                    'name' => 'compressed',
-                    'type' => DirectoryNode::class,
-                    'targetPermission' => $directoryPermission,
-                ],
                 [
                     'name' => 'css',
                     'type' => DirectoryNode::class,

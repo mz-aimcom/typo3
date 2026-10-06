@@ -2189,7 +2189,7 @@ final class TcaMigrationTest extends UnitTestCase
                             'config' => [
                                 'type' => 'input',
                                 'renderType' => 'inputDateTime',
-                                'default' => time(),
+                                'default' => 1700000000,
                             ],
                         ],
                     ],
@@ -2224,7 +2224,7 @@ final class TcaMigrationTest extends UnitTestCase
                         'eColumn' => [
                             'config' => [
                                 'type' => 'datetime',
-                                'default' => time(),
+                                'default' => 1700000000,
                             ],
                         ],
                     ],
@@ -2287,7 +2287,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -2365,7 +2365,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     public static function selectIndividualAllowDenyMigratedToNewPositionDataProvider(): iterable
@@ -2768,7 +2768,7 @@ final class TcaMigrationTest extends UnitTestCase
                                 'slider' => [
                                     'step' => 10,
                                 ],
-                                'format' => 'decimal',
+                                'scale' => 2,
                             ],
                         ],
                     ],
@@ -2821,7 +2821,7 @@ final class TcaMigrationTest extends UnitTestCase
                         'aColumn' => [
                             'config' => [
                                 'type' => 'number',
-                                'format' => 'decimal',
+                                'scale' => 2,
                             ],
                         ],
                     ],
@@ -3355,7 +3355,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3484,7 +3484,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
 
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3537,7 +3537,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
 
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3568,7 +3568,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3597,7 +3597,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3626,7 +3626,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3688,7 +3688,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3763,7 +3763,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -3906,7 +3906,7 @@ final class TcaMigrationTest extends UnitTestCase
 
         $expected = $input;
         $expected['child1NotWorkspaceAware']['ctrl']['versioningWS'] = true;
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[DataProvider('requiredYearFlagIsRemovedDataProvider')]
@@ -3992,7 +3992,76 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
 
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function removeAlwaysAllowLiveEditFromWorkspaceAwareTables(): void
+    {
+        $input = [
+            'aTable' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                    'versioningWS_alwaysAllowLiveEdit' => true,
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+            ],
+        ];
+
+        $result = new TcaMigration()->migrate($input);
+        self::assertSame($expected, $result->getTca());
+        self::assertCount(1, $result->getMessages());
+    }
+
+    #[Test]
+    public function keepAlwaysAllowLiveEditForTablesWithoutVersioning(): void
+    {
+        $input = [
+            'aTable' => [
+                'ctrl' => [
+                    'versioningWS_alwaysAllowLiveEdit' => true,
+                ],
+            ],
+        ];
+
+        $result = new TcaMigration()->migrate($input);
+        self::assertSame($input, $result->getTca());
+        self::assertSame([], $result->getMessages());
+    }
+
+    #[Test]
+    public function removeAlwaysAllowLiveEditFromInlineChildrenMadeWorkspaceAware(): void
+    {
+        $input = [
+            'parentTable' => [
+                'ctrl' => [
+                    'versioningWS' => true,
+                ],
+                'columns' => [
+                    'children' => [
+                        'config' => [
+                            'type' => 'inline',
+                            'foreign_table' => 'childTable',
+                        ],
+                    ],
+                ],
+            ],
+            'childTable' => [
+                'ctrl' => [
+                    'versioningWS_alwaysAllowLiveEdit' => true,
+                ],
+            ],
+        ];
+
+        $tca = new TcaMigration()->migrate($input)->getTca();
+        self::assertTrue($tca['childTable']['ctrl']['versioningWS']);
+        self::assertArrayNotHasKey('versioningWS_alwaysAllowLiveEdit', $tca['childTable']['ctrl']);
     }
 
     #[Test]
@@ -4031,7 +4100,7 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -4167,7 +4236,7 @@ final class TcaMigrationTest extends UnitTestCase
             ],
         ];
 
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
     }
 
     #[Test]
@@ -4249,6 +4318,438 @@ final class TcaMigrationTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaMigration())->migrate($input)->getTca());
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public static function removeValuePickerModeFromConfiguration(): void
+    {
+        $input = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'color',
+                            'valuePicker' => [
+                                'mode' => 'prepend',
+                                'items' => [
+                                    [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'input',
+                        ],
+                    ],
+                    'cColumn' => [
+                        'config' => [
+                            'type' => 'input',
+                            'valuePicker' => [
+                                'items' => [
+                                    [ 'label' => 'label', 'value' => 'value'],
+                                ],
+                                'mode' => 'append',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'aTable' => [
+                'columns' => [
+                    'aColumn' => [
+                        'config' => [
+                            'type' => 'color',
+                            'valuePicker' => [
+                                'items' => [
+                                    [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
+                                ],
+                            ],
+                        ],
+                    ],
+                    'bColumn' => [
+                        'config' => [
+                            'type' => 'input',
+                        ],
+                    ],
+                    'cColumn' => [
+                        'config' => [
+                            'type' => 'input',
+                            'valuePicker' => [
+                                'items' => [
+                                    [ 'label' => 'label', 'value' => 'value'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        self::assertSame($expected, new TcaMigration()->migrate($input)->getTca());
+    }
+
+    #[Test]
+    public function migrateSysRedirectDefaultTypeOverridesKeysFromType1(): void
+    {
+        $input = [
+            'sys_redirect' => [
+                'types' => [
+                    'default' => [
+                        'label' => 'My custom label',
+                        'showitem' => 'source_host, source_path',
+                        'existingKey' => 'existingValue',
+                    ],
+                    '1' => [
+                        'label' => 'My custom label',
+                        'showitem' => 'custom_field',
+                        'customKey' => 'customValue',
+                    ],
+                ],
+            ],
+        ];
+        $expected = [
+            'sys_redirect' => [
+                'types' => [
+                    'default' => [
+                        'label' => 'My custom label',
+                        'showitem' => 'custom_field',
+                        'existingKey' => 'existingValue',
+                        'customKey' => 'customValue',
+                    ],
+                ],
+            ],
+        ];
+        $result = new TcaMigration()->migrate($input);
+        self::assertSame($expected, $result->getTca());
+        self::assertCount(1, $result->getMessages());
+        self::assertStringContainsString('sys_redirect', $result->getMessages()[0]);
+        self::assertStringContainsString('\'1\'', $result->getMessages()[0]);
+        self::assertStringContainsString('\'default\'', $result->getMessages()[0]);
+    }
+
+    #[Test]
+    #[DataProvider('numberFormatDataProvider')]
+    public function numberFormatMigration(array $input, array $expected): void
+    {
+        $result = new TcaMigration()->migrate($input);
+        self:self::assertEquals($expected, $result->getTca());
+    }
+
+    public static function numberFormatDataProvider(): iterable
+    {
+        yield 'type=number format=integer' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'format' => 'integer',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 0,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        yield 'type=number format=decimal' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'format' => 'decimal',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 2,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        yield 'type=number no format' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        yield 'type=number scale already set and format integer given' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 5,
+                                'format' => 'integer',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 5,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+        yield 'type=number scale already set and format decimal given' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 5,
+                                'format' => 'decimal',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'number',
+                                'scale' => 5,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    public static function uuidEnableCopyToClipboardDataProvider(): iterable
+    {
+        yield 'disabled copy to clipboard is moved to appearance' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'enableCopyToClipboard' => false,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'appearance' => [
+                                    'copyToClipboard' => false,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expectedMessageCount' => 1,
+        ];
+        yield 'enabled copy to clipboard is moved to appearance' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'enableCopyToClipboard' => true,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'appearance' => [
+                                    'copyToClipboard' => true,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expectedMessageCount' => 1,
+        ];
+        yield 'existing appearance options are kept and win over the old option' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'enableCopyToClipboard' => false,
+                                'appearance' => [
+                                    'copyToClipboard' => true,
+                                    'someOption' => 'someValue',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                                'appearance' => [
+                                    'copyToClipboard' => true,
+                                    'someOption' => 'someValue',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expectedMessageCount' => 1,
+        ];
+        yield 'columnsOverrides of a uuid column are migrated' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                            ],
+                        ],
+                    ],
+                    'types' => [
+                        'aType' => [
+                            'columnsOverrides' => [
+                                'aColumn' => [
+                                    'config' => [
+                                        'enableCopyToClipboard' => false,
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'uuid',
+                            ],
+                        ],
+                    ],
+                    'types' => [
+                        'aType' => [
+                            'columnsOverrides' => [
+                                'aColumn' => [
+                                    'config' => [
+                                        'appearance' => [
+                                            'copyToClipboard' => false,
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expectedMessageCount' => 1,
+        ];
+        yield 'other types are left untouched' => [
+            'input' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                                'enableCopyToClipboard' => false,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'aTable' => [
+                    'columns' => [
+                        'aColumn' => [
+                            'config' => [
+                                'type' => 'input',
+                                'enableCopyToClipboard' => false,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expectedMessageCount' => 0,
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('uuidEnableCopyToClipboardDataProvider')]
+    public function uuidEnableCopyToClipboardIsMigratedToAppearance(array $input, array $expected, int $expectedMessageCount): void
+    {
+        $result = new TcaMigration()->migrate($input);
+        self::assertSame($expected, $result->getTca());
+        self::assertCount($expectedMessageCount, $result->getMessages());
     }
 }

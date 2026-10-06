@@ -34,7 +34,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 final class MfaProviderPass implements CompilerPassInterface
 {
-    protected string $tagName;
+    private string $tagName;
 
     public function __construct(string $tagName)
     {
@@ -69,7 +69,7 @@ final class MfaProviderPass implements CompilerPassInterface
             }
         }
 
-        foreach ((new DependencyOrderingService())->orderByDependencies($providers) as $identifier => $properties) {
+        foreach (new DependencyOrderingService()->orderByDependencies($providers) as $identifier => $properties) {
             $manifest = new Definition(MfaProviderManifest::class);
             $manifest->setArguments([
                 $identifier,

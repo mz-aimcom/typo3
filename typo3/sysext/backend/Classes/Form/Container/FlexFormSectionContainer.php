@@ -70,8 +70,8 @@ class FlexFormSectionContainer extends AbstractContainer
             $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $flexFormContainerContainerResult);
         }
 
-        $containerId = sprintf('flexform-section-container-%s-%s-%s-%s', $flexFormSheetName, $this->data['fieldName'], $flexFormFieldName, md5($this->data['elementBaseName']));
-        $sectionContainerId = sprintf('flexform-section-%s-%s-%s-%s', $flexFormSheetName, $this->data['fieldName'], $flexFormFieldName, md5($this->data['elementBaseName']));
+        $containerId = sprintf('flexform-section-container-%s-%s-%s-%s', $flexFormSheetName, $this->data['fieldName'], md5($flexFormFieldName), md5($this->data['elementBaseName']));
+        $sectionContainerId = sprintf('flexform-section-%s-%s-%s-%s', $flexFormSheetName, $this->data['fieldName'], md5($flexFormFieldName), md5($this->data['elementBaseName']));
         $hashedSectionContainerId = 'section-' . md5($sectionContainerId);
 
         // "New container" handling: Creates buttons for each possible container with all relevant information for the ajax call.
@@ -127,7 +127,7 @@ class FlexFormSectionContainer extends AbstractContainer
         $html[] =                 htmlspecialchars($sectionTitle);
         $html[] =           '</legend>';
         $html[] =           '<div class="form-group">';
-        $html[] =               '<button class="btn btn-default t3-form-flexsection-toggle" type="button" title="' . $toggleAll . '" data-expand-all="false">';
+        $html[] =               '<button class="btn btn-default t3-form-flexsection-toggle" type="button" title="' . $toggleAll . '">';
         $html[] =                   $this->iconFactory->getIcon('actions-move-right', IconSize::SMALL)->render() . $toggleAll;
         $html[] =               '</button>';
         $html[] =           '</div>';

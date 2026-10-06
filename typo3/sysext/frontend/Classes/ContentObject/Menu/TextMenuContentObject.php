@@ -37,15 +37,15 @@ class TextMenuContentObject extends AbstractMenuContentObject
             return '';
         }
 
-        $frontendController = $this->getTypoScriptFrontendController();
+        $register = $this->request->getAttribute('frontend.register.stack')->current();
         $cObjectForCurrentMenu = GeneralUtility::makeInstance(ContentObjectRenderer::class);
-        $menuContent = '';
+        $menuContent = [];
         $typoScriptService = GeneralUtility::makeInstance(TypoScriptService::class);
         $subMenuObjSuffixes = $typoScriptService->explodeConfigurationForOptionSplit(['sOSuffix' => $this->mconf['submenuObjSuffixes'] ?? null], count($this->result));
         $explicitSpacerRenderingEnabled = ($this->mconf['SPC'] ?? false);
         foreach ($this->result as $key => $val) {
-            $frontendController->register['count_HMENU_MENUOBJ']++;
-            $frontendController->register['count_MENUOBJ']++;
+            $register->set('count_HMENU_MENUOBJ', (int)$register->get('count_HMENU_MENUOBJ', 0) + 1);
+            $register->set('count_MENUOBJ', (int)$register->get('count_MENUOBJ', 0) + 1);
 
             // Initialize the cObj with the page record of the menu item
             $cObjectForCurrentMenu->setRequest($this->request);
@@ -55,7 +55,7 @@ class TextMenuContentObject extends AbstractMenuContentObject
             $this->I['val'] = $val;
             $this->I['title'] = $this->getPageTitle($this->menuArr[$key]['title'] ?? '', $this->menuArr[$key]['nav_title'] ?? '');
             $this->I['title.'] = $this->I['val']['stdWrap.'] ?? [];
-            $this->I['title'] = $cObjectForCurrentMenu->stdWrapValue('title', $this->I ?? []);
+            $this->I['title'] = $cObjectForCurrentMenu->stdWrapValue('title', $this->I);
             $this->I['uid'] = $this->menuArr[$key]['uid'] ?? 0;
             $this->I['mount_pid'] = $this->menuArr[$key]['mount_pid'] ?? 0;
             $this->I['pid'] = $this->menuArr[$key]['pid'] ?? 0;
@@ -134,8 +134,10 @@ class TextMenuContentObject extends AbstractMenuContentObject
                 $this->I['theItem'] .= $this->subMenu($this->I['uid'], $subMenuObjSuffixes[$key]['sOSuffix'] ?? '', $key);
             }
             $part = $cObjectForCurrentMenu->stdWrapValue('wrapItemAndSub', $this->I['val']);
-            $menuContent .= $part ? $cObjectForCurrentMenu->wrap($this->I['theItem'], $part) : $this->I['theItem'];
+            $menuContent[] = $part ? $cObjectForCurrentMenu->wrap($this->I['theItem'], $part) : $this->I['theItem'];
         }
+
+        $menuContent = implode('', $menuContent);
         if (is_array($this->mconf['stdWrap.'] ?? null)) {
             $menuContent = (string)$cObjectForCurrentMenu->stdWrap($menuContent, $this->mconf['stdWrap.']);
         }

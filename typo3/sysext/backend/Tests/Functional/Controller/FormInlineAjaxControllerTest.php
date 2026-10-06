@@ -20,9 +20,11 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Controller;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\FormInlineAjaxController;
 use TYPO3\CMS\Backend\Routing\Route;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -30,10 +32,7 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    /**
-     * @var array
-     */
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
         'DA' => ['id' => 1, 'title' => 'Dansk', 'locale' => 'da_DK.UTF8'],
     ];
@@ -70,12 +69,29 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
             ],
         ];
         $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = $request->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
         $request = $request->withParsedBody($parsedBody);
         $response = $this->get(FormInlineAjaxController::class)->createAction($request);
         $body = (string)$response->getBody();
         $jsonArray = json_decode($body, true);
         self::assertNotEmpty($jsonArray['data']);
+    }
+
+    #[Test]
+    public function createActionWithoutAjaxContextReturnsANoOpResponseInsteadOfThrowing(): void
+    {
+        // Regression test: a stale/interrupted request (e.g. the browser
+        // navigated away before this in-flight request completed) can arrive
+        // with neither a parsed body nor query params carrying "ajax" at all.
+        // This must degrade gracefully instead of a PHP "undefined array key"
+        // warning escalating into an uncaught exception.
+        $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = $request->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
+        $request = $request->withParsedBody([]);
+        $response = $this->get(FormInlineAjaxController::class)->createAction($request);
+        self::assertSame(204, $response->getStatusCode());
     }
 
     #[Test]
@@ -88,6 +104,7 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
             ],
         ];
         $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = $request->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
         $request = $request->withParsedBody($parsedBody);
         $response = $this->get(FormInlineAjaxController::class)->createAction($request);
@@ -106,6 +123,7 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
             ],
         ];
         $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = $request->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
         $request = $request->withParsedBody($parsedBody);
         $response = $this->get(FormInlineAjaxController::class)->createAction($request);
@@ -120,6 +138,8 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
         unset($GLOBALS['TCA']['tx_testirrecsv_offer']['ctrl']['languageField']);
         unset($GLOBALS['TCA']['tx_testirrecsv_offer']['ctrl']['transOrigPointerField']);
         unset($GLOBALS['TCA']['tx_testirrecsv_offer']['ctrl']['transOrigDiffSourceField']);
+        unset($GLOBALS['TCA']['tx_testirrecsv_offer']['columns']['sys_language_uid']);
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
         $parsedBody = [
             'ajax' => [
                 0 => 'data-1-tx_testirrecsv_hotel-NEW59c1062549e56282348897-offers-tx_testirrecsv_offer',
@@ -127,15 +147,16 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
             ],
         ];
         $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = $request->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
         $request = $request->withParsedBody($parsedBody);
         $response = $this->get(FormInlineAjaxController::class)->createAction($request);
         $body = (string)$response->getBody();
         $jsonArray = json_decode($body, true);
-        self::assertDoesNotMatchRegularExpression('/<select[^>]* name="data\[tx_testirrecsv_offer\]\[NEW[1-9]+\]\[sys_language_uid\]"[^>]*>/', $jsonArray['data']);
+        self::assertDoesNotMatchRegularExpression('/<select[^>]* name="data\[tx_testirrecsv_offer\]\[NEW[[:alnum:]]+\]\[sys_language_uid\]"[^>]*>/', $jsonArray['data']);
     }
 
-    protected function getContextForSysLanguageUid(int $sysLanguageUid): array
+    private function getContextForSysLanguageUid(int $sysLanguageUid): array
     {
         $config = [
             'type' => 'inline',
@@ -166,7 +187,7 @@ final class FormInlineAjaxControllerTest extends FunctionalTestCase
         $configJson = json_encode($config);
         return [
             'config' => $configJson,
-            'hmac' => (new HashService())->hmac($configJson, 'InlineContext'),
+            'hmac' => new HashService()->hmac($configJson, 'InlineContext'),
         ];
     }
 }

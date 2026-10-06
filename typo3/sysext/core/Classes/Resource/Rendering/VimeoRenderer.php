@@ -15,17 +15,19 @@
 
 namespace TYPO3\CMS\Core\Resource\Rendering;
 
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Attribute\AsFileRenderer;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
 use TYPO3\CMS\Core\Resource\OnlineMedia\Helpers\OnlineMediaHelperInterface;
 use TYPO3\CMS\Core\Resource\OnlineMedia\Helpers\OnlineMediaHelperRegistry;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Vimeo renderer class
  */
+#[AsFileRenderer]
 class VimeoRenderer implements FileRendererInterface
 {
     /**
@@ -34,26 +36,11 @@ class VimeoRenderer implements FileRendererInterface
     protected $onlineMediaHelper;
 
     /**
-     * Returns the priority of the renderer
-     * This way it is possible to define/overrule a renderer
-     * for a specific file type/context.
-     * For example create a video renderer for a certain storage/driver type.
-     * Should be between 1 and 100, 100 is more important than 1
-     *
-     * @return int
-     */
-    public function getPriority()
-    {
-        return 1;
-    }
-
-    /**
      * Check if given File(Reference) can be rendered
      *
      * @param FileInterface $file File of FileReference to render
-     * @return bool
      */
-    public function canRender(FileInterface $file)
+    public function canRender(FileInterface $file): bool
     {
         return ($file->getMimeType() === 'video/vimeo' || $file->getExtension() === 'vimeo') && $this->getOnlineMediaHelper($file) !== false;
     }
@@ -84,16 +71,19 @@ class VimeoRenderer implements FileRendererInterface
      *
      * @param int|string $width TYPO3 known format; examples: 220, 200m or 200c
      * @param int|string $height TYPO3 known format; examples: 220, 200m or 200c
-     * @return string
      */
-    public function render(FileInterface $file, $width, $height, array $options = [])
+    public function render(FileInterface $file, int|string $width, int|string $height, array $options = []): string
     {
         $options = $this->collectOptions($options, $file);
         $src = $this->createVimeoUrl($options, $file);
+        if ($src === '') {
+            return '';
+        }
         $attributes = $this->collectIframeAttributes($width, $height, $options);
 
         return sprintf(
-            '<iframe src="%s"%s></iframe>',
+            '<iframe %s="%s"%s></iframe>',
+            $options['srcAttribute'] ?? 'src',
             htmlspecialchars($src, ENT_QUOTES | ENT_HTML5),
             empty($attributes) ? '' : ' ' . $this->implodeAttributes($attributes)
         );
@@ -122,15 +112,15 @@ class VimeoRenderer implements FileRendererInterface
         return $options;
     }
 
-    /**
-     * @return string
-     */
-    protected function createVimeoUrl(array $options, FileInterface $file)
+    protected function createVimeoUrl(array $options, FileInterface $file): string
     {
         $videoIdRaw = $this->getVideoIdFromFile($file);
         $videoIdRaw = GeneralUtility::trimExplode('/', $videoIdRaw, true);
 
-        $videoId = $videoIdRaw[0];
+        $videoId = $videoIdRaw[0] ?? '';
+        if (empty($videoId)) {
+            return '';
+        }
         $hash = $videoIdRaw[1] ?? null;
 
         $urlParams = [];
@@ -219,11 +209,14 @@ class VimeoRenderer implements FileRendererInterface
     {
         $attributeList = [];
         foreach ($attributes as $name => $value) {
+            if ($value === null || $value === false) {
+                continue;
+            }
             $name = preg_replace('/[^\p{L}0-9_.-]/u', '', $name);
             if ($value === true) {
                 $attributeList[] = $name;
             } else {
-                $attributeList[] = $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_HTML5) . '"';
+                $attributeList[] = $name . '="' . htmlspecialchars((string)$value, ENT_QUOTES | ENT_HTML5) . '"';
             }
         }
         return implode(' ', $attributeList);
@@ -231,9 +224,11 @@ class VimeoRenderer implements FileRendererInterface
 
     /**
      * HTML5 deprecated the "frameborder" attribute as everything should be done via styling.
+     *
+     * @todo: This renderer has a dependency to Request / TypoScript. Model this explicitly.
      */
     protected function shouldIncludeFrameBorderAttribute(): bool
     {
-        return GeneralUtility::makeInstance(PageRenderer::class)->getDocType()->shouldIncludeFrameBorderAttribute();
+        return DocType::createFromRequest($GLOBALS['TYPO3_REQUEST'] ?? null)->shouldIncludeFrameBorderAttribute();
     }
 }

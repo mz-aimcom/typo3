@@ -85,23 +85,69 @@ final readonly class XliffLoader implements LoaderInterface
     private function parseXliffFromRoot(\SimpleXMLElement $root, string $locale, string $domain): MessageCatalogue
     {
         $catalogue = new MessageCatalogue($locale);
+        $version = $this->getXliffVersion($root);
+
+        if ($version === '2.0') {
+            $this->parseXliff2($root, $catalogue, $domain);
+        } else {
+            // Default to XLIFF 1.2 parsing
+            $this->parseXliff1($root, $catalogue, $domain);
+        }
+
+        return $catalogue;
+    }
+
+    /**
+     * Detect XLIFF version from the root element
+     */
+    private function getXliffVersion(\SimpleXMLElement $root): string
+    {
+        $namespaces = $root->getNamespaces(true);
+
+        // Check if XLIFF 2.x namespace is present (matches 2.0, 2.1, 2.2, etc.)
+        foreach ($namespaces as $namespace) {
+            if (str_starts_with($namespace, 'urn:oasis:names:tc:xliff:document:2.')) {
+                return '2.0';
+            }
+        }
+
+        // Check version attribute
+        $version = (string)$root['version'];
+        if (str_starts_with($version, '2.')) {
+            return '2.0';
+        }
+
+        // Default to 1.2
+        return '1.2';
+    }
+
+    /**
+     * Parse XLIFF 1.2 format
+     */
+    private function parseXliff1(\SimpleXMLElement $root, MessageCatalogue $catalogue, string $domain): void
+    {
+        $fileTag = $root->file;
+        $isDefaultLanguage = !isset($fileTag['target-language']); // Default language from XLIFF template (no target element)
         $bodyOfFileTag = $root->file->body;
         $requireApprovedLocalizations = (bool)($GLOBALS['TYPO3_CONF_VARS']['LANG']['requireApprovedLocalizations'] ?? true);
 
         if ($bodyOfFileTag instanceof \SimpleXMLElement) {
             foreach ($bodyOfFileTag->children() as $translationElement) {
+                $deprecated = false;
                 /** @var \SimpleXMLElement $translationElement */
                 if ($translationElement->getName() === 'trans-unit' && !isset($translationElement['restype'])) {
                     // Regular translation unit
                     $id = (string)$translationElement['id'];
-                    if ($locale === 'en') {
+                    $deprecated = isset($translationElement['x-unused-since']);
+                    if ($isDefaultLanguage) {
                         // Default language from XLIFF template (no target element)
-                        $translation = (string)($translationElement->target) ?: (string)$translationElement->source;
-                        $catalogue->set($id, $translation, $domain);
+                        $sourceElement = $translationElement->source;
+                        $translation = $this->extractText($sourceElement, $translationElement);
+                        $catalogue->set($id . ($deprecated ? '.x-unused' : ''), $translation, $domain);
                     } else {
                         $approved = (string)($translationElement['approved'] ?? 'yes');
                         if (!$requireApprovedLocalizations || $approved === 'yes') {
-                            $catalogue->set($id, (string)$translationElement->target, $domain);
+                            $catalogue->set($id . ($deprecated ? '.x-unused' : ''), $this->extractText($translationElement->target, $translationElement), $domain);
                         }
                     }
                 } elseif ($translationElement->getName() === 'group' && isset($translationElement['restype']) && (string)$translationElement['restype'] === 'x-gettext-plurals') {
@@ -110,16 +156,16 @@ final readonly class XliffLoader implements LoaderInterface
                     foreach ($translationElement->children() as $translationPluralForm) {
                         /** @var \SimpleXMLElement $translationPluralForm */
                         if ($translationPluralForm->getName() === 'trans-unit') {
+                            $deprecated = isset($translationPluralForm['x-unused-since']);
                             // Extract plural form index from ID like "1[0]", "1[1]"
                             $formIndex = substr((string)$translationPluralForm['id'], strpos((string)$translationPluralForm['id'], '[') + 1, -1);
-                            if ($locale === 'en') {
+                            if ($isDefaultLanguage) {
                                 // Default language from XLIFF template (no target element)
-                                $translation = (string)$translationPluralForm->target ?: (string)$translationPluralForm->source;
-                                $parsedTranslationElement[(int)$formIndex] = $translation;
+                                $parsedTranslationElement[(int)$formIndex] = $this->extractText($translationPluralForm->source, $translationPluralForm);
                             } else {
                                 $approved = (string)($translationPluralForm['approved'] ?? 'yes');
                                 if (!$requireApprovedLocalizations || $approved === 'yes') {
-                                    $parsedTranslationElement[(int)$formIndex] = (string)$translationPluralForm->target;
+                                    $parsedTranslationElement[(int)$formIndex] = $this->extractText($translationPluralForm->target, $translationPluralForm);
                                 }
                             }
                         }
@@ -132,12 +178,123 @@ final readonly class XliffLoader implements LoaderInterface
                             $id = substr($id, 0, (int)strpos($id, '['));
                         }
                         // Handle plurals - Symfony uses ICU format
-                        $catalogue->set($id, $this->convertToIcuPlural(array_values($parsedTranslationElement)), $domain);
+                        $catalogue->set($id . ($deprecated ? '.x-unused' : ''), $this->convertToIcuPlural(array_values($parsedTranslationElement)), $domain);
                     }
                 }
             }
         }
-        return $catalogue;
+    }
+
+    /**
+     * Parse XLIFF 2.0 format
+     */
+    private function parseXliff2(\SimpleXMLElement $root, MessageCatalogue $catalogue, string $domain): void
+    {
+        $requireApprovedLocalizations = (bool)($GLOBALS['TYPO3_CONF_VARS']['LANG']['requireApprovedLocalizations'] ?? true);
+
+        $ns = $root->getDocNamespaces();
+        $ns = reset($ns) ?: 'urn:oasis:names:tc:xliff:document:2.0';
+        // Register the XLIFF 2.0 namespace
+        $root->registerXPathNamespace('xliff', $ns);
+        $isDefaultLanguage = !isset($root['trgLang']); // Default language from XLIFF template (no target element)
+
+        // Get all file elements
+        $files = $root->xpath('//xliff:file');
+        if ($files === false) {
+            return;
+        }
+
+        foreach ($files as $file) {
+            $file->registerXPathNamespace('xliff', $ns);
+
+            // Get all unit elements within this file
+            $units = $file->xpath('.//xliff:unit');
+            if ($units === false) {
+                continue;
+            }
+
+            foreach ($units as $unit) {
+                $unit->registerXPathNamespace('xliff', $ns);
+                $unitId = (string)$unit['id'];
+
+                // Check if this is a plural unit (contains multiple segments)
+                $segments = $unit->xpath('.//xliff:segment');
+                if ($segments === false) {
+                    continue;
+                }
+
+                if (count($segments) === 1) {
+                    // Regular translation unit
+                    $segment = $segments[0];
+                    $segment->registerXPathNamespace('xliff', $ns);
+
+                    $source = $segment->xpath('.//xliff:source');
+                    $target = $segment->xpath('.//xliff:target');
+
+                    $deprecated = ((string)($segment['subState'] ?? '')) === 'deprecated';
+
+                    if ($isDefaultLanguage) {
+                        // Default language from XLIFF template (no target element)
+                        $translation = $this->extractText($source[0], $segment);
+                        $catalogue->set($unitId . ($deprecated ? '.x-unused' : ''), $translation, $domain);
+                    } else {
+                        // Check approval state (XLIFF 2.0 uses 'state' attribute on segment)
+                        $approved = 'yes';
+                        if (isset($segment['state'])) {
+                            $state = (string)$segment['state'];
+                            // XLIFF 2.0 states: initial, translated, reviewed, final
+                            // We consider 'final' as approved, others depend on config
+                            if ($state === 'initial' || $state === 'translated') {
+                                $approved = 'no';
+                            }
+                        }
+
+                        if (!$requireApprovedLocalizations || $approved === 'yes') {
+                            if ($target !== false && isset($target[0])) {
+                                $catalogue->set($unitId . ($deprecated ? '.x-unused' : ''), $this->extractText($target[0], $segment), $domain);
+                            }
+                        }
+                    }
+                } else {
+                    // Plural forms (multiple segments)
+                    $parsedTranslationElement = [];
+                    $formIndex = 0;
+                    $deprecated = false;
+
+                    foreach ($segments as $segment) {
+                        $segment->registerXPathNamespace('xliff', $ns);
+
+                        $source = $segment->xpath('.//xliff:source');
+                        $target = $segment->xpath('.//xliff:target');
+                        $deprecated = $deprecated || ((string)($segment['subState'] ?? '')) === 'deprecated';
+
+                        if ($isDefaultLanguage) {
+                            // Default language from XLIFF template (no target element)
+                            $parsedTranslationElement[$formIndex] = $this->extractText($source[0], $segment);
+                        } else {
+                            $approved = 'yes';
+                            if (isset($segment['state'])) {
+                                $state = (string)$segment['state'];
+                                if ($state === 'initial' || $state === 'translated') {
+                                    $approved = 'no';
+                                }
+                            }
+
+                            if (!$requireApprovedLocalizations || $approved === 'yes') {
+                                if ($target !== false && isset($target[0])) {
+                                    $parsedTranslationElement[$formIndex] = $this->extractText($target[0], $segment);
+                                }
+                            }
+                        }
+                        $formIndex++;
+                    }
+
+                    if ($parsedTranslationElement !== []) {
+                        $catalogue->set($unitId . ($deprecated ? '.x-unused' : ''), $this->convertToIcuPlural(array_values($parsedTranslationElement)), $domain);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -166,5 +323,49 @@ final readonly class XliffLoader implements LoaderInterface
     private function isXmlString(string $resource): bool
     {
         return str_starts_with($resource, '<?xml');
+    }
+
+    /**
+     * Extract text content from an XML element, respecting xml:space attribute.
+     * Per XML spec: xml:space="preserve" keeps whitespace as-is,
+     * otherwise whitespace should be normalized (multiple spaces/newlines collapsed to single space).
+     * see https://www.w3.org/TR/xml/#sec-white-space
+     */
+    private function extractText(\SimpleXMLElement $element, ?\SimpleXMLElement $parentElement = null): string
+    {
+        $text = (string)$element;
+
+        // Check xml:space on the element itself or parent (trans-unit/unit/segment)
+        $xmlSpace = $this->getXmlSpaceAttribute($element, $parentElement);
+
+        if ($xmlSpace !== 'preserve') {
+            // Normalize whitespace: collapse multiple whitespace characters to single space
+            $text = preg_replace('/\s+/', ' ', $text);
+            $text = trim($text);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Get the xml:space attribute value, checking element and parent (attribute is inherited per XML spec).
+     */
+    private function getXmlSpaceAttribute(\SimpleXMLElement $element, ?\SimpleXMLElement $parent): string
+    {
+        // Check element's xml:space attribute
+        $attributes = $element->attributes('xml', true);
+        if (isset($attributes['space'])) {
+            return (string)$attributes['space'];
+        }
+
+        // Check parent's xml:space attribute (inherited per XML spec)
+        if ($parent !== null) {
+            $parentAttributes = $parent->attributes('xml', true);
+            if (isset($parentAttributes['space'])) {
+                return (string)$parentAttributes['space'];
+            }
+        }
+
+        return 'default';
     }
 }

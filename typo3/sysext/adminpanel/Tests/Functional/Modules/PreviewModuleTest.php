@@ -25,7 +25,6 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -43,7 +42,7 @@ final class PreviewModuleTest extends FunctionalTestCase
         $GLOBALS['BE_USER'] = new BackendUserAuthentication();
 
         $frontendUser = new FrontendUserAuthentication();
-        $request = (new ServerRequest())->withAttribute('frontend.user', $frontendUser);
+        $request = new ServerRequest()->withAttribute('frontend.user', $frontendUser);
 
         $configurationService = $this->getMockBuilder(ConfigurationService::class)->disableOriginalConstructor()->getMock();
         $configurationService->expects($this->once())->method('getMainConfiguration')->willReturn([]);
@@ -55,18 +54,19 @@ final class PreviewModuleTest extends FunctionalTestCase
             ['preview', 'showHiddenRecords', '0'],
             ['preview', 'showFluidDebug', '0'],
         ];
-        $configurationService->method('getConfigurationOption')->withAnyParameters()->willReturnMap($valueMap);
+        $configurationService->method('getConfigurationOption')->willReturnMap($valueMap);
 
         $previewModule = $this->get(PreviewModule::class);
         $previewModule->injectConfigurationService($configurationService);
         $previewModule->enrich($request);
 
         /** @var UserAspect $frontendUserAspect */
-        $frontendUserAspect = GeneralUtility::makeInstance(Context::class)->getAspect('frontend.user');
+        $frontendUserAspect = $this->get(Context::class)->getAspect('frontend.user');
 
         // Check groups inside user object
         $groupUidsInFrontendUser = array_column($frontendUser->userGroups, 'uid');
         self::assertEqualsCanonicalizing($expectedGroupUids, $groupUidsInFrontendUser);
+        self::assertEqualsCanonicalizing($expectedGroupUids, array_keys($frontendUser->userGroups));
 
         // Check aspect property. Additional internal group -2 (general logged in state) required
         self::assertEqualsCanonicalizing(array_merge($expectedGroupUids, [-2]), $frontendUserAspect->get('groupIds'));

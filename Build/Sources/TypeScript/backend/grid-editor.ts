@@ -16,12 +16,15 @@ import { SeverityEnum } from './enum/severity';
 import 'bootstrap';
 import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import SecurityUtility from '@typo3/core/security-utility';
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { html, LitElement, nothing, type TemplateResult } from 'lit';
-import { classMap } from 'lit/directives/class-map';
-import { type StyleInfo, styleMap } from 'lit/directives/style-map';
-import { ref, type Ref, createRef } from 'lit/directives/ref';
+import { classMap } from 'lit/directives/class-map.js';
+import { type StyleInfo, styleMap } from 'lit/directives/style-map.js';
+import { ref, type Ref, createRef } from 'lit/directives/ref.js';
 import { CodeMirrorElement } from '@typo3/backend/code-editor/element/code-mirror-element';
+import wizardLabels from '~labels/core.wizards';
+import commonLabels from '~labels/core.common';
+import altDocLabels from '~labels/backend.alt_doc';
 
 type Cell = { spanned: number, rowspan: number, colspan: number, name: string, colpos: string, column: number, identifier: string, slideMode: SlideModes };
 
@@ -104,9 +107,9 @@ export class GridEditor extends LitElement {
     };
 
     const addLocaleMapping: Record<string, string> = {
-      top: TYPO3.lang.grid_addRow,
-      right: TYPO3.lang.grid_addColumn,
-      bottom: TYPO3.lang.grid_addRow
+      top: wizardLabels.get('grid_addRow'),
+      right: wizardLabels.get('grid_addColumn'),
+      bottom: wizardLabels.get('grid_addRow')
     };
 
     const removeHandlerMapping: Record<string, (e: Event) => void> = {
@@ -116,9 +119,9 @@ export class GridEditor extends LitElement {
     };
 
     const removeLocaleMapping: Record<string, string> = {
-      top: TYPO3.lang.grid_removeRow,
-      right: TYPO3.lang.grid_removeColumn,
-      bottom: TYPO3.lang.grid_removeRow
+      top: wizardLabels.get('grid_removeRow'),
+      right: wizardLabels.get('grid_removeColumn'),
+      bottom: wizardLabels.get('grid_removeRow')
     };
 
     return html`
@@ -179,7 +182,7 @@ export class GridEditor extends LitElement {
               class="t3js-grideditor-link-editor grideditor-action grideditor-action-edit"
               data-row=${row}
               data-col=${col}
-              title=${TYPO3.lang.grid_editCell}>
+              title=${wizardLabels.get('grid_editCell')}>
               <typo3-backend-icon identifier="actions-open" size="small"></typo3-backend-icon>
             </button>
             ${this.cellCanSpanRight(col, row) ?
@@ -189,7 +192,7 @@ export class GridEditor extends LitElement {
                   class="t3js-grideditor-link-expand-right grideditor-action grideditor-action-expand-right"
                   data-row=${row}
                   data-col=${col}
-                  title=${TYPO3.lang.grid_cell_merge_right}>
+                  title=${wizardLabels.get('grid_cell_merge_right')}>
                   <typo3-backend-icon identifier="actions-caret-right" size="small"></typo3-backend-icon>
                 </button>
               `
@@ -201,7 +204,7 @@ export class GridEditor extends LitElement {
                   class="t3js-grideditor-link-shrink-left grideditor-action grideditor-action-shrink-left"
                   data-row=${row}
                   data-col=${col}
-                  title=${TYPO3.lang.grid_cell_split_horizontal}>
+                  title=${wizardLabels.get('grid_cell_split_horizontal')}>
                   <typo3-backend-icon identifier="actions-caret-left" size="small"></typo3-backend-icon>
                 </button>
               `
@@ -213,7 +216,7 @@ export class GridEditor extends LitElement {
                   class="t3js-grideditor-link-expand-down grideditor-action grideditor-action-expand-down"
                   data-row=${row}
                   data-col=${col}
-                  title=${TYPO3.lang.grid_cell_merge_down}>
+                  title=${wizardLabels.get('grid_cell_merge_down')}>
                   <typo3-backend-icon identifier="actions-caret-down" size="small"></typo3-backend-icon>
                 </button>
               `
@@ -225,7 +228,7 @@ export class GridEditor extends LitElement {
                   class="t3js-grideditor-link-shrink-up grideditor-action grideditor-action-shrink-up"
                   data-row=${row}
                   data-col=${col}
-                  title=${TYPO3.lang.grid_cell_split_vertical}>
+                  title=${wizardLabels.get('grid_cell_split_vertical')}>
                   <typo3-backend-icon identifier="actions-caret-up" size="small"></typo3-backend-icon>
                 </button>
               `
@@ -235,13 +238,13 @@ export class GridEditor extends LitElement {
         </div>
 
         <div class="grideditor-cell-info">
-          <strong>${TYPO3.lang.grid_name}:</strong>
-          ${cell.name ? GridEditor.stripMarkup(cell.name) : TYPO3.lang.grid_notSet}
+          <strong>${wizardLabels.get('grid_name')}:</strong>
+          ${cell.name ? GridEditor.stripMarkup(cell.name) : wizardLabels.get('grid_notSet')}
           <br/>
-          <strong>${TYPO3.lang.grid_column}:</strong>
-          ${typeof cell.column === 'undefined' || isNaN(cell.column) ? TYPO3.lang.grid_notSet : cell.column}
-          ${cell.identifier?.length ? html`<br/><strong>${TYPO3.lang.grid_identifier}:</strong> ${cell.identifier}` : ''}
-          ${(cell.slideMode?.toString() || '') !== '' ? html`<br/><strong>${TYPO3.lang.grid_slideMode}:</strong> ${cell.slideMode.toString()}` : ''}
+          <strong>${wizardLabels.get('grid_column')}:</strong>
+          ${typeof cell.column === 'undefined' || isNaN(cell.column) ? wizardLabels.get('grid_notSet') : cell.column}
+          ${cell.identifier?.length ? html`<br/><strong>${wizardLabels.get('grid_identifier')}:</strong> ${cell.identifier}` : ''}
+          ${(cell.slideMode?.toString() || '') !== '' ? html`<br/><strong>${wizardLabels.get('grid_slideMode')}:</strong> ${cell.slideMode.toString()}` : ''}
         </div>
       </div>
     `;
@@ -250,7 +253,7 @@ export class GridEditor extends LitElement {
   protected renderPreview(): TemplateResult {
     if (Object.keys(this.codeMirrorConfig).length === 0) {
       return html`
-        <label>${TYPO3.lang['buttons.pageTsConfig']}</label>
+        <label>${altDocLabels.get('buttons.pageTsConfig')}</label>
         <div class="t3js-grideditor-preview-config grideditor-preview">
             <textarea class="t3js-tsconfig-preview-area form-control" rows="25" readonly ${ref(this.previewAreaRef)}></textarea>
         </div>
@@ -727,7 +730,7 @@ export class GridEditor extends LitElement {
 
     const nameFormGroup = formGroup.cloneNode(true) as HTMLElement;
     const nameLabel = label.cloneNode(true) as HTMLLabelElement;
-    nameLabel.innerText = TYPO3.lang.grid_nameHelp;
+    nameLabel.innerText = wizardLabels.get('grid_nameHelp');
     nameLabel.htmlFor = 'grideditor-field-name';
     const nameInput = input.cloneNode(true) as HTMLInputElement;
     nameInput.id = 'grideditor-field-name';
@@ -740,7 +743,7 @@ export class GridEditor extends LitElement {
 
     const columnFormGroup = formGroup.cloneNode(true) as HTMLElement;
     const columnLabel = label.cloneNode(true) as HTMLLabelElement;
-    columnLabel.innerText = TYPO3.lang.grid_columnHelp;
+    columnLabel.innerText = wizardLabels.get('grid_columnHelp');
     columnLabel.htmlFor = 'grideditor-field-colpos';
     const columnInput = input.cloneNode(true) as HTMLInputElement;
     columnInput.type = 'text';
@@ -753,7 +756,7 @@ export class GridEditor extends LitElement {
 
     const identifierFormGroup = formGroup.cloneNode(true) as HTMLElement;
     const identifierLabel = label.cloneNode(true) as HTMLLabelElement;
-    identifierLabel.innerText = TYPO3.lang.grid_identifierHelp;
+    identifierLabel.innerText = wizardLabels.get('grid_identifierHelp');
     identifierLabel.htmlFor = 'grideditor-field-identifier';
     const identifierInput = input.cloneNode(true) as HTMLInputElement;
     nameInput.type = 'text';
@@ -766,7 +769,7 @@ export class GridEditor extends LitElement {
 
     const slideModeFormGroup = formGroup.cloneNode(true) as HTMLElement;
     const slideModeLabel = label.cloneNode(true) as HTMLLabelElement;
-    slideModeLabel.innerText = TYPO3.lang.grid_slideModeHelp;
+    slideModeLabel.innerText = wizardLabels.get('grid_slideModeHelp');
     slideModeLabel.htmlFor = 'grideditor-field-slide-mode';
     const slideModeSelect = document.createElement('select');
     slideModeSelect.classList.add('form-select', 't3js-grideditor-field-slide-mode');
@@ -788,17 +791,17 @@ export class GridEditor extends LitElement {
 
     markup.append(nameFormGroup, columnFormGroup, identifierFormGroup, slideModeFormGroup);
 
-    const modal = Modal.show(TYPO3.lang.grid_windowTitle, markup, SeverityEnum.notice, [
+    const modal = Modal.show(wizardLabels.get('grid_windowTitle'), markup, SeverityEnum.notice, [
       {
         active: true,
         btnClass: 'btn-default',
         name: 'cancel',
-        text: TYPO3.lang['button.cancel'] || 'Cancel',
+        text: commonLabels.get('cancel'),
       },
       {
         btnClass: 'btn-primary',
         name: 'ok',
-        text: TYPO3.lang['button.ok'] || 'OK',
+        text: commonLabels.get('ok'),
       },
     ]);
     modal.userData.col = col;

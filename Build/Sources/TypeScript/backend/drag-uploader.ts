@@ -12,11 +12,9 @@
  */
 
 import DocumentService from '@typo3/core/document-service';
-import { DateTime } from 'luxon';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import { SeverityEnum } from './enum/severity';
 import { MessageUtility } from './utility/message-utility';
-import NProgress from 'nprogress';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { default as Modal, type ModalElement, Sizes as ModalSizes } from './modal';
 import Notification from './notification';
@@ -28,7 +26,11 @@ import DomHelper from '@typo3/backend/utility/dom-helper';
 import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
 import '@typo3/backend/element/progress-bar-element';
 import type { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
+import { topLevelModuleImport } from '@typo3/backend/utility/top-level-module-import';
 import { FormatUtility } from '@typo3/backend/utility/format-utility';
+import coreLabels from '~labels/core.core';
+import commonLabels from '~labels/core.common';
+import fileListLabels from '~labels/filelist.mod_file_list';
 
 /**
  * Possible actions for conflicts w/ existing files
@@ -39,6 +41,13 @@ enum Action {
   SKIP = 'cancel',
   USE_EXISTING = 'useExisting',
 }
+
+enum Mode {
+  MANAGE = 'manage',
+  BROWSE = 'browse',
+}
+
+const uploadFinishedEventName = 'typo3:drag-uploader:upload-finished';
 
 /**
  * Properties of a file as returned from the AJAX action; essential, this is a serialized instance of
@@ -81,7 +90,7 @@ export default class DragUploader {
   public filesExtensionsDisallowed: string;
   public fileDenyPattern: RegExp | null;
   public maxFileSize: number;
-  public trigger: HTMLElement;
+  public trigger: HTMLElement | null;
   public target: string;
   public reloadUrl: string;
   public manualTable: boolean;
@@ -92,6 +101,7 @@ export default class DragUploader {
   private askForOverride: Array<FileConflict> = [];
 
   private percentagePerFile: number = 1;
+  private overallProgressBar: ProgressBarElement | null = null;
 
   private readonly body: HTMLElement;
   private readonly element: HTMLElement;
@@ -112,13 +122,13 @@ export default class DragUploader {
   constructor(element: HTMLElement) {
     this.body = document.querySelector('body');
     this.element = element;
-    const hasTrigger = this.element.dataset.dropzoneTrigger !== undefined;
     this.trigger = document.querySelector(this.element.dataset.dropzoneTrigger);
     this.defaultAction = this.element.dataset.defaultAction as Action || Action.SKIP;
     this.dropzone = document.createElement('div');
     this.dropzone.classList.add('dropzone');
     this.dropzone.setAttribute('hidden', 'hidden');
     this.irreObjectUid = this.element.dataset.fileIrreObject;
+    this.manualTable = this.element.hasAttribute('data-manual-table');
 
     const dropZoneEscapedTarget = document.querySelector(this.element.dataset.dropzoneTarget);
     if (this.irreObjectUid && DomHelper.nextAll(dropZoneEscapedTarget).length !== 0) {
@@ -169,10 +179,12 @@ export default class DragUploader {
       '</div>' +
       '<div class="dropzone-hint-body">' +
       '<h3 id="dropzone-title" class="dropzone-hint-title">' +
-      TYPO3.lang['file_upload.dropzonehint.title'] +
+      coreLabels.get('file_upload.dropzonehint.title') +
       '</h3>' +
       '<p class="dropzone-hint-message">' +
-      TYPO3.lang['file_upload.dropzonehint.message'] +
+      coreLabels.get('file_upload.dropzonehint.message', {
+        u: chunks => '<u>' + chunks.join('') + '</u>',
+      }) +
       '</p>' +
       '</div>' +
       '</div>'
@@ -194,9 +206,15 @@ export default class DragUploader {
     const dropzoneCloseButton = document.createElement('button');
     dropzoneCloseButton.classList.add('dropzone-close');
     dropzoneCloseButton.type = 'button';
-    dropzoneCloseButton.setAttribute('aria-label', TYPO3.lang['file_upload.dropzone.close']);
+    dropzoneCloseButton.setAttribute('aria-label', coreLabels.get('file_upload.dropzone.close'));
     dropzoneCloseButton.addEventListener('click', this.hideDropzone);
     this.dropzone.append(dropzoneCloseButton);
+
+    document.addEventListener(uploadFinishedEventName, this.closeDropzone);
+
+    if (this.element.hasAttribute('data-upload-on-paste')) {
+      document.addEventListener('paste', this.handlePaste);
+    }
 
     // no filelist then create own progress table
     if (this.fileList === null) {
@@ -230,7 +248,7 @@ export default class DragUploader {
       }
     });
 
-    this.bindUploadButton(hasTrigger === true ? this.trigger : this.element);
+    this.bindUploadButton(this.trigger !== null ? this.trigger : this.element);
   }
 
   public static init(): void {
@@ -279,6 +297,18 @@ export default class DragUploader {
     this.dropzone.removeAttribute('hidden');
   }
 
+  public closeDropzone = (): void => {
+    this.dropzone.hidden = true;
+    this.dropzone.classList.remove('drop-status-ok');
+
+    if (this.irreObjectUid !== undefined) {
+      // Hide artificial file table in IRRE context
+      this.fileList.parentElement.hidden = true;
+    }
+    // User manually hides the dropzone, so we can reset the flag
+    this.manuallyTriggered = false;
+  };
+
   /**
    *
    * @param {Event} event
@@ -286,10 +316,7 @@ export default class DragUploader {
   public hideDropzone = (event: Event): void => {
     event.stopPropagation();
     event.preventDefault();
-    this.dropzone.setAttribute('hidden', 'hidden');
-    this.dropzone.classList.remove('drop-status-ok');
-    // User manually hides the dropzone, so we can reset the flag
-    this.manuallyTriggered = false;
+    this.closeDropzone();
   };
 
   /**
@@ -344,6 +371,19 @@ export default class DragUploader {
     this.processFiles(event.dataTransfer.files);
   };
 
+  public handlePaste = (event: ClipboardEvent): void => {
+    const files = event.clipboardData?.files;
+    if (event.defaultPrevented || !files || files.length === 0) {
+      return;
+    }
+    // Pasting into a form field is left to the field
+    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null) {
+      return;
+    }
+    event.preventDefault();
+    this.processFiles(files);
+  };
+
   /**
    * @param {FileList} files
    */
@@ -359,7 +399,9 @@ export default class DragUploader {
       this.fileList.closest('.filelist-main')?.querySelector('.t3-filelist-info-container')?.setAttribute('hidden', 'hidden');
     }
 
-    NProgress.start();
+    this.overallProgressBar = document.createElement('typo3-backend-progress-bar');
+    document.body.appendChild(this.overallProgressBar);
+    this.overallProgressBar.start();
     this.percentagePerFile = 1 / files.length;
 
     // Check for each file if is already exist before adding it to the queue
@@ -377,17 +419,21 @@ export default class DragUploader {
             uploaded: file,
             action: this.irreObjectUid ? Action.USE_EXISTING : this.defaultAction,
           });
-          NProgress.inc(this.percentagePerFile);
+          if (this.overallProgressBar) {
+            this.overallProgressBar.inc(this.percentagePerFile);
+          }
         } else {
-          new FileQueueItem(this, file, Action.SKIP);
+          new FileQueueItem(this, file, Action.SKIP, this.fileList.dataset.mode === Mode.BROWSE ? Mode.BROWSE : Mode.MANAGE);
         }
       });
       ajaxCalls.push(request);
     });
 
-    Promise.all(ajaxCalls).then((): void => {
-      this.drawOverrideModal();
-      NProgress.done();
+    Promise.all(ajaxCalls).then(async (): Promise<void> => {
+      await this.drawOverrideModal();
+      if (this.overallProgressBar) {
+        this.overallProgressBar.done();
+      }
     });
 
     this.fileInput.value = '';
@@ -426,6 +472,8 @@ export default class DragUploader {
     if (this.queueLength > 0) {
       this.queueLength--;
       if (this.queueLength === 0) {
+        document.dispatchEvent(new CustomEvent(uploadFinishedEventName));
+
         const timeout: number = messages && messages.length ? 5000 : 0;
         if (timeout) {
           for (const flashMessage of messages) {
@@ -437,15 +485,15 @@ export default class DragUploader {
           // After 5 seconds (when flash messages have disappeared), provide the user the option to reload the module
           setTimeout(() => {
             Notification.info(
-              TYPO3.lang['file_upload.reload.filelist'],
-              TYPO3.lang['file_upload.reload.filelist.message'],
+              coreLabels.get('file_upload.reload.filelist'),
+              coreLabels.get('file_upload.reload.filelist.message'),
               10,
               [
                 {
-                  label: TYPO3.lang['file_upload.reload.filelist.actions.dismiss'],
+                  label: coreLabels.get('file_upload.reload.filelist.actions.dismiss'),
                 },
                 {
-                  label: TYPO3.lang['file_upload.reload.filelist.actions.reload'],
+                  label: coreLabels.get('file_upload.reload.filelist.actions.reload'),
                   action: new ImmediateAction((): void => {
                     top.list_frame.document.location.href = this.reloadUrl;
                   })
@@ -461,21 +509,22 @@ export default class DragUploader {
   /**
    * Renders the modal for existing files
    */
-  public drawOverrideModal(): void {
+  public async drawOverrideModal(): Promise<void> {
     const amountOfItems = Object.keys(this.askForOverride).length;
     if (amountOfItems === 0) {
       return;
     }
+    await topLevelModuleImport('@typo3/backend/element/datetime-element.js');
     const $modalContent = document.createElement('div');
     let htmlContent = `
-      <p>${TYPO3.lang['file_upload.existingfiles.description']}</p>
+      <p>${coreLabels.get('file_upload.existingfiles.description')}</p>
       <table class="table">
         <thead>
           <tr>
             <th></th>
-            <th>${TYPO3.lang['file_upload.header.originalFile']}</th>
-            <th>${TYPO3.lang['file_upload.header.uploadedFile']}</th>
-            <th>${TYPO3.lang['file_upload.header.action']}</th>
+            <th>${coreLabels.get('file_upload.header.originalFile')}</th>
+            <th>${coreLabels.get('file_upload.header.uploadedFile')}</th>
+            <th>${coreLabels.get('file_upload.header.action')}</th>
           </tr>
         </thead>
         <tbody>
@@ -490,18 +539,18 @@ export default class DragUploader {
           </td>
           <td>
             ${this.askForOverride[i].original.name} (${FormatUtility.fileSizeAsString(this.askForOverride[i].original.size)})<br />
-            ${DateTime.fromSeconds(this.askForOverride[i].original.mtime).toLocaleString(DateTime.DATETIME_MED)}
+            <typo3-backend-datetime datetime="${this.askForOverride[i].original.mtime}" format="datetime"></typo3-backend-datetime>
           </td>
           <td>
             ${this.askForOverride[i].uploaded.name} (${FormatUtility.fileSizeAsString(this.askForOverride[i].uploaded.size)})<br />
-            ${DateTime.fromMillis(this.askForOverride[i].uploaded.lastModified).toLocaleString(DateTime.DATETIME_MED)}
+            <typo3-backend-datetime datetime="${Math.floor(this.askForOverride[i].uploaded.lastModified / 1000)}" format="datetime"></typo3-backend-datetime>
           </td>
           <td>
             <select class="form-select t3js-actions" data-override="${i}">
-              ${this.irreObjectUid ? `<option value="${Action.USE_EXISTING}">${TYPO3.lang['file_upload.actions.use_existing']}</option>` : ''}
-              <option value="${Action.SKIP}" ${this.defaultAction === Action.SKIP ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.skip']}</option>
-              <option value="${Action.RENAME}" ${this.defaultAction === Action.RENAME ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.rename']}</option>
-              <option value="${Action.OVERRIDE}" ${this.defaultAction === Action.OVERRIDE ? 'selected' : ''}>${TYPO3.lang['file_upload.actions.override']}</option>
+              ${this.irreObjectUid ? `<option value="${Action.USE_EXISTING}">${coreLabels.get('file_upload.actions.use_existing')}</option>` : ''}
+              <option value="${Action.SKIP}" ${this.defaultAction === Action.SKIP ? 'selected' : ''}>${coreLabels.get('file_upload.actions.skip')}</option>
+              <option value="${Action.RENAME}" ${this.defaultAction === Action.RENAME ? 'selected' : ''}>${coreLabels.get('file_upload.actions.rename')}</option>
+              <option value="${Action.OVERRIDE}" ${this.defaultAction === Action.OVERRIDE ? 'selected' : ''}>${coreLabels.get('file_upload.actions.override')}</option>
             </select>
           </td>
         </tr>
@@ -513,18 +562,18 @@ export default class DragUploader {
     $modalContent.innerHTML = htmlContent;
 
     const modal = Modal.advanced({
-      title: TYPO3.lang['file_upload.existingfiles.title'],
+      title: coreLabels.get('file_upload.existingfiles.title'),
       content: $modalContent,
       severity: SeverityEnum.warning,
       buttons: [
         {
-          text: TYPO3.lang['file_upload.button.cancel'] || 'Cancel',
+          text: coreLabels.get('file_upload.button.cancel') || 'Cancel',
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: TYPO3.lang['file_upload.button.continue'] || 'Continue with selected actions',
+          text: coreLabels.get('file_upload.button.continue') || 'Continue with selected actions',
           btnClass: 'btn-warning',
           name: 'continue',
         },
@@ -535,16 +584,16 @@ export default class DragUploader {
         const modalFooter = modal.querySelector('.modal-footer');
 
         const allActionLabel = document.createElement('label');
-        allActionLabel.textContent = TYPO3.lang['file_upload.actions.all.label'];
+        allActionLabel.textContent = coreLabels.get('file_upload.actions.all.label');
 
         const allActionSelect = document.createElement('span');
         allActionSelect.innerHTML = `
           <select class="form-select t3js-actions-all">
-            <option value="" selected>${TYPO3.lang['file_upload.actions.all.empty']}</option>
-            ${this.irreObjectUid ? `<option value="${Action.USE_EXISTING}">${TYPO3.lang['file_upload.actions.all.use_existing']}</option>` : ''}
-            <option value="${Action.SKIP}">${TYPO3.lang['file_upload.actions.all.skip']}</option>
-            <option value="${Action.RENAME}">${TYPO3.lang['file_upload.actions.all.rename']}</option>
-            <option value="${Action.OVERRIDE}">${TYPO3.lang['file_upload.actions.all.override']}</option>
+            <option value="" selected>${coreLabels.get('file_upload.actions.all.empty')}</option>
+            ${this.irreObjectUid ? `<option value="${Action.USE_EXISTING}">${coreLabels.get('file_upload.actions.all.use_existing')}</option>` : ''}
+            <option value="${Action.SKIP}">${coreLabels.get('file_upload.actions.all.skip')}</option>
+            <option value="${Action.RENAME}">${coreLabels.get('file_upload.actions.all.rename')}</option>
+            <option value="${Action.OVERRIDE}">${coreLabels.get('file_upload.actions.all.override')}</option>
           </select>
         `;
 
@@ -585,7 +634,7 @@ export default class DragUploader {
               fileInfo.original,
             );
           } else if (fileInfo.action !== Action.SKIP) {
-            new FileQueueItem(this, fileInfo.uploaded, fileInfo.action);
+            new FileQueueItem(this, fileInfo.uploaded, fileInfo.action, this.fileList.dataset.mode === Mode.BROWSE ? Mode.BROWSE : Mode.MANAGE);
           }
         }
         this.askForOverride = [];
@@ -595,12 +644,15 @@ export default class DragUploader {
 
     modal.addEventListener('typo3-modal-hidden', () => {
       this.askForOverride = [];
+
+      document.dispatchEvent(new CustomEvent(uploadFinishedEventName));
     });
   }
 }
 
 class FileQueueItem {
   private readonly row: HTMLElement;
+  private readonly mode: Mode;
   private readonly progress: HTMLElement;
   private readonly file: File;
   private readonly override: Action;
@@ -610,10 +662,11 @@ class FileQueueItem {
   private readonly progressBar: ProgressBarElement;
   private readonly dragUploader: DragUploader;
 
-  constructor(dragUploader: DragUploader, file: File, override: Action) {
+  constructor(dragUploader: DragUploader, file: File, override: Action, mode: Mode) {
     this.dragUploader = dragUploader;
     this.file = file;
     this.override = override;
+    this.mode = mode;
 
     this.row = document.createElement('tr');
     this.row.classList.add('upload-queue-item');
@@ -663,24 +716,31 @@ class FileQueueItem {
 
     // check file size
     if (this.dragUploader.maxFileSize > 0 && this.file.size > this.dragUploader.maxFileSize) {
-      this.updateMessage(TYPO3.lang['file_upload.maxFileSizeExceeded']
-        .replace(/\{0\}/g, this.file.name)
-        .replace(/\{1\}/g, FormatUtility.fileSizeAsString(this.dragUploader.maxFileSize)));
+      this.updateMessage(coreLabels.get('file_upload.maxFileSizeExceeded', {
+        '0': this.file.name,
+        '1': FormatUtility.fileSizeAsString(this.dragUploader.maxFileSize),
+      }));
       this.progressBar.value = 100;
       this.progressBar.severity = SeverityEnum.error;
 
       // check filename/extension against deny pattern
     } else if (this.dragUploader.fileDenyPattern && this.file.name.match(this.dragUploader.fileDenyPattern)) {
-      this.updateMessage(TYPO3.lang['file_upload.fileNotAllowed'].replace(/\{0\}/g, this.file.name));
+      this.updateMessage(coreLabels.get('file_upload.fileNotAllowed', {
+        '0': this.file.name,
+      }));
       this.progressBar.value = 100;
       this.progressBar.severity = SeverityEnum.error;
 
     } else if (this.isProhibitedByAllowedExtensionsList()) {
-      this.updateMessage(TYPO3.lang['file_upload.fileExtensionExpected'].replace(/\{0\}/g, this.dragUploader.filesExtensionsAllowed));
+      this.updateMessage(coreLabels.get('file_upload.fileExtensionExpected', {
+        '0': this.dragUploader.filesExtensionsAllowed,
+      }));
       this.progressBar.value = 100;
       this.progressBar.severity = SeverityEnum.error;
     } else if (this.isProhibitedByDisallowedExtensionsList()) {
-      this.updateMessage(TYPO3.lang['file_upload.fileExtensionDisallowed'].replace(/\{0\}/g, this.dragUploader.filesExtensionsDisallowed));
+      this.updateMessage(coreLabels.get('file_upload.fileExtensionDisallowed', {
+        '0': this.dragUploader.filesExtensionsDisallowed,
+      }));
       this.progressBar.value = 100;
       this.progressBar.severity = SeverityEnum.error;
     } else {
@@ -742,7 +802,9 @@ class FileQueueItem {
    * @param {XMLHttpRequest} response
    */
   public uploadError(response: XMLHttpRequest): void {
-    const errorText = TYPO3.lang['file_upload.uploadFailed'].replace(/\{0\}/g, this.file.name);
+    const errorText = coreLabels.get('file_upload.uploadFailed', {
+      '0': this.file.name
+    });
     this.updateMessage(errorText);
     try {
       const jsonResponse = JSON.parse(response.responseText) as any;
@@ -767,7 +829,7 @@ class FileQueueItem {
   public updateProgress(event: ProgressEvent): void {
     const percentage = Math.round((event.loaded / event.total) * 100);
     this.progressBar.value = percentage;
-    this.progressBar.label = `${TYPO3.lang['file_upload.upload-in-progress']} ${percentage}%`;
+    this.progressBar.label = `${coreLabels.get('file_upload.upload-in-progress')} ${percentage}%`;
     this.dragUploader.trigger?.dispatchEvent(new CustomEvent('updateProgress', { detail: [this, percentage, event] }));
   }
 
@@ -781,7 +843,7 @@ class FileQueueItem {
       this.row.setAttribute('data-file-uid', String(data.upload[0].uid));
       this.fileName.textContent = data.upload[0].name;
       this.progressBar.value = 100;
-      this.progressBar.label = TYPO3.lang['file_upload.uploadSucceeded'];
+      this.progressBar.label = coreLabels.get('file_upload.uploadSucceeded');
       this.progressBar.severity = SeverityEnum.ok;
 
       const combinedIdentifier: string = String(data.upload[0].id);
@@ -802,7 +864,7 @@ class FileQueueItem {
           .innerHTML = (
             '<button type="button" class="btn btn-link" data-contextmenu-trigger="click" data-contextmenu-uid="'
             + combinedIdentifier + '" data-contextmenu-table="sys_file" aria-label="'
-            + (TYPO3.lang['labels.contextMenu.open'] || 'Open context menu') + '">'
+            + coreLabels.get('labels.contextMenu.open') + '">'
             + data.upload[0].icon + '</span></button>'
           );
       }
@@ -850,28 +912,30 @@ class FileQueueItem {
     this.row.append(controlsColumn);
 
     const fileExtColumn = document.createElement('td');
-    fileExtColumn.textContent = TYPO3.lang['type.file'] + ' (' + fileInfo.extension.toUpperCase() + ')';
+    fileExtColumn.textContent = commonLabels.get('file') + ' (' + fileInfo.extension.toUpperCase() + ')';
     this.row.append(fileExtColumn);
 
     const fileSizeColumn = document.createElement('td');
     fileSizeColumn.textContent = FormatUtility.fileSizeAsString(fileInfo.size);
     this.row.append(fileSizeColumn);
 
-    let permissions = '';
-    if (fileInfo.permissions.read) {
-      permissions += '<strong class="text-danger">' + TYPO3.lang['permissions.read'] + '</strong>';
-    }
-    if (fileInfo.permissions.write) {
-      permissions += '<strong class="text-danger">' + TYPO3.lang['permissions.write'] + '</strong>';
-    }
+    if (this.mode === Mode.MANAGE) {
+      let permissions = '';
+      if (fileInfo.permissions.read) {
+        permissions += '<strong class="text-danger">' + fileListLabels.get('read') + '</strong>';
+      }
+      if (fileInfo.permissions.write) {
+        permissions += '<strong class="text-danger">' + fileListLabels.get('write') + '</strong>';
+      }
 
-    const permissionsColumn = document.createElement('td');
-    permissionsColumn.innerHTML = permissions;
-    this.row.append(permissionsColumn);
+      const permissionsColumn = document.createElement('td');
+      permissionsColumn.innerHTML = permissions;
+      this.row.append(permissionsColumn);
 
-    const emptyColumn = document.createElement('td');
-    emptyColumn.textContent = '-';
-    this.row.append(emptyColumn);
+      const emptyColumn = document.createElement('td');
+      emptyColumn.textContent = '-';
+      this.row.append(emptyColumn);
+    }
 
     // add spacing cells when more columns are displayed (column selector)
     for (let i = this.row.querySelectorAll('td').length; i < this.dragUploader.fileListColumnCount; i++) {

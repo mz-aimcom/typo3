@@ -34,22 +34,19 @@ use TYPO3\CMS\Core\Utility\PathUtility;
  * See render() and getImgTag() as main entry points
  */
 #[Autoconfigure(public: true)]
-class Avatar
+readonly class Avatar
 {
     /**
-     * Sorted and initialized avatar providers
-     *
-     * @var AvatarProviderInterface[]
+     * @param list<AvatarProviderInterface> $avatarProviders
      */
-    protected array $avatarProviders = [];
-
     public function __construct(
         #[Autowire(service: 'cache.runtime')]
-        protected readonly FrontendInterface $cache,
-        protected readonly DependencyOrderingService $dependencyOrderingService,
-        protected readonly IconFactory $iconFactory
+        protected FrontendInterface $cache,
+        protected DependencyOrderingService $dependencyOrderingService,
+        protected IconFactory $iconFactory,
+        protected array $avatarProviders = [],
     ) {
-        $this->validateSortAndInitiateAvatarProviders();
+        $this->validateAvatarProviders();
     }
 
     /**
@@ -67,8 +64,8 @@ class Avatar
         $avatar = $this->cache->get($cacheId);
         if (!$avatar) {
             $icon = $showIcon ? $this->iconFactory->getIconForRecord('be_users', $backendUser, IconSize::SMALL)->render() : '';
-            $avatar =
-                '<span class="avatar" style="--avatar-size: ' . $size . 'px;">'
+            $avatar
+                = '<span class="avatar" style="--avatar-size: ' . $size . 'px;">'
                     . '<span class="avatar-image">' . $this->getImgTag($backendUser, $size) . '</span>'
                     . ($showIcon ? '<span class="avatar-icon">' . $icon . '</span>' : '')
                 . '</span>';
@@ -83,12 +80,12 @@ class Avatar
     protected function getImgTag(array $backendUser, int $size = 32): string
     {
         $avatarImage = $this->getImage($backendUser, $size);
-        return '<img src="' . htmlspecialchars($avatarImage->getUrl()) . '" ' .
-            'width="' . (int)$avatarImage->getWidth() . '" ' .
-            'height="' . (int)$avatarImage->getHeight() . '" ' .
-            'alt="" ' .
-            'aria-hidden="true" ' .
-            'loading="lazy" />';
+        return '<img src="' . htmlspecialchars($avatarImage->getUrl()) . '" '
+            . 'width="' . (int)$avatarImage->getWidth() . '" '
+            . 'height="' . (int)$avatarImage->getHeight() . '" '
+            . 'alt="" '
+            . 'aria-hidden="true" '
+            . 'loading="lazy" />';
     }
 
     /**
@@ -104,7 +101,7 @@ class Avatar
         }
         return GeneralUtility::makeInstance(
             Image::class,
-            PathUtility::getPublicResourceWebPath('EXT:core/Resources/Public/Icons/T3Icons/svgs/avatar/avatar-default.svg'),
+            (string)PathUtility::getSystemResourceUri('EXT:core/Resources/Public/Icons/T3Icons/svgs/avatar/avatar-default.svg'),
             $size,
             $size
         );
@@ -115,35 +112,19 @@ class Avatar
      *
      * @throws \RuntimeException
      */
-    protected function validateSortAndInitiateAvatarProviders(): void
+    protected function validateAvatarProviders(): void
     {
-        /** @var array<string,array> $providers */
-        $providers = $GLOBALS['TYPO3_CONF_VARS']['EXTCONF']['backend']['avatarProviders'] ?? [];
-        if (empty($providers)) {
-            return;
-        }
-        foreach ($providers as $identifier => $configuration) {
-            if (empty($configuration) || !is_array($configuration)) {
+        foreach ($this->avatarProviders as $provider) {
+            if (!($provider instanceof AvatarProviderInterface)) {
                 throw new \RuntimeException(
-                    'Missing configuration for avatar provider "' . $identifier . '".',
-                    1439317801
+                    sprintf(
+                        'Avatar provider must implement interface "%s", "%s" given.',
+                        AvatarProviderInterface::class,
+                        get_debug_type($provider),
+                    ),
+                    1439317802,
                 );
             }
-            if (!is_string($configuration['provider']) || empty($configuration['provider']) || !class_exists($configuration['provider']) || !is_subclass_of(
-                $configuration['provider'],
-                AvatarProviderInterface::class
-            )) {
-                throw new \RuntimeException(
-                    'The avatar provider "' . $identifier . '" defines an invalid provider. Ensure the class exists and implements the "' . AvatarProviderInterface::class . '".',
-                    1439317802
-                );
-            }
-        }
-        $orderedProviders = $this->dependencyOrderingService->orderByDependencies($providers);
-        foreach ($orderedProviders as $configuration) {
-            /** @var AvatarProviderInterface $avatarProvider */
-            $avatarProvider = GeneralUtility::makeInstance($configuration['provider']);
-            $this->avatarProviders[] = $avatarProvider;
         }
     }
 

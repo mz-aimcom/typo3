@@ -4,9 +4,6 @@ return [
     'dependencies' => [
         'backend',
     ],
-    'tags' => [
-        'backend.form',
-    ],
     'imports' => [
         '@typo3/rte-ckeditor/' => [
             'path' => 'EXT:rte_ckeditor/Resources/Public/JavaScript/',
@@ -52,7 +49,6 @@ return [
         '@ckeditor/ckeditor5-special-characters' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-special-characters.js',
         '@ckeditor/ckeditor5-style' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-style.js',
         '@ckeditor/ckeditor5-table' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-table.js',
-        '@ckeditor/ckeditor5-theme-lark' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-theme-lark.js',
         '@ckeditor/ckeditor5-typing' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-typing.js',
         '@ckeditor/ckeditor5-ui' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-ui.js',
         '@ckeditor/ckeditor5-undo' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-undo.js',
@@ -61,8 +57,5 @@ return [
         '@ckeditor/ckeditor5-watchdog' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-watchdog.js',
         '@ckeditor/ckeditor5-widget' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-widget.js',
         '@ckeditor/ckeditor5-word-count' => 'EXT:rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-word-count.js',
-        // Provided for backwards compatibility reasons
-        '@typo3/ckeditor5-bundle.js' => 'EXT:rte_ckeditor/Resources/Public/JavaScript/legacy/ckeditor5-bundle.js',
-        '@typo3/ckeditor5-inspector.js' => 'EXT:rte_ckeditor/Resources/Public/JavaScript/legacy/ckeditor5-inspector.js',
     ],
 ];

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Controller\File;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Controller\File\FileController;
@@ -33,9 +34,10 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\File\ExtendedFileUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FileControllerTest extends UnitTestCase
 {
-    protected File&MockObject $fileResourceMock;
+    private File&MockObject $fileResourceMock;
 
     protected function setUp(): void
     {
@@ -48,7 +50,7 @@ final class FileControllerTest extends UnitTestCase
         $this->fileResourceMock->method('toArray')->willReturn(['id' => 'foo']);
         $this->fileResourceMock->method('getModificationTime')->willReturn(123456789);
         $this->fileResourceMock->method('getExtension')->willReturn('html');
-        $this->fileResourceMock->method('getParentFolder')->willReturn($this->createMock(Folder::class));
+        $this->fileResourceMock->method('getParentFolder')->willReturn(self::createStub(Folder::class));
     }
 
     #[Test]
@@ -62,7 +64,7 @@ final class FileControllerTest extends UnitTestCase
     #[Test]
     public function flattenResultDataValueFlattensFile(): void
     {
-        $iconFactoryMock = $this->createMock(IconFactory::class);
+        $iconFactoryMock = self::createStub(IconFactory::class);
         $icon = $this->createMock(Icon::class);
         $icon->expects($this->once())->method('render')->willReturn('');
         $iconFactoryMock->method('getIconForFileExtension')->willReturn($icon);
@@ -70,10 +72,10 @@ final class FileControllerTest extends UnitTestCase
             FileController::class,
             ['init', 'main'],
             [
-                $this->createMock(ResourceFactory::class),
+                self::createStub(ResourceFactory::class),
                 new ExtendedFileUtility(),
                 $iconFactoryMock,
-                $this->createMock(UriBuilder::class),
+                self::createStub(UriBuilder::class),
                 new FlashMessageService(),
             ],
         );
@@ -98,10 +100,10 @@ final class FileControllerTest extends UnitTestCase
             FileController::class,
             ['init', 'main'],
             [
-                $this->createMock(ResourceFactory::class),
+                self::createStub(ResourceFactory::class),
                 new ExtendedFileUtility(),
-                $this->createMock(IconFactory::class),
-                $this->createMock(UriBuilder::class),
+                self::createStub(IconFactory::class),
+                self::createStub(UriBuilder::class),
                 new FlashMessageService(),
             ],
         );
@@ -118,10 +120,10 @@ final class FileControllerTest extends UnitTestCase
             FileController::class,
             ['init', 'main'],
             [
-                $this->createMock(ResourceFactory::class),
+                self::createStub(ResourceFactory::class),
                 new ExtendedFileUtility(),
-                $this->createMock(IconFactory::class),
-                $this->createMock(UriBuilder::class),
+                self::createStub(IconFactory::class),
+                self::createStub(UriBuilder::class),
                 new FlashMessageService(),
             ],
         );
@@ -138,10 +140,10 @@ final class FileControllerTest extends UnitTestCase
             FileController::class,
             ['init', 'main'],
             [
-                $this->createMock(ResourceFactory::class),
+                self::createStub(ResourceFactory::class),
                 new ExtendedFileUtility(),
-                $this->createMock(IconFactory::class),
-                $this->createMock(UriBuilder::class),
+                self::createStub(IconFactory::class),
+                self::createStub(UriBuilder::class),
                 new FlashMessageService(),
             ],
         );
@@ -161,10 +163,10 @@ final class FileControllerTest extends UnitTestCase
             FileController::class,
             ['init', 'main'],
             [
-                $this->createMock(ResourceFactory::class),
+                self::createStub(ResourceFactory::class),
                 new ExtendedFileUtility(),
-                $this->createMock(IconFactory::class),
-                $this->createMock(UriBuilder::class),
+                self::createStub(IconFactory::class),
+                self::createStub(UriBuilder::class),
                 $flashMessageService,
             ],
         );

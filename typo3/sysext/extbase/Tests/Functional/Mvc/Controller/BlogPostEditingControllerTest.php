@@ -20,9 +20,13 @@ namespace TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\StreamInterface;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\LanguageAspect;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
+use TYPO3\CMS\Extbase\Security\HashScope;
 use TYPO3\CMS\Frontend\Page\CacheHashCalculator;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequestContext;
@@ -33,7 +37,7 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en', 'hrefLang' => 'en-US', 'direction' => ''],
         'DE' => ['id' => 1, 'title' => 'Deutsch', 'locale' => 'de_DE.UTF8', 'iso' => 'de', 'hrefLang' => 'de-DE', 'direction' => ''],
     ];
@@ -99,17 +103,17 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
                     '@extension' => 'BlogExample',
                     '@controller' => 'BlogPostEditing',
                     '@action' => 'edit',
-                    'arguments' => 'YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt99ed507271464fbec158ce0628d6f8855f895f144',
-                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"edit"}4d9253a8ab4cef10413988c74786fdd79e33d8cb',
+                    'arguments' => 'YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt9752ab689b2d660a727f9a5171abf7fb78da3c1224514b8d9441956c39197ac68',
+                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"edit"}501c75e4c5bdd3c610586f4acd8d2c829038591a2e67b3454d744d8a1fbe02f5',
                 ],
-                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1],"__identity":1},"submit":1}e97f2e81f4d7495dcf02d833db3bb407645755a4',
+                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1],"__identity":1},"submit":1}9e8b66dfa5641715e8d0a9e0596300de351ac23da8f8c11fe38700de2c1b0a80',
                 //this variant with ":1" instead of ":[1,1,1,1]" does not work
                 //'__trustedProperties' => '{"blog":{"title":1,"categories":1,"__identity":1},"submit":1}e446d223c1caf949a45b4eb08744955b00e3741a',
             ],
         ];
         $requestContext = new InternalRequestContext();
 
-        $request = (new InternalRequest('https://www.acme.com' . $postLink))
+        $request = new InternalRequest('https://www.acme.com' . $postLink)
             ->withMethod('POST')
             ->withQueryParams($args)
             ->withParsedBody($postPayload)
@@ -117,22 +121,56 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
             ->withAddedHeader('Content-Type', 'application/x-www-form-urlencoded');
 
         $response = $this->executeFrontendSubRequest($request, $requestContext);
-        self::assertSame(200, $response->getStatusCode());
+        $this->resetLeakedFrontendContextWorkaround();
+        self::assertSame(303, $response->getStatusCode());
 
+        // The submission above updates the DE translation (uid 2) of blog 1. Fetch blog 1 with an
+        // explicit DE language aspect, so the language overlay resolves to the translated record.
+        // Before the workaround reset above, this aspect leaked in implicitly from the frontend
+        // sub-request - including its exact fallback chain [0, 'pageNotFound']. Since the Extbase
+        // persistence session identifier contains the fallback chain, the DataMapper previously
+        // reused the in-memory object graph of the frontend request instead of re-fetching from
+        // the database, so the assertions below never verified persisted data at all.
+        GeneralUtility::makeInstance(Context::class)->setAspect(
+            'language',
+            new LanguageAspect(1, 1, LanguageAspect::OVERLAYS_ON_WITH_FLOATING, [0])
+        );
         $blogRepository = $this->get(BlogRepository::class);
         $blog = $blogRepository->findByUid(1);
+        // The title has been correctly persisted to the translated record (uid 2)
         self::assertSame('Blog 1 EN UPDATED', $blog->getTitle());
         $categoryUids = [];
         foreach ($blog->getCategories() as $category) {
             $categoryUids[] = $category->getUid();
         }
-        self::assertSame([1, 5], $categoryUids);
+        // @todo The following assertions document current - inconsistent - persistence behavior
+        //       (see #90430 and the MM handling epic #108986): scalar properties of a translated
+        //       aggregate root are persisted to the localized record (uid 2, see title assertion
+        //       above), while the MM relation change (removal of category 7) is written against
+        //       the default language record (uid 1). Reading, in turn, resolves MM relations via
+        //       the localized uid (2), which still holds all three categories, so the category
+        //       removal submitted above is not visible here. Once write and read side agree on
+        //       which uid owns the MM rows of a translated record, the object assertion must
+        //       become [1, 5] and the database assertion must be adapted to the chosen storage
+        //       semantics.
+        self::assertSame([1, 5, 7], $categoryUids);
+        $categoryUidsInDatabase = $this->getConnectionPool()
+            ->getConnectionForTable('sys_category_record_mm')
+            ->select(
+                ['uid_local'],
+                'sys_category_record_mm',
+                ['uid_foreign' => 1, 'tablenames' => 'tx_blogexample_domain_model_blog', 'fieldname' => 'categories'],
+                [],
+                ['uid_local' => 'ASC']
+            )
+            ->fetchFirstColumn();
+        self::assertEquals([1, 5], $categoryUidsInDatabase);
     }
 
     /**
      * @todo move this helper method to TF?
      */
-    protected function createBodyFromArray(array $postPayload): StreamInterface
+    private function createBodyFromArray(array $postPayload): StreamInterface
     {
         $streamFactory = $this->get(StreamFactoryInterface::class);
         return $streamFactory->createStream(HttpUtility::buildQueryString($postPayload));
@@ -293,9 +331,9 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@extension]" value="BlogExample"', $content);
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@controller]" value="BlogPostEditing"', $content);
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@action]" value="edit"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][arguments]" value="YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt99ed507271464fbec158ce0628d6f8855f895f144"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@request]" value="{&quot;@extension&quot;:&quot;BlogExample&quot;,&quot;@controller&quot;:&quot;BlogPostEditing&quot;,&quot;@action&quot;:&quot;edit&quot;}4d9253a8ab4cef10413988c74786fdd79e33d8cb"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__trustedProperties]" value="{&quot;blog&quot;:{&quot;title&quot;:1,&quot;categories&quot;:[1,1,1,1],&quot;__identity&quot;:1},&quot;submit&quot;:1}e97f2e81f4d7495dcf02d833db3bb407645755a4"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][arguments]" value="YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt9752ab689b2d660a727f9a5171abf7fb78da3c1224514b8d9441956c39197ac68"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@request]" value="{&quot;@extension&quot;:&quot;BlogExample&quot;,&quot;@controller&quot;:&quot;BlogPostEditing&quot;,&quot;@action&quot;:&quot;edit&quot;}501c75e4c5bdd3c610586f4acd8d2c829038591a2e67b3454d744d8a1fbe02f5"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__trustedProperties]" value="{&quot;blog&quot;:{&quot;title&quot;:1,&quot;categories&quot;:[1,1,1,1],&quot;__identity&quot;:1},&quot;submit&quot;:1}9e8b66dfa5641715e8d0a9e0596300de351ac23da8f8c11fe38700de2c1b0a80"', $content);
 
         // Ensure f:form.textfield
         self::assertStringContainsString('<input id="persist-title" type="text" name="tx_blogexample_blogpostediting[blog][title]" value="Blog1 EN" required="required" />', $content);
@@ -357,9 +395,9 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@extension]" value="BlogExample"', $content);
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@controller]" value="BlogPostEditing"', $content);
         self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@action]" value="edit"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][arguments]" value="YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt99ed507271464fbec158ce0628d6f8855f895f144"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@request]" value="{&quot;@extension&quot;:&quot;BlogExample&quot;,&quot;@controller&quot;:&quot;BlogPostEditing&quot;,&quot;@action&quot;:&quot;edit&quot;}4d9253a8ab4cef10413988c74786fdd79e33d8cb"', $content);
-        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__trustedProperties]" value="{&quot;blog&quot;:{&quot;title&quot;:1,&quot;categories&quot;:[1,1,1,1],&quot;__identity&quot;:1},&quot;submit&quot;:1}e97f2e81f4d7495dcf02d833db3bb407645755a4"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][arguments]" value="YTozOntzOjY6ImFjdGlvbiI7czo0OiJlZGl0IjtzOjQ6ImJsb2ciO3M6MToiMSI7czoxMDoiY29udHJvbGxlciI7czoxNToiQmxvZ1Bvc3RFZGl0aW5nIjt9752ab689b2d660a727f9a5171abf7fb78da3c1224514b8d9441956c39197ac68"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__referrer][@request]" value="{&quot;@extension&quot;:&quot;BlogExample&quot;,&quot;@controller&quot;:&quot;BlogPostEditing&quot;,&quot;@action&quot;:&quot;edit&quot;}501c75e4c5bdd3c610586f4acd8d2c829038591a2e67b3454d744d8a1fbe02f5"', $content);
+        self::assertStringContainsString('<input type="hidden" name="tx_blogexample_blogpostediting[__trustedProperties]" value="{&quot;blog&quot;:{&quot;title&quot;:1,&quot;categories&quot;:[1,1,1,1],&quot;__identity&quot;:1},&quot;submit&quot;:1}9e8b66dfa5641715e8d0a9e0596300de351ac23da8f8c11fe38700de2c1b0a80"', $content);
 
         // Ensure f:form.textfield
         self::assertStringContainsString('<input id="persist-title" type="text" name="tx_blogexample_blogpostediting[blog][title]" value="Blog1 DE" required="required" />', $content);
@@ -460,15 +498,15 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
                     '@extension' => 'BlogExample',
                     '@controller' => 'BlogPostEditing',
                     '@action' => 'new',
-                    'arguments' => 'YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==fa17ac3725a7ae6f84fa9df1367bf78e7d937563',
-                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}f6dda277fa3350125290608ec08cdef1a8695f93',
+                    'arguments' => 'YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==' . $this->calculateHmac('YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==', HashScope::ReferringArguments),
+                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}' . $this->calculateHmac('{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}', HashScope::ReferringRequest),
                 ],
-                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}8915f6b454fda6161f6b61dbec880ed18c369ab4',
+                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}' . $this->calculateHmac('{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}', HashScope::TrustedProperties),
             ],
         ];
         $requestContext = new InternalRequestContext();
 
-        $request = (new InternalRequest('https://www.acme.com' . $postLink))
+        $request = new InternalRequest('https://www.acme.com' . $postLink)
             ->withMethod('POST')
             ->withQueryParams($args)
             ->withParsedBody($postPayload)
@@ -476,7 +514,8 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
             ->withAddedHeader('Content-Type', 'application/x-www-form-urlencoded');
 
         $response = $this->executeFrontendSubRequest($request, $requestContext);
-        self::assertSame(200, $response->getStatusCode());
+        $this->resetLeakedFrontendContextWorkaround();
+        self::assertSame(303, $response->getStatusCode());
 
         $blogRepository = $this->get(BlogRepository::class);
         $blog = $blogRepository->findByUid(5);
@@ -523,15 +562,15 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
                     '@extension' => 'BlogExample',
                     '@controller' => 'BlogPostEditing',
                     '@action' => 'new',
-                    'arguments' => 'YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==fa17ac3725a7ae6f84fa9df1367bf78e7d937563',
-                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}f6dda277fa3350125290608ec08cdef1a8695f93',
+                    'arguments' => 'YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==' . $this->calculateHmac('YToyOntzOjY6ImFjdGlvbiI7czozOiJuZXciO3M6MTA6ImNvbnRyb2xsZXIiO3M6MTU6IkJsb2dQb3N0RWRpdGluZyI7fQ==', HashScope::ReferringArguments),
+                    '@request' => '{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}' . $this->calculateHmac('{"@extension":"BlogExample","@controller":"BlogPostEditing","@action":"new"}', HashScope::ReferringRequest),
                 ],
-                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}8915f6b454fda6161f6b61dbec880ed18c369ab4',
+                '__trustedProperties' => '{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}' . $this->calculateHmac('{"blog":{"title":1,"categories":[1,1,1,1]},"submit":1}', HashScope::TrustedProperties),
             ],
         ];
         $requestContext = new InternalRequestContext();
 
-        $request = (new InternalRequest('https://www.acme.com' . $postLink))
+        $request = new InternalRequest('https://www.acme.com' . $postLink)
             ->withMethod('POST')
             ->withQueryParams($args)
             ->withParsedBody($postPayload)
@@ -539,6 +578,7 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
             ->withAddedHeader('Content-Type', 'application/x-www-form-urlencoded');
 
         $response = $this->executeFrontendSubRequest($request, $requestContext);
+        $this->resetLeakedFrontendContextWorkaround();
         self::assertSame(200, $response->getStatusCode());
 
         // Evaluate new view, expect validation failures
@@ -552,10 +592,35 @@ final class BlogPostEditingControllerTest extends FunctionalTestCase
         self::assertNull($blog);
     }
 
+    /**
+     * @todo Remove this workaround once typo3/testing-framework properly restores global state
+     *       after executeFrontendSubRequest(): Bootstrap::init() - called for every frontend
+     *       sub-request - builds a fresh DI container and registers it globally via
+     *       GeneralUtility::setContainer(), but FrameworkState::pop() never restores the previous
+     *       container afterwards. As a consequence, everything resolved through
+     *       GeneralUtility::makeInstance() in test scope after the sub-request - such as Extbase
+     *       Typo3QuerySettings and with it the language aspect used by Repository::findByUid() -
+     *       operates on the Context of the *frontend request* (here: language DE with
+     *       fallbackType=strict) instead of the pristine default Context of the test scope. With
+     *       a strict language aspect, untranslated records would be hidden by the language
+     *       overlay and findByUid() would return null. Resetting the language aspect ensures the
+     *       persistence assertions run in default language context.
+     */
+    private function resetLeakedFrontendContextWorkaround(): void
+    {
+        GeneralUtility::makeInstance(Context::class)->setAspect('language', new LanguageAspect());
+    }
+
     private function enrichArgumentsWithChash($arguments): array
     {
-        $arguments['cHash'] = GeneralUtility::makeInstance(CacheHashCalculator::class)
+        $arguments['cHash'] = $this->get(CacheHashCalculator::class)
             ->generateForParameters(HttpUtility::buildQueryString($arguments));
         return $arguments;
+    }
+
+    private function calculateHmac(string $value, HashScope $hashScope): string
+    {
+        $secret = $this->configurationToUseInTestInstance['SYS']['encryptionKey'] . $hashScope->prefix();
+        return hash_hmac(HashAlgo::SHA3_256->value, $value, $secret);
     }
 }

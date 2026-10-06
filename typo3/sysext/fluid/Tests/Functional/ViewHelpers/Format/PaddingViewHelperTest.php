@@ -54,6 +54,10 @@ final class PaddingViewHelperTest extends FunctionalTestCase
                 '<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:format.padding padLength="10">{k}</f:format.padding></f:for>',
                 '4711      ',
             ],
+            'emptyPaddingStringReturnsValueUnchanged' => [
+                '<f:format.padding padLength="10" padString="">foo</f:format.padding>',
+                'foo',
+            ],
         ];
     }
 
@@ -63,7 +67,7 @@ final class PaddingViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 
     #[Test]

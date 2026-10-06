@@ -15,11 +15,14 @@
 
 namespace TYPO3\CMS\Lowlevel\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Attribute\AsNonSchedulableCommand;
+
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Log\LogDataTrait;
@@ -29,6 +32,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * Lists all sys_log entries from the last 24 hours by default
  * This is the most basic and can be useful for nightly check test reports.
  */
+#[AsCommand('syslog:list', 'Shows entries from the sys_log database table of the last 24 hours.')]
+#[AsNonSchedulableCommand]
 class ListSysLogCommand extends Command
 {
     use LogDataTrait;
@@ -36,7 +41,7 @@ class ListSysLogCommand extends Command
     /**
      * Configure the command by defining the name, options and arguments
      */
-    public function configure()
+    protected function configure(): void
     {
         $this->setHelp('Prints a list of recent sys_log entries.' . LF . 'If you want to get more detailed information, use the --verbose option.');
     }

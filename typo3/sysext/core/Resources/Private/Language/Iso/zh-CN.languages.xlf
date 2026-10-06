@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file source-language="en" target-language="zh-CN" datatype="plaintext" original="EXT:core/Resources/Private/Language/countries.xlf" product-name="typo3/cms-core">
     <body>
@@ -190,10 +190,6 @@
         <source>Bulgarian</source>
         <target>保加利亚语</target>
       </trans-unit>
-      <trans-unit id="bh" approved="yes">
-        <source>Bihari languages</source>
-        <target>比哈尔语</target>
-      </trans-unit>
       <trans-unit id="bho" approved="yes">
         <source>Bhojpuri</source>
         <target>博杰普里语</target>
@@ -201,6 +197,10 @@
       <trans-unit id="bi" approved="yes">
         <source>Bislama</source>
         <target>比斯拉玛语</target>
+      </trans-unit>
+      <trans-unit id="bih" approved="yes">
+        <source>Bihari languages</source>
+        <target>比哈尔语</target>
       </trans-unit>
       <trans-unit id="bik" approved="yes">
         <source>Bikol</source>
@@ -223,7 +223,7 @@
         <target>孟加拉语</target>
       </trans-unit>
       <trans-unit id="bnt" approved="yes">
-        <source>Bantu (Other)</source>
+        <source>Bantu languages</source>
         <target>班图语支</target>
       </trans-unit>
       <trans-unit id="bo" approved="yes">
@@ -423,7 +423,7 @@
         <target>史拉维语</target>
       </trans-unit>
       <trans-unit id="dgr" approved="yes">
-        <source>Dogrib</source>
+        <source>Tlicho; Dogrib</source>
         <target>多格里布语</target>
       </trans-unit>
       <trans-unit id="din" approved="yes">
@@ -1211,11 +1211,11 @@
         <target>那不勒斯语</target>
       </trans-unit>
       <trans-unit id="nb" approved="yes">
-        <source>Bokmål, Norwegian; Norwegian Bokmål</source>
-        <target>挪威布克莫尔语</target>
+        <source>Norwegian Bokmål</source>
+        <target>书面挪威语</target>
       </trans-unit>
       <trans-unit id="nd" approved="yes">
-        <source>Ndebele, North; North Ndebele</source>
+        <source>North Ndebele</source>
         <target>北恩德贝勒语</target>
       </trans-unit>
       <trans-unit id="nds" approved="yes">
@@ -1227,7 +1227,7 @@
         <target>尼泊尔语</target>
       </trans-unit>
       <trans-unit id="new" approved="yes">
-        <source>Nepal Bhasa; Newari</source>
+        <source>Nepal Bhasa; Newar; Newari</source>
         <target>尼瓦尔语</target>
       </trans-unit>
       <trans-unit id="ng" approved="yes">
@@ -1251,7 +1251,7 @@
         <target>荷兰语</target>
       </trans-unit>
       <trans-unit id="nn" approved="yes">
-        <source>Norwegian Nynorsk; Nynorsk, Norwegian</source>
+        <source>Norwegian Nynorsk</source>
         <target>新挪威语</target>
       </trans-unit>
       <trans-unit id="no" approved="yes">
@@ -1271,7 +1271,7 @@
         <target>N'Ko</target>
       </trans-unit>
       <trans-unit id="nr" approved="yes">
-        <source>Ndebele, South; South Ndebele</source>
+        <source>South Ndebele</source>
         <target>南恩德贝勒语</target>
       </trans-unit>
       <trans-unit id="nso" approved="yes">
@@ -1311,7 +1311,7 @@
         <target>恩济马语</target>
       </trans-unit>
       <trans-unit id="oc" approved="yes">
-        <source>Occitan (post 1500); Provençal</source>
+        <source>Occitan (post 1500)</source>
         <target>奥克语</target>
       </trans-unit>
       <trans-unit id="oj" approved="yes">
@@ -1399,8 +1399,8 @@
         <target>普拉克里特诸语言</target>
       </trans-unit>
       <trans-unit id="pro" approved="yes">
-        <source>Provençal, Old (to 1500)</source>
-        <target>古普罗旺斯语 (- 1500)</target>
+        <source>Provençal, Old (to 1500); Occitan, Old (to 1500)</source>
+        <target>古普罗旺斯语; 古奥克语</target>
       </trans-unit>
       <trans-unit id="ps" approved="yes">
         <source>Pushto; Pashto</source>
@@ -1475,8 +1475,8 @@
         <target>雅库特语</target>
       </trans-unit>
       <trans-unit id="sai" approved="yes">
-        <source>South American Indian (Other)</source>
-        <target>南美洲印第安诸语言</target>
+        <source>South American Indian languages</source>
+        <target>南美洲印第安语</target>
       </trans-unit>
       <trans-unit id="sal" approved="yes">
         <source>Salishan languages</source>
@@ -1859,8 +1859,8 @@
         <target>瓦卡什诸语言</target>
       </trans-unit>
       <trans-unit id="wal" approved="yes">
-        <source>Walamo</source>
-        <target>瓦拉莫语</target>
+        <source>Wolaitta; Wolaytta</source>
+        <target>沃莱塔语</target>
       </trans-unit>
       <trans-unit id="war" approved="yes">
         <source>Waray</source>
@@ -1928,7 +1928,7 @@
       </trans-unit>
       <trans-unit id="zh" approved="yes">
         <source>Chinese</source>
-        <target>汉语</target>
+        <target>中文</target>
       </trans-unit>
       <trans-unit id="znd" approved="yes">
         <source>Zande languages</source>

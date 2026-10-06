@@ -23,6 +23,7 @@ use Psr\Http\Message\UriInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderManifestInterface;
@@ -31,11 +32,9 @@ use TYPO3\CMS\Core\Authentication\Mfa\MfaViewType;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -52,9 +51,11 @@ class MfaConfigurationController extends AbstractMfaController
     protected ModuleTemplate $view;
 
     public function __construct(
+        protected readonly ComponentFactory $componentFactory,
         protected readonly IconFactory $iconFactory,
         protected readonly UriBuilder $uriBuilder,
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
+        protected readonly FlashMessageService $flashMessageService,
     ) {}
 
     /**
@@ -347,66 +348,34 @@ class MfaConfigurationController extends AbstractMfaController
 
     protected function addFlashMessage(string $message, string $title = '', ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::INFO): void
     {
-        $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $title, $severity, true);
-        $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-        $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+        $flashMessage = new FlashMessage($message, $title, $severity, true);
+        $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
         $defaultFlashMessageQueue->enqueue($flashMessage);
     }
 
     protected function addOverviewButtons(ServerRequestInterface $request): void
     {
-        $buttonBar = $this->view->getDocHeaderComponent()->getButtonBar();
-
         if (($returnUrl = $this->getReturnUrl($request)) !== '') {
-            $button = $buttonBar
-                ->makeLinkButton()
-                ->setHref($returnUrl)
-                ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
-                ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.goBack'))
-                ->setShowLabelText(true);
-            $buttonBar->addButton($button);
+            $this->view->addButtonToButtonBar($this->componentFactory->createBackButton($returnUrl));
         }
-
-        $reloadButton = $buttonBar
-            ->makeLinkButton()
-            ->setHref($request->getAttribute('normalizedParams')->getRequestUri())
-            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
     }
 
     protected function addFormButtons(): void
     {
-        $buttonBar = $this->view->getDocHeaderComponent()->getButtonBar();
-        $lang = $this->getLanguageService();
-
-        $closeButton = $buttonBar
-            ->makeLinkButton()
-            ->setHref((string)$this->uriBuilder->buildUriFromRoute('mfa', ['action' => 'overview']))
-            ->setClasses('t3js-editform-close')
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-        $buttonBar->addButton($closeButton);
-
-        $saveButton = $buttonBar
-            ->makeInputButton()
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.saveDoc'))
-            ->setName('save')
-            ->setValue('1')
-            ->setShowLabelText(true)
-            ->setForm('mfaConfigurationController')
-            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL));
-        $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+        $closeButton = $this->componentFactory->createCloseButton((string)$this->uriBuilder->buildUriFromRoute('mfa', ['action' => 'overview']))
+            ->setClasses('t3js-editform-close');
+        $this->view->addButtonToButtonBar($closeButton);
+        $this->view->addButtonToButtonBar($this->componentFactory->createSaveButton('mfaConfigurationController')->setName('save'), ButtonBar::BUTTON_POSITION_LEFT, 2);
     }
 
     protected function getReturnUrl(ServerRequestInterface $request): string
     {
         $returnUrl = GeneralUtility::sanitizeLocalUrl(
-            $request->getQueryParams()['returnUrl'] ?? $request->getParsedBody()['returnUrl'] ?? ''
+            $request->getQueryParams()['returnUrl'] ?? $request->getParsedBody()['returnUrl'] ?? '',
+            $request
         );
 
-        if ($returnUrl === '' && ExtensionManagementUtility::isLoaded('setup')) {
+        if ($returnUrl === '') {
             $returnUrl = (string)$this->uriBuilder->buildUriFromRoute('user_setup');
         }
 

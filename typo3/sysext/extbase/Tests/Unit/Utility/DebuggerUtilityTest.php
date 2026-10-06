@@ -29,7 +29,7 @@ final class DebuggerUtilityTest extends UnitTestCase
     #[Test]
     public function debuggerRewindsInstancesOfIterator(): void
     {
-        $objectStorage = $this->getMockBuilder(ObjectStorage::class)->onlyMethods([])->getMock();
+        $objectStorage = new ObjectStorage();
         for ($i = 0; $i < 5; $i++) {
             $obj = new \stdClass();
             $obj->property = $i;
@@ -85,6 +85,7 @@ final class DebuggerUtilityTest extends UnitTestCase
         $testClass->data = 'I like burger.';
 
         $result = DebuggerUtility::var_dump($testClass, null, 8, true, false, true, [\stdClass::class]);
+        self::assertStringContainsString('filtered', $result);
         self::assertStringNotContainsString($testClass->data, $result);
     }
 
@@ -163,7 +164,7 @@ final class DebuggerUtilityTest extends UnitTestCase
     #[Test]
     public function varDumpShowsUninitializedVariable(): void
     {
-        $class = new class () {
+        $class = new class {
             protected \stdClass $test;
         };
 
@@ -175,7 +176,7 @@ final class DebuggerUtilityTest extends UnitTestCase
     public function varDumpUsesNonceValue(): void
     {
         DebuggerUtilityAccessibleProxy::setStylesheetEchoed(false);
-        $class = new class () {
+        $class = new class {
             protected \stdClass $test;
         };
         $result = DebuggerUtilityAccessibleProxy::var_dump($class, null, 8, false, false, true);

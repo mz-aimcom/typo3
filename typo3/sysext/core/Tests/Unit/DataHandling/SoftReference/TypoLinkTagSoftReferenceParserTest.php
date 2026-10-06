@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
+use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
@@ -182,6 +183,8 @@ final class TypoLinkTagSoftReferenceParserTest extends AbstractSoftReferencePars
     #[Test]
     public function findRefReturnsParsedElements(array $softrefConfiguration, array $expectedElement, int $amountOfMatches = 1): void
     {
+        $linkService = new LinkService(new NoopEventDispatcher());
+        GeneralUtility::setSingletonInstance(LinkService::class, $linkService);
         $subject = $this->getParserByKey('typolink_tag');
         $subject->setParserKey('typolink_tag', $softrefConfiguration);
         $result = $subject->parse(
@@ -200,6 +203,41 @@ final class TypoLinkTagSoftReferenceParserTest extends AbstractSoftReferencePars
 
         $expectedElement['matchString'] = $softrefConfiguration['matchString'];
         self::assertEquals($expectedElement, $matchedElements[$softrefConfiguration['elementKey']]);
+    }
+
+    public static function findRefKeepsLinkSchemeOutsideOfTokenDataProvider(): \Generator
+    {
+        yield 'email with scheme' => [
+            '<p><a href="mailto:info@example.org">Click here</a></p>',
+            '<p><a href="mailto:{softref:###TOKEN###}">Click here</a></p>',
+        ];
+        yield 'email without scheme' => [
+            '<p><a href="info@example.org">Click here</a></p>',
+            '<p><a href="{softref:###TOKEN###}">Click here</a></p>',
+        ];
+        yield 'email with additional parameters' => [
+            '<p><a href="mailto:info@example.org?subject=Hello">Click here</a></p>',
+            '<p><a href="mailto:{softref:###TOKEN###}?subject=Hello">Click here</a></p>',
+        ];
+        yield 'telephone number' => [
+            '<p><a href="tel:0123456789">Click here</a></p>',
+            '<p><a href="tel:{softref:###TOKEN###}">Click here</a></p>',
+        ];
+        yield 'external url is tokenized as a whole' => [
+            '<p><a href="https://example.org/foo">Click here</a></p>',
+            '<p><a href="{softref:###TOKEN###}">Click here</a></p>',
+        ];
+    }
+
+    #[DataProvider('findRefKeepsLinkSchemeOutsideOfTokenDataProvider')]
+    #[Test]
+    public function findRefKeepsLinkSchemeOutsideOfToken(string $content, string $expectedContent): void
+    {
+        GeneralUtility::setSingletonInstance(LinkService::class, new LinkService(new NoopEventDispatcher()));
+        $result = $this->getParserByKey('typolink_tag')->parse('tt_content', 'bodytext', 1, $content);
+
+        $token = $result->getMatchedElements()[1]['subst']['tokenID'];
+        self::assertSame(str_replace('###TOKEN###', $token, $expectedContent), $result->getContent());
     }
 
     public static function findRefReturnsParsedElementsWithFileDataProvider(): array
@@ -228,17 +266,19 @@ final class TypoLinkTagSoftReferenceParserTest extends AbstractSoftReferencePars
     {
         $fileObject = $this->createMock(File::class);
         $fileObject->expects($this->once())->method('getUid')->willReturn(42);
-        $fileObject->expects($this->any())->method('getName')->willReturn('download.jpg');
-        $fileObject->expects($this->any())->method('getIdentifier')->willReturn('fileadmin/download.jpg');
+        $fileObject->method('getName')->willReturn('download.jpg');
+        $fileObject->method('getIdentifier')->willReturn('fileadmin/download.jpg');
 
         $resourceFactory = $this->createMock(ResourceFactory::class);
-        $resourceFactory->method('getFileObject')->with('42')->willReturn($fileObject);
+        $resourceFactory->expects($this->atMost(PHP_INT_MAX))->method('getFileObject')->with('42')->willReturn($fileObject);
         // For `t3://file?identifier=42` handling
-        $resourceFactory->method('getFileObjectFromCombinedIdentifier')->with('42')->willReturn($fileObject);
+        $resourceFactory->expects($this->atMost(PHP_INT_MAX))->method('getFileObjectFromCombinedIdentifier')->with('42')->willReturn($fileObject);
         // For `file:42` handling
-        $resourceFactory->method('retrieveFileOrFolderObject')->with('42')->willReturn($fileObject);
+        $resourceFactory->expects($this->atMost(PHP_INT_MAX))->method('retrieveFileOrFolderObject')->with('42')->willReturn($fileObject);
 
         GeneralUtility::setSingletonInstance(ResourceFactory::class, $resourceFactory);
+        $linkService = new LinkService(new NoopEventDispatcher());
+        GeneralUtility::setSingletonInstance(LinkService::class, $linkService);
 
         $subject = $this->getParserByKey('typolink_tag');
         $subject->setParserKey('typolink_tag', $softrefConfiguration);
@@ -279,12 +319,14 @@ final class TypoLinkTagSoftReferenceParserTest extends AbstractSoftReferencePars
     #[Test]
     public function findRefReturnsNullWithFolder(array $softrefConfiguration): void
     {
-        $folderObject = $this->createMock(Folder::class);
+        $folderObject = self::createStub(Folder::class);
 
         $resourceFactory = $this->createMock(ResourceFactory::class);
         $resourceFactory->expects($this->once())->method('getFolderObjectFromCombinedIdentifier')
             ->with('1:/foo/bar/baz')->willReturn($folderObject);
         GeneralUtility::setSingletonInstance(ResourceFactory::class, $resourceFactory);
+        $linkService = new LinkService(new NoopEventDispatcher());
+        GeneralUtility::setSingletonInstance(LinkService::class, $linkService);
 
         $result = $this->getParserByKey('typolink_tag')->parse(
             'tt_content',

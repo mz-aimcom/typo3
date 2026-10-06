@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Controller;
 
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Core\Environment;
@@ -30,19 +31,17 @@ use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
  */
 class AbstractController extends ActionController
 {
-    public const TRIGGER_RefreshModuleMenu = 'refreshModuleMenu';
-    public const TRIGGER_RefreshTopbar = 'refreshTopbar';
-
     protected ModuleTemplateFactory $moduleTemplateFactory;
-
-    protected array $triggerArguments = [
-        self::TRIGGER_RefreshModuleMenu,
-        self::TRIGGER_RefreshTopbar,
-    ];
+    protected ComponentFactory $componentFactory;
 
     public function injectModuleTemplateFactory(ModuleTemplateFactory $moduleTemplateFactory)
     {
         $this->moduleTemplateFactory = $moduleTemplateFactory;
+    }
+
+    public function injectComponentFactory(ComponentFactory $componentFactory)
+    {
+        $this->componentFactory = $componentFactory;
     }
 
     /**
@@ -51,22 +50,6 @@ class AbstractController extends ActionController
     protected function translate(string $key, ?array $arguments = null): string
     {
         return LocalizationUtility::translate($key, 'extensionmanager', $arguments) ?? '';
-    }
-
-    /**
-     * Handles trigger arguments, e.g. refreshing the module menu
-     * widget if an extension with backend modules has been enabled
-     * or disabled.
-     */
-    protected function handleTriggerArguments(ModuleTemplate $view): void
-    {
-        $triggers = [];
-        foreach ($this->triggerArguments as $triggerArgument) {
-            if ($this->request->hasArgument($triggerArgument)) {
-                $triggers[$triggerArgument] = $this->request->getArgument($triggerArgument);
-            }
-        }
-        $view->assign('triggers', $triggers);
     }
 
     /**
@@ -80,11 +63,6 @@ class AbstractController extends ActionController
                 'controller' => 'List',
                 'action' => 'index',
                 'label' => $this->translate('installedExtensions'),
-            ],
-            'extensionComposerStatus' => [
-                'controller' => 'ExtensionComposerStatus',
-                'action' => 'list',
-                'label' => $this->translate('extensionComposerStatus'),
             ],
         ];
 
@@ -116,7 +94,7 @@ class AbstractController extends ActionController
             'controllerName' => $request->getControllerName(),
             'actionName' => $request->getControllerActionName(),
         ]);
-        $menu = $view->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
+        $menu = $this->componentFactory->createMenu();
         $menu->setIdentifier('ExtensionManagerModuleMenu');
         $menu->setLabel(
             $this->translate(
@@ -124,27 +102,31 @@ class AbstractController extends ActionController
             )
         );
 
+        $title = $activeTitle = LocalizationUtility::translate('title', 'extensionmanager.module');
         foreach ($menuItems as $menuItemConfig) {
             if ($request->getControllerName() === $menuItemConfig['controller']) {
                 $isActive = $request->getControllerActionName() === $menuItemConfig['action'];
             } else {
                 $isActive = false;
             }
-            $menuItem = $menu->makeMenuItem()
+            $menuItem = $this->componentFactory->createMenuItem()
                 ->setTitle($menuItemConfig['label'])
                 ->setHref($this->uriBuilder->reset()->uriFor($menuItemConfig['action'], [], $menuItemConfig['controller']))
                 ->setActive($isActive);
             $menu->addMenuItem($menuItem);
             if ($isActive) {
-                $view->setTitle(
-                    $this->translate('LLL:EXT:extensionmanager/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
-                    $menuItemConfig['label']
-                );
+                $activeTitle = $menuItemConfig['label'];
+                $view->setTitle($title, $activeTitle);
             }
         }
 
         $view->getDocHeaderComponent()->getMenuRegistry()->addMenu($menu);
         $view->setFlashMessageQueue($this->getFlashMessageQueue());
+
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'extensionmanager.' . $request->getControllerName() . '_' . $request->getControllerActionName(),
+            $activeTitle
+        );
 
         return $view;
     }

@@ -33,6 +33,8 @@ return [
 
                 'timesec_native_notnull',
 
+                'datetimesec_native_notnull',
+
                 'time_native_notnull',
             ]),
         ],
@@ -41,7 +43,7 @@ return [
         'title' => [
             'exclude' => false,
             'l10n_mode' => 'prefixLangTitle',
-            'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:header_formlabel',
+            'label' => 'core.form.palettes:header',
             'config' => [
                 'type' => 'input',
                 'size' => 60,
@@ -77,6 +79,17 @@ return [
                 'type' => 'datetime',
                 'format' => 'timesec',
                 'dbType' => 'time',
+                'nullable' => false,
+            ],
+        ],
+
+        'datetimesec_native_notnull' => [
+            'exclude' => false,
+            'label' => 'datetimesec native not null',
+            'config' => [
+                'type' => 'datetime',
+                'format' => 'datetimesec',
+                'dbType' => 'datetime',
                 'nullable' => false,
             ],
         ],

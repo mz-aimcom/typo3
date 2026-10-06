@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Security\SudoMode;
 
-use TYPO3\CMS\Core\Authentication\AuthenticationService;
+use TYPO3\CMS\Core\Authentication\AbstractAuthenticationService;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
@@ -32,10 +32,10 @@ use TYPO3\CMS\Install\Controller\BackendModuleController;
  *
  * @internal
  */
-class PasswordVerification
+readonly class PasswordVerification
 {
     public function __construct(
-        protected readonly PasswordHashFactory $passwordHashFactory
+        protected PasswordHashFactory $passwordHashFactory
     ) {}
 
     /**
@@ -83,8 +83,14 @@ class PasswordVerification
         $authInfo = $backendUser->getAuthInfoArray($fakeRequest);
 
         $authenticated = false;
-        /** @var AuthenticationService $service or any other service (sic!) */
+        /** @var AbstractAuthenticationService $service or any other service (sic!) */
         foreach ($this->getAuthServices($backendUser, $loginData, $authInfo) as $service) {
+            if (!method_exists($service, 'authUser')) {
+                // The abstract does not cover this method, but the actual implementations do.
+                // Happy PHPStan, happy life (or so).
+                continue;
+            }
+
             $ret = $service->authUser($backendUser->user);
             if ($ret <= 0) {
                 return false;
@@ -102,8 +108,6 @@ class PasswordVerification
     /**
      * Initializes authentication services to be used in a foreach loop
      *
-     * @param array $loginData
-     * @param array $authInfo
      * @return \Generator<int, object>
      */
     protected function getAuthServices(BackendUserAuthentication $backendUser, array $loginData, array $authInfo): \Generator
@@ -111,11 +115,10 @@ class PasswordVerification
         $serviceChain = [];
         $subType = 'authUserBE';
         while ($service = GeneralUtility::makeInstanceService('auth', $subType, $serviceChain)) {
-            /** @var AuthenticationService $service */
-            $serviceChain[] = $service->getServiceKey();
-            if (!is_object($service)) {
+            if (!$service instanceof AbstractAuthenticationService) {
                 continue;
             }
+            $serviceChain[] = $service->getServiceKey();
             $service->initAuth($subType, $loginData, $authInfo, $backendUser);
             yield $service;
         }

@@ -22,6 +22,10 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Page\Event\BeforeJavaScriptsRenderingEvent;
 use TYPO3\CMS\Core\Page\Event\BeforeStylesheetsRenderingEvent;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Directive;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 
@@ -34,6 +38,10 @@ readonly class AssetRenderer
     public function __construct(
         protected AssetCollector $assetCollector,
         protected EventDispatcherInterface $eventDispatcher,
+        protected SystemResourcePublisherInterface $resourcePublisher,
+        protected SystemResourceFactory $systemResourceFactory,
+        protected ResourceHashCollection $resourceHashCollection,
+        protected DirectiveHashCollection $directiveHashCollection,
     ) {}
 
     public function renderInlineJavaScript($priority = false, ?ConsumableNonce $nonce = null): string
@@ -44,7 +52,7 @@ readonly class AssetRenderer
 
         $template = '<script%attributes%>%source%</script>';
         $assets = $this->assetCollector->getInlineJavaScripts($priority);
-        return $this->render($assets, $template, $nonce);
+        return $this->render($assets, $template, true, Directive::ScriptSrcElem, $nonce);
     }
 
     public function renderJavaScript($priority = false, ?ConsumableNonce $nonce = null): string
@@ -56,12 +64,19 @@ readonly class AssetRenderer
         $template = '<script%attributes%></script>';
         $assets = $this->assetCollector->getJavaScripts($priority);
         foreach ($assets as &$assetData) {
-            if (!($assetData['options']['external'] ?? false)) {
-                $assetData['source'] = $this->getAbsoluteWebPath($assetData['source']);
+            // Collect CSP hash from original source path before URL transformation
+            if (!empty($assetData['options']['csp'])) {
+                $integrity = $assetData['attributes']['integrity'] ?? '';
+                if ($integrity !== '') {
+                    $this->directiveHashCollection->addGenericHashValue(Directive::ScriptSrcElem, $integrity);
+                } else {
+                    $this->directiveHashCollection->addResourceHash(Directive::ScriptSrcElem, $assetData['source']);
+                }
             }
+            $assetData['source'] = $this->getAbsoluteWebPath($assetData['source']);
             $assetData['attributes']['src'] = $assetData['source'];
         }
-        return $this->render($assets, $template, $nonce);
+        return $this->render($assets, $template, false, Directive::ScriptSrcElem, $nonce);
     }
 
     public function renderInlineStyleSheets($priority = false, ?ConsumableNonce $nonce = null): string
@@ -72,7 +87,7 @@ readonly class AssetRenderer
 
         $template = '<style%attributes%>%source%</style>';
         $assets = $this->assetCollector->getInlineStyleSheets($priority);
-        return $this->render($assets, $template, $nonce);
+        return $this->render($assets, $template, true, Directive::StyleSrcElem, $nonce);
     }
 
     public function renderStyleSheets(bool $priority = false, string $endingSlash = '', ?ConsumableNonce $nonce = null): string
@@ -84,24 +99,52 @@ readonly class AssetRenderer
         $template = '<link%attributes% ' . $endingSlash . '>';
         $assets = $this->assetCollector->getStyleSheets($priority);
         foreach ($assets as &$assetData) {
-            if (!($assetData['options']['external'] ?? false)) {
-                $assetData['source'] = $this->getAbsoluteWebPath($assetData['source']);
+            $originalSource = $assetData['source'];
+            // Collect CSP hash from original source path before URL transformation
+            if (!empty($assetData['options']['csp'])) {
+                $integrity = $assetData['attributes']['integrity'] ?? '';
+                if ($integrity !== '') {
+                    $this->directiveHashCollection->addGenericHashValue(Directive::StyleSrcElem, $integrity);
+                } else {
+                    $this->directiveHashCollection->addResourceHash(Directive::StyleSrcElem, $assetData['source']);
+                }
             }
+            $assetData['source'] = $this->getAbsoluteWebPath($assetData['source']);
             $assetData['attributes']['href'] = $assetData['source'];
             $assetData['attributes']['rel'] = $assetData['attributes']['rel'] ?? 'stylesheet';
+            if (($assetData['attributes']['integrity'] ?? '') === ResourceHashCollection::AUTO) {
+                $hash = $this->resourceHashCollection->fetchResourceHash($originalSource)?->export() ?? '';
+                if ($hash !== '') {
+                    $assetData['attributes']['integrity'] = $hash;
+                    if (empty($assetData['attributes']['crossorigin']) && PathUtility::hasProtocolAndScheme($originalSource)) {
+                        $assetData['attributes']['crossorigin'] = 'anonymous';
+                    }
+                } else {
+                    unset($assetData['attributes']['integrity']);
+                }
+            }
         }
-        return $this->render($assets, $template, $nonce);
+        return $this->render($assets, $template, false, Directive::StyleSrcElem, $nonce);
     }
 
-    protected function render(array $assets, string $template, ?ConsumableNonce $nonce = null): string
-    {
+    protected function render(
+        array $assets,
+        string $template,
+        bool $isInline,
+        Directive $directive,
+        ?ConsumableNonce $nonce = null
+    ): string {
         $results = [];
         foreach ($assets as $assetData) {
             $attributes = $assetData['attributes'];
-            if ($nonce !== null && !empty($assetData['options']['useNonce'])) {
-                $attributes['nonce'] = $nonce->consume();
+            $useCsp = !empty($assetData['options']['csp']);
+            if ($isInline && $useCsp) {
+                $this->directiveHashCollection->addInlineHash($directive, $assetData['source']);
             }
-            $attributesString = count($attributes) ? ' ' . GeneralUtility::implodeAttributes($attributes, true) : '';
+            if ($nonce !== null && $useCsp) {
+                $attributes['nonce'] = $isInline ? $nonce->consumeInline($directive) : $nonce->consumeStatic($directive);
+            }
+            $attributesString = count($attributes) ? ' ' . GeneralUtility::implodeAttributes($attributes, true, false, true) : '';
             $results[] = str_replace(
                 ['%attributes%', '%source%'],
                 [$attributesString, $assetData['source']],
@@ -113,11 +156,7 @@ readonly class AssetRenderer
 
     private function getAbsoluteWebPath(string $file): string
     {
-        if (PathUtility::hasProtocolAndScheme($file)) {
-            return $file;
-        }
-        $file = GeneralUtility::getFileAbsFileName($file);
-        $file = GeneralUtility::createVersionNumberedFilename($file);
-        return PathUtility::getAbsoluteWebPath($file);
+        $resource = $this->systemResourceFactory->createPublicResource($file);
+        return (string)$this->resourcePublisher->generateUri($resource, null);
     }
 }

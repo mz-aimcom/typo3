@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -17,59 +19,12 @@ namespace TYPO3\CMS\Core\Mail;
 
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Adapter for Symfony Mime to be used by TYPO3 extensions, also provides
- * some backwards-compatibility for previous TYPO3 installations where
- * send() was baked into the MailMessage object.
+ * Adapter for Symfony Mime to be used by TYPO3 extensions.
  */
 class MailMessage extends Email
 {
-    protected MailerInterface $mailer;
-
-    /**
-     * TRUE if the message has been sent.
-     */
-    protected bool $sent = false;
-
-    private function initializeMailer(): void
-    {
-        // TODO: DI should be used to inject the MailerInterface
-        $this->mailer ??= GeneralUtility::makeInstance(MailerInterface::class);
-    }
-
-    /**
-     * Sends the message.
-     *
-     * This is a short-hand method. It is however more useful to create
-     * a Mailer instance which can be used via Mailer->send($message);
-     *
-     * @todo: Deprecate (or break?) send() and isSent() after Mailer has been fixed
-     *        towards proper DI to turn this class into a proper DO and not a mixture
-     *        of a DO and a service.
-     * @return bool whether the message was accepted or not
-     */
-    public function send(): bool
-    {
-        $this->initializeMailer();
-        $this->sent = false;
-        $this->mailer->send($this);
-        $sentMessage = $this->mailer->getSentMessage();
-        if ($sentMessage) {
-            $this->sent = true;
-        }
-        return $this->sent;
-    }
-
-    /**
-     * Checks whether the message has been sent.
-     */
-    public function isSent(): bool
-    {
-        return $this->sent;
-    }
-
     /**
      * compatibility methods to allow for associative arrays as [name => email address]
      * as it was possible in TYPO3 v9 / SwiftMailer.
@@ -94,7 +49,7 @@ class MailMessage extends Email
      */
     public function setDate($date): self
     {
-        return $this->date((new \DateTime())->setTimestamp($date));
+        return $this->date(new \DateTime()->setTimestamp($date));
     }
 
     /**
@@ -266,27 +221,27 @@ class MailMessage extends Email
     // Compatibility methods, as it was possible in TYPO3 v9 / SwiftMailer.
     //
 
-    public function addFrom(Address|string|null|array ...$addresses): static
+    public function addFrom(Address|string|array|null ...$addresses): static
     {
         return parent::addFrom(...$this->convertNamedAddress(...$addresses));
     }
 
-    public function addReplyTo(Address|string|null|array ...$addresses): static
+    public function addReplyTo(Address|string|array|null ...$addresses): static
     {
         return parent::addReplyTo(...$this->convertNamedAddress(...$addresses));
     }
 
-    public function addTo(Address|string|null|array ...$addresses): static
+    public function addTo(Address|string|array|null ...$addresses): static
     {
         return parent::addTo(...$this->convertNamedAddress(...$addresses));
     }
 
-    public function addCc(Address|string|null|array ...$addresses): static
+    public function addCc(Address|string|array|null ...$addresses): static
     {
         return parent::addCc(...$this->convertNamedAddress(...$addresses));
     }
 
-    public function addBcc(Address|string|null|array ...$addresses): static
+    public function addBcc(Address|string|array|null ...$addresses): static
     {
         return parent::addBcc(...$this->convertNamedAddress(...$addresses));
     }

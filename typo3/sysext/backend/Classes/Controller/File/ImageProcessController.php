@@ -19,8 +19,7 @@ namespace TYPO3\CMS\Backend\Controller\File;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\RedirectResponse;
@@ -31,28 +30,24 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class ImageProcessController implements LoggerAwareInterface
+readonly class ImageProcessController
 {
-    use LoggerAwareTrait;
-
-    /**
-     * @var ImageProcessingService
-     */
-    private $imageProcessingService;
-
-    public function __construct(ImageProcessingService $imageProcessingService)
-    {
-        $this->imageProcessingService = $imageProcessingService;
-    }
+    public function __construct(
+        private ImageProcessingService $imageProcessingService,
+        private LoggerInterface $logger,
+    ) {}
 
     public function process(ServerRequestInterface $request): ResponseInterface
     {
         $processedFileId = (int)($request->getQueryParams()['id'] ?? 0);
         try {
             $processedFile = $this->imageProcessingService->process($processedFileId);
+            if (!$processedFile->getOriginalFile()->checkActionPermission('read')) {
+                return new HtmlResponse('', 403);
+            }
 
             return new RedirectResponse(
-                GeneralUtility::locationHeaderUrl($processedFile->getPublicUrl() ?? '')
+                GeneralUtility::locationHeaderUrl($processedFile->getPublicUrl() ?? '', $request)
             );
         } catch (\Throwable $e) {
             // Fatal error occurred, which will be responded as 404

@@ -17,32 +17,63 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Domain\Runtime;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashService;
+use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Http\Uri;
+use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
+use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
+use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
+use TYPO3\CMS\Extbase\Validation\ValidatorResolver;
 use TYPO3\CMS\Form\Domain\Exception\RenderingException;
 use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
 use TYPO3\CMS\Form\Domain\Model\FormDefinition;
+use TYPO3\CMS\Form\Domain\Model\FormElements\GenericFormElement;
+use TYPO3\CMS\Form\Domain\Model\FormElements\Page;
+use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
+use TYPO3\CMS\Form\Event\AfterCurrentPageIsResolvedEvent;
+use TYPO3\CMS\Form\Event\AfterFormStateInitializedEvent;
+use TYPO3\CMS\Form\Event\BeforeRenderableIsValidatedEvent;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
+use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FormRuntimeTest extends FunctionalTestCase
 {
+    public const string AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY = 'after-current-page-is-resolved-listener';
+    public const string AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY = 'after-form-state-initialized-listener';
+    public const string BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY = 'before-renderable-is-validated-listener';
+    protected bool $initializeDatabase = false;
+
     protected array $coreExtensionsToLoad = [
         'form',
     ];
 
-    protected ArrayFormFactory $formFactory;
-    protected Request $request;
+    private ArrayFormFactory $formFactory;
+    private Request $request;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->loadDefaultYamlConfigurations();
+        // FormRuntime is a frontend concept. Provide a minimal FE request with an empty
+        // (but valid) FrontendTypoScript so that FrontendConfigurationManager can operate
+        // without requiring a fully-bootstrapped TypoScript pipeline.
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $feRequest = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $this->get(ExtbaseConfigurationManagerInterface::class)->setRequest($feRequest);
         $this->formFactory = $this->get(ArrayFormFactory::class);
         $this->request = $this->buildExtbaseRequest();
     }
@@ -74,18 +105,216 @@ final class FormRuntimeTest extends FunctionalTestCase
         $formRuntime->render();
     }
 
+    #[Test]
+    public function multiCheckboxIsRenderedAsGroupAndNotAsRadioGroup(): void
+    {
+        $formRuntime = $this->buildFormDefinitionWithMultiCheckbox()->bind($this->request);
+
+        $markup = (string)$formRuntime->render();
+
+        self::assertStringContainsString('role="group"', $markup);
+        self::assertStringNotContainsString('role="radiogroup"', $markup);
+    }
+
+    #[Test]
+    public function variantWithStepTypePageConditionDoesNotEnableElementWhenCurrentPageIsNull(): void
+    {
+        $container = $this->get('service_container');
+        $subject = $this->getAccessibleMock(FormRuntime::class, null, [
+            $container,
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            new HashService(),
+            self::createStub(ValidatorResolver::class),
+            self::createStub(Context::class),
+            $this->get(EventDispatcherInterface::class),
+        ]);
+
+        $formDefinition = $this->buildFormDefinitionWithDisabledElementAndPageVariant();
+        $subject->setFormDefinition($formDefinition);
+        $subject->setRequest($this->request);
+        $subject->_call('initializeFormStateFromRequest');
+
+        // currentPage is null (simulates finisher context)
+        self::assertNull($subject->getCurrentPage());
+
+        $subject->_call('processVariants');
+
+        $element = $formDefinition->getElementByIdentifier('text-1');
+        self::assertFalse($element->isEnabled(), 'Element must remain disabled when currentPage is null');
+    }
+
+    #[Test]
+    public function variantWithStepTypePageConditionEnablesElementOnRegularPage(): void
+    {
+        $container = $this->get('service_container');
+        $subject = $this->getAccessibleMock(FormRuntime::class, null, [
+            $container,
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            new HashService(),
+            self::createStub(ValidatorResolver::class),
+            self::createStub(Context::class),
+            $this->get(EventDispatcherInterface::class),
+        ]);
+
+        $formDefinition = $this->buildFormDefinitionWithDisabledElementAndPageVariant();
+        $subject->setFormDefinition($formDefinition);
+        $subject->setRequest($this->request);
+        $subject->_call('initializeFormStateFromRequest');
+        $subject->overrideCurrentPage(0);
+
+        self::assertSame('Page', $subject->getCurrentPage()->getType());
+
+        $subject->_call('processVariants');
+
+        $element = $formDefinition->getElementByIdentifier('text-1');
+        self::assertTrue($element->isEnabled(), 'Element must be enabled on a regular Page step');
+    }
+
+    #[Test]
+    public function variantWithStepTypePageConditionDoesNotEnableElementOnSummaryPage(): void
+    {
+        $container = $this->get('service_container');
+        $subject = $this->getAccessibleMock(FormRuntime::class, null, [
+            $container,
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            new HashService(),
+            self::createStub(ValidatorResolver::class),
+            self::createStub(Context::class),
+            $this->get(EventDispatcherInterface::class),
+        ]);
+
+        $formDefinition = $this->buildFormDefinitionWithDisabledElementAndPageVariantAndSummaryPage();
+        $subject->setFormDefinition($formDefinition);
+        $subject->setRequest($this->request);
+        $subject->_call('initializeFormStateFromRequest');
+        // Override to the SummaryPage (index 1)
+        $subject->overrideCurrentPage(1);
+
+        self::assertSame('SummaryPage', $subject->getCurrentPage()->getType());
+
+        $subject->_call('processVariants');
+
+        $element = $formDefinition->getElementByIdentifier('text-1');
+        self::assertFalse($element->isEnabled(), 'Element must remain disabled on a SummaryPage step');
+    }
+
+    #[Test]
+    public function afterCurrentPageIsResolvedEventIsTriggered(): void
+    {
+        $container = $this->get('service_container');
+        $state = [
+            self::AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY => null,
+        ];
+        $container->set(
+            self::AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY,
+            static function (AfterCurrentPageIsResolvedEvent $event) use (&$state): void {
+                $state[self::AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY] = $event;
+                $event->currentPage = null;
+            }
+        );
+
+        $eventListener = $container->get(ListenerProvider::class);
+        $eventListener->addListener(AfterCurrentPageIsResolvedEvent::class, self::AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY);
+
+        $formDefinition = $this->buildFormDefinition();
+        $formRuntime = $formDefinition->bind($this->request);
+        $formRuntime->render();
+
+        self::assertInstanceOf(AfterCurrentPageIsResolvedEvent::class, $state[self::AFTER_CURRENT_PAGE_IS_RESOLVED_LISTENER_KEY]);
+        self::assertNull($formRuntime->getCurrentPage());
+    }
+
+    #[Test]
+    public function afterFormStateInitializedEventIsTriggered(): void
+    {
+        $container = $this->get('service_container');
+        $state = [
+            self::AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY => null,
+        ];
+        $container->set(
+            self::AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY,
+            static function (AfterFormStateInitializedEvent $event) use (&$state): void {
+                $state[self::AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY] = $event;
+                $event->formRuntime->getFormState()->setFormValue('test-key', 'test-value');
+            }
+        );
+
+        $eventListener = $container->get(ListenerProvider::class);
+        $eventListener->addListener(AfterFormStateInitializedEvent::class, self::AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY);
+
+        $formDefinition = $this->buildFormDefinition();
+        $formRuntime = $formDefinition->bind($this->request);
+
+        self::assertInstanceOf(AfterFormStateInitializedEvent::class, $state[self::AFTER_FORM_STATE_INITIALIZED_LISTENER_KEY]);
+        self::assertSame('test-value', $formRuntime->getElementValue('test-key'));
+    }
+
+    #[Test]
+    public function beforeRenderableIsValidatedEventIsTriggered(): void
+    {
+        $container = $this->get('service_container');
+        $state = [
+            self::BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY => null,
+        ];
+        $expectedValue = 'foo';
+        $container->set(
+            self::BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY,
+            static function (BeforeRenderableIsValidatedEvent $event) use (&$state, $expectedValue): void {
+                $state[self::BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY] = $event;
+                if ($event->renderable->getIdentifier() !== 'text-1') {
+                    return;
+                }
+                $event->value = $expectedValue;
+            }
+        );
+
+        $eventListener = $container->get(ListenerProvider::class);
+        $eventListener->addListener(BeforeRenderableIsValidatedEvent::class, self::BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY);
+
+        $subject = $this->getAccessibleMock(FormRuntime::class, null, [
+            $container,
+            self::createStub(ExtbaseConfigurationManagerInterface::class),
+            new HashService(),
+            self::createStub(ValidatorResolver::class),
+            self::createStub(Context::class),
+            $this->get(EventDispatcherInterface::class),
+        ]);
+        $page = new Page('page-1');
+        $page->addElement(new GenericFormElement('text-1', 'Text'));
+
+        $subject->setRequest($this->request);
+        $subject->setFormDefinition($this->buildFormDefinition());
+
+        $subject->_call(
+            'initializeFormStateFromRequest',
+        );
+        $subject->_call(
+            'mapAndValidatePage',
+            $page,
+        );
+
+        self::assertInstanceOf(BeforeRenderableIsValidatedEvent::class, $state[self::BEFORE_RENDERABLE_IS_VALIDATED_LISTENER_KEY]);
+        self::assertEquals($expectedValue, $subject->getElementValue('text-1'));
+    }
+
     private function buildExtbaseRequest(): Request
     {
         $frontendUser = new FrontendUserAuthentication();
         $frontendUser->initializeUserSessionManager();
-        $serverRequest = (new ServerRequest())
+        $serverRequest = new ServerRequest()
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
-            ->withAttribute('frontend.user', $frontendUser);
+            ->withAttribute('frontend.user', $frontendUser)
+            // The form action URI is built by the Extbase UriBuilder, which needs a content object
+            ->withAttribute('currentContentObject', $this->get(ContentObjectRenderer::class))
+            // Rendering resolves element labels through TranslationService, which
+            // derives the locale from the request. A frontend request always has
+            // a language; without it, rendering fails before reaching a template.
+            ->withAttribute('language', new SiteLanguage(0, 'en_US.UTF-8', new Uri('/'), []));
 
         $GLOBALS['TYPO3_REQUEST'] = $serverRequest;
 
-        return (new Request($serverRequest))->withPluginName('Formframework');
+        return new Request($serverRequest)->withPluginName('Formframework');
     }
 
     private function buildFormDefinition(): FormDefinition
@@ -112,22 +341,110 @@ final class FormRuntimeTest extends FunctionalTestCase
         ], null, new ServerRequest());
     }
 
-    private function loadDefaultYamlConfigurations(): void
+    private function buildFormDefinitionWithMultiCheckbox(): FormDefinition
     {
-        $configurationManager = $this->get(ExtbaseConfigurationManagerInterface::class);
-        $configurationManager->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
-        );
-        $configurationManager->setConfiguration([
-            'plugin.' => [
-                'tx_form.' => [
-                    'settings.' => [
-                        'yamlConfigurations.' => [
-                            '10' => 'EXT:form/Configuration/Yaml/FormSetup.yaml',
+        return $this->formFactory->build([
+            'type' => 'Form',
+            'identifier' => 'test',
+            'label' => 'test',
+            'prototypeName' => 'standard',
+            'renderables' => [
+                [
+                    'type' => 'Page',
+                    'identifier' => 'page-1',
+                    'label' => 'Page',
+                    'renderables' => [
+                        [
+                            'type' => 'MultiCheckbox',
+                            'identifier' => 'multicheckbox-1',
+                            'label' => 'Multi checkbox',
+                            'properties' => [
+                                'options' => [
+                                    'value-1' => 'Label 1',
+                                    'value-2' => 'Label 2',
+                                ],
+                            ],
                         ],
                     ],
                 ],
             ],
-        ]);
+        ], null, new ServerRequest());
+    }
+
+    private function buildFormDefinitionWithDisabledElementAndPageVariant(): FormDefinition
+    {
+        return $this->formFactory->build([
+            'type' => 'Form',
+            'identifier' => 'test',
+            'label' => 'test',
+            'prototypeName' => 'standard',
+            'renderables' => [
+                [
+                    'type' => 'Page',
+                    'identifier' => 'page-1',
+                    'label' => 'Page',
+                    'renderables' => [
+                        [
+                            'type' => 'Text',
+                            'identifier' => 'text-1',
+                            'label' => 'Text',
+                            'renderingOptions' => [
+                                'enabled' => false,
+                            ],
+                            'variants' => [
+                                [
+                                    'identifier' => 'showOnlyOnPages',
+                                    'renderingOptions' => [
+                                        'enabled' => true,
+                                    ],
+                                    'condition' => 'stepType == "Page"',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ], null, new ServerRequest());
+    }
+
+    private function buildFormDefinitionWithDisabledElementAndPageVariantAndSummaryPage(): FormDefinition
+    {
+        return $this->formFactory->build([
+            'type' => 'Form',
+            'identifier' => 'test',
+            'label' => 'test',
+            'prototypeName' => 'standard',
+            'renderables' => [
+                [
+                    'type' => 'Page',
+                    'identifier' => 'page-1',
+                    'label' => 'Page',
+                    'renderables' => [
+                        [
+                            'type' => 'Text',
+                            'identifier' => 'text-1',
+                            'label' => 'Text',
+                            'renderingOptions' => [
+                                'enabled' => false,
+                            ],
+                            'variants' => [
+                                [
+                                    'identifier' => 'showOnlyOnPages',
+                                    'renderingOptions' => [
+                                        'enabled' => true,
+                                    ],
+                                    'condition' => 'stepType == "Page"',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'type' => 'SummaryPage',
+                    'identifier' => 'summary-1',
+                    'label' => 'Summary',
+                ],
+            ],
+        ], null, new ServerRequest());
     }
 }

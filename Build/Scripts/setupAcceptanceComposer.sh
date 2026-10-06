@@ -5,13 +5,13 @@ set -e
 cd "$(dirname $(realpath $0))/../../"
 
 PROJECT_PATH=${1:-typo3temp/var/tests/acceptance-composer/}
-export TYPO3_DB_DRIVER=${2:-${TYPO3_DB_DRIVER:-sqlite}}
-EXTRA_PACKAGES="${3}"
-ACCEPTANCE_TOPIC="${4}"
+EXTRA_PACKAGES="${2}"
+ACCEPTANCE_TOPIC="${3}"
 
 mkdir -p "${PROJECT_PATH}"
 ln -snf $(echo "${PROJECT_PATH}" | sed -e 's/[^\/][^\/]*/../g' -e 's/\/$//')/typo3/sysext "${PROJECT_PATH}/typo3-sysext"
 ln -snf $(echo "${PROJECT_PATH}" | sed -e 's/[^\/][^\/]*/../g' -e 's/\/$//')/Build/tests/packages "${PROJECT_PATH}/packages"
+ln -snf $(echo "${PROJECT_PATH}" | sed -e 's/[^\/][^\/]*/../g' -e 's/\/$//')/Build/tests/playwright/fixtures "${PROJECT_PATH}/playwright-fixtures"
 sed 's/..\/..\/typo3\/sysext/typo3-sysext/' Build/composer/composer.dist.json > "${PROJECT_PATH}/composer.json"
 
 cd "${PROJECT_PATH}"
@@ -21,8 +21,8 @@ mkdir -p "config/system/"
 cat > "config/system/additional.php" <<\EOF
 <?php
 $GLOBALS['TYPO3_CONF_VARS']['BE']['debug'] = true;
-// "temporary password"
-$GLOBALS['TYPO3_CONF_VARS']['BE']['installToolPassword'] = '$argon2i$v=19$m=65536,t=16,p=1$Rk9Edk1UWTd1MUtVY1Nydg$bJJgiAH3NT66LkvcTsnYbQvFS/ePOw/50rYjhxUk8L8';
+// "Temporary Password - 123"
+$GLOBALS['TYPO3_CONF_VARS']['BE']['installToolPassword'] = '$argon2i$v=19$m=65536,t=16,p=1$c3hCMGVXOHhRd0M3MzhSVw$WPQHpElapKMxsxfSkkXw5YQxGKN+rGmjM8vQv3g79YY';
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['displayErrors'] = true;
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['devIPmask'] = '*';
 $GLOBALS['TYPO3_CONF_VARS']['SYS']['exceptionalErrors'] = E_ALL;
@@ -31,16 +31,37 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['trustedHostsPattern'] = '.*';
 $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'GraphicsMagick';
 $GLOBALS['TYPO3_CONF_VARS']['MAIL']['transport'] = 'mbox';
 $GLOBALS['TYPO3_CONF_VARS']['MAIL']['transport_mbox_file'] = \TYPO3\CMS\Core\Core\Environment::getVarPath() . '/log/mail.mbox';
+
+// SQLite optimization: enable WAL mode and busy timeout to prevent "database is locked" errors
+// `typo3 setup` boots without a configured driver, TYPO3_DB_DRIVER makes the settings apply there as well
+if (($GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']['Default']['driver'] ?? '') === 'pdo_sqlite' || getenv('TYPO3_DB_DRIVER') === 'sqlite') {
+    $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']['Default']['driverOptions'] = [
+        \PDO::ATTR_TIMEOUT => 120,
+    ];
+    $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']['Default']['initCommands'] =
+        'PRAGMA journal_mode = WAL;' . LF .
+        'PRAGMA busy_timeout = 120000;' . LF .
+        'PRAGMA synchronous = NORMAL;';
+}
 EOF
 
+composer remove typo3/theme-camino --no-update
 # `composer require` will implicitly perform an initial `composer install` since there is no composer.lock
-composer require --no-progress --no-interaction --dev typo3tests/dataset-import:@dev typo3/testing-framework:dev-main ${EXTRA_PACKAGES}
+composer require \
+    --no-progress \
+    --no-interaction \
+    --optimize-autoloader \
+    --dev \
+    typo3tests/dataset-import:@dev \
+    typo3tests/playwright-helper:@dev \
+    typo3/testing-framework:dev-main \
+    ${EXTRA_PACKAGES}
 
 TYPO3_SERVER_TYPE=apache \
 TYPO3_PROJECT_NAME="New TYPO3 site" \
 vendor/bin/typo3 setup --force --no-interaction
 
-vendor/bin/typo3 dataset:import vendor/typo3/cms-core/Tests/Acceptance/Fixtures/BackendEnvironment.csv
+vendor/bin/typo3 dataset:import playwright-fixtures/BackendEnvironment.csv
 vendor/bin/typo3 styleguide:generate -c tca
 if [ "${ACCEPTANCE_TOPIC}" = "systemplate" ]; then
     vendor/bin/typo3 styleguide:generate -c frontend-systemplate
@@ -54,3 +75,11 @@ ln -snf ../vendor/typo3/cms-backend/Resources/Public/Icons/favicon.ico public/fa
 
 # @todo: needed for ugly InstallTool tests, that should be replace by a CLI command that properly enables install tool, both in composer and classic mode
 mkdir -p var/transient/
+
+# Generate a per-instance secret for the playwright helper middleware. Its
+# endpoints (e.g. install-tool/enable) require this token in the
+# `X-Playwright-Helper-Secret` request header. The Playwright fixture reads the
+# same file and adds the header for every helper request. The instance ports
+# are reachable from the host, so authenticating these endpoints is mandatory.
+php -r 'echo bin2hex(random_bytes(32));' > var/transient/playwright-helper.secret
+chmod 600 var/transient/playwright-helper.secret

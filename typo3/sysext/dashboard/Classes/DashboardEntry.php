@@ -45,8 +45,8 @@ use TYPO3\CMS\Dashboard\Widgets\WidgetResult;
 final readonly class DashboardEntry
 {
     public function __construct(
-        protected WidgetContext $context,
-        protected WidgetRendererInterface|WidgetInterface $renderer,
+        private WidgetContext $context,
+        private WidgetRendererInterface|WidgetInterface $renderer,
     ) {}
 
     public function getIdentifier(): string
@@ -122,8 +122,8 @@ final readonly class DashboardEntry
             eventdata: $this->getEventData(),
             refreshable: $result->refreshable,
             configurable: (
-                $this->renderer instanceof WidgetRendererInterface &&
-                array_filter($this->renderer->getSettingsDefinitions(), fn($definition) => !$definition->readonly) !== []
+                $this->renderer instanceof WidgetRendererInterface
+                && array_filter($this->renderer->getSettingsDefinitions(), fn($definition) => !$definition->readonly) !== []
             )
         );
     }
@@ -145,7 +145,7 @@ final readonly class DashboardEntry
         return $this->context->rawData;
     }
 
-    protected function render(): WidgetResult
+    private function render(): WidgetResult
     {
         try {
             if ($this->renderer instanceof WidgetRendererInterface) {
@@ -165,7 +165,7 @@ final readonly class DashboardEntry
         }
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

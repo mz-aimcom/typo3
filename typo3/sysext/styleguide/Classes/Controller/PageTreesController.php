@@ -20,7 +20,7 @@ namespace TYPO3\CMS\Styleguide\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -92,6 +92,7 @@ final class PageTreesController
         $demoFrontendExists = count($this->recordFinder->findUidsOfFrontendPages());
 
         $view = $this->moduleTemplateFactory->create($request);
+        $view->setLayout(ModuleLayout::NORMAL);
         $view->assignMultiple([
             'currentAction' => 'managePageTrees',
             'demoExists' => $demoExists,
@@ -103,8 +104,15 @@ final class PageTreesController
             $languageService->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:action.managePageTrees'),
         );
         $view->makeDocHeaderModuleMenu();
-        $this->addDocHeaderShortcutButton($view);
-
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'styleguide_pagetrees',
+            sprintf(
+                '%s - %s',
+                $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:styleguide'),
+                $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:action.managePageTrees')
+            ),
+            ['action' => 'managePageTrees']
+        );
         return $view->renderResponse('Backend/ManagePageTrees');
     }
 
@@ -188,20 +196,6 @@ final class PageTreesController
             'status' => ContextualFeedbackSeverity::OK,
         ];
         return new JsonResponse($json);
-    }
-
-    private function addDocHeaderShortcutButton(ModuleTemplate $moduleTemplate): void
-    {
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setDisplayName(sprintf(
-                '%s - %s',
-                $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:styleguide'),
-                $this->getLanguageService()->sL('LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:action.managePageTrees')
-            ))
-            ->setRouteIdentifier('styleguide_pagetrees')
-            ->setArguments(['action' => 'managePageTrees']);
-        $buttonBar->addButton($shortcutButton);
     }
 
     private function getLanguageService(): LanguageService

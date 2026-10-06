@@ -2,16 +2,20 @@
 	"name": "typo3tests/config-override-second",
 	"type": "typo3-cms-extension",
 	"description": "A test extension for site config override",
+	"version": "1.0.0",
 	"license": "GPL-2.0-or-later",
 	"require": {
-		"typo3/cms-core": "14.0.*@dev"
+		"typo3/cms-core": "15.0.*@dev"
 	},
 	"suggest": {
 		"typo3tests/config-override-first": "13.0.*@dev"
 	},
 	"extra": {
 		"typo3/cms": {
-			"extension-key": "test_configoverride_second"
+			"extension-key": "test_configoverride_second",
+			"Package": {
+				"providesPackages": []
+			}
 		}
 	}
 }

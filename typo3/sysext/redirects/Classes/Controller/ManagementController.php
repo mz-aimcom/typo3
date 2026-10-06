@@ -21,19 +21,22 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Backend\Avatar\Avatar;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\Components\MultiRecordSelection\Action;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\Features;
+use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Redirects\Event\ModifyRedirectManagementControllerViewDataEvent;
 use TYPO3\CMS\Redirects\Repository\Demand;
 use TYPO3\CMS\Redirects\Repository\RedirectRepository;
+use TYPO3\CMS\Redirects\Service\ModulePaginationService;
 use TYPO3\CMS\Redirects\Utility\RedirectConflict;
 
 /**
@@ -50,6 +53,10 @@ class ManagementController
         protected RedirectRepository $redirectRepository,
         protected ModuleTemplateFactory $moduleTemplateFactory,
         private EventDispatcherInterface $eventDispatcher,
+        protected ComponentFactory $componentFactory,
+        protected ModulePaginationService $modulePaginationService,
+        protected Avatar $avatar,
+        private readonly Features $features,
     ) {}
 
     /**
@@ -57,41 +64,59 @@ class ManagementController
      */
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
     {
-        $view = $this->moduleTemplateFactory->create($request);
         $demand = Demand::fromRequest($request);
+        if ($request->getMethod() === 'POST') {
+            return new RedirectResponse($this->uriBuilder->buildUriFromRoute('redirects', $demand->getUriParameters()));
+        }
 
+        $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:mlang_tabs_tab')
+            $this->getLanguageService()->translate('title', 'redirects.modules.redirects')
         );
-        $this->registerDocHeaderButtons($view, $request->getAttribute('normalizedParams')->getRequestUri());
+        $view->makeDocHeaderModuleMenu();
+        $this->registerDocHeaderButtons($view, $demand);
 
+        if (!$this->canListRedirects()) {
+            return $view->renderResponse('Management/Overview');
+        }
+
+        $redirectType = $demand->getRedirectType();
+        $redirects = $this->redirectRepository->findRedirectsByDemand($demand);
         $event = $this->eventDispatcher->dispatch(
             new ModifyRedirectManagementControllerViewDataEvent(
                 $demand,
-                $this->redirectRepository->findRedirectsByDemand($demand),
-                $this->redirectRepository->findHostsOfRedirects(),
-                $this->redirectRepository->findStatusCodesOfRedirects(),
-                $this->redirectRepository->findCreationTypes(),
-                GeneralUtility::makeInstance(Features::class)->isFeatureEnabled('redirects.hitCount'),
+                $redirects,
+                $this->redirectRepository->findHostsOfRedirects($redirectType),
+                $this->redirectRepository->findStatusCodesOfRedirects($redirectType),
+                $this->redirectRepository->findCreationTypes($redirectType),
+                $this->features->isFeatureEnabled('redirects.hitCount'),
                 $view,
                 $request,
-                $this->redirectRepository->findIntegrityStatusCodes(),
+                $this->redirectRepository->findIntegrityStatusCodes($redirectType),
+                $this->prepareCreators($this->redirectRepository->findCreators($redirectType), $redirects),
             )
         );
         $requestUri = $request->getAttribute('normalizedParams')->getRequestUri();
+        $pagination = $this->modulePaginationService->preparePagination($demand);
         $languageService = $this->getLanguageService();
         $view = $event->getView();
+        $hasEditPermissions = $this->canEditRedirects();
         $view->assignMultiple([
             'redirects' => $event->getRedirects(),
             'hosts' => $event->getHosts(),
             'statusCodes' => $event->getStatusCodes(),
             'creationTypes' => $event->getCreationTypes(),
             'integrityStatusCodes' => $event->getIntegrityStatusCodes(),
+            'creators' => $event->getCreators(),
+            'creatorFilterOptions' => $this->buildCreatorFilterOptions($event->getCreators()),
             'defaultIntegrityStatus' => RedirectConflict::NO_CONFLICT,
             'demand' => $event->getDemand(),
             'showHitCounter' => $event->getShowHitCounter(),
-            'pagination' => $this->preparePagination($event->getDemand()),
-            'actions' => [
+            'pagination' => $pagination,
+            'canEditRedirects' => $hasEditPermissions,
+            'canListRedirects' => true,
+            'returnUrl' => $this->uriBuilder->buildUriFromRoute('redirects', $demand->getUriParameters()),
+            'actions' => $hasEditPermissions ? [
                 new Action(
                     'edit',
                     [
@@ -107,8 +132,8 @@ class ManagementController
                     [
                         'idField' => 'uid',
                         'tableName' => 'sys_redirect',
-                        'title' => $languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_reactions.xlf:labels.delete.title'),
-                        'content' => $languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_reactions.xlf:labels.delete.message'),
+                        'title' => $languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:labels.delete.title'),
+                        'content' => $languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:labels.delete.message'),
                         'ok' => $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.delete'),
                         'cancel' => $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel'),
                         'returnUrl' => $requestUri,
@@ -116,79 +141,110 @@ class ManagementController
                     'actions-edit-delete',
                     'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.delete'
                 ),
-            ],
+            ] : [],
         ]);
         return $view->renderResponse('Management/Overview');
     }
 
     /**
-     * Prepares information for the pagination of the module
+     * @param array<int, array<string, mixed>> $creatorRecords
+     * @param list<array<string, mixed>> $redirects
+     * @return array<int, array{label: string, avatar: string, filterValue: int}>
      */
-    protected function preparePagination(Demand $demand): array
+    protected function prepareCreators(array $creatorRecords, array $redirects): array
     {
-        $count = $this->redirectRepository->countRedirectsByByDemand($demand);
-        $numberOfPages = ceil($count / $demand->getLimit());
-        $endRecord = $demand->getOffset() + $demand->getLimit();
-        if ($endRecord > $count) {
-            $endRecord = $count;
+        $languageService = $this->getLanguageService();
+        $listedCreators = array_map(intval(...), array_column($redirects, 'createdby'));
+        $creators = [];
+        foreach ($creatorRecords as $userId => $user) {
+            if ($user === []) {
+                $creators[$userId] = [
+                    'label' => $languageService->sL($userId === 0
+                        ? 'LLL:EXT:redirects/Resources/Private/Language/locallang.xlf:not_tracked'
+                        : 'LLL:EXT:redirects/Resources/Private/Language/locallang.xlf:user_not_found'),
+                    'avatar' => '',
+                    'filterValue' => $userId === 0 ? 0 : Demand::CREATOR_NOT_FOUND,
+                ];
+                continue;
+            }
+            $realName = (string)($user['realName'] ?? '');
+            $userName = (string)($user['username'] ?? '');
+            $creators[$userId] = [
+                'label' => $realName !== '' ? sprintf('%s (%s)', $realName, $userName) : $userName,
+                'avatar' => in_array($userId, $listedCreators, true) ? $this->avatar->render($user, 16) : '',
+                'filterValue' => $userId,
+            ];
         }
+        return $creators;
+    }
 
-        $pagination = [
-            'current' => $demand->getPage(),
-            'numberOfPages' => $numberOfPages,
-            'hasLessPages' => $demand->getPage() > 1,
-            'hasMorePages' => $demand->getPage() < $numberOfPages,
-            'startRecord' => $demand->getOffset() + 1,
-            'endRecord' => $endRecord,
-        ];
-        if ($pagination['current'] < $pagination['numberOfPages']) {
-            $pagination['nextPage'] = $pagination['current'] + 1;
+    /**
+     * @param array<int, array{label: string, avatar: string, filterValue: int}> $creators
+     * @return array<int, string>
+     */
+    protected function buildCreatorFilterOptions(array $creators): array
+    {
+        $options = [];
+        foreach ($creators as $creator) {
+            $options[$creator['filterValue']] = $creator['label'];
         }
-        if ($pagination['current'] > 1) {
-            $pagination['previousPage'] = $pagination['current'] - 1;
-        }
-        return $pagination;
+        return $options;
+    }
+
+    protected function canListRedirects(): bool
+    {
+        return $this->getBackendUser()->check('tables_select', 'sys_redirect');
+    }
+
+    protected function canEditRedirects(): bool
+    {
+        return $this->getBackendUser()->check('tables_modify', 'sys_redirect');
     }
 
     /**
      * Create document header buttons
      */
-    protected function registerDocHeaderButtons(ModuleTemplate $view, string $requestUri): void
+    protected function registerDocHeaderButtons(ModuleTemplate $view, Demand $demand): void
     {
         $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
 
         // Create new
-        $newRecordButton = $buttonBar->makeLinkButton()
-            ->setHref((string)$this->uriBuilder->buildUriFromRoute(
-                'record_edit',
-                [
-                    'edit' => ['sys_redirect' => ['new'],
-                    ],
-                    'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('site_redirects'),
-                ]
-            ))
-            ->setTitle($languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:redirect_add_text'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-plus', IconSize::SMALL));
-        $buttonBar->addButton($newRecordButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
-
-        // Reload
-        $reloadButton = $buttonBar->makeLinkButton()
-            ->setHref($requestUri)
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        if ($this->canEditRedirects()) {
+            $newRecordButton = $this->componentFactory->createLinkButton()
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute(
+                    'record_edit',
+                    [
+                        'edit' => ['sys_redirect' => ['new']],
+                        'module' => 'redirects',
+                        'defVals' => [
+                            'sys_redirect' => [
+                                'redirect_type' => Demand::DEFAULT_REDIRECT_TYPE,
+                            ],
+                        ],
+                        'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('redirects'),
+                    ]
+                ))
+                ->setTitle($languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:redirect_add_text'))
+                ->setShowLabelText(true)
+                ->setIcon($this->iconFactory->getIcon('actions-plus', IconSize::SMALL));
+            $view->getDocHeaderComponent()->getButtonBar()->addButton($newRecordButton);
+        }
 
         // Shortcut
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('site_redirects')
-            ->setDisplayName($languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:mlang_labels_tablabel'));
-        $buttonBar->addButton($shortcutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'redirects',
+            $languageService->translate('short_description', 'redirects.modules.redirects'),
+            $demand->getUriParameters(),
+        );
     }
 
     protected function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
+    }
+
+    protected function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
     }
 }

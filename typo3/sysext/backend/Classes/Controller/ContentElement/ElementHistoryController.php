@@ -24,6 +24,7 @@ use TYPO3\CMS\Backend\History\RecordHistory;
 use TYPO3\CMS\Backend\History\RecordHistoryRollback;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -32,11 +33,14 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\DataHandling\History\RecordHistoryStore;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\DiffGranularity;
 use TYPO3\CMS\Core\Utility\DiffUtility;
@@ -56,6 +60,11 @@ class ElementHistoryController
      * Display inline differences or not
      */
     protected bool $showDiff = true;
+
+    /**
+     * Show entries of one operation as a group instead of a flat list
+     */
+    protected bool $groupByOperation = false;
     protected array $recordCache = [];
 
     protected ModuleTemplate $view;
@@ -69,6 +78,8 @@ class ElementHistoryController
         private readonly DiffUtility $diffUtility,
         private readonly FlexFormValueFormatter $flexFormValueFormatter,
         private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly ComponentFactory $componentFactory,
+        private readonly SiteFinder $siteFinder,
     ) {}
 
     /**
@@ -79,21 +90,23 @@ class ElementHistoryController
     {
         $this->view = $this->moduleTemplateFactory->create($request);
         $backendUser = $this->getBackendUser();
-        $this->view->getDocHeaderComponent()->setMetaInformation([]);
-        $buttonBar = $this->view->getDocHeaderComponent()->getButtonBar();
+        $this->view->getDocHeaderComponent()->setPageBreadcrumb([]);
 
         $parsedBody = $request->getParsedBody();
         $queryParams = $request->getQueryParams();
 
-        $this->returnUrl = GeneralUtility::sanitizeLocalUrl($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '');
+        $this->returnUrl = GeneralUtility::sanitizeLocalUrl($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '', $request);
 
         $lastHistoryEntry = (int)($parsedBody['historyEntry'] ?? $queryParams['historyEntry'] ?? 0);
-        $rollbackFields = $parsedBody['rollbackFields'] ?? $queryParams['rollbackFields'] ?? null;
+        // A rollback changes records, so it is only accepted as POST
+        $rollbackFields = $parsedBody['rollbackFields'] ?? null;
+        $rollbackScope = $parsedBody['rollbackScope'] ?? null;
         $element = $parsedBody['element'] ?? $queryParams['element'] ?? null;
         $moduleSettings = $this->processSettings($request);
         $this->view->assign('isUserInWorkspace', $backendUser->workspace > 0);
 
         $this->showDiff = (bool)$moduleSettings['showDiff'];
+        $this->groupByOperation = (bool)($moduleSettings['groupByOperation'] ?? false);
 
         // Start history object
         $this->historyObject = GeneralUtility::makeInstance(RecordHistory::class, $element);
@@ -105,6 +118,9 @@ class ElementHistoryController
 
         // Do the actual logic now (rollback, show a diff for certain changes,
         // or show the full history of a page or a specific record)
+        if ($rollbackScope !== null) {
+            $this->rollbackOperation((string)$rollbackScope);
+        }
         $changeLog = $this->historyObject->getChangeLog();
         if (!empty($changeLog)) {
             if ($rollbackFields !== null) {
@@ -113,12 +129,12 @@ class ElementHistoryController
             } elseif ($lastHistoryEntry) {
                 $completeDiff = $this->historyObject->getDiff($changeLog);
                 $this->displayMultipleDiff($completeDiff);
-                $button = $buttonBar->makeLinkButton()
+                $button = $this->componentFactory->createLinkButton()
                     ->setHref($this->buildUrl(['historyEntry' => '']))
                     ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
                     ->setTitle($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:fullView'))
                     ->setShowLabelText(true);
-                $buttonBar->addButton($button);
+                $this->view->addButtonToButtonBar($button);
             }
             if ($this->historyObject->getElementString() !== '') {
                 $this->displayHistory($changeLog);
@@ -136,7 +152,7 @@ class ElementHistoryController
             if ($elementTable !== 'pages') {
                 $parentPage = BackendUtility::getRecord($elementTable, $elementUid, '*', '', false);
                 if ($parentPage['pid'] > 0 && BackendUtility::readPageAccess($parentPage['pid'], $backendUser->getPagePermsClause(Permission::PAGE_SHOW))) {
-                    $button = $buttonBar->makeLinkButton()
+                    $button = $this->componentFactory->createLinkButton()
                         ->setHref($this->buildUrl([
                             'element' => 'pages:' . $parentPage['pid'],
                             'historyEntry' => '',
@@ -144,14 +160,19 @@ class ElementHistoryController
                         ->setIcon($this->iconFactory->getIcon('apps-pagetree-page-default', IconSize::SMALL))
                         ->setTitle($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:elementHistory_link'))
                         ->setShowLabelText(true);
-                    $buttonBar->addButton($button, ButtonBar::BUTTON_POSITION_LEFT, 2);
+                    $this->view->addButtonToButtonBar($button, ButtonBar::BUTTON_POSITION_LEFT, 2);
                 }
             }
+        }
+
+        if ($element !== null) {
+            $this->addLanguageSwitcher($request, $backendUser, $element);
         }
 
         $this->view->assign('editLock', $editLock);
         $this->view->assign('moduleSettings', $moduleSettings);
         $this->view->assign('settingsFormUrl', $this->buildUrl());
+        $this->view->assign('rollbackFormUrl', $this->buildUrl());
 
         // Setting up the buttons and markers for docheader
         $this->getButtons();
@@ -173,7 +194,7 @@ class ElementHistoryController
 
         $pageAccess = BackendUtility::readPageAccess($pageId, $this->getBackendUser()->getPagePermsClause(Permission::PAGE_SHOW));
         if (is_array($pageAccess)) {
-            $this->view->getDocHeaderComponent()->setMetaInformation($pageAccess);
+            $this->view->getDocHeaderComponent()->setPageBreadcrumb($pageAccess);
         }
 
         $schema = $this->tcaSchemaFactory->get($table);
@@ -187,15 +208,13 @@ class ElementHistoryController
 
     protected function getButtons(): void
     {
-        $buttonBar = $this->view->getDocHeaderComponent()->getButtonBar();
-
         if ($this->returnUrl) {
-            $backButton = $buttonBar->makeLinkButton()
+            $backButton = $this->componentFactory->createLinkButton()
                 ->setHref($this->returnUrl)
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
                 ->setShowLabelText(true)
                 ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-            $buttonBar->addButton($backButton);
+            $this->view->addButtonToButtonBar($backButton);
         }
     }
 
@@ -204,7 +223,7 @@ class ElementHistoryController
         // Get current selection from UC, merge data, write it back to UC
         $currentSelection = $this->getBackendUser()->getModuleData('history');
         if (!is_array($currentSelection)) {
-            $currentSelection = ['maxSteps' => '', 'showDiff' => 1, 'showSubElements' => 1];
+            $currentSelection = ['maxSteps' => '', 'showDiff' => 1, 'showSubElements' => 1, 'groupByOperation' => 0];
         }
         $currentSelectionOverride = $request->getParsedBody()['settings'] ?? null;
         if (is_array($currentSelectionOverride) && !empty($currentSelectionOverride)) {
@@ -212,6 +231,55 @@ class ElementHistoryController
             $this->getBackendUser()->pushModuleData('history', $currentSelection);
         }
         return $currentSelection;
+    }
+
+    /**
+     * Add a translation selection dropdown if the record is language aware.
+     */
+    protected function addLanguageSwitcher(
+        ServerRequestInterface $request,
+        BackendUserAuthentication $backendUser,
+        string $element,
+    ): void {
+        $translations = $this->historyObject->getTranslations($element);
+        if ($translations === null) {
+            return;
+        }
+
+        $languageDropDownButton = $this->componentFactory->createDropDownButton()
+            ->setLabel($this->getLanguageService()->sL('core.core:labels.language'))
+            ->setShowLabelText(true);
+
+        try {
+            $site = $this->siteFinder->getSiteByPageId($translations['page']);
+        } catch (SiteNotFoundException) {
+            $site = $request->getAttribute('site');
+        }
+
+        $availableLanguages = $site->getAvailableLanguages($backendUser, false, $translations['page']);
+
+        foreach ($translations['elements'] as $translation) {
+            $siteLanguage = $availableLanguages[$translation['language']] ?? null;
+            if (!$siteLanguage instanceof SiteLanguage) {
+                continue;
+            }
+
+            $languageItem = $this->componentFactory->createDropDownRadio()
+                ->setActive($translation['element'] === $element)
+                ->setIcon($this->iconFactory->getIcon($siteLanguage->getFlagIdentifier()))
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('record_history', [
+                    'element' => $translation['element'],
+                    'returnUrl' => $this->returnUrl,
+                ]))
+                ->setLabel($siteLanguage->getTitle());
+            $languageDropDownButton->addItem($languageItem);
+
+            if ($languageItem->isActive()) {
+                $languageDropDownButton->setLabel($siteLanguage->getTitle());
+            }
+        }
+
+        $this->view->getDocHeaderComponent()->setLanguageSelector($languageDropDownButton);
     }
 
     /**
@@ -225,7 +293,12 @@ class ElementHistoryController
 
         // Get all array keys needed
         /** @var string[] $arrayKeys */
-        $arrayKeys = array_merge(array_keys($diff['newData']), array_keys($diff['insertsDeletes']), array_keys($diff['oldData']));
+        $arrayKeys = array_merge(
+            array_keys($diff['newData']),
+            array_keys($diff['insertsDeletes']),
+            array_keys($diff['oldData']),
+            array_keys($diff['moves'] ?? [])
+        );
         $arrayKeys = array_unique($arrayKeys);
         if (!empty($arrayKeys)) {
             $lines = [];
@@ -272,14 +345,22 @@ class ElementHistoryController
                         $singleLine['differences'] = $this->renderDiff($tmpArr, $elParts[0], (int)$elParts[1], true);
                     }
                 }
-                $elParts = explode(':', $key);
-                $singleLine['revertRecordUrl'] = $this->buildUrl(['rollbackFields' => $key]);
+                if (isset($diff['moves'][$key])) {
+                    // A move is undone as a whole, there is no field to show a difference for
+                    $previousPageId = (int)($diff['moves'][$key]['pid'] ?? 0);
+                    $currentRecord = BackendUtility::getRecord($elParts[0], $elParts[1], 'pid', '', false);
+                    if ($currentRecord !== null && (int)$currentRecord['pid'] === $previousPageId) {
+                        $singleLine['movedBackWithinPage'] = true;
+                    } else {
+                        $singleLine['movedBackToPage'] = $this->generatePageTitle($previousPageId);
+                    }
+                }
+                $singleLine['rollbackFields'] = $key;
                 $singleLine['title'] = $this->generateTitle($elParts[0], $elParts[1]);
                 $singleLine['recordTable'] = $elParts[0];
                 $singleLine['recordUid'] = $elParts[1];
                 $lines[] = $singleLine;
             }
-            $this->view->assign('revertAllUrl', $this->buildUrl(['rollbackFields' => 'ALL']));
             $this->view->assign('multipleDiff', $lines);
         }
         $this->view->assign('showDifferences', true);
@@ -302,15 +383,21 @@ class ElementHistoryController
             // Build up single line
             $singleLine = [];
 
-            // Get user names
-            $singleLine['backendUserUid'] = $entry['userid'];
-            $singleLine['backendUserName'] = $beUserArray[$entry['userid']]['username'] ?? '';
-            $singleLine['backendUserRealName'] = $beUserArray[$entry['userid']]['realName'] ?? '';
-            // Executed by switch user
-            if (!empty($entry['originaluserid'])) {
-                $singleLine['originalBackendUserUid'] = $entry['originaluserid'];
-                $singleLine['originalBackendUserName'] = $beUserArray[$entry['originaluserid']]['username'] ?? '';
-                $singleLine['originalBackendRealName'] = $beUserArray[$entry['originaluserid']]['realName'] ?? '';
+            // Get user names. Only backend users can be resolved from be_users, a frontend user
+            // must not be attributed to the backend user that happens to have the same uid.
+            $userType = (string)($entry['usertype'] ?? '');
+            if ($userType === RecordHistoryStore::USER_BACKEND) {
+                $singleLine['backendUserUid'] = $entry['userid'];
+                $singleLine['backendUserName'] = $beUserArray[$entry['userid']]['username'] ?? '';
+                $singleLine['backendUserRealName'] = $beUserArray[$entry['userid']]['realName'] ?? '';
+                // Executed by switch user
+                if (!empty($entry['originaluserid'])) {
+                    $singleLine['originalBackendUserUid'] = $entry['originaluserid'];
+                    $singleLine['originalBackendUserName'] = $beUserArray[$entry['originaluserid']]['username'] ?? '';
+                    $singleLine['originalBackendRealName'] = $beUserArray[$entry['originaluserid']]['realName'] ?? '';
+                }
+            } elseif ($userType === RecordHistoryStore::USER_FRONTEND) {
+                $singleLine['frontendUserUid'] = (int)$entry['userid'];
             }
 
             // Is a change in a workspace?
@@ -327,8 +414,27 @@ class ElementHistoryController
             $singleLine['recordUid'] = $entry['recuid'];
 
             $singleLine['elementUrl'] = $this->buildUrl(['element' => $entry['tablename'] . ':' . $entry['recuid']]);
+            if ($this->groupByOperation) {
+                $singleLine['operationScope'] = $this->historyObject->getScopeOfEvent($entry);
+            }
             $singleLine['actiontype'] = $entry['actiontype'];
-            if ((int)$entry['actiontype'] === RecordHistoryStore::ACTION_MODIFY || (int)$entry['actiontype'] === RecordHistoryStore::ACTION_PUBLISH) {
+            $actionType = (int)$entry['actiontype'];
+            if ($actionType === RecordHistoryStore::ACTION_MOVE) {
+                // A move stores its payload under different keys than a modification and holds
+                // fields that are not part of TCA, so it cannot go through renderDiff()
+                $oldPageId = (int)($entry['history_data']['oldData']['pid'] ?? 0);
+                $newPageId = (int)($entry['history_data']['newData']['pid'] ?? 0);
+                if ($oldPageId !== $newPageId) {
+                    $singleLine['movedFromPage'] = $this->generatePageTitle($oldPageId);
+                    $singleLine['movedToPage'] = $this->generatePageTitle($newPageId);
+                } else {
+                    $singleLine['movedWithinPage'] = true;
+                }
+            }
+            if ($actionType === RecordHistoryStore::ACTION_STAGECHANGE) {
+                $singleLine['stageComment'] = trim((string)($entry['history_data']['comment'] ?? ''));
+            }
+            if ($actionType === RecordHistoryStore::ACTION_MODIFY || $actionType === RecordHistoryStore::ACTION_PUBLISH) {
                 // show changes
                 if (!$this->showDiff) {
                     // Display field names instead of full diff
@@ -357,7 +463,71 @@ class ElementHistoryController
             // put line together
             $lines[] = $singleLine;
         }
+        if ($this->groupByOperation) {
+            $lines = $this->groupLinesByOperation($lines);
+        }
         $this->view->assign('history', $lines);
+    }
+
+    /**
+     * Rolls back every change of one operation at once. The entries of an operation share the
+     * scope of their correlation id, and they already carry everything a rollback needs, so the
+     * regular rollback runs over the whole set instead of a single record.
+     */
+    protected function rollbackOperation(string $scope): void
+    {
+        $events = $this->historyObject->findEventsForScope($scope);
+        if ($events === []) {
+            return;
+        }
+        GeneralUtility::makeInstance(RecordHistoryRollback::class)->performRollback(
+            'ALL',
+            $this->historyObject->getDiff($events)
+        );
+    }
+
+    /**
+     * Puts the entries of one operation next to each other and marks the first of them, so the
+     * view can introduce the group with a header. Entries written during the same DataHandler
+     * run share the scope of their correlation id, but they are spread over the changelog
+     * because it is sorted by time, and one operation writes all its entries in the same second.
+     *
+     * Entries without a scope cannot be attributed to an operation and stay on their own.
+     */
+    protected function groupLinesByOperation(array $lines): array
+    {
+        $groups = [];
+        $ungrouped = 0;
+        foreach ($lines as $line) {
+            $scope = $line['operationScope'] ?? null;
+            $groups[$scope !== null ? 'scope:' . $scope : 'single:' . $ungrouped++][] = $line;
+        }
+
+        $recordCounts = [];
+        $result = [];
+        foreach ($groups as $key => $group) {
+            if (str_starts_with($key, 'scope:')) {
+                $scope = substr($key, 6);
+                $recordCounts[$scope] ??= $this->countRecordsInOperation($scope);
+                $group[0]['operationStart'] = true;
+                $group[0]['operationRecordCount'] = $recordCounts[$scope];
+            }
+            array_push($result, ...$group);
+        }
+        return $result;
+    }
+
+    /**
+     * How many records the whole operation touched, which is more than the changelog of a single
+     * record shows. Only records the user may see are counted.
+     */
+    protected function countRecordsInOperation(string $scope): int
+    {
+        $records = [];
+        foreach ($this->historyObject->findEventsForScope($scope) as $event) {
+            $records[$event['tablename'] . ':' . $event['recuid']] = true;
+        }
+        return count($records);
     }
 
     /**
@@ -395,13 +565,13 @@ class ElementHistoryController
                         $new = (string)BackendUtility::getProcessedValue($table, $fN, ($entry['newRecord'][$fN] ?? ''), 0, true, false, $rollbackUid);
                         $diffResult = $this->diffUtility->diff(strip_tags($old), strip_tags($new));
                     }
-                    $rollbackUrl = '';
+                    $rollbackFields = '';
                     if ($rollbackUid && $showRollbackLink) {
-                        $rollbackUrl = $this->buildUrl(['rollbackFields' => $table . ':' . $rollbackUid . ':' . $fN]);
+                        $rollbackFields = $table . ':' . $rollbackUid . ':' . $fN;
                     }
                     $lines[] = [
                         'title' => $languageService->sL($fieldInformation->getLabel()),
-                        'rollbackUrl' => $rollbackUrl,
+                        'rollbackFields' => $rollbackFields,
                         'result' => str_replace('\n', PHP_EOL, str_replace('\r\n', '\n', $diffResult)),
                     ];
                 }
@@ -440,12 +610,21 @@ class ElementHistoryController
      */
     protected function generateTitle(string $table, string $uid): string
     {
-        $title = '';
         if ($this->tcaSchemaFactory->get($table)->hasCapability(TcaSchemaCapability::Label)) {
             $record = $this->getRecord($table, (int)$uid) ?? [];
-            $title .= BackendUtility::getRecordTitle($table, $record);
+            return BackendUtility::getRecordTitle($table, $record);
         }
-        return $title;
+        return '';
+    }
+
+    /**
+     * Renders a page reference of a move as title plus uid, so a page that has been deleted
+     * in the meantime is still identifiable.
+     */
+    protected function generatePageTitle(int $pageId): string
+    {
+        $title = $pageId > 0 ? $this->generateTitle('pages', (string)$pageId) : '';
+        return $title !== '' ? $title . ' [' . $pageId . ']' : '[' . $pageId . ']';
     }
 
     /**

@@ -46,7 +46,7 @@ final class TranslationTest extends FunctionalTestCase
         $context->setAspect('language', new LanguageAspect(0, 0, LanguageAspect::OVERLAYS_OFF));
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $request = (new ServerRequest())
+        $request = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
 
@@ -319,9 +319,6 @@ final class TranslationTest extends FunctionalTestCase
     /**
      * This test checks whether setIgnoreEnableFields(true) affects translated record too.
      * It's expected that when ignoring enable fields, the hidden translated record is shown.
-     * This is related to https://forge.typo3.org/issues/68672
-     *
-     * This tests documents current, buggy behaviour!
      */
     #[Test]
     public function fetchingHiddenPostsReturnsHiddenOverlayOverlayEnabled(): void
@@ -340,8 +337,7 @@ final class TranslationTest extends FunctionalTestCase
         self::assertSame('GR:Post1', $posts[0]->getTitle());
         self::assertSame('Post2', $posts[1]->getTitle());
         self::assertSame('Post3', $posts[2]->getTitle());
-        // once the issue is fixed this assertions should be GR:Post10
-        self::assertSame('Post10', $posts[3]->getTitle());
+        self::assertSame('GR:Post10', $posts[3]->getTitle());
         self::assertSame('GR:Post11', $posts[4]->getTitle());
     }
 

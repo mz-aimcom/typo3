@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tree;
 
-use TYPO3\CMS\Backend\Configuration\BackendUserConfiguration;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
@@ -27,25 +26,21 @@ use TYPO3\CMS\Core\Resource\FolderInterface;
 use TYPO3\CMS\Core\Resource\InaccessibleFolder;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\Utility\ListUtility;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Responsible for fetching a tree-structure of folders.
  *
  * @internal not part of TYPO3 Core API due to the specific use case for the FileStorageTree component.
  */
-class FileStorageTreeProvider
+readonly class FileStorageTreeProvider
 {
-    protected ?array $expandedState = null;
-    protected string $userSettingsIdentifier = 'BackendComponents.States.FileStorageTree';
-
     public function prepareFolderInformation(Folder $folder, ?string $alternativeName = null, ?Folder $parentFolder = null, ?array $children = null): array
     {
         $name = $alternativeName ?? $folder->getName();
         $storage = $folder->getStorage();
         try {
             $parentFolder = $parentFolder ?? $folder->getParentFolder();
-        } catch (InsufficientFolderAccessPermissionsException $e) {
+        } catch (InsufficientFolderAccessPermissionsException) {
             $parentFolder = null;
         }
         if (str_contains($folder->getRole(), FolderInterface::ROLE_MOUNT)) {
@@ -61,7 +56,7 @@ class FileStorageTreeProvider
 
         try {
             $hasSubfolders = $storage->isBrowsable() && (is_array($children) ? $children !== [] : !empty($folder->getSubfolders()));
-        } catch (\InvalidArgumentException | InsufficientFolderReadPermissionsException $e) {
+        } catch (\InvalidArgumentException|InsufficientFolderReadPermissionsException) {
             $hasSubfolders = false;
         }
 
@@ -100,18 +95,14 @@ class FileStorageTreeProvider
         foreach ($rootLevelFolders as $rootLevelFolderInfo) {
             /** @var Folder $rootLevelFolder */
             $rootLevelFolder = $rootLevelFolderInfo['folder'];
-            // Root level is always expanded if not defined otherwise
-            $expanded = $this->isExpanded($rootLevelFolder, true);
-
-            $itm = $this->prepareFolderInformation($rootLevelFolder, $rootLevelFolderInfo['name']);
-            $itm['depth'] = 0;
-            $itm['expanded'] = $expanded;
-            $itm['loaded'] = $expanded;
-            $items[] = $itm;
-
-            // If the mount is expanded, go down:
-            if ($expanded && $resourceStorage->isBrowsable()) {
-                $childItems = $this->getSubfoldersRecursively($rootLevelFolder, 1);
+            $item = $this->prepareFolderInformation($rootLevelFolder, $rootLevelFolderInfo['name']);
+            $item['depth'] = 0;
+            $item['expanded'] = true;
+            $item['loaded'] = true;
+            $items[] = $item;
+            if ($resourceStorage->isBrowsable()) {
+                // Handle sub folders if the mount is browsable.
+                $childItems = $this->getSubfolders($rootLevelFolder, 1);
                 array_push($items, ...$childItems);
             }
         }
@@ -189,39 +180,30 @@ class FileStorageTreeProvider
         return $foundFolders;
     }
 
-    public function getSubfoldersRecursively(Folder $folderObject, int $currentDepth, ?array $subFolders = null): array
+    public function getSubfolders(Folder $folderObject, int $currentDepth): array
     {
         $items = [];
-        if ($folderObject instanceof InaccessibleFolder) {
-            $subFolders = [];
-        } else {
-            $subFolders = is_array($subFolders) ? $subFolders : $folderObject->getSubfolders();
+        $subFolders = [];
+        if (!$folderObject instanceof InaccessibleFolder) {
+            $subFolders = $folderObject->getSubfolders();
             $subFolders = ListUtility::resolveSpecialFolderNames($subFolders);
             uksort($subFolders, strnatcasecmp(...));
         }
-
         foreach ($subFolders as $subFolderName => $subFolder) {
             $subFolderName = (string)$subFolderName; // Enforce string cast in case $subFolderName contains numeric chars only
-            $expanded = $this->isExpanded($subFolder);
+            $children = [];
             if (!($subFolder instanceof InaccessibleFolder)) {
+                // Get children to determine if that folder can be expanded again, 'hasChildren true' then renders expand triangle
                 $children = $subFolder->getSubfolders();
-            } else {
-                $children = [];
             }
-
             $items[] = array_merge(
                 $this->prepareFolderInformation($subFolder, $subFolderName, $folderObject, $children),
                 [
                     'depth' => $currentDepth,
-                    'expanded' => $expanded,
-                    'loaded' => $expanded,
+                    'expanded' => false,
+                    'loaded' => false,
                 ]
             );
-
-            if ($expanded && !empty($children)) {
-                $childItems = $this->getSubfoldersRecursively($subFolder, $currentDepth + 1, $children);
-                array_push($items, ...$childItems);
-            }
         }
         return $items;
     }
@@ -252,17 +234,5 @@ class FileStorageTreeProvider
             ];
         }
         return [];
-    }
-
-    /**
-     * Checks if a folder was previously opened by the user.
-     */
-    protected function isExpanded(Folder $folder, bool $fallback = false): bool
-    {
-        if (!is_array($this->expandedState)) {
-            $this->expandedState = GeneralUtility::makeInstance(BackendUserConfiguration::class)->get($this->userSettingsIdentifier);
-            $this->expandedState = ($this->expandedState['stateHash'] ?? []) ?: [];
-        }
-        return (bool)($this->expandedState[$folder->getIdentifier()] ?? $fallback);
     }
 }

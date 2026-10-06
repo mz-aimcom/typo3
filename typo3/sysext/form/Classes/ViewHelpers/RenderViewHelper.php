@@ -28,7 +28,6 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConf
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
 use TYPO3\CMS\Form\Domain\Factory\FormFactoryInterface;
-use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
@@ -46,6 +45,8 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
  * The factory class must implement :php:`TYPO3\CMS\Form\Domain\Factory\FormFactoryInterface`.
  *
  * Scope: frontend
+ *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-form-render
  */
 final class RenderViewHelper extends AbstractViewHelper
 {
@@ -56,6 +57,7 @@ final class RenderViewHelper extends AbstractViewHelper
 
     public function __construct(
         private readonly FormPersistenceManagerInterface $formPersistenceManager,
+        private readonly ExtbaseConfigurationManagerInterface $extbaseConfigurationManager,
     ) {}
 
     public function initializeArguments(): void
@@ -82,12 +84,9 @@ final class RenderViewHelper extends AbstractViewHelper
             // To prevent a fallback of extbase ConfigurationManager to $GLOBALS['TYPO3_REQUEST'], we set
             // the request explicitly here, to then fetch $formSettings from ext:form ConfigurationManager.
             // $typoScriptSettings is hand over to load() to apply TS overrides for single forms, see #92408.
-            $extbaseConfigurationManager = GeneralUtility::makeInstance(ExtbaseConfigurationManagerInterface::class);
-            $extbaseConfigurationManager->setRequest($request);
-            $typoScriptSettings = $extbaseConfigurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_SETTINGS, 'form');
-            $extFormConfigurationManager = GeneralUtility::makeInstance(ExtFormConfigurationManagerInterface::class);
-            $formSettings = $extFormConfigurationManager->getYamlConfiguration($typoScriptSettings, true);
-            $formConfiguration = $this->formPersistenceManager->load($persistenceIdentifier, $formSettings, $typoScriptSettings);
+            $this->extbaseConfigurationManager->setRequest($request);
+            $typoScriptSettings = $this->extbaseConfigurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_SETTINGS, 'form');
+            $formConfiguration = $this->formPersistenceManager->load($persistenceIdentifier, $typoScriptSettings, $request);
             ArrayUtility::mergeRecursiveWithOverrule($formConfiguration, $overrideConfiguration);
             $overrideConfiguration = $formConfiguration;
             $overrideConfiguration['persistenceIdentifier'] = $persistenceIdentifier;

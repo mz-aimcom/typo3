@@ -45,17 +45,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class LinkElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -169,8 +158,8 @@ class LinkElement extends AbstractFormElement
         $valuePickerHtml = [];
         if (is_array($config['valuePicker']['items'] ?? false)) {
             $valuePickerConfiguration = [
-                'mode' => $config['valuePicker']['mode'] ?? 'replace',
                 'linked-field' => '[data-formengine-input-name="' . $itemName . '"]',
+                'class' => 'form-control-clearable-wrapper',
             ];
             $valuePickerAttributes = array_merge(
                 [
@@ -183,7 +172,7 @@ class LinkElement extends AbstractFormElement
             $valuePickerHtml[] = '<select ' . GeneralUtility::implodeAttributes($valuePickerAttributes, true) . '>';
             $valuePickerHtml[] = '<option></option>';
             foreach ($config['valuePicker']['items'] as $item) {
-                $valuePickerHtml[] = '<option value="' . htmlspecialchars($item[1]) . '">' . htmlspecialchars($languageService->sL($item[0])) . '</option>';
+                $valuePickerHtml[] = '<option value="' . htmlspecialchars($item['value']) . '">' . htmlspecialchars($languageService->sL($item['label'])) . '</option>';
             }
             $valuePickerHtml[] = '</select>';
             $valuePickerHtml[] = '</typo3-formengine-valuepicker>';
@@ -226,7 +215,7 @@ class LinkElement extends AbstractFormElement
         $expansionHtml[] =      '</div>';
         if (!empty($valuePickerHtml) || !empty($fieldControlHtml)) {
             $expansionHtml[] =      '<div class="form-wizards-item-aside form-wizards-item-aside--field-control">';
-            $expansionHtml[] =          '<div class="btn-group">';
+            $expansionHtml[] =          '<div class="input-group">';
             $expansionHtml[] =              implode(LF, $valuePickerHtml);
             $expansionHtml[] =              $fieldControlHtml;
             $expansionHtml[] =          '</div>';
@@ -332,9 +321,10 @@ class LinkElement extends AbstractFormElement
             }
             if ($value) {
                 $label = match ((string)$key) {
-                    'class' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:class'),
-                    'title' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:title'),
-                    'additionalParams' => $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:params'),
+                    'class' => $this->getLanguageService()->sL('backend.browse_links:class'),
+                    'title' => $this->getLanguageService()->sL('backend.browse_links:title'),
+                    'additionalParams' => $this->getLanguageService()->sL('backend.browse_links:params'),
+                    'rel' => $this->getLanguageService()->sL('backend.browse_links:linkRelationship'),
                     default => (string)$key
                 };
                 $additionalAttributes[] = '<span><strong>' . htmlspecialchars($label) . ': </strong> ' . htmlspecialchars($value) . '</span>';
@@ -403,7 +393,7 @@ class LinkElement extends AbstractFormElement
                 $hasPageAccess = BackendUtility::readPageAccess($record['pid'] ?? null, $pagePermissionClause) !== false;
                 if ($record && $hasPageAccess && $backendUser->check('tables_select', $table)) {
                     $recordTitle = BackendUtility::getRecordTitle($table, $record);
-                    $tableTitle = $this->getLanguageService()->sL($GLOBALS['TCA'][$table]['ctrl']['title']);
+                    $tableTitle = $this->getLanguageService()->sL($this->data['tcaSchemata']->get($table)->getTitle());
                     $data = [
                         'text' => sprintf('%s [%s:%d]', $recordTitle, $tableTitle, $linkData['uid']),
                         'icon' => $this->iconFactory->getIconForRecord($table, $record, IconSize::SMALL)->render(),

@@ -22,12 +22,14 @@ use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\RecordList\DatabaseRecordList;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
+use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
- * ViewHelper which renders a record list as known from the TYPO3 list module.
+ * ViewHelper which renders a record list as known from the TYPO3 records module.
  *
  * ```
  *   <f:be.tableList tableName="fe_users"
@@ -49,7 +51,7 @@ use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
  *
  * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-be-tablelist
  */
-final class TableListViewHelper extends AbstractBackendViewHelper
+final class TableListViewHelper extends AbstractViewHelper
 {
     /**
      * As this ViewHelper renders HTML, the output must not be escaped.
@@ -60,6 +62,7 @@ final class TableListViewHelper extends AbstractBackendViewHelper
 
     public function __construct(
         private readonly ConfigurationManagerInterface $configurationManager,
+        private readonly PageRenderer $pageRenderer,
     ) {}
 
     public function initializeArguments(): void
@@ -68,8 +71,8 @@ final class TableListViewHelper extends AbstractBackendViewHelper
         $this->registerArgument('tableName', 'string', 'name of the database table', true);
         $this->registerArgument('fieldList', 'array', 'list of fields to be displayed. If empty, only the title column (configured in $TCA[$tableName][\'ctrl\'][\'title\']) is shown', false, []);
         $this->registerArgument('storagePid', 'int', 'by default, records are fetched from the storage PID configured in persistence.storagePid. With this argument, the storage PID can be overwritten');
-        $this->registerArgument('levels', 'int', 'corresponds to the level selector of the TYPO3 list module. By default only records from the current storagePid are fetched', false, 0);
-        $this->registerArgument('filter', 'string', 'corresponds to the "Search String" textbox of the TYPO3 list module. If not empty, only records matching the string will be fetched', false, '');
+        $this->registerArgument('levels', 'int', 'corresponds to the level selector of the TYPO3 records module. By default only records from the current storagePid are fetched', false, 0);
+        $this->registerArgument('filter', 'string', 'corresponds to the "Search String" textbox of the TYPO3 records module. If not empty, only records matching the string will be fetched', false, '');
         $this->registerArgument('recordsPerPage', 'int', 'amount of records to be displayed at once. Defaults to 100', false, 0);
         $this->registerArgument('sortField', 'string', 'table field to sort the results by', false, '');
         $this->registerArgument('sortDescending', 'bool', 'if TRUE records will be sorted in descending order', false, false);
@@ -80,7 +83,7 @@ final class TableListViewHelper extends AbstractBackendViewHelper
     }
 
     /**
-     * Renders a record list as known from the TYPO3 list module
+     * Renders a record list as known from the TYPO3 records module
      * Note: This feature is experimental!
      *
      * @see DatabaseRecordList
@@ -108,23 +111,24 @@ final class TableListViewHelper extends AbstractBackendViewHelper
         }
         $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
 
-        $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/recordlist.js');
-        $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/record-download-button.js');
-        $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/action-dispatcher.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/recordlist.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/record-download-button.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/action-dispatcher.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/page-wizard/new-page-wizard-button.js');
         if ($enableControlPanels === true) {
-            $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/multi-record-selection.js');
-            $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/multi-record-selection-delete-action.js');
-            $this->getPageRenderer()->loadJavaScriptModule('@typo3/backend/context-menu.js');
+            $this->pageRenderer->loadJavaScriptModule('@typo3/backend/multi-record-selection.js');
+            $this->pageRenderer->loadJavaScriptModule('@typo3/backend/multi-record-selection-delete-action.js');
+            $this->pageRenderer->loadJavaScriptModule('@typo3/backend/context-menu.js');
         }
 
         $pageId = (int)($request->getParsedBody()['id'] ?? $request->getQueryParams()['id'] ?? 0);
         $pointer = (int)($request->getParsedBody()['pointer'] ?? $request->getQueryParams()['pointer'] ?? 0);
         $pageInfo = BackendUtility::readPageAccess($pageId, $backendUser->getPagePermsClause(Permission::PAGE_SHOW)) ?: [];
-        $existingModuleData = $backendUser->getModuleData('web_list');
-        $moduleData = new ModuleData('web_list', is_array($existingModuleData) ? $existingModuleData : []);
+        $existingModuleData = $backendUser->getModuleData('records');
+        $moduleData = new ModuleData('records', is_array($existingModuleData) ? $existingModuleData : []);
 
         $dbList = GeneralUtility::makeInstance(DatabaseRecordList::class);
-        $dbList->setRequest($request);
+        $dbList->setRequest($request->withoutAttribute('pageContext'));
         $dbList->setModuleData($moduleData);
         $dbList->pageRow = $pageInfo;
         if ($readOnly) {

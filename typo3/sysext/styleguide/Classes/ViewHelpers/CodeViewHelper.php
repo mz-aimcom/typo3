@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Styleguide\ViewHelpers;
 
-use TYPO3\CMS\Backend\CodeEditor\CodeEditor;
-use TYPO3\CMS\Backend\CodeEditor\Registry\ModeRegistry;
+use TYPO3\CMS\Backend\CodeEditor\CodeEditorConfiguration;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
@@ -46,8 +45,7 @@ final class CodeViewHelper extends AbstractViewHelper
 
     public function __construct(
         private readonly PageRenderer $pageRenderer,
-        private readonly CodeEditor $codeEditor,
-        private readonly ModeRegistry $modeRegistry,
+        private readonly CodeEditorConfiguration $codeEditorConfiguration,
     ) {}
 
     public function initializeArguments(): void
@@ -60,8 +58,6 @@ final class CodeViewHelper extends AbstractViewHelper
     public function render(): string
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/code-editor/element/code-mirror-element.js');
-        // Compile and register code editor configuration
-        $this->codeEditor->registerConfiguration();
 
         $content = $this->renderChildren();
         $_lines = explode("\n", $content);
@@ -81,15 +77,15 @@ final class CodeViewHelper extends AbstractViewHelper
         }
         $content = implode(chr(10), $contentLines);
 
-        if ($this->modeRegistry->isRegistered($this->arguments['language'])) {
-            $mode = $this->modeRegistry->getByFormatCode($this->arguments['language']);
+        if ($this->codeEditorConfiguration->hasMode($this->arguments['language'])) {
+            $mode = $this->codeEditorConfiguration->getModeByFormatCode($this->arguments['language']);
         } else {
-            $mode = $this->modeRegistry->getDefaultMode();
+            $mode = $this->codeEditorConfiguration->getDefaultMode();
         }
 
         $codeMirrorConfig = [
-            'mode' => GeneralUtility::jsonEncodeForHtmlAttribute($mode->getModule(), false),
-            'readonly' => true,
+            'mode' => GeneralUtility::jsonEncodeForHtmlAttribute($mode->module, false),
+            'readonly' => 'readonly',
         ];
         $attributes = [
             'wrap' => 'off',
@@ -105,9 +101,9 @@ final class CodeViewHelper extends AbstractViewHelper
         $markup[] =                 '<typo3-t3editor-codemirror ' . GeneralUtility::implodeAttributes($codeMirrorConfig, true) . '>';
         $markup[] =                     '<textarea ' . GeneralUtility::implodeAttributes($attributes, true) . '>';
         if ($this->arguments['decodeEntities']) {
-            $markup[] =                     htmlspecialchars_decode(str_replace('<UNIQUEID>', uniqid('code'), $content));
+            $markup[] =                     htmlspecialchars_decode(str_replace('###UNIQUEID###', uniqid('code'), $content));
         } else {
-            $markup[] =                     htmlspecialchars(str_replace('<UNIQUEID>', uniqid('code'), $content));
+            $markup[] =                     htmlspecialchars(str_replace('###UNIQUEID###', uniqid('code'), $content));
         }
         $markup[] =                     '</textarea>';
         $markup[] =                 '</typo3-t3editor-codemirror>';

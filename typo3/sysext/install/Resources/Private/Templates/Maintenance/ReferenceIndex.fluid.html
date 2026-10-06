@@ -1,0 +1,31 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers" data-namespace-typo3-fluid="true">
+
+<p>
+    Check and update the reference index, which tracks relations between database records in TYPO3.<br>
+    Use this tool to verify the integrity of existing references or to rebuild the index to ensure all relations are correctly recorded.
+</p>
+<p>
+    <strong>Check:</strong> Verifies the reference index and reports issues without making changes.<br>
+    <strong>Update:</strong> Rebuilds the entire reference index. This may take some time on large installations.
+</p>
+
+<div class="t3js-module-content mb-4" data-reference-index-token="{referenceIndexToken}">
+    <div class="t3js-referenceIndex-result"></div>
+</div>
+
+<f:be.infobox
+    title="Using the command line interface"
+    state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}"
+>
+    <p>You can also run the check as a shell script using CLI if the processing takes longer than the PHP max_execution_time allows.</p>
+    <p>
+        To check the reference index use:<br>
+        <code>php {binaryPath} referenceindex:update -c</code>
+    </p>
+    <p>
+        To update the reference index use:<br>
+        <code>php {binaryPath} referenceindex:update</code>
+    </p>
+</f:be.infobox>
+
+</html>

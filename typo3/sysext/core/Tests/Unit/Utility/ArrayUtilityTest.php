@@ -298,7 +298,7 @@ final class ArrayUtilityTest extends UnitTestCase
 
     #[DataProvider('getValueByPathInvalidPathDataProvider')]
     #[Test]
-    public function getValueByPathThrowsExceptionIfPathNotExists(array $array, string $path): void
+    public function getValueByPathThrowsExceptionIfPathNotExists(array $array, string $path, bool|int $_): void
     {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1341397869);
@@ -307,7 +307,7 @@ final class ArrayUtilityTest extends UnitTestCase
 
     #[DataProvider('getValueByPathInvalidPathDataProvider')]
     #[Test]
-    public function getValueByPathThrowsSpecificExceptionIfPathNotExists(array $array, string $path): void
+    public function getValueByPathThrowsSpecificExceptionIfPathNotExists(array $array, string $path, bool|int $_): void
     {
         $this->expectException(MissingArrayPathException::class);
         $this->expectExceptionCode(1341397869);
@@ -1125,22 +1125,22 @@ final class ArrayUtilityTest extends UnitTestCase
             'qux' => 0.1,
             'qux2' => 0.000000001,
         ];
-        $expected =
-            '[' . LF .
-                '    \'foo\' => [' . LF .
-                    '        \'bar\' => 42,' . LF .
-                    '        \'bar2\' => [' . LF .
-                        '            \'baz\' => \'val\\\'ue\',' . LF .
-                        '            \'baz2\' => true,' . LF .
-                        '            \'baz3\' => false,' . LF .
-                        '            \'baz4\' => [],' . LF .
-                    '        ],' . LF .
-                '    ],' . LF .
-                '    \'baz\' => 23,' . LF .
-                '    \'foobar\' => null,' . LF .
-                '    \'qux\' => 0.1,' . LF .
-                '    \'qux2\' => 1.0E-9,' . LF .
-            ']';
+        $expected
+            = '[' . LF
+                . '    \'foo\' => [' . LF
+                    . '        \'bar\' => 42,' . LF
+                    . '        \'bar2\' => [' . LF
+                        . '            \'baz\' => \'val\\\'ue\',' . LF
+                        . '            \'baz2\' => true,' . LF
+                        . '            \'baz3\' => false,' . LF
+                        . '            \'baz4\' => [],' . LF
+                    . '        ],' . LF
+                . '    ],' . LF
+                . '    \'baz\' => 23,' . LF
+                . '    \'foobar\' => null,' . LF
+                . '    \'qux\' => 0.1,' . LF
+                . '    \'qux2\' => 1.0E-9,' . LF
+            . ']';
         self::assertSame($expected, ArrayUtility::arrayExport($array));
     }
 
@@ -1165,12 +1165,12 @@ final class ArrayUtilityTest extends UnitTestCase
             23 => 'integer key',
             '42' => 'string key representing integer',
         ];
-        $expected =
-            '[' . LF .
-                '    \'foo\' => \'string key\',' . LF .
-                '    23 => \'integer key\',' . LF .
-                '    42 => \'string key representing integer\',' . LF .
-            ']';
+        $expected
+            = '[' . LF
+                . '    \'foo\' => \'string key\',' . LF
+                . '    23 => \'integer key\',' . LF
+                . '    42 => \'string key representing integer\',' . LF
+            . ']';
         self::assertSame($expected, ArrayUtility::arrayExport($array));
     }
 
@@ -1182,12 +1182,12 @@ final class ArrayUtilityTest extends UnitTestCase
             1 => 'one',
             2 => 'two',
         ];
-        $expected =
-            '[' . LF .
-                '    \'zero\',' . LF .
-                '    \'one\',' . LF .
-                '    \'two\',' . LF .
-            ']';
+        $expected
+            = '[' . LF
+                . '    \'zero\',' . LF
+                . '    \'one\',' . LF
+                . '    \'two\',' . LF
+            . ']';
         self::assertSame($expected, ArrayUtility::arrayExport($array));
     }
 
@@ -1200,13 +1200,13 @@ final class ArrayUtilityTest extends UnitTestCase
             3 => 'three',
             4 => 'four',
         ];
-        $expected =
-            '[' . LF .
-                '    0 => \'zero\',' . LF .
-                '    1 => \'one\',' . LF .
-                '    3 => \'three\',' . LF .
-                '    4 => \'four\',' . LF .
-            ']';
+        $expected
+            = '[' . LF
+                . '    0 => \'zero\',' . LF
+                . '    1 => \'one\',' . LF
+                . '    3 => \'three\',' . LF
+                . '    4 => \'four\',' . LF
+            . ']';
         self::assertSame($expected, ArrayUtility::arrayExport($array));
     }
 
@@ -2768,9 +2768,9 @@ final class ArrayUtilityTest extends UnitTestCase
             'zap',
         ];
         ArrayUtility::naturalKeySortRecursive($testArray);
-        self::assertEquals($expectedResult, array_values(array_keys($testArray['aaa']['bad'])));
-        self::assertEquals($expectedResult, array_values(array_keys($testArray['aaa'])));
-        self::assertEquals($expectedResult, array_values(array_keys($testArray)));
+        self::assertEquals($expectedResult, array_keys($testArray['aaa']['bad']));
+        self::assertEquals($expectedResult, array_keys($testArray['aaa']));
+        self::assertEquals($expectedResult, array_keys($testArray));
     }
 
     /**
@@ -2860,7 +2860,7 @@ final class ArrayUtilityTest extends UnitTestCase
     public function filterAndSortByNumericKeysBehavesCorrectlyForAcceptAnyKeysIsTrue(array $input, array $expected): void
     {
         $result = ArrayUtility::filterAndSortByNumericKeys($input, true);
-        self::assertEquals($result, $expected);
+        self::assertEquals($expected, $result);
     }
 
     public static function filterAndSortByNumericKeysWithoutAcceptAnyKeyDataProvider(): array
@@ -2916,7 +2916,7 @@ final class ArrayUtilityTest extends UnitTestCase
     public function filterAndSortByNumericKeysBehavesCorrectlyForAcceptAnyKeysIsFalse(array $input, array $expected): void
     {
         $result = ArrayUtility::filterAndSortByNumericKeys($input);
-        self::assertEquals($result, $expected);
+        self::assertEquals($expected, $result);
     }
 
     public static function sortArrayWithIntegerKeysDataProvider(): array
@@ -2966,7 +2966,7 @@ final class ArrayUtilityTest extends UnitTestCase
     public function sortArrayWithIntegerKeysSortsNumericArrays(array $arrayToSort, array $expectedArray): void
     {
         $sortedArray = ArrayUtility::sortArrayWithIntegerKeys($arrayToSort);
-        self::assertSame($sortedArray, $expectedArray);
+        self::assertSame($expectedArray, $sortedArray);
     }
 
     #[Test]
@@ -3148,7 +3148,7 @@ final class ArrayUtilityTest extends UnitTestCase
             'integer' => 1,
             'float' => 1.9,
             'object' => $testObject,
-            'objectWithStringConversion' => new class () {
+            'objectWithStringConversion' => new class {
                 /**
                  * @return string
                  */
@@ -3516,5 +3516,32 @@ final class ArrayUtilityTest extends UnitTestCase
     {
         $result = ArrayUtility::replaceAndAppendScalarValuesRecursive($array1, $array2);
         self::assertEquals($expectedResult, $result);
+    }
+
+    public static function containsOnlyScalarValuesDataProvider(): iterable
+    {
+        yield 'empty array' => [[], true];
+        yield 'flat array with scalars' => [['string', 123, 45.67, true, false], true];
+        yield 'flat array with null' => [['string', null, 123], true];
+        yield 'nested array with scalars' => [['foo' => ['bar' => 'baz', 'num' => 42]], true];
+        yield 'deeply nested array with scalars' => [['level1' => ['level2' => ['level3' => 'value']]], true];
+        yield 'array with object' => [['foo', new \stdClass()], false];
+        yield 'nested array with object' => [['foo' => ['bar' => new \stdClass()]], false];
+        yield 'array with closure' => [['foo', static fn() => 'bar'], false];
+    }
+
+    #[Test]
+    #[DataProvider('containsOnlyScalarValuesDataProvider')]
+    public function containsOnlyScalarValuesReturnsExpectedResult(array $input, bool $expected): void
+    {
+        self::assertSame($expected, ArrayUtility::containsOnlyScalarValues($input));
+    }
+
+    #[Test]
+    public function containsOnlyScalarValuesReturnsFalseForResource(): void
+    {
+        $resource = fopen('php://memory', 'r');
+        self::assertFalse(ArrayUtility::containsOnlyScalarValues(['foo', $resource]));
+        fclose($resource);
     }
 }

@@ -3,19 +3,18 @@
 ## Supported Versions
 
 The following matrix shows the TYPO3 versions currently maintained by the TYPO3
-community. Sprint releases (versions before 13.4.0 and 12.4.0, in their
+community. Sprint releases (versions before 14.3.0 and 13.4.0, in their
 corresponding branches) have reached their end of support and don't receive any
 further bug fixes or security patches.
 
 | Version  | Supported          |
 |----------|--------------------|
+| 14.3.x   | :white_check_mark: |
+| 14.2.x   | :x:                |
+| 14.1.x   | :x:                |
+| 14.0.x   | :x:                |
 | 13.4.x   | :white_check_mark: |
-| 13.3.x   | :x:                |
-| 13.2.x   | :x:                |
-| 13.1.x   | :x:                |
-| 13.0.x   | :x:                |
-| 12.4.x   | :white_check_mark: |
-| < 12.4.0 | :x:                |
+| < 13.4.0 | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -34,24 +33,26 @@ You can use the following GPG/PGP key ID to optionally encrypt your messages to
 
 You can download the public key from the following sources:
 
-* [typo3.org](https://typo3.org/fileadmin/t3o_common_storage/keys/B41CC3EF373E0F5C70187FE93BEFBD27C05FBE60.asc)
+* [typo3.org](https://typo3.org/fileadmin/community/teams/security/B41CC3EF373E0F5C70187FE93BEFBD27C05FBE60.asc)
 * [keys.openpgp.org](https://keys.openpgp.org/vks/v1/by-fingerprint/B41CC3EF373E0F5C70187FE93BEFBD27C05FBE60)
 
 ## Coordinated Disclosure
 
-> :warning: We urge security researchers not to publish vulnerabilities in issue trackers or
-discuss them publicly (e.g. on Slack or Twitter).
+> [!CAUTION]
+> We urge security researchers not to publish vulnerabilities in issue trackers or
+> discuss them publicly (e.g. on Slack or Social Media platforms).
 
-The [TYPO3 Security Team](https://typo3.org/community/teams/security) coordinates
-the process with the TYPO3 core developers, extension maintainers and other
-affected parties. Once a security fix is available, we prepare a new release and
-publish the fixed version. At the same time, we communicate the vulnerability and
-the fix to the public by using various communication channels such as:
+The [TYPO3 Security Team](https://typo3.community/contribute/teams-committees/security)
+coordinates the process with the TYPO3 core developers, extension maintainers and
+other affected parties. Once a security fix is available, we prepare a new release
+and publish the fixed version. At the same time, we communicate the vulnerability
+and the fix to the public by using various communication channels such as:
 
-* [TYPO3 Security Advisories](https://typo3.org/help/security-advisories)
-* [TYPO3 Security Team on Twitter](https://twitter.com/typo3_security)
-* [#announce channel on Slack](https://typo3.org/community/meet/how-to-use-slack-in-the-typo3-community)
-* [TYPO3 Announce Mailing List](https://lists.typo3.org/cgi-bin/mailman/listinfo/typo3-announce)
+* [TYPO3 Security Advisories](https://news.typo3.com/security)
+* [TYPO3 Security Team on Mastodon](https://typo3.social/@typo3_security)
+* [#announcements channel on Slack](https://typo3.community/meet/slack)
+* [TYPO3 Security RSS Feed](https://news.typo3.com/security/rss-security)
+* [TYPO3 Announce Mailing List](https://announce.typo3.org/security)
 
 The TYPO3 Security Team takes care of requesting [CVE IDs](https://www.cve.org/About/Process#CVERecordLifecycle)
 (Common Vulnerabilities and Exposures identifiers).
@@ -60,11 +61,11 @@ The TYPO3 Security Team takes care of requesting [CVE IDs](https://www.cve.org/A
 
 We aim to publish TYPO3 maintenance releases on Tuesdays as a general rule.
 However, exceptions apply (e.g. public holidays). Release dates of
-[maintenance releases](https://typo3.org/cms/roadmap/maintenance-releases)
+[maintenance releases](https://typo3.com/typo3-cms/development-roadmap/maintenance-releases)
 are scheduled in advance. These releases can contain security fixes.
 
 ## Further Information
 
-* [TYPO3 Security Team](https://typo3.org/community/teams/security)
-* [TYPO3 Security Advisories](https://typo3.org/help/security-advisories)
-* [TYPO3 Security Guidelines](https://docs.typo3.org/m/typo3/reference-coreapi/main/en-us/Security/Index.html)
+* [TYPO3 Security Team](https://typo3.community/contribute/teams-committees/security)
+* [TYPO3 Security Advisories](https://news.typo3.com/security)
+* [TYPO3 Security Guidelines](https://docs.typo3.org/permalink/t3coreapi:security)

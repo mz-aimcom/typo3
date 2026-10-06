@@ -17,17 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Database;
 
-use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Driver\Middleware as DriverMiddleware;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\MalformedDsnException;
 use Doctrine\DBAL\Tools\DsnParser;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
+use Psr\Container\ContainerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Database\Middleware\UsableForConnectionInterface;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Restriction\DefaultRestrictionContainer;
 use TYPO3\CMS\Core\Database\Schema\SchemaManager\CoreSchemaManagerFactory;
 use TYPO3\CMS\Core\Database\Schema\Types\DateTimeType;
 use TYPO3\CMS\Core\Database\Schema\Types\DateType;
@@ -56,19 +55,23 @@ class ConnectionPool
     /**
      * @var Connection[]
      */
-    protected static $connections = [];
+    protected array $connections = [];
 
     /**
      * @var array<non-empty-string,class-string>
+     * @todo Needs to be refactored. Only MySQL and MariaDB support this type, using this to register the type AND
+     *       add mappings to all connections, even unsupported connections for SQLite or PostgreSQL is not correct,
+     *       and needs to be respected. Or the type needs to provide working fallbacks for unsupported platforms.
      */
-    protected array $customDoctrineTypes = [
+    protected static array $customDoctrineTypes = [
         SetType::TYPE => SetType::class,
     ];
 
     /**
      * @var array<non-empty-string,class-string>
+     * @todo Needs to be refactored to differentiate between type registration and platform specific type mapping.
      */
-    protected array $overrideDoctrineTypes = [
+    protected static array $overrideDoctrineTypes = [
         Types::DATE_MUTABLE => DateType::class,
         Types::DATETIME_MUTABLE => DateTimeType::class,
         Types::DATETIME_IMMUTABLE => DateTimeType::class,
@@ -76,7 +79,9 @@ class ConnectionPool
     ];
 
     public function __construct(
-        protected string $defaultRestrictionContainer = DefaultRestrictionContainer::class
+        protected readonly ContainerInterface $container,
+        protected readonly CoreSchemaManagerFactory $coreSchemaManagerFactory,
+        protected readonly DriverMiddlewareService $driverMiddlewareService,
     ) {}
 
     /**
@@ -122,16 +127,16 @@ class ConnectionPool
             );
         }
 
-        if (isset(static::$connections[$connectionName])) {
-            return static::$connections[$connectionName];
+        if (isset($this->connections[$connectionName])) {
+            return $this->connections[$connectionName];
         }
 
-        static::$connections[$connectionName] = $this->getDatabaseConnection(
+        $this->connections[$connectionName] = $this->getDatabaseConnection(
             $connectionName,
             $this->getConnectionParams($connectionName),
         );
 
-        return static::$connections[$connectionName];
+        return $this->connections[$connectionName];
     }
 
     protected function getConnectionParams(string $connectionName): array
@@ -147,7 +152,7 @@ class ConnectionPool
             $dsnUrl = $connectionParams['url'];
             unset($connectionParams['url']);
             try {
-                $parsedParams = (new DsnParser())->parse($dsnUrl);
+                $parsedParams = new DsnParser()->parse($dsnUrl);
             } catch (MalformedDsnException $e) {
                 throw new \UnexpectedValueException('Malformed connection parameter "url".', 1750964898, $e);
             }
@@ -158,8 +163,8 @@ class ConnectionPool
         }
         if (!is_a($connectionParams['wrapperClass'], Connection::class, true)) {
             throw new \UnexpectedValueException(
-                'The "wrapperClass" for the connection name "' . $connectionName .
-                '" needs to be a subclass of "' . Connection::class . '".',
+                'The "wrapperClass" for the connection name "' . $connectionName
+                . '" needs to be a subclass of "' . Connection::class . '".',
                 1459422968
             );
         }
@@ -170,83 +175,17 @@ class ConnectionPool
         return $this->migrateConnectionParams($connectionName, $connectionParams);
     }
 
-    private function migrateConnectionParams(string $connectionName, array $params): array
+    private function migrateConnectionParams(string $connectionName, #[\SensitiveParameter] array $params): array
     {
         $params['defaultTableOptions'] ??= [];
-        $params = $this->migrateTableOptionsToDefaultTableOptions($connectionName, $params);
-        $params = $this->migrateDefaultTableOptionCollateToCollation($connectionName, $params);
         $params = $this->removeInvalidConnectionParams($params);
         return $this->ensureDefaultConnectionCharset($params);
     }
 
     /**
-     * Migrate old `tableoptions` to `defaultTableOptions` on MariaDB/MySQL connections.
-     * Note `tableoptions` overrides `defaultTableOptions` for now.
-     *
-     * @deprecated since 13.4 and will be removed in v15 (or later as it does not hurt to keep them).
-    */
-    private function migrateTableOptionsToDefaultTableOptions(string $connectionName, array $params): array
-    {
-        $params['defaultTableOptions'] ??= [];
-        if (array_key_exists('tableoptions', $params)
-            && is_array($params['tableoptions'])
-            && $params['tableoptions'] !== []
-        ) {
-            trigger_error(
-                sprintf(
-                    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'DB\'][\'Connections\'][\'%s\'][\'tableoptions\'] '
-                    . 'is deprecated since v13 and will be ignored in v15 (or later). Use '
-                    . '$GLOBALS[\'TYPO3_CONF_VARS\'][\'DB\'][\'Connections\'][\'%s\'][\'defaultTableOptions\'] '
-                    . 'instead. Note in v13 the deprecated key still takes precedence over the new key if set.',
-                    $connectionName,
-                    $connectionName,
-                ),
-                E_USER_DEPRECATED,
-            );
-            $params['defaultTableOptions'] = array_replace(
-                $params['defaultTableOptions'],
-                $params['tableoptions'],
-            );
-            unset($params['tableoptions']);
-        }
-        return $params;
-    }
-
-    /**
-     * Transform deprecated `collate` option to `collation` for `defaultTableOptions` on MySQL/MariaDB connections.
-     * Note that `collate` overrides manual set `collation` for now.
-     *
-     * @link https://github.com/doctrine/dbal/pull/5246
-     * @deprecated since 13.4 and will be removed in v15 (or later as it does not hurt to keep them).
-     */
-    private function migrateDefaultTableOptionCollateToCollation(string $connectionName, array $params): array
-    {
-        $params['defaultTableOptions'] ??= [];
-        if (array_key_exists('defaultTableOptions', $params)
-            && is_array($params['defaultTableOptions'])
-            && array_key_exists('collate', $params['defaultTableOptions'])
-            && is_string($params['defaultTableOptions']['collate'])
-            && $params['defaultTableOptions']['collate'] !== ''
-        ) {
-            trigger_error(
-                sprintf(
-                    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'DB\'][\'Connections\'][\'%s\'][\'defaultTableOptions\'][\'collate\'] '
-                    . 'is deprecated since v13 and will be ignored in v15 (or later). Set "collation" instead. Note "collate" overrides '
-                    . '"collation" in v13.',
-                    $connectionName,
-                ),
-                E_USER_DEPRECATED,
-            );
-            $params['defaultTableOptions']['collation'] = $params['defaultTableOptions']['collate'];
-            unset($params['defaultTableOptions']['collate']);
-        }
-        return $params;
-    }
-
-    /**
      * Clean up invalid connection parameters.
      */
-    private function removeInvalidConnectionParams(array $params): array
+    private function removeInvalidConnectionParams(#[\SensitiveParameter] array $params): array
     {
         // Remove defaultTableOptions for unsupported databases
         unset($params['tableoptions']);
@@ -277,7 +216,7 @@ class ConnectionPool
      * @todo Investigate how to deal with missing defaultTableOptions for MariaDB and MySQL connections,
      *       which may be already partially set even when charset is missing.
      */
-    private function ensureDefaultConnectionCharset(array $params): array
+    private function ensureDefaultConnectionCharset(#[\SensitiveParameter] array $params): array
     {
         if (!array_key_exists('charset', $params) || !is_string($params['charset']) || $params['charset'] === '') {
             $params['charset'] = 'utf8';
@@ -291,7 +230,7 @@ class ConnectionPool
      * - for all configured connections
      * - $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections']['Default']['driverMiddlewares'] for a specific connection
      */
-    protected function getDriverMiddlewares(string $connectionName, array $connectionParams): array
+    protected function getDriverMiddlewares(string $connectionName, #[\SensitiveParameter] array $connectionParams): array
     {
         $driverMiddlewares = $this->getOrderedConnectionDriverMiddlewareConfiguration($connectionName, $connectionParams);
         $middlewares = [];
@@ -334,22 +273,20 @@ class ConnectionPool
      * @param array $connectionParams
      * @return array<non-empty-string, array{target: class-string, disabled: bool, after: string[], before: string[], type: string}>
      */
-    protected function getOrderedConnectionDriverMiddlewareConfiguration(string $connectionName, array $connectionParams): array
+    protected function getOrderedConnectionDriverMiddlewareConfiguration(string $connectionName, #[\SensitiveParameter] array $connectionParams): array
     {
-        /** @var DriverMiddlewareService $driverMiddlewareService */
-        $driverMiddlewareService = GeneralUtility::makeInstance(DriverMiddlewareService::class);
         /** @var array<non-empty-string, array{target: class-string, disabled: bool, after: string[], before: string[], type: string}> $driverMiddlewares */
         $driverMiddlewares = [];
         foreach ($GLOBALS['TYPO3_CONF_VARS']['DB']['globalDriverMiddlewares'] ?? [] as $identifier => $middleware) {
             $identifier = (string)$identifier;
-            $driverMiddlewares[$identifier] = $driverMiddlewareService->ensureCompleteMiddlewareConfiguration($middleware);
+            $driverMiddlewares[$identifier] = $this->driverMiddlewareService->ensureCompleteMiddlewareConfiguration($middleware);
             $driverMiddlewares[$identifier]['type'] = 'global';
         }
         foreach ($connectionParams['driverMiddlewares'] ?? [] as $identifier => $middleware) {
             $identifier = (string)$identifier;
             // Merge driverMiddlewares over globalDriverMiddlewares
             $middleware = array_replace($driverMiddlewares[$identifier] ?? [], $middleware);
-            $middleware = $driverMiddlewareService->ensureCompleteMiddlewareConfiguration($middleware);
+            $middleware = $this->driverMiddlewareService->ensureCompleteMiddlewareConfiguration($middleware);
             $driverMiddlewares[$identifier] = $middleware;
             $driverMiddlewares[$identifier]['type'] = $driverMiddlewares[$identifier]['type']
                 ? 'global-with-connection-override'
@@ -374,34 +311,34 @@ class ConnectionPool
             return true;
         });
 
-        return $driverMiddlewareService->order($driverMiddlewares);
+        return $this->driverMiddlewareService->order($driverMiddlewares);
     }
 
     /**
      * Creates a connection object based on the specified parameters
      */
-    protected function getDatabaseConnection(string $connectionName, array $connectionParams): Connection
+    protected function getDatabaseConnection(string $connectionName, #[\SensitiveParameter] array $connectionParams): Connection
     {
-        $this->registerDoctrineTypes();
+        self::registerDoctrineTypes();
 
         $middlewares = $this->getDriverMiddlewares($connectionName, $connectionParams);
-        $configuration = (new Configuration())
+        $configuration = new Configuration()
+            ->setContainer($this->container)
             ->setMiddlewares($middlewares)
             // @link https://github.com/doctrine/dbal/blob/3.7.x/UPGRADE.md#deprecated-not-setting-a-schema-manager-factory
-            ->setSchemaManagerFactory(GeneralUtility::makeInstance(CoreSchemaManagerFactory::class));
+            ->setSchemaManagerFactory($this->coreSchemaManagerFactory);
 
         /** @var Connection $conn */
         $conn = DriverManager::getConnection($connectionParams, $configuration);
-        $conn->defaultRestrictionContainer = $this->defaultRestrictionContainer;
         $conn->prepareConnection($connectionParams['initCommands'] ?? '');
 
         // Register all custom data types in the type mapping
-        foreach ($this->customDoctrineTypes as $type => $className) {
+        foreach (self::$customDoctrineTypes as $type => $className) {
             $conn->getDatabasePlatform()->registerDoctrineTypeMapping($type, $type);
         }
 
         // Register all override data types in the type mapping
-        foreach ($this->overrideDoctrineTypes as $type => $className) {
+        foreach (self::$overrideDoctrineTypes as $type => $className) {
             $conn->getDatabasePlatform()->registerDoctrineTypeMapping($type, $type);
         }
 
@@ -445,16 +382,16 @@ class ConnectionPool
      *
      * @internal
      */
-    public function registerDoctrineTypes(): void
+    public static function registerDoctrineTypes(): void
     {
         // Register custom data types
-        foreach ($this->customDoctrineTypes as $type => $className) {
+        foreach (self::$customDoctrineTypes as $type => $className) {
             if (!Type::hasType($type)) {
                 Type::addType($type, $className);
             }
         }
         // Override data types
-        foreach ($this->overrideDoctrineTypes as $type => $className) {
+        foreach (self::$overrideDoctrineTypes as $type => $className) {
             if (!Type::hasType($type)) {
                 Type::addType($type, $className);
                 continue;
@@ -464,12 +401,13 @@ class ConnectionPool
     }
 
     /**
-     * Reset internal list of connections.
-     * Currently, primarily used in functional tests to close connections and start
-     * new ones in between single tests.
+     * Used to be used by functional tests
+     * to close statically stored connections, in order
+     * to use new connection in between single tests.
+     *
+     * This is a no-op nowadays since `$this->connections`
+     * is no longer static and can be removed without replacement,
+     * once testing framework is adapted to avoid calling this method.
      */
-    public function resetConnections(): void
-    {
-        static::$connections = [];
-    }
+    public function resetConnections(): void {}
 }

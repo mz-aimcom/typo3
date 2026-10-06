@@ -28,11 +28,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * processed file statistics / cleanup.
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
-class Typo3tempFileService
+readonly class Typo3tempFileService
 {
     public function __construct(
-        private readonly ProcessedFileRepository $processedFileRepository,
-        private readonly StorageRepository $storageRepository
+        private ProcessedFileRepository $processedFileRepository,
+        private StorageRepository $storageRepository
     ) {}
 
     /**
@@ -177,13 +177,13 @@ class Typo3tempFileService
         }
 
         // first remove directories
-        foreach ((new Finder())->directories()->ignoreUnreadableDirs()->in($basePath)->depth(0) as $directory) {
+        foreach (new Finder()->directories()->ignoreUnreadableDirs()->in($basePath)->depth(0) as $directory) {
             /** @var SplFileInfo $directory */
             GeneralUtility::rmdir($directory->getPathname(), true);
         }
 
         // then remove files directly in the main dir
-        foreach ((new Finder())->files()->in($basePath)->depth(0) as $file) {
+        foreach (new Finder()->files()->in($basePath)->depth(0) as $file) {
             /** @var SplFileInfo $file */
             $path = $file->getPathname();
             @unlink($path);

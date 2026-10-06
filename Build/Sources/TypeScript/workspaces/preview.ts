@@ -20,6 +20,13 @@ import Workspaces from './workspaces';
 import ThrottleEvent from '@typo3/core/event/throttle-event';
 import '@typo3/workspaces/renderable/send-to-stage-form';
 import RegularEvent from '@typo3/core/event/regular-event';
+import labels from '~labels/workspaces.messages';
+
+/**
+ * Stage ID for the publish execute action.
+ * @deprecated Will be removed in TYPO3 v16.0. Use explicit publish actions instead.
+ */
+const STAGE_PUBLISH_EXECUTE_ID = -20;
 
 enum Identifiers {
   topbar = '.t3js-workspace-topbar',
@@ -29,6 +36,7 @@ enum Identifiers {
   workspaceView = '.t3js-workspace-view-workspace',
   sendToStageAction = '[data-action="send-to-stage"]',
   discardAction = '[data-action="discard"]',
+  publishAction = '[data-action="publish"]',
   stageButtonsContainer = '.t3js-stage-buttons',
   previewModeContainer = '.t3js-preview-mode',
   activePreviewMode = '.t3js-active-preview-mode',
@@ -40,6 +48,7 @@ enum Identifiers {
  * buttons, preview mode selector, preview slider and so on.
  */
 class Preview extends Workspaces {
+  override ajaxRoute: string = 'workspace_preview';
   private currentSlidePosition: number = 100;
   private readonly elements: { [key: string]: HTMLElement } = {};
 
@@ -76,14 +85,15 @@ class Preview extends Workspaces {
       this.resizeViews();
     }, 50).bindTo(window);
     new RegularEvent('click', this.renderDiscardWindow.bind(this)).delegateTo(document, Identifiers.discardAction);
+    new RegularEvent('click', this.renderPublishWindow.bind(this)).delegateTo(document, Identifiers.publishAction);
     new RegularEvent('click', this.renderSendPageToStageWindow.bind(this)).delegateTo(document, Identifiers.sendToStageAction);
     new RegularEvent('click', () => {
-      window.top.document.querySelectorAll('.t3js-workspace-recipient:not(:disabled)').forEach((element: HTMLInputElement) => {
+      window.top.document.querySelectorAll('.t3js-workspace-recipient:not([disabled])').forEach((element: HTMLInputElement) => {
         element.checked = true;
       });
     }).delegateTo(document, '.t3js-workspace-recipients-selectall');
     new RegularEvent('click', () => {
-      window.top.document.querySelectorAll('.t3js-workspace-recipient:not(:disabled)').forEach((element: HTMLInputElement) => {
+      window.top.document.querySelectorAll('.t3js-workspace-recipient:not([disabled])').forEach((element: HTMLInputElement) => {
         element.checked = false;
       });
     }).delegateTo(document, '.t3js-workspace-recipients-deselectall');
@@ -129,12 +139,12 @@ class Preview extends Workspaces {
    */
   private renderDiscardWindow(): void {
     const modal = Modal.confirm(
-      TYPO3.lang['window.discardAll.title'],
-      TYPO3.lang['window.discardAll.message'],
+      labels.get('window.discardAll.title'),
+      labels.get('window.discardAll.message'),
       SeverityEnum.warning,
       [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
@@ -143,7 +153,7 @@ class Preview extends Workspaces {
           },
         },
         {
-          text: TYPO3.lang.ok,
+          text: labels.get('ok'),
           btnClass: 'btn-warning',
           name: 'ok',
         },
@@ -164,11 +174,49 @@ class Preview extends Workspaces {
     });
   }
 
+  private renderPublishWindow(): void {
+    const modal = Modal.confirm(
+      labels.get('window.publishAll.title'),
+      labels.get('window.publishAll.message'),
+      SeverityEnum.warning,
+      [
+        {
+          text: labels.get('cancel'),
+          active: true,
+          btnClass: 'btn-default',
+          name: 'cancel',
+          trigger: (): void => {
+            modal.hideModal();
+          },
+        },
+        {
+          text: labels.get('ok'),
+          btnClass: 'btn-warning',
+          name: 'ok',
+        },
+      ],
+    );
+    modal.addEventListener('button.clicked', (e: Event): void => {
+      if ((e.target as HTMLButtonElement).name === 'ok') {
+        this.sendRemoteRequest([
+          this.generateRemotePayloadBody('publishPageDirectly', [TYPO3.settings.Workspaces.id]),
+          this.generateRemotePayloadBody('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
+        ], Identifiers.topbar).then(async (response: AjaxResponse): Promise<void> => {
+          modal.hideModal();
+          this.renderStageButtons((await response.resolve())[1].result);
+          // Reloading live view IFRAME
+          this.elements.workspaceView.setAttribute('src', this.elements.workspaceView.getAttribute('src'));
+        });
+      }
+    });
+  }
+
   /**
    * Renders the "send page to stage" window
    */
   private renderSendPageToStageWindow(e: Event, target: HTMLElement): void {
     const direction = target.dataset.direction;
+    const stageId = parseInt(target.dataset.stageId, 10);
     let actionName;
 
     if (direction === 'prev') {
@@ -178,6 +226,11 @@ class Preview extends Workspaces {
     } else {
       throw 'Invalid direction ' + direction + ' requested.';
     }
+
+    // Use explicit publish action when the target stage is the publish execute stage
+    const executeAction = stageId === STAGE_PUBLISH_EXECUTE_ID
+      ? 'publishPageCollectionExecute'
+      : 'sendCollectionToStage';
 
     this.sendRemoteRequest(
       this.generateRemotePayloadBody(actionName, [TYPO3.settings.Workspaces.id]),
@@ -190,9 +243,9 @@ class Preview extends Workspaces {
         if (modalTarget.name === 'ok') {
           const serializedForm = Utility.convertFormToObject(modal.querySelector('form'));
           serializedForm.affects = resolvedResponse[0].result.affects;
-          serializedForm.stageId = parseInt(target.dataset.stageId, 10);
+          serializedForm.stageId = stageId;
           this.sendRemoteRequest([
-            this.generateRemotePayloadBody('sendCollectionToStage', [serializedForm]),
+            this.generateRemotePayloadBody(executeAction, [serializedForm]),
             this.generateRemotePayloadBody('updateStageChangeButtons', [TYPO3.settings.Workspaces.id]),
           ], Identifiers.topbar).then(async (updateResponse: AjaxResponse): Promise<void> => {
             modal.hideModal();

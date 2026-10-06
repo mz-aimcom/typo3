@@ -85,6 +85,7 @@ return [
             'config' => [
                 'type' => 'input',
                 'size' => 20,
+                'nullable' => true,
             ],
         ],
         'driver' => [
@@ -100,22 +101,22 @@ return [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:sys_file_storage.configuration',
             'config' => [
                 'type' => 'flex',
-                'ds' => '',
+                'ds' => '<T3DataStructure><ROOT></ROOT></T3DataStructure>',
             ],
         ],
     ],
     'types' => [
         '0' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                         name, driver, configuration, is_default, auto_extract_metadata, processingfolder,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:accesscapabilities,
-                        --palette--;Capabilities;capabilities,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:accesscapabilities,
+                        --palette--;;capabilities,
+                --div--;core.form.tabs:access,
                         is_online,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                --div--;core.form.tabs:notes,
                     description,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+                --div--;core.form.tabs:extended,
             ',
             'creationOptions' => [
                 'enableDirectRecordTypeCreation' => false,
@@ -124,6 +125,7 @@ return [
     ],
     'palettes' => [
         'capabilities' => [
+            'label' => 'core.form.tabs:capabilities',
             'showitem' => 'is_browsable, is_public, is_writable',
         ],
     ],

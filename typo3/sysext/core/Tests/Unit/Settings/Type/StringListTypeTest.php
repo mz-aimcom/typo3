@@ -28,7 +28,7 @@ final class StringListTypeTest extends UnitTestCase
 {
     public static function allowedValuesDataProvider(): array
     {
-        $stringable = new class () implements \Stringable {
+        $stringable = new class implements \Stringable {
             public function __toString(): string
             {
                 return 'string-from-stringable';
@@ -52,7 +52,7 @@ final class StringListTypeTest extends UnitTestCase
 
     #[DataProvider('allowedValuesDataProvider')]
     #[Test]
-    public function allowedValuesAreVerified(mixed $value): void
+    public function allowedValuesAreVerified(mixed $value, mixed $_): void
     {
         $stringListType = new StringListType(new NullLogger());
 

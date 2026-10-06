@@ -34,9 +34,9 @@ final class UriBuilderTest extends FunctionalTestCase
     public function buildUriFromRouteResolvesAliasWhenLinking(): void
     {
         $subject = $this->get(UriBuilder::class);
-        $route = $subject->buildUriFromRoute('workspaces_admin');
-        $routeFromAlias = $subject->buildUriFromRoute('web_WorkspacesWorkspaces');
-        self::assertEquals($routeFromAlias->getPath(), $route->getPath());
+        $route = $subject->buildUriFromRoute('workspaces_publish');
+        self::assertEquals($subject->buildUriFromRoute('workspaces_admin')->getPath(), $route->getPath());
+        self::assertEquals($subject->buildUriFromRoute('web_WorkspacesWorkspaces')->getPath(), $route->getPath());
     }
 
     #[Test]
@@ -62,8 +62,8 @@ final class UriBuilderTest extends FunctionalTestCase
     #[Test]
     public function buildUriFromRequestWithInvalidRouteThrowsException(): void
     {
-        self::expectException(RouteNotFoundException::class);
-        self::expectExceptionCode(1476050190);
+        $this->expectException(RouteNotFoundException::class);
+        $this->expectExceptionCode(1476050190);
         $subject = $this->get(UriBuilder::class);
         $route = $this->get(Router::class)->getRoute('site_configuration.edit');
         $request = new ServerRequest('https://example.com/', 'GET');
@@ -76,8 +76,8 @@ final class UriBuilderTest extends FunctionalTestCase
     #[Test]
     public function buildUriFromRequestWithoutRouteThrowsException(): void
     {
-        self::expectException(RouteNotFoundException::class);
-        self::expectExceptionCode(1691423325);
+        $this->expectException(RouteNotFoundException::class);
+        $this->expectExceptionCode(1691423325);
         $subject = $this->get(UriBuilder::class);
         $request = new ServerRequest('https://example.com/', 'GET');
         $subject->buildUriFromRequest($request, ['foo' => 'bar']);

@@ -45,6 +45,7 @@ defined('TYPO3') or die();
             'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:table_caption',
             'config' => [
                 'type' => 'input',
+                'nullable' => true,
             ],
         ],
         'table_delimiter' => [
@@ -107,7 +108,7 @@ $GLOBALS['TCA']['tt_content']['palettes']['tableconfiguration'] = [
     'showitem' => 'table_delimiter,table_enclosure',
 ];
 $GLOBALS['TCA']['tt_content']['palettes']['tablelayout'] = [
-    'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:palette.table_layout',
+    'label' => 'core.form.palettes:table_layout',
     'showitem' => 'cols, table_class, table_header_position, table_tfoot',
 ];
 
@@ -121,18 +122,19 @@ $GLOBALS['TCA']['tt_content']['palettes']['tablelayout'] = [
     ],
     '
         --palette--;;headers,
-        bodytext;LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:field.table.bodytext,
+        bodytext,
         --palette--;;tableconfiguration,
         table_caption,
-    --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:appearance,
+    --div--;core.form.tabs:appearance,
         --palette--;;frames,
         --palette--;;tablelayout,
         --palette--;;appearanceLinks,
-    --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:categories,
+    --div--;core.form.tabs:categories,
         categories',
     [
         'columnsOverrides' => [
             'bodytext' => [
+                'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:field.table.bodytext',
                 'config' => [
                     'renderType' => 'textTable',
                     'wrap' => 'off',

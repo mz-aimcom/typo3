@@ -1,0 +1,46 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:be="http://typo3.org/ns/TYPO3/CMS/Backend/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Before">
+    <f:asset.module identifier="@typo3/backend/element/immediate-action-element.js"/>
+
+    <f:variable name="immediateActionArgs" value="{0: 'web', 1: pageUid}" />
+    <typo3-immediate-action
+        action="TYPO3.Backend.Storage.ModuleStateStorage.update"
+        args="{immediateActionArgs -> f:format.json() -> f:format.htmlspecialchars()}"
+    ></typo3-immediate-action>
+</f:section>
+
+<f:section name="Content">
+
+    <f:if condition="{pageTitle}"><h1>{pageTitle}</h1></f:if>
+
+    <main>
+        <f:if condition="{showGrid}">
+            <f:then>
+                <f:render partial="WorkingTable" arguments="{_all}" />
+            </f:then>
+            <f:else if="{isAdmin} && {customWorkspaceExists} != 1">
+                <f:be.infobox state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}" title="{f:translate(key: 'LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:admin.noWorkspaceSetup.title')}">
+                    <p><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:admin.noWorkspaceSetup.message"/></p>
+                    <be:link.newRecord class="btn btn-primary" table="sys_workspace" pid="0" returnUrl="{f:be.uri(route: 'workspaces_publish')}">
+                        <f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:admin.noWorkspaceSetup.buttonCreate"/>
+                    </be:link.newRecord>
+                </f:be.infobox>
+            </f:else>
+            <f:else if="{pageUid} == 0">
+                <f:be.infobox message="{f:translate(key: 'LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:moduleOnPageIdZero')}" state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}" />
+            </f:else>
+            <f:else>
+                <f:be.infobox message="{f:translate(key: 'LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:editorInLive')}" state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}" />
+            </f:else>
+        </f:if>
+    </main>
+
+</f:section>
+
+</html>

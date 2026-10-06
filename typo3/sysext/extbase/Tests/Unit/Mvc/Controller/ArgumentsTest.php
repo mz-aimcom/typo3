@@ -46,54 +46,38 @@ final class ArgumentsTest extends UnitTestCase
     public function addingAnArgumentReplacesArgumentWithSameName(): void
     {
         $arguments = new Arguments();
-        $mockFirstArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockFirstArgument->method('getName')->willReturn('argumentName1234');
-        $arguments->addArgument($mockFirstArgument);
-        $mockSecondArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockSecondArgument->method('getName')->willReturn('argumentName1234');
-        $arguments->addArgument($mockSecondArgument);
-        self::assertSame($mockSecondArgument, $arguments->getArgument('argumentName1234'), 'The added and retrieved argument is not the same.');
+        $firstArgument = new Argument('argumentName1234', 'string');
+        $arguments->addArgument($firstArgument);
+        $secondArgument = new Argument('argumentName1234', 'string');
+        $arguments->addArgument($secondArgument);
+        self::assertSame($secondArgument, $arguments->getArgument('argumentName1234'), 'The added and retrieved argument is not the same.');
     }
 
     #[Test]
-    public function addNewArgumentProvidesFluentInterface(): void
+    public function addNewArgumentCreatesArgumentWithGivenName(): void
     {
         $arguments = new Arguments();
         $newArgument = $arguments->addNewArgument('someArgument');
-        self::assertInstanceOf(Argument::class, $newArgument);
+        self::assertEquals('someArgument', $newArgument->getName());
     }
 
     #[Test]
     public function addingArgumentThroughArrayAccessWorks(): void
     {
-        $mockArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument->method('getName')->willReturn('argumentName1234');
+        $argument = new Argument('argumentName1234', 'string');
         $arguments = new Arguments();
-        $arguments[] = $mockArgument;
+        $arguments[] = $argument;
         self::assertTrue($arguments->hasArgument('argumentName1234'), 'Added argument does not exist.');
-        self::assertSame($mockArgument, $arguments->getArgument('argumentName1234'), 'Added and retrieved arguments are not the same.');
+        self::assertSame($argument, $arguments->getArgument('argumentName1234'), 'Added and retrieved arguments are not the same.');
     }
 
     #[Test]
     public function retrievingArgumentThroughArrayAccessWorks(): void
     {
-        $mockArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument->method('getName')->willReturn('argumentName1234');
+        $argument = new Argument('argumentName1234', 'string');
         $arguments = new Arguments();
-        $arguments[] = $mockArgument;
-        self::assertSame($mockArgument, $arguments['argumentName1234'], 'Argument retrieved by array access is not the one we added.');
+        $arguments[] = $argument;
+        self::assertSame($argument, $arguments['argumentName1234'], 'Argument retrieved by array access is not the one we added.');
     }
 
     #[Test]
@@ -108,39 +92,23 @@ final class ArgumentsTest extends UnitTestCase
     #[Test]
     public function issetReturnsCorrectResult(): void
     {
-        $mockArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument->method('getName')->willReturn('argumentName1234');
+        $argument = new Argument('argumentName1234', 'string');
         $arguments = new Arguments();
         self::assertFalse(isset($arguments['argumentName1234']), 'isset() did not return FALSE.');
-        $arguments[] = $mockArgument;
+        $arguments[] = $argument;
         self::assertTrue(isset($arguments['argumentName1234']), 'isset() did not return TRUE.');
     }
 
     #[Test]
     public function getArgumentNamesReturnsNamesOfAddedArguments(): void
     {
-        $mockArgument1 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument1->method('getName')->willReturn('argumentName1');
-        $mockArgument2 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument2->method('getName')->willReturn('argumentName2');
-        $mockArgument3 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument3->method('getName')->willReturn('argumentName3');
+        $argument1 = new Argument('argumentName1', 'string');
+        $argument2 = new Argument('argumentName2', 'string');
+        $argument3 = new Argument('argumentName3', 'string');
         $arguments = new Arguments();
-        $arguments[] = $mockArgument1;
-        $arguments[] = $mockArgument2;
-        $arguments[] = $mockArgument3;
+        $arguments[] = $argument1;
+        $arguments[] = $argument2;
+        $arguments[] = $argument3;
         $expectedArgumentNames = ['argumentName1', 'argumentName2', 'argumentName3'];
         self::assertEquals($expectedArgumentNames, $arguments->getArgumentNames(), 'Returned argument names were not as expected.');
     }
@@ -148,28 +116,16 @@ final class ArgumentsTest extends UnitTestCase
     #[Test]
     public function getArgumentShortNamesReturnsShortNamesOfAddedArguments(): void
     {
-        $mockArgument1 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName', 'getShortName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument1->method('getName')->willReturn('argumentName1');
-        $mockArgument1->method('getShortName')->willReturn('a');
-        $mockArgument2 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName', 'getShortName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument2->method('getName')->willReturn('argumentName2');
-        $mockArgument2->method('getShortName')->willReturn('b');
-        $mockArgument3 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName', 'getShortName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument3->method('getName')->willReturn('argumentName3');
-        $mockArgument3->method('getShortName')->willReturn('c');
+        $argument1 = new Argument('argumentName1', 'string');
+        $argument1->setShortName('a');
+        $argument2 = new Argument('argumentName2', 'string');
+        $argument2->setShortName('b');
+        $argument3 = new Argument('argumentName3', 'string');
+        $argument3->setShortName('c');
         $arguments = new Arguments();
-        $arguments[] = $mockArgument1;
-        $arguments[] = $mockArgument2;
-        $arguments[] = $mockArgument3;
+        $arguments[] = $argument1;
+        $arguments[] = $argument2;
+        $arguments[] = $argument3;
         $expectedShortNames = ['a', 'b', 'c'];
         self::assertEquals($expectedShortNames, $arguments->getArgumentShortNames(), 'Returned argument short names were not as expected.');
     }
@@ -177,14 +133,8 @@ final class ArgumentsTest extends UnitTestCase
     #[Test]
     public function addNewArgumentCreatesAndAddsNewArgument(): void
     {
-        $mockArgument = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument->method('getName')->willReturn('dummyName');
         $arguments = new Arguments();
         $addedArgument = $arguments->addNewArgument('dummyName');
-        self::assertInstanceOf(Argument::class, $addedArgument, 'addNewArgument() either did not add a new argument or did not return it.');
         $retrievedArgument = $arguments['dummyName'];
         self::assertSame($addedArgument, $retrievedArgument, 'The added and the retrieved argument are not the same.');
     }
@@ -211,25 +161,18 @@ final class ArgumentsTest extends UnitTestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionCode(1210858451);
         $arguments = new Arguments();
+        /** @phpstan-ignore-next-line method.notFound */
         $arguments->nonExistingMethod();
     }
 
     #[Test]
     public function removeAllClearsAllArguments(): void
     {
-        $mockArgument1 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName', 'getShortName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument1->method('getName')->willReturn('argumentName1');
-        $mockArgument2 = $this->getMockBuilder(Argument::class)
-            ->onlyMethods(['getName', 'getShortName'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mockArgument2->method('getName')->willReturn('argumentName2');
+        $argument1 = new Argument('argumentName1', 'string');
+        $argument2 = new Argument('argumentName2', 'string');
         $arguments = new Arguments();
-        $arguments[] = $mockArgument1;
-        $arguments[] = $mockArgument2;
+        $arguments[] = $argument1;
+        $arguments[] = $argument2;
         self::assertTrue($arguments->hasArgument('argumentName2'));
         $arguments->removeAll();
         self::assertFalse($arguments->hasArgument('argumentName2'));

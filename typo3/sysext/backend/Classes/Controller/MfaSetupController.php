@@ -36,7 +36,6 @@ use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewInterface;
 
 /**
@@ -63,6 +62,7 @@ class MfaSetupController extends AbstractMfaController
         protected readonly ExtensionConfiguration $extensionConfiguration,
         protected readonly LoggerInterface $logger,
         protected readonly BackendViewFactory $backendViewFactory,
+        protected readonly FlashMessageService $flashMessageService,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -176,7 +176,7 @@ class MfaSetupController extends AbstractMfaController
             'providers' => $providers,
         ]);
         $this->pageRenderer->setBodyContent('<body>' . $view->render('Mfa/Standalone/Selection'));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -199,7 +199,7 @@ class MfaSetupController extends AbstractMfaController
             'hasErrors' => (bool)($request->getQueryParams()['hasErrors'] ?? false),
         ]);
         $this->pageRenderer->setBodyContent('<body>' . $view->render('Mfa/Standalone/Setup'));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -214,17 +214,17 @@ class MfaSetupController extends AbstractMfaController
             'siteName' => $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'],
             'footerNote' => $this->authenticationStyleInformation->getFooterNote(),
         ]);
-        $this->addCustomAuthenticationFormStyles();
+        $this->addCustomAuthenticationFormStyles($request);
         return $view;
     }
 
-    protected function addCustomAuthenticationFormStyles(): void
+    protected function addCustomAuthenticationFormStyles(ServerRequestInterface $request): void
     {
-        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, useNonce: true);
+        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles($request)) !== '') {
+            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, null, false, true);
         }
         if (($highlightColorStyles = $this->authenticationStyleInformation->getHighlightColorStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, useNonce: true);
+            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, null, false, true);
         }
     }
 
@@ -245,9 +245,8 @@ class MfaSetupController extends AbstractMfaController
     protected function addSuccessMessage(string $mfaProviderTitle): void
     {
         $lang = $this->getLanguageService();
-        GeneralUtility::makeInstance(FlashMessageService::class)->getMessageQueueByIdentifier()->enqueue(
-            GeneralUtility::makeInstance(
-                FlashMessage::class,
+        $this->flashMessageService->getMessageQueueByIdentifier()->enqueue(
+            new FlashMessage(
                 sprintf($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_mfa.xlf:standalone.setup.success.message'), $lang->sL($mfaProviderTitle)),
                 $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_mfa.xlf:standalone.setup.success.title'),
                 ContextualFeedbackSeverity::OK,

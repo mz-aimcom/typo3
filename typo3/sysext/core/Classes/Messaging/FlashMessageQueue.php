@@ -75,15 +75,15 @@ class FlashMessageQueue extends \SplQueue implements \JsonSerializable
         }
     }
 
-    public function addMessage(FlashMessage $message)
+    public function addMessage(FlashMessage ...$messages)
     {
-        $this->enqueue($message);
+        foreach ($messages as $message) {
+            $this->enqueue($message);
+        }
     }
 
     /**
      * This method is empty, as it will not move any flash message (e.g. from the session)
-     *
-     * @phpstan-return null
      */
     public function dequeue(): mixed
     {

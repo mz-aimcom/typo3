@@ -36,10 +36,7 @@ use TYPO3\CMS\Extensionmanager\Parser\ExtensionXmlParser;
 #[Autoconfigure(public: true)]
 class BulkExtensionRepositoryWriter implements \SplObserver
 {
-    /**
-     * @var string
-     */
-    private const TABLE_NAME = 'tx_extensionmanager_domain_model_extension';
+    private const string TABLE_NAME = 'tx_extensionmanager_domain_model_extension';
 
     protected ExtensionXmlParser $parser;
 
@@ -76,6 +73,7 @@ class BulkExtensionRepositoryWriter implements \SplObserver
         'authorcompany',
         'last_updated',
         'md5hash',
+        'artifact_sha256',
         'remote',
         'state',
         'review_state',
@@ -86,6 +84,7 @@ class BulkExtensionRepositoryWriter implements \SplObserver
         'documentation_link',
         'distribution_image',
         'distribution_welcome_image',
+        'composer_name',
     ];
 
     /**
@@ -236,6 +235,7 @@ class BulkExtensionRepositoryWriter implements \SplObserver
             $subject->getAuthorcompany(),
             $subject->getLastuploaddate(),
             $subject->getT3xfilemd5(),
+            $subject->getArtifactSha256(),
             $this->remoteIdentifier,
             ExtensionState::fromValue($subject->getState() ?: '')->value,
             $subject->getReviewstate(),
@@ -246,6 +246,7 @@ class BulkExtensionRepositoryWriter implements \SplObserver
             $subject->getDocumentationLink() ?: '',
             $subject->getDistributionImage() ?: '',
             $subject->getDistributionWelcomeImage() ?: '',
+            $subject->getComposerName() ?: '',
         ];
         ++$this->sumRecords;
     }

@@ -19,22 +19,11 @@ namespace TYPO3\CMS\Seo\Tests\Unit\MetaTag;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Page\PageRenderer;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Seo\MetaTag\OpenGraphMetaTagManager;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class OpenGraphMetaTagManagerTest extends UnitTestCase
 {
-    protected bool $resetSingletonInstances = true;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $pageRenderer = $this->getMockBuilder(PageRenderer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
-        GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
-    }
-
     #[Test]
     public function checkIfGetAllHandledPropertiesReturnsNonEmptyArray(): void
     {
@@ -122,11 +111,11 @@ final class OpenGraphMetaTagManagerTest extends UnitTestCase
             );
         }
 
-        $expected = '<meta property="og:image" content="/path/to/image">' . PHP_EOL .
-            '<meta property="og:image:width" content="400">' . PHP_EOL .
-            '<meta property="og:image:height" content="200">' . PHP_EOL .
-            '<meta property="og:image" content="/path/to/image2">' . PHP_EOL .
-            '<meta property="og:title" content="This is the new title">';
+        $expected = '<meta property="og:image" content="/path/to/image">' . PHP_EOL
+            . '<meta property="og:image:width" content="400">' . PHP_EOL
+            . '<meta property="og:image:height" content="200">' . PHP_EOL
+            . '<meta property="og:image" content="/path/to/image2">' . PHP_EOL
+            . '<meta property="og:title" content="This is the new title">';
 
         self::assertEquals($expected, $manager->renderAllProperties());
     }
@@ -196,9 +185,9 @@ final class OpenGraphMetaTagManagerTest extends UnitTestCase
                         ],
                     ],
                 ],
-                '<meta property="og:image" content="/path/to/image">' . PHP_EOL .
-                '<meta property="og:image:width" content="400">' . PHP_EOL .
-                '<meta property="og:image:height" content="400">',
+                '<meta property="og:image" content="/path/to/image">' . PHP_EOL
+                . '<meta property="og:image:width" content="400">' . PHP_EOL
+                . '<meta property="og:image:height" content="400">',
             ],
         ];
     }

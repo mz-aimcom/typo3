@@ -17,7 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\ViewHelpers\Link;
 
+use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileInterface;
@@ -26,7 +28,7 @@ use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper for creating links to a file (FAL).
@@ -63,7 +65,7 @@ final class FileViewHelper extends AbstractTagBasedViewHelper
         $file = $this->arguments['file'];
 
         if (!($file instanceof FileInterface)) {
-            throw new Exception('Argument \'file\' must be an instance of ' . FileInterface::class, 1621511632);
+            throw new InvalidArgumentValueException('Argument \'file\' must be an instance of ' . FileInterface::class, 1621511632);
         }
 
         // Get the public URL. This url is either be defined by a GeneratePublicUrlForResourceEvent,
@@ -125,10 +127,12 @@ final class FileViewHelper extends AbstractTagBasedViewHelper
             $parameters['fn'] = $filename;
         }
 
-        $parameters['token'] = $this->hashService->hmac(implode('|', $parameters), 'resourceStorageDumpFile');
+        $parameters['token'] = $this->hashService->hmac(implode('|', $parameters), 'resourceStorageDumpFile', HashAlgo::SHA3_256);
 
-        return GeneralUtility::locationHeaderUrl(PathUtility::getAbsoluteWebPath(Environment::getPublicPath() . '/index.php'))
-            . '?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
+        return GeneralUtility::locationHeaderUrl(
+            PathUtility::getAbsoluteWebPath(Environment::getPublicPath() . '/index.php'),
+            $this->renderingContext->getAttribute(ServerRequestInterface::class)
+        ) . '?' . http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
     }
 
     private function getAlternativeFilename(FileInterface $file): string

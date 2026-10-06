@@ -22,15 +22,28 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 /**
  * @internal
  */
-class WidgetGroupInitializationService
+readonly class WidgetGroupInitializationService
 {
     public function __construct(
-        private readonly WidgetGroupRegistry $widgetGroupRegistry,
-        private readonly WidgetRegistry $widgetRegistry,
+        private WidgetGroupRegistry $widgetGroupRegistry,
+        private WidgetRegistry $widgetRegistry,
     ) {}
 
     /**
      * Define the different groups of widgets as shown in the modal when adding a widget to the current dashboard
+     *
+     * @return array<string, array{
+     *   identifier: string,
+     *   label: string,
+     *   items: list<array{
+     *     identifier: string,
+     *     icon: string,
+     *     label: string,
+     *     description: string,
+     *     requestType: string,
+     *     event: string
+     *   }>
+     *  }>
      */
     public function buildWidgetGroupsConfiguration(): array
     {

@@ -30,14 +30,14 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  */
 final class MessageTest extends UnitTestCase
 {
-    protected ?Stream $stream;
-    protected ?Message $message;
+    private Stream $stream;
+    private Message $message;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->stream = new Stream('php://memory', 'wb+');
-        $this->message = (new Message())->withBody($this->stream);
+        $this->message = new Message()->withBody($this->stream);
     }
 
     #[Test]

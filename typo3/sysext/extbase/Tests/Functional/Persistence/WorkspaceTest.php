@@ -43,9 +43,9 @@ final class WorkspaceTest extends FunctionalTestCase
 
     protected array $coreExtensionsToLoad = ['workspaces'];
 
-    protected BlogRepository $blogRepository;
+    private BlogRepository $blogRepository;
 
-    protected PostRepository $postRepository;
+    private PostRepository $postRepository;
 
     protected function setUp(): void
     {
@@ -63,7 +63,7 @@ final class WorkspaceTest extends FunctionalTestCase
         GeneralUtility::setSingletonInstance(Context::class, $context);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $request = (new ServerRequest())
+        $request = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $this->blogRepository = $this->get(BlogRepository::class);
@@ -93,7 +93,7 @@ final class WorkspaceTest extends FunctionalTestCase
         GeneralUtility::setSingletonInstance(Context::class, $context);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $request = (new ServerRequest())
+        $request = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $this->blogRepository = $this->get(BlogRepository::class);

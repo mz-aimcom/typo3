@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Resource;
 
+use TYPO3\CMS\Core\Imaging\ImageManipulation\Area;
 use TYPO3\CMS\Core\Resource\Service\ConfigurationService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -117,8 +118,7 @@ class ProcessedFile extends AbstractFile
     protected function reconstituteFromDatabaseRecord(array $databaseRow): void
     {
         $this->taskType = $this->taskType ?: $databaseRow['task_type'];
-        // @todo In case the original configuration contained file objects the reconstitution fails. See ConfigurationService->serialize()
-        $this->processingConfiguration = $this->processingConfiguration ?: (array)unserialize($databaseRow['configuration'] ?? '');
+        $this->processingConfiguration = $this->processingConfiguration ?: (array)unserialize($databaseRow['configuration'] ?? '', ['allowed_classes' => [Area::class]]);
 
         $this->originalFileSha1 = $databaseRow['originalfilesha1'];
         $this->identifier = (string)$databaseRow['identifier'];
@@ -217,6 +217,9 @@ class ProcessedFile extends AbstractFile
         // @todo this is a *weird* hack that will fail if the storage is non-hierarchical!
         $this->identifier = $this->storage->getProcessingFolder($this->originalFile)->getIdentifier() . $this->name;
 
+        // The object now points to a new target file about to be (re-)created, so a
+        // previous removal of an outdated file must not mark the object as deleted anymore
+        $this->deleted = false;
         $this->updated = true;
     }
 
@@ -341,7 +344,7 @@ class ProcessedFile extends AbstractFile
             $properties['name'] = $this->getName();
         }
 
-        $properties['configuration'] = (new ConfigurationService())->serialize($this->processingConfiguration);
+        $properties['configuration'] = new ConfigurationService()->serialize($this->processingConfiguration);
 
         return array_merge($properties, [
             'storage' => $this->getStorage()->getUid(),
@@ -368,6 +371,9 @@ class ProcessedFile extends AbstractFile
         // @todo check if some of these properties can/should be set in a generic update method
         $this->identifier = $this->originalFile->getIdentifier();
         $this->updated = true;
+        // The object now delegates to the (existing) original file, so a previous
+        // removal of an outdated file must not mark the object as deleted anymore
+        $this->deleted = false;
         $this->processingUrl = '';
         $this->originalFileSha1 = $this->originalFile->getSha1();
     }

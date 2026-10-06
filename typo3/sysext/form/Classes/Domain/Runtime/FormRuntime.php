@@ -22,9 +22,11 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\Domain\Runtime;
 
 use Psr\Container\ContainerInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Error\Http\BadRequestException;
 use TYPO3\CMS\Core\Exception\Crypto\InvalidHashStringException;
@@ -55,7 +57,9 @@ use TYPO3\CMS\Form\Domain\Model\Renderable\VariableRenderableInterface;
 use TYPO3\CMS\Form\Domain\Renderer\RendererInterface;
 use TYPO3\CMS\Form\Domain\Runtime\Exception\PropertyMappingException;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime\FormSession;
-use TYPO3\CMS\Form\Domain\Runtime\FormRuntime\Lifecycle\AfterFormStateInitializedInterface;
+use TYPO3\CMS\Form\Event\AfterCurrentPageIsResolvedEvent;
+use TYPO3\CMS\Form\Event\AfterFormStateInitializedEvent;
+use TYPO3\CMS\Form\Event\BeforeRenderableIsValidatedEvent;
 use TYPO3\CMS\Form\Exception as FormException;
 use TYPO3\CMS\Form\Mvc\Validation\EmptyValidator;
 use TYPO3\CMS\Form\Security\HashScope;
@@ -165,6 +169,7 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
         protected readonly HashService $hashService,
         protected readonly ValidatorResolver $validatorResolver,
         private readonly Context $context,
+        private readonly EventDispatcherInterface $eventDispatcher,
     ) {
         $this->response = new Response();
     }
@@ -238,28 +243,26 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
             $this->formState = GeneralUtility::makeInstance(FormState::class);
         } else {
             try {
-                $serializedFormState = $this->hashService->validateAndStripHmac($serializedFormStateWithHmac, HashScope::FormState->prefix());
+                $serializedFormState = $this->hashService->validateAndStripHmac($serializedFormStateWithHmac, HashScope::FormState->prefix(), HashAlgo::SHA3_256);
             } catch (InvalidHashStringException $e) {
                 throw new BadRequestException('The HMAC of the form state could not be validated.', 1581862823);
             }
-            $this->formState = unserialize(base64_decode($serializedFormState));
+            /* @phpstan-ignore unserialize.allowedClasses.insecure (Integrity check already happens via HMAC validation) */
+            $this->formState = unserialize(base64_decode($serializedFormState), ['allowed_classes' => true]);
         }
     }
 
     protected function triggerAfterFormStateInitialized(): void
     {
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['afterFormStateInitialized'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if ($hookObj instanceof AfterFormStateInitializedInterface) {
-                $hookObj->afterFormStateInitialized($this);
-            }
-        }
+        $this->eventDispatcher->dispatch(
+            new AfterFormStateInitializedEvent($this, $this->request)
+        );
     }
 
     /**
      * Initializes the current page data based on the current request, also modifiable by a hook
      */
-    protected function initializeCurrentPageFromRequest()
+    protected function initializeCurrentPageFromRequest(): void
     {
         // If there was no previous form submissions or if the current request
         // can't be processed (no POST request and/or cached) then display the first
@@ -270,26 +273,44 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
             if (!$this->currentPage->isEnabled()) {
                 throw new FormException('Disabling the first page is not allowed', 1527186844);
             }
-
-            foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['afterInitializeCurrentPage'] ?? [] as $className) {
-                $hookObj = GeneralUtility::makeInstance($className);
-                if (method_exists($hookObj, 'afterInitializeCurrentPage')) {
-                    $this->currentPage = $hookObj->afterInitializeCurrentPage(
-                        $this,
-                        $this->currentPage,
-                        null,
-                        $this->request->getArguments()
-                    );
-                }
-            }
+            $this->dispatchCurrentPageInitializedEvent();
             return;
         }
 
         $this->lastDisplayedPage = $this->formDefinition->getPageByIndex($this->formState->getLastDisplayedPageIndex());
+        $currentPageIndex = $this->determineCurrentPageIndex();
+
+        if ($this->isLastPage($currentPageIndex)) {
+            $this->currentPage = null;
+        } else {
+            $this->currentPage = $this->formDefinition->getPageByIndex($currentPageIndex);
+            if (!$this->currentPage->isEnabled()) {
+                if ($currentPageIndex === 0) {
+                    throw new FormException('Disabling the first page is not allowed', 1527186845);
+                }
+                if ($this->userWentBackToPreviousStep()) {
+                    $this->currentPage = $this->getPreviousEnabledPage();
+                } else {
+                    $this->currentPage = $this->getNextEnabledPage();
+                }
+            }
+        }
+        $this->dispatchCurrentPageInitializedEvent($this->lastDisplayedPage);
+    }
+
+    private function isLastPage(int $currentPageIndex): bool
+    {
+        return $currentPageIndex >= count($this->formDefinition->getPages());
+    }
+
+    /**
+     * Get the current page index by resolving the request
+     */
+    private function determineCurrentPageIndex(): int
+    {
         /** @var ExtbaseRequestParameters $extbaseRequestParameters */
         $extbaseRequestParameters = $this->request->getAttribute('extbase');
         $currentPageIndex = (int)$extbaseRequestParameters->getInternalArgument('__currentPage');
-
         if ($this->userWentBackToPreviousStep()) {
             if ($currentPageIndex < $this->lastDisplayedPage->getIndex()) {
                 $currentPageIndex = $this->lastDisplayedPage->getIndex();
@@ -299,37 +320,23 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
                 $currentPageIndex = $this->lastDisplayedPage->getIndex() + 1;
             }
         }
+        return $currentPageIndex;
+    }
 
-        if ($currentPageIndex >= count($this->formDefinition->getPages())) {
-            // Last Page
-            $this->currentPage = null;
-        } else {
-            $this->currentPage = $this->formDefinition->getPageByIndex($currentPageIndex);
-
-            if (!$this->currentPage->isEnabled()) {
-                if ($currentPageIndex === 0) {
-                    throw new FormException('Disabling the first page is not allowed', 1527186845);
-                }
-
-                if ($this->userWentBackToPreviousStep()) {
-                    $this->currentPage = $this->getPreviousEnabledPage();
-                } else {
-                    $this->currentPage = $this->getNextEnabledPage();
-                }
-            }
-        }
-
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['afterInitializeCurrentPage'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'afterInitializeCurrentPage')) {
-                $this->currentPage = $hookObj->afterInitializeCurrentPage(
-                    $this,
-                    $this->currentPage,
-                    $this->lastDisplayedPage,
-                    $this->request->getArguments()
-                );
-            }
-        }
+    /**
+     * Dispatches the AfterCurrentPageIsInitializedEvent event and sets the current page
+     */
+    private function dispatchCurrentPageInitializedEvent(?Page $lastDisplayedPage = null): void
+    {
+        $event = $this->eventDispatcher->dispatch(
+            new AfterCurrentPageIsResolvedEvent(
+                $this->currentPage,
+                $this,
+                $lastDisplayedPage,
+                $this->request,
+            )
+        );
+        $this->currentPage = $event->currentPage;
     }
 
     /**
@@ -552,19 +559,14 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
             }
         };
 
-        $value = null;
-
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['afterSubmit'] ?? [] as $className) {
-            $hookObj = GeneralUtility::makeInstance($className);
-            if (method_exists($hookObj, 'afterSubmit')) {
-                $value = $hookObj->afterSubmit(
-                    $this,
-                    $page,
-                    $value,
-                    $requestArguments
-                );
-            }
-        }
+        $this->eventDispatcher->dispatch(
+            new BeforeRenderableIsValidatedEvent(
+                null,
+                $this,
+                $page,
+                $this->request,
+            )
+        );
 
         foreach ($page->getElementsRecursively() as $element) {
             if (!$this->isRenderableEnabled($element)) {
@@ -577,17 +579,15 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
                 $value = null;
             }
 
-            foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/form']['afterSubmit'] ?? [] as $className) {
-                $hookObj = GeneralUtility::makeInstance($className);
-                if (method_exists($hookObj, 'afterSubmit')) {
-                    $value = $hookObj->afterSubmit(
-                        $this,
-                        $element,
-                        $value,
-                        $requestArguments
-                    );
-                }
-            }
+            $event = $this->eventDispatcher->dispatch(
+                new BeforeRenderableIsValidatedEvent(
+                    $value,
+                    $this,
+                    $element,
+                    $this->request,
+                )
+            );
+            $value = $event->value;
 
             $this->formState->setFormValue($element->getIdentifier(), $value);
             $registerPropertyPaths($element->getIdentifier());
@@ -1059,14 +1059,16 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
             $this->getFormState()->getFormValues(),
             $this->getRequest()->getArguments()
         );
-        $page = $this->getCurrentPage() ?? $this->getFormDefinition()->getPageByIndex(0);
+        $page = $this->getCurrentPage();
+        $stepIdentifier = $page !== null ? $page->getIdentifier() : '';
+        $stepType = $page !== null ? $page->getType() : '';
 
         $finisherIdentifier = '';
         if ($this->getCurrentFinisher() !== null) {
             if (method_exists($this->getCurrentFinisher(), 'getFinisherIdentifier')) {
                 $finisherIdentifier = $this->getCurrentFinisher()->getFinisherIdentifier();
             } else {
-                $finisherIdentifier = (new \ReflectionClass($this->getCurrentFinisher()))->getShortName();
+                $finisherIdentifier = new \ReflectionClass($this->getCurrentFinisher())->getShortName();
                 $finisherIdentifier = preg_replace('/Finisher$/', '', $finisherIdentifier);
             }
         }
@@ -1079,8 +1081,8 @@ class FormRuntime implements RootRenderableInterface, \ArrayAccess
             [
                 'formRuntime' => $this,
                 'formValues' => $formValues,
-                'stepIdentifier' => $page->getIdentifier(),
-                'stepType' => $page->getType(),
+                'stepIdentifier' => $stepIdentifier,
+                'stepType' => $stepType,
                 'finisherIdentifier' => $finisherIdentifier,
                 'contentObject' => $contentObjectData,
                 'request' => new RequestWrapper($this->getRequest()),

@@ -21,8 +21,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessClaim;
@@ -34,6 +33,7 @@ use TYPO3\CMS\Backend\Security\SudoMode\PasswordVerification;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Http\RedirectResponse;
@@ -48,25 +48,24 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal
  */
 #[AsController]
-final class SudoModeController implements LoggerAwareInterface
+final readonly class SudoModeController
 {
-    use LoggerAwareTrait;
-
-    private const ROUTE_PATH_MODULE = '/sudo-mode/module';
-    private const ROUTE_PATH_APPLY = '/sudo-mode/apply';
-    private const ROUTE_PATH_ERROR = '/sudo-mode/error';
-    private const ROUTE_PATH_VERIFY = '/ajax/sudo-mode/verify';
+    private const string ROUTE_PATH_MODULE = '/sudo-mode/module';
+    private const string ROUTE_PATH_APPLY = '/sudo-mode/apply';
+    private const string ROUTE_PATH_ERROR = '/sudo-mode/error';
+    private const string ROUTE_PATH_VERIFY = '/ajax/sudo-mode/verify';
 
     public function __construct(
-        private readonly PageRenderer $pageRenderer,
-        private readonly UriBuilder $uriBuilder,
-        private readonly AccessFactory $factory,
-        private readonly AccessStorage $storage,
-        private readonly PasswordVerification $passwordVerification,
-        private readonly ModuleTemplateFactory $moduleTemplateFactory,
-        private readonly BackendEntryPointResolver $backendEntryPointResolver,
-        private readonly EventDispatcherInterface $eventDispatcher,
-        private readonly HashService $hashService,
+        private PageRenderer $pageRenderer,
+        private UriBuilder $uriBuilder,
+        private AccessFactory $factory,
+        private AccessStorage $storage,
+        private PasswordVerification $passwordVerification,
+        private ModuleTemplateFactory $moduleTemplateFactory,
+        private BackendEntryPointResolver $backendEntryPointResolver,
+        private EventDispatcherInterface $eventDispatcher,
+        private HashService $hashService,
+        private LoggerInterface $logger,
     ) {}
 
     public function buildModuleActionUriForClaim(AccessClaim $claim): UriInterface
@@ -124,7 +123,7 @@ final class SudoModeController implements LoggerAwareInterface
         }
 
         $this->storage->removeClaim($claim);
-        throw (new RequestGrantedException('Replay request', 1605873757))
+        throw new RequestGrantedException('Replay request', 1605873757)
             ->withInstruction($claim->instruction);
     }
 
@@ -199,7 +198,7 @@ final class SudoModeController implements LoggerAwareInterface
         $additionalPeppers = [self::class, $additionalPepper];
         return [
             'claim' => $claim->id,
-            'hash' => $this->hashService->hmac($claim->id, json_encode($additionalPeppers)),
+            'hash' => $this->hashService->hmac($claim->id, json_encode($additionalPeppers), HashAlgo::SHA3_256),
         ];
     }
 
@@ -211,7 +210,7 @@ final class SudoModeController implements LoggerAwareInterface
         $claimId = (string)($request->getQueryParams()['claim'] ?? '');
         $claimHash = (string)($request->getQueryParams()['hash'] ?? '');
         $additionalPeppers = [self::class, $additionalPepper];
-        $expectedHash = $this->hashService->hmac($claimId, json_encode($additionalPeppers));
+        $expectedHash = $this->hashService->hmac($claimId, json_encode($additionalPeppers), HashAlgo::SHA3_256);
         if ($claimId === '' ||  $claimHash === '' || !hash_equals($expectedHash, $claimHash)) {
             return null;
         }
@@ -244,7 +243,7 @@ final class SudoModeController implements LoggerAwareInterface
         return $GLOBALS['BE_USER'];
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

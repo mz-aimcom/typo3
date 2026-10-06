@@ -72,10 +72,13 @@ class ResetPasswordController
      */
     public function forgetPasswordFormAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->passwordReset->isEnabled()) {
+            return $this->redirectToLoginForm($request);
+        }
         $this->initialize($request);
         $this->initializeForgetPasswordView($request);
         $this->pageRenderer->setBodyContent('<body>' . $this->view->render('Login/ForgetPasswordForm'));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -85,6 +88,9 @@ class ResetPasswordController
      */
     public function initiatePasswordResetAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->passwordReset->isEnabled()) {
+            return $this->redirectToLoginForm($request);
+        }
         $this->initialize($request);
         $this->initializeForgetPasswordView($request);
         $emailAddress = $request->getParsedBody()['email'] ?? '';
@@ -104,7 +110,7 @@ class ResetPasswordController
         // can be an indicator if the used email exists or not. Wait a random
         // time between 200 milliseconds and 3 seconds.
         usleep(random_int(200000, 3000000));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -112,13 +118,16 @@ class ResetPasswordController
      */
     public function passwordResetAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->passwordReset->isEnabled()) {
+            return $this->redirectToLoginForm($request);
+        }
         $this->initialize($request);
         $this->initializeResetPasswordView($request);
         if (!$this->passwordReset->isValidResetTokenFromRequest($request)) {
             $this->view->assign('invalidToken', true);
         }
         $this->pageRenderer->setBodyContent('<body>' . $this->view->render('Login/ResetPasswordForm'));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -128,6 +137,9 @@ class ResetPasswordController
      */
     public function passwordResetFinishAction(ServerRequestInterface $request): ResponseInterface
     {
+        if (!$this->passwordReset->isEnabled()) {
+            return $this->redirectToLoginForm($request);
+        }
         // Token is invalid
         if (!$this->passwordReset->isValidResetTokenFromRequest($request)) {
             return $this->passwordResetAction($request);
@@ -140,7 +152,15 @@ class ResetPasswordController
             $this->view->assign('error', true);
         }
         $this->pageRenderer->setBodyContent('<body>' . $this->view->render('Login/ResetPasswordForm'));
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
+    }
+
+    private function redirectToLoginForm(ServerRequestInterface $request): ResponseInterface
+    {
+        return new RedirectResponse(
+            $this->uriBuilder->buildUriWithRedirect('login', [], RouteRedirect::createFromRequest($request)),
+            303
+        );
     }
 
     protected function initializeForgetPasswordView(ServerRequestInterface $request): void
@@ -216,19 +236,19 @@ class ResetPasswordController
             'loginUrl' => (string)$request->getUri(),
         ]);
 
-        $this->provideCustomLoginStyling();
+        $this->provideCustomLoginStyling($request);
     }
 
-    protected function provideCustomLoginStyling(): void
+    protected function provideCustomLoginStyling(ServerRequestInterface $request): void
     {
-        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, useNonce: true);
+        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles($request)) !== '') {
+            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, null, false, true);
         }
         if (($footerNote = $this->authenticationStyleInformation->getFooterNote()) !== '') {
             $this->view->assign('loginFootnote', $footerNote);
         }
         if (($highlightColorStyles = $this->authenticationStyleInformation->getHighlightColorStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, useNonce: true);
+            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, null, false, true);
         }
         $this->view->assignMultiple([
             'copyright' => $this->typo3Information->getCopyrightNotice(),

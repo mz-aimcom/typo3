@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Configuration\Tca;
 
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
@@ -50,6 +51,7 @@ readonly class TcaPreparation
         $tca = $this->configureSelectSingle($tca);
         $tca = $this->configureRelationshipToOne($tca);
         $tca = $this->addSystemFieldsToShowitemTypes($tca);
+        $tca = $this->addIgnoredPageTypeRestrictionRecords($tca);
         return $tca;
     }
 
@@ -88,7 +90,7 @@ readonly class TcaPreparation
                 $fieldConfig['config']['foreign_table'] = 'sys_category';
                 // Initialize default column configuration and merge it with already defined
                 $fieldConfig['config']['size'] ??= 20;
-                $fieldConfig['config']['foreign_table_where'] ??= ' AND {#sys_category}.{#sys_language_uid} IN (-1, 0)';
+                $fieldConfig['config']['foreign_table_where'] ??= ' AND {#sys_category}.{#sys_language_uid} IN (' . LanguageMarker::ALL_LANGUAGES . ', 0)';
                 if (empty($fieldConfig['config']['relationship'])) {
                     // In case no relationship is given, set "manyToMany" for non flex form, but "oneToMany" with flex form.
                     $fieldConfig['config']['relationship'] = $isFlexForm ? 'oneToMany' : 'manyToMany';
@@ -97,8 +99,8 @@ readonly class TcaPreparation
                 // Sanitize 'relationship'
                 if ($isFlexForm && !in_array($fieldConfig['config']['relationship'], ['oneToOne', 'oneToMany'], true)) {
                     throw new \UnexpectedValueException(
-                        '"relationship" must be one of "oneToOne" or "oneToMany", "manyToMany" is not supported as "relationship"' .
-                        ' for field ' . $fieldName . ' of type "category" in flexform.',
+                        '"relationship" must be one of "oneToOne" or "oneToMany", "manyToMany" is not supported as "relationship"'
+                        . ' for field ' . $fieldName . ' of type "category" in flexform.',
                         1627640208
                     );
                 }
@@ -118,8 +120,8 @@ readonly class TcaPreparation
                     // Therefore, maxitems must be 1. Sanitize for flex form fields as well.
                     if ((int)($fieldConfig['config']['maxitems'] ?? 0) > 1) {
                         throw new \RuntimeException(
-                            $fieldName . ' of table ' . $table . ' is defined as type category with an oneToOne relationship. ' .
-                            'Therefore maxitems must be 1. Otherwise, use oneToMany or manyToMany as relationship instead.',
+                            $fieldName . ' of table ' . $table . ' is defined as type category with an oneToOne relationship. '
+                            . 'Therefore maxitems must be 1. Otherwise, use oneToMany or manyToMany as relationship instead.',
                             1627335016
                         );
                     }
@@ -131,8 +133,8 @@ readonly class TcaPreparation
                     && (int)($fieldConfig['config']['maxitems'] ?? 0) === 1
                 ) {
                     throw new \RuntimeException(
-                        $fieldName . ' of table ' . $table . ' is defined as type category with a ' . $fieldConfig['config']['relationship'] .
-                        ' relationship. Therefore, maxitems can not be set to 1. Use oneToOne as relationship instead.',
+                        $fieldName . ' of table ' . $table . ' is defined as type category with a ' . $fieldConfig['config']['relationship']
+                        . ' relationship. Therefore, maxitems can not be set to 1. Use oneToOne as relationship instead.',
                         1627335017
                     );
                 }
@@ -407,9 +409,13 @@ readonly class TcaPreparation
         // Build list of values (fields and palettes) which should be removed
         // from custom palettes, because they will be added automatically.
         $listOfValuesToRemove = [
+            '--div--;core.form.tabs:general',
             '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general',
+            '--div--;core.form.tabs:language',
             '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:language',
+            '--div--;core.form.tabs:access',
             '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access',
+            '--div--;core.form.tabs:notes',
             '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes',
             '--palette--;;general',
             '--palette--;;language',
@@ -461,8 +467,8 @@ readonly class TcaPreparation
                 $showItemParts = ['--palette--;;general'];
             } else {
                 $showItemParts = [
-                    $typeField === 'CType' ? 'CType;LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:CType_formlabel' : $typeField,
-                    'colPos;LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:colPos_formlabel',
+                    $typeField,
+                    'colPos',
                 ];
             }
 
@@ -478,7 +484,7 @@ readonly class TcaPreparation
             // Add language field either using the "language" palette or manually,
             // in case the palette does not exist or does not contain the field.
             if ($languageField !== '') {
-                $showItemParts[] = '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:language';
+                $showItemParts[] = '--div--;core.form.tabs:language';
                 $languagePaletteItems = $this->removeCustomFieldLabels(GeneralUtility::trimExplode(',', $tca['tt_content']['palettes']['language']['showitem'] ?? '', true), $listOfValuesToRemove);
                 if (in_array($languageField, $languagePaletteItems, true)
                     && ($transOrigPointerField === '' || in_array($transOrigPointerField, $languagePaletteItems, true))
@@ -495,7 +501,7 @@ readonly class TcaPreparation
             // Add enable fields either using the "hidden" amd "access" palettes or
             // manually, in case the palettes do not exist or do not contain the fields.
             if ($enablecolumns !== [] || $editlock !== '') {
-                $showItemParts[] = '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access';
+                $showItemParts[] = '--div--;core.form.tabs:access';
                 if (isset($enablecolumns['disabled'])) {
                     $hiddenPaletteParts = $this->removeCustomFieldLabels(GeneralUtility::trimExplode(',', $tca['tt_content']['palettes']['hidden']['showitem'] ?? '', true), $listOfValuesToRemove);
                     if (in_array($enablecolumns['disabled'], $hiddenPaletteParts, true)) {
@@ -531,7 +537,7 @@ readonly class TcaPreparation
 
             // Add description column if defined
             if ($descriptionColumn !== '') {
-                $showItemParts[] = '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,' . $descriptionColumn;
+                $showItemParts[] = '--div--;core.form.tabs:notes,' . $descriptionColumn;
             }
 
             // Add extended tab at the end - if it exists
@@ -548,7 +554,7 @@ readonly class TcaPreparation
         $extendedParts = [];
         $addFields = false;
         foreach ($showItemFiltered as $key => $part) {
-            if ($part === '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended') {
+            if ($part === '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended' || $part === '--div--;core.form.tabs:extended') {
                 $extendedParts[] = $part;
                 $addFields = true;
                 unset($showItemFiltered[$key]);
@@ -595,5 +601,24 @@ readonly class TcaPreparation
             }
         }
         return $showitemParts;
+    }
+
+    protected function addIgnoredPageTypeRestrictionRecords(array $tca): array
+    {
+        $allowedRecordTypes = [];
+        foreach ($tca as $table => $configuration) {
+            if ($configuration['ctrl']['security']['ignorePageTypeRestriction'] ?? false) {
+                $allowedRecordTypes[] = $table;
+            }
+        }
+        if ($allowedRecordTypes === []) {
+            return $tca;
+        }
+        $mergedAllowedRecords = array_merge(
+            $tca['pages']['ctrl']['defaultAllowedRecordTypes'] ?? [],
+            $allowedRecordTypes
+        );
+        $tca['pages']['ctrl']['defaultAllowedRecordTypes'] = array_unique($mergedAllowedRecords);
+        return $tca;
     }
 }

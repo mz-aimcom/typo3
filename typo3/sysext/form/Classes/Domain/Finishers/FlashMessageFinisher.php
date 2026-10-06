@@ -86,11 +86,11 @@ class FlashMessageFinisher extends AbstractFinisher
      */
     protected function executeInternal()
     {
-        $messageBody = $this->parseOption('messageBody');
+        $messageBody = $this->parseOptionAsDisplayValue('messageBody');
         if (!is_string($messageBody)) {
             throw new FinisherException(sprintf('The message body must be of type string, "%s" given.', gettype($messageBody)), 1335980069);
         }
-        $messageTitle = $this->parseOption('messageTitle');
+        $messageTitle = $this->parseOptionAsDisplayValue('messageTitle');
         $messageArguments = $this->parseOption('messageArguments');
         $messageCode = $this->parseOption('messageCode');
         $severity = $this->parseOption('severity');
@@ -108,9 +108,9 @@ class FlashMessageFinisher extends AbstractFinisher
             ContextualFeedbackSeverity::ERROR => Error::class,
             default => Message::class,
         };
+        /** @var Message|Notice|Warning|Error $message */
         $message = GeneralUtility::makeInstance($messageClass, $messageBody, $messageCode, $messageArguments, $messageTitle);
-        $flashMessage = GeneralUtility::makeInstance(
-            FlashMessage::class,
+        $flashMessage = new FlashMessage(
             $message->render(),
             $message->getTitle(),
             $severity,

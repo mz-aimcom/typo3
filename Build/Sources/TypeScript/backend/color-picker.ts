@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property, query } from 'lit/decorators';
+import { customElement, property, query } from 'lit/decorators.js';
 import { css, html, LitElement, type TemplateResult } from 'lit';
 import Alwan from 'alwan';
 import RegularEvent from '@typo3/core/event/regular-event';
@@ -38,7 +38,6 @@ export class Typo3BackendColorPicker extends LitElement {
       height: var(--typo3-colorpicker-preview-height);
       top: 50%;
       inset-inline-start: var(--typo3-input-sm-padding-x);
-      z-index: 1;
       transform: translate(0, -50%);
       background: var(--typo3-bg-checkerboard-background-color);
       background-image: linear-gradient(45deg, var(--typo3-bg-checkerboard-background-image-color) 25%, transparent 25%), linear-gradient(135deg, var(--typo3-bg-checkerboard-background-image-color) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--typo3-bg-checkerboard-background-image-color) 75%), linear-gradient(135deg, transparent 75%, var(--typo3-bg-checkerboard-background-image-color) 75%);
@@ -59,7 +58,7 @@ export class Typo3BackendColorPicker extends LitElement {
 
   @property({ type: String }) color: string = '';
   @property({ type: Boolean }) opacity: boolean = false;
-  @property({ type: String }) swatches: string = '';
+  @property({ type: Array }) swatches: {label: string, color: string}[] = [];
 
   // Use a reference to the input slot element
   @query('slot') slotEl!: HTMLSlotElement;
@@ -68,42 +67,53 @@ export class Typo3BackendColorPicker extends LitElement {
     await DocumentService.ready();
 
     const inputElement = this.getInputElement();
-    if (inputElement) {
-      if (!inputElement.value && this.color) {
-        inputElement.value = this.color;
-      } else {
-        this.color = inputElement.value;
-      }
-
-      if (inputElement.disabled || inputElement.readOnly) {
-        return;
-      }
-
-      const alwan = new Alwan(inputElement, {
-        position: 'bottom-start',
-        format: 'hex',
-        opacity: this.opacity,
-        swatches: this.swatches ? this.swatches.split(';') : [],
-        preset: false,
-        color: this.color,
-      });
-
-      alwan.on('color', (e): void => {
-        this.color = e.hex;
-        inputElement.value = this.color;
-        inputElement.dispatchEvent(new Event('blur'));
-      });
-
-      // input: react on user input
-      // change: react on indirect changes, e.g. a value picker
-      ['input', 'change'].forEach((eventName: string): void => {
-        new RegularEvent(eventName, (e: Event): void => {
-          const input = (e.target as HTMLInputElement);
-          this.color = input.value;
-          alwan.setColor(this.color);
-        }).bindTo(inputElement);
-      });
+    if (!inputElement) {
+      return;
     }
+
+    if (!inputElement.value && this.color) {
+      inputElement.value = this.color;
+    } else {
+      this.color = inputElement.value;
+    }
+
+    if (inputElement.disabled || inputElement.readOnly) {
+      return;
+    }
+
+    const alwan = new Alwan(inputElement, {
+      position: 'bottom-start',
+      format: 'hex',
+      opacity: this.opacity,
+      swatches: this.swatches,
+      preset: false,
+      color: this.color,
+      // Casting to `unknown` to prevent TypeScript Error
+      // > TS2589: Type instantiation is excessively deep and possibly infinite.
+      parent: (this.closest('dialog') ?? '') as unknown,
+    });
+
+    // When the color picker opens, the input loses focus, making value changes difficult.
+    // Restore focus to the input after the picker is opened.
+    alwan.on('open', (): void => {
+      inputElement.focus();
+    });
+
+    alwan.on('color', (e): void => {
+      this.color = e.hex;
+      inputElement.value = this.color;
+      inputElement.dispatchEvent(new Event('blur'));
+    });
+
+    // input: react on user input
+    // change: react on indirect changes, e.g. a value picker
+    ['input', 'change'].forEach((eventName: string): void => {
+      new RegularEvent(eventName, (e: Event): void => {
+        const input = (e.target as HTMLInputElement);
+        this.color = input.value;
+        alwan.setColor(this.color);
+      }).bindTo(inputElement);
+    });
   }
 
   protected override render(): TemplateResult {
@@ -141,7 +151,7 @@ class LegacyColorPicker {
     }
 
     const colorPicker = document.createElement('typo3-backend-color-picker');
-    colorPicker.swatches = options.swatches?.join(';') ?? '';
+    colorPicker.swatches = options.swatches.map((swatch: string) => ({ color: swatch, label: swatch }));
     colorPicker.opacity = options.opacity ?? false;
     element.parentNode.insertBefore(colorPicker, element);
     colorPicker.appendChild(element);

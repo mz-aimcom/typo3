@@ -56,50 +56,50 @@ class IndexSearchRepository
 
     /**
      * Sections
-     * formally known as $this->piVars['sections']
+     * formerly known as $this->piVars['sections']
      */
     protected string $sections = '';
 
     /**
      * Search type
-     * formally known as $this->piVars['type']
+     * formerly known as $this->piVars['type']
      */
     protected SearchType $searchType = SearchType::DISTINCT;
 
     /**
      * Language uid
-     * formally known as $this->piVars['lang']
+     * formerly known as $this->piVars['lang']
      */
     protected int $languageUid = 0;
 
     /**
      * Media type
      * Can be either an ENUM backed value or a raw string
-     * formally known as $this->piVars['media']
+     * formerly known as $this->piVars['media']
      */
     protected MediaType|string $mediaType = MediaType::INTERNAL_PAGES;
 
     /**
      * Sort order
-     * formally known as $this->piVars['sort_order']
+     * formerly known as $this->piVars['sort_order']
      */
     protected string $sortOrder = '';
 
     /**
      * Descending sort order flag
-     * formally known as $this->piVars['desc']
+     * formerly known as $this->piVars['desc']
      */
     protected bool $descendingSortOrderFlag = false;
 
     /**
      * Result page pointer
-     * formally known as $this->piVars['pointer']
+     * formerly known as $this->piVars['pointer']
      */
     protected int $resultpagePointer = 0;
 
     /**
      * Number of results
-     * formally known as $this->piVars['result']
+     * formerly known as $this->piVars['result']
      */
     protected int $numberOfResults = 10;
 
@@ -117,7 +117,7 @@ class IndexSearchRepository
 
     /**
      * Flag for exact search count
-     * formally known as $conf['search.']['exactCount']
+     * formerly known as $conf['search.']['exactCount']
      *
      * Continue counting and checking of results even if we are sure
      * they are not displayed in this request. This will slow down your
@@ -128,7 +128,7 @@ class IndexSearchRepository
 
     /**
      * Display forbidden records
-     * formally known as $this->conf['show.']['forbiddenRecords']
+     * formerly known as $this->conf['show.']['forbiddenRecords']
      *
      * enabled through settings.displayForbiddenRecords
      */
@@ -140,6 +140,7 @@ class IndexSearchRepository
         private readonly TimeTracker $timeTracker,
         private readonly ConnectionPool $connectionPool,
         private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly PageRepository $pageRepository,
     ) {}
 
     /**
@@ -174,7 +175,7 @@ class IndexSearchRepository
         }
 
         $this->sortOrder = (string)($searchData['sortOrder'] ?? '');
-        $this->descendingSortOrderFlag = (bool)($searchData['desc'] ?? false);
+        $this->descendingSortOrderFlag = (bool)($searchData['sortDesc'] ?? false);
         $this->resultpagePointer = (int)($searchData['pointer'] ?? 0);
         if (is_numeric($searchData['numberOfResults'] ?? null)) {
             $this->numberOfResults = (int)$searchData['numberOfResults'];
@@ -501,8 +502,7 @@ class IndexSearchRepository
         if ($searchRootPageIdList[0] >= 0) {
             // Collecting all pages IDs in which to search
             // filtering out ALL pages that are not accessible due to restriction containers. Does NOT look for "no_search" field!
-            $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-            $idList = $pageRepository->getPageIdsRecursive($searchRootPageIdList, 9999);
+            $idList = $this->pageRepository->getPageIdsRecursive($searchRootPageIdList, 9999);
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->in(
                     'ISEC.page_id',
@@ -945,8 +945,7 @@ class IndexSearchRepository
             // filtering out ALL pages that are not accessible due to restriction containers.
             // Does NOT look for "no_search" field!
             $siteIdNumbers = GeneralUtility::intExplode(',', $this->searchRootPageIdList);
-            $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-            $pageIdList = $pageRepository->getPageIdsRecursive($siteIdNumbers, 9999);
+            $pageIdList = $this->pageRepository->getPageIdsRecursive($siteIdNumbers, 9999);
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->in(
                     'ISEC.page_id',
@@ -1080,11 +1079,10 @@ class IndexSearchRepository
     }
 
     /**
-     * Returns "DESC" or "" depending on the settings of the incoming
+     * Returns "DESC" or "ASC" depending on the settings of the incoming
      * highest/lowest result order (piVars['desc'])
      *
      * @param bool $inverse If TRUE, inverse the order which is defined by piVars['desc']
-     * @return string " DESC" or formerly known as tx_indexedsearch_pi->isDescending
      */
     protected function getDescendingSortOrderFlag(bool $inverse = false): string
     {
@@ -1092,7 +1090,7 @@ class IndexSearchRepository
         if ($inverse) {
             $desc = !$desc;
         }
-        return !$desc ? ' DESC' : '';
+        return $desc ? 'DESC' : 'ASC';
     }
 
     /**

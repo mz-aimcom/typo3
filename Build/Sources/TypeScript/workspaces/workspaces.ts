@@ -11,14 +11,32 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
+import { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
-import NProgress from 'nprogress';
+import { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
+import Notification from '@typo3/backend/notification';
 import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import { html } from 'lit';
+import labels from '~labels/workspaces.messages';
+
+/**
+ * Result of a single call of a dispatched call stack, carrying either
+ * `result` if the call succeeded, or `error` if it did not.
+ */
+interface RemoteCallResult {
+  method: string;
+  result?: unknown;
+  error?: {
+    message: string;
+    code: number;
+  };
+}
 
 export default class Workspaces {
+  protected readonly ajaxRoute: string = 'workspace_dispatch';
+  protected progressBar: ProgressBarElement | null = null;
+
   /**
    * Renders the send to stage window
    * @param {Object} response
@@ -28,12 +46,12 @@ export default class Workspaces {
     const result = response[0].result;
 
     const modal = Modal.advanced({
-      title: TYPO3.lang.actionSendToStage,
+      title: labels.get('actionSendToStage'),
       content: html`<div class="modal-loading"><typo3-backend-spinner size="large"></typo3-backend-spinner></div>`,
       severity: SeverityEnum.info,
       buttons: [
         {
-          text: TYPO3.lang.cancel,
+          text: labels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
@@ -42,7 +60,7 @@ export default class Workspaces {
           },
         },
         {
-          text: TYPO3.lang.ok,
+          text: labels.get('ok'),
           btnClass: 'btn-primary',
           name: 'ok',
         },
@@ -50,8 +68,6 @@ export default class Workspaces {
       callback: (currentModal: ModalElement): void => {
         const form = currentModal.ownerDocument.createElement('typo3-workspaces-send-to-stage-form');
         form.data = result;
-        // Required to get the frame-scoped module locales to the custom element
-        form.TYPO3lang = TYPO3.lang;
 
         currentModal.querySelector('.t3js-modal-body').replaceChildren(form);
       }
@@ -68,16 +84,25 @@ export default class Workspaces {
    * @return {$}
    */
   protected sendRemoteRequest(payload: object, progressContainer: string = '#workspace-content-wrapper'): Promise<AjaxResponse> {
-    NProgress.configure({ parent: progressContainer, showSpinner: false });
-    NProgress.start();
-    return (new AjaxRequest(TYPO3.settings.ajaxUrls.workspace_dispatch)).post(
-      payload,
-      {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8'
+    this.progressBar = document.createElement('typo3-backend-progress-bar');
+    document.querySelector(progressContainer).prepend(this.progressBar);
+    this.progressBar.start();
+    const headers = {
+      'Content-Type': 'application/json; charset=utf-8'
+    };
+    return new AjaxRequest(TYPO3.settings.ajaxUrls[this.ajaxRoute])
+      .post(payload, { headers })
+      .catch(async (reason: unknown): Promise<never> => {
+        await this.notifyRequestFailure(reason);
+        // Rejection is kept up, so that callers do not continue with a payload
+        // that carries errors instead of the results they are written for.
+        throw reason;
+      })
+      .finally(() => {
+        if (this.progressBar) {
+          this.progressBar.done();
         }
-      }
-    ).finally(() => NProgress.done());
+      });
   }
 
   /**
@@ -97,5 +122,40 @@ export default class Workspaces {
       data: data,
       method: method,
     };
+  }
+
+  /**
+   * Reports a failed request to the user. The server describes failing calls in the
+   * JSON body, anything else - an unreachable server, a session timeout redirect or
+   * an error page that is no JSON at all - can only be reported in a generic way.
+   */
+  private async notifyRequestFailure(reason: unknown): Promise<void> {
+    const title = labels.get('error.dispatch.title');
+    if (!(reason instanceof AjaxResponse)) {
+      Notification.error(title, labels.get('error.dispatch.unavailable'));
+      return;
+    }
+
+    let details: unknown;
+    try {
+      details = await reason.resolve('json');
+    } catch {
+      Notification.error(title, labels.get('error.dispatch.unavailable'));
+      return;
+    }
+
+    const messages: string[] = [];
+    if (Array.isArray(details)) {
+      for (const item of details as RemoteCallResult[]) {
+        if (item?.error?.message) {
+          messages.push(item.error.message);
+        }
+      }
+    }
+    if (messages.length === 0) {
+      Notification.error(title, labels.get('error.dispatch.unknown'));
+      return;
+    }
+    messages.forEach((message: string): void => Notification.error(title, message));
   }
 }

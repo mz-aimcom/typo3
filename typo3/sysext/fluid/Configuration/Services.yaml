@@ -16,6 +16,11 @@ services:
     factory: ['@TYPO3\CMS\Core\Cache\CacheManager', 'getCache']
     arguments: ['fluid_template']
 
+  cache.fluid_component_definitions:
+    class: TYPO3\CMS\Core\Cache\Frontend\FrontendInterface
+    factory: ['@TYPO3\CMS\Core\Cache\CacheManager', 'getCache']
+    arguments: ['fluid_component_definitions']
+
   # Classes of base package
   TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\EscapingModifierTemplateProcessor:
     public: true
@@ -29,4 +34,20 @@ services:
   TYPO3Fluid\Fluid\Core\Parser\TemplateProcessor\RemoveCommentsTemplateProcessor:
     public: true
     shared: false
+  TYPO3Fluid\Fluid\Core\ViewHelper\StrictArgumentProcessor:
+    public: false
+    shared: true
 
+  # Use StrictArgumentProcessor as default
+  TYPO3Fluid\Fluid\Core\ViewHelper\ArgumentProcessorInterface:
+    alias: TYPO3Fluid\Fluid\Core\ViewHelper\StrictArgumentProcessor
+    public: true
+
+  # Configuration module to inspect Fluid ViewHelper namespaces
+  fluid.configuration.module.provider.namespaces:
+    class: 'TYPO3\CMS\Fluid\ConfigurationModuleProvider\NamespacesProvider'
+    tags:
+      - name: 'lowlevel.configuration.module.provider'
+        identifier: 'fluidNamespaces'
+        label: 'fluid.messages:fluidNamespaces'
+        after: 'translationDomainList'

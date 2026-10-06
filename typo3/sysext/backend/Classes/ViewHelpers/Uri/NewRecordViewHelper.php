@@ -21,6 +21,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentException;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to provide 'create new record' links.
@@ -58,28 +60,31 @@ final class NewRecordViewHelper extends AbstractTagBasedViewHelper
         $this->registerArgument('uid', 'int', 'uid < 0 will insert the record after the given uid');
         $this->registerArgument('pid', 'int', 'the page id where the record will be created');
         $this->registerArgument('table', 'string', 'target database table', true);
+        $this->registerArgument('module', 'string', 'Set module identifier for context - marking as acitve when editing the record', false, '');
         $this->registerArgument('returnUrl', 'string', 'return to this URL after closing the edit dialog', false, '');
         $this->registerArgument('defaultValues', 'array', 'default values for fields of the new record', false, []);
     }
 
     /**
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      * @throws RouteNotFoundException
      */
     public function render(): string
     {
         if ($this->arguments['uid'] && $this->arguments['pid']) {
-            throw new \InvalidArgumentException('Can\'t handle both uid and pid for new records', 1526136338);
+            throw new InvalidArgumentException('Can\'t handle both uid and pid for new records', 1526136338);
         }
         if (isset($this->arguments['uid']) && $this->arguments['uid'] >= 0) {
-            throw new \InvalidArgumentException('Uid must be negative integer, ' . $this->arguments['uid'] . ' given', 1526136362);
+            throw new InvalidArgumentValueException('Uid must be negative integer, ' . $this->arguments['uid'] . ' given', 1526136362);
         }
-        if (empty($this->arguments['returnUrl'])) {
-            $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
+        $request = $this->renderingContext->hasAttribute(ServerRequestInterface::class)
+            ? $this->renderingContext->getAttribute(ServerRequestInterface::class) : null;
+        if (empty($this->arguments['returnUrl']) && $request !== null) {
             $this->arguments['returnUrl'] = $request->getAttribute('normalizedParams')->getRequestUri();
         }
         $params = [
             'edit' => [$this->arguments['table'] => [$this->arguments['uid'] ?? $this->arguments['pid'] ?? 0 => 'new']],
+            'module' => ($this->arguments['module'] ?? '') ?: ($request?->getAttribute('module')?->getIdentifier() ?? ''),
             'returnUrl' => $this->arguments['returnUrl'],
         ];
         if ($this->arguments['defaultValues']) {

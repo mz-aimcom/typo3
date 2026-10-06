@@ -28,27 +28,27 @@ return [
     'types' => [
         '1' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                 --palette--;;config,
-                --div--;LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:palette.http_settings,
+                --div--;webhooks.db:palette.http_settings,
                 --palette--;;http_settings,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:access,
                 --palette--;;access',
         ],
     ],
     'palettes' => [
         'config' => [
-            'label' => 'LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:palette.config',
-            'description' => 'LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:palette.config.description',
+            'label' => 'webhooks.db:palette.config',
+            'description' => 'webhooks.db:palette.config.description',
             'showitem' => 'webhook_type, identifier, --linebreak--, name, description, --linebreak--, url, secret',
         ],
         'http_settings' => [
-            'label' => 'LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:palette.http_settings',
-            'description' => 'LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:palette.http_settings.description',
+            'label' => 'webhooks.db:palette.http_settings',
+            'description' => 'webhooks.db:palette.http_settings.description',
             'showitem' => 'method, verify_ssl, --linebreak--, additional_headers',
         ],
         'access' => [
-            'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_tca.xlf:pages.palettes.access',
+            'label' => 'core.form.palettes:access',
             'showitem' => 'disabled, starttime, endtime',
         ],
     ],
@@ -94,16 +94,16 @@ return [
                 'type' => 'password',
                 'hashed' => false, // Can't be hashed because it's used to create the signature
                 'required' => true,
+                'appearance' => [
+                    'copyToClipboard' => true,
+                ],
                 'fieldControl' => [
                     'passwordGenerator' => [
                         'renderType' => 'passwordGenerator',
                         'options' => [
                             'title' => 'LLL:EXT:webhooks/Resources/Private/Language/locallang_db.xlf:sys_webhook.secret.passwordGenerator',
                             'allowEdit' => false,
-                            'passwordRules' => [
-                                'length' => 40,
-                                'random' => 'hex',
-                            ],
+                            'passwordPolicy' => 'secretToken',
                         ],
                     ],
                 ],

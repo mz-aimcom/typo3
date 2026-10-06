@@ -7,56 +7,30 @@ services:
   TYPO3\CMS\Core\:
     resource: '../Classes/*'
 
-  TYPO3\CMS\Core\Command\ExtensionListCommand:
-    tags:
-      - name: 'console.command'
-        command: 'extension:list'
-        description: 'Shows the list of extensions available to the system'
-        schedulable: false
+  TYPO3\CMS\Core\Http\Application:
 
-  TYPO3\CMS\Core\Command\SendEmailCommand:
-    tags:
-      - name: 'console.command'
-        command: 'mailer:spool:send'
-        description: 'Sends emails from the spool'
-      - name: 'console.command'
-        command: 'swiftmailer:spool:send'
-        alias: true
-        schedulable: false
-
-  TYPO3\CMS\Core\Command\SiteListCommand:
-    tags:
-      - name: 'console.command'
-        command: 'site:list'
-        description: 'Shows the list of sites available to the system'
-        schedulable: false
-
-  TYPO3\CMS\Core\Command\SiteShowCommand:
-    tags:
-      - name: 'console.command'
-        command: 'site:show'
-        description: 'Shows the configuration of the specified site'
-        schedulable: false
-
-  TYPO3\CMS\Core\Command\SiteSetsListCommand:
-    tags:
-      - name: 'console.command'
-        command: 'site:sets:list'
-        description: 'Shows the list of available site sets'
-        schedulable: false
-
-  TYPO3\CMS\Core\Command\SetupExtensionsCommand:
-    tags:
-      - name: 'console.command'
-        description: 'Set up extensions'
-        command: 'extension:setup'
-        schedulable: false
+  core.middlewares:
+    class: ArrayObject
+    factory: ['@TYPO3\CMS\Core\Http\MiddlewareStackResolver', 'resolve']
+    arguments: ['core']
+    public: true
 
   TYPO3\CMS\Core\Package\UnitTestPackageManager:
     autoconfigure: false
 
   TYPO3\CMS\Core\Http\MiddlewareDispatcher:
     autoconfigure: false
+
+  TYPO3\CMS\Core\Resource\Rendering\RendererRegistry:
+    arguments:
+      $renderers: !tagged_iterator fal.file_renderer
+
+  TYPO3\CMS\Core\Resource\TextExtraction\TextExtractorRegistry:
+    # Public: no Core class consumes the registry, it is resolved by
+    # extensions through GeneralUtility::makeInstance().
+    public: true
+    arguments:
+      $textExtractors: !tagged_iterator fal.text_extractor
 
   TYPO3\CMS\Core\Authentication\Mfa\Provider\TotpProvider:
     tags:
@@ -110,11 +84,6 @@ services:
     tags:
       - name: softreference.parser
         parserKey: url
-
-  # @todo use Autoconfigure attribute in v13/v14
-  TYPO3\CMS\Core\Resource\Service\ResourceConsistencyService:
-    public: true
-    shared: true
 
   # Core caches, cache.core, cache.assets and cache.runtime are injected as
   # early entries in TYPO3\CMS\Core\Core\Bootstrap and therefore omitted here
@@ -173,17 +142,6 @@ services:
   Symfony\Component\Messenger\Transport\Serialization\SerializerInterface:
     alias: Symfony\Component\Messenger\Transport\Serialization\PhpSerializer
 
-  TYPO3\CMS\Core\Command\ConsumeMessagesCommand:
-    arguments:
-      $messageBus: '@messenger.bus.default'
-      $receiverLocator: !tagged_locator { tag: 'messenger.receiver', index_by: 'identifier' }
-      $rateLimiterLocator: !tagged_locator { tag: 'messenger.rate_limiter', index_by: 'identifier' }
-
-  TYPO3\CMS\Core\Messenger\EventListener\StopWorkerOnTimeLimitListener:
-    arguments:
-      # 1 hour
-      $timeLimitInSeconds: 3600
-
   Symfony\Component\Messenger\Transport\Sync\SyncTransport:
     tags:
       - name: 'messenger.sender'
@@ -201,6 +159,9 @@ services:
         identifier: 'doctrine'
 
   # Interface implementations
+  Psr\Clock\ClockInterface:
+    alias: TYPO3\CMS\Core\Clock\SystemClock
+    public: true
   Psr\Container\ContainerInterface:
     alias: service_container
     public: true
@@ -209,6 +170,9 @@ services:
     public: true
   GuzzleHttp\ClientInterface:
     alias: GuzzleHttp\Client
+    public: true
+  TYPO3\CMS\Core\RateLimiter\RateLimiterFactoryInterface:
+    alias: TYPO3\CMS\Core\RateLimiter\RateLimiterFactory
     public: true
 
   # External dependencies

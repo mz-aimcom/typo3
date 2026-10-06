@@ -29,10 +29,17 @@ final class ResultItem implements \JsonSerializable
     private string $itemTitle = '';
     private string $typeLabel = '';
     private ?Icon $icon = null;
+    private ?array $language = null;
+    private ?string $thumbnailUrl = null;
+    /**
+     * @var array<string, string>
+     */
+    private array $properties = [];
     /**
      * @var ResultItemAction[]
      */
     private array $actions = [];
+    private ?ResultItemAction $defaultAction = null;
     private array $extraData = [];
     private array $internalData = [];
 
@@ -67,6 +74,20 @@ final class ResultItem implements \JsonSerializable
         return $this;
     }
 
+    public function setThumbnailUrl(?string $thumbnailUrl): self
+    {
+        $this->thumbnailUrl = $thumbnailUrl;
+
+        return $this;
+    }
+
+    public function addProperty(string $label, string $value): self
+    {
+        $this->properties[$label] = $value;
+
+        return $this;
+    }
+
     public function setActions(ResultItemAction ...$action): self
     {
         $this->actions = $action;
@@ -77,6 +98,18 @@ final class ResultItem implements \JsonSerializable
     public function addAction(ResultItemAction $action): self
     {
         $this->actions[] = $action;
+
+        return $this;
+    }
+
+    public function getDefaultAction(): ?ResultItemAction
+    {
+        return $this->defaultAction;
+    }
+
+    public function setDefaultAction(?ResultItemAction $defaultAction): ResultItem
+    {
+        $this->defaultAction = $defaultAction;
 
         return $this;
     }
@@ -104,6 +137,13 @@ final class ResultItem implements \JsonSerializable
         return $this;
     }
 
+    public function setLanguage(?array $language): self
+    {
+        $this->language = $language;
+
+        return $this;
+    }
+
     public function jsonSerialize(): array
     {
         return [
@@ -114,7 +154,11 @@ final class ResultItem implements \JsonSerializable
                 'identifier' => $this->icon?->getIdentifier(),
                 'overlay' => $this->icon?->getOverlayIcon()?->getIdentifier(),
             ],
+            'thumbnailUrl' => $this->thumbnailUrl,
+            'properties' => $this->properties,
             'actions' => $this->actions,
+            'defaultAction' => $this->defaultAction ?? $this->actions[0],
+            'language' => $this->language,
             'extraData' => $this->extraData,
         ];
     }

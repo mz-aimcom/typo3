@@ -45,17 +45,17 @@ class TaskTypeInfoElement extends AbstractFormElement
             }
         }
 
-        $task = $this->taskService->getAllTaskTypes()[$selectedValue] ?? null;
-        if ($task) {
+        $taskDetails = $this->taskService->getTaskDetailsFromTaskType($selectedValue);
+        if ($taskDetails) {
             $resultArray['html'] = '
                 <div class="card mb-0">
                     <div class="card-header">
                         <div class="card-icon">
-                            ' . $this->iconFactory->getIcon(($task['icon'] ?? '') ?: 'mimetypes-x-tx_scheduler_task_group')->render() . '
+                            ' . $this->iconFactory->getIcon(($taskDetails['icon'] ?? '') ?: 'mimetypes-x-tx_scheduler_task_group')->render() . '
                         </div>
                         <div class="card-header-body">
-                            <h2 class="card-title">' . htmlspecialchars($task['title']) . '</h2>
-                            <span class="card-subtitle">' . htmlspecialchars($task['description']) . '</span>
+                            <h2 class="card-title">' . htmlspecialchars($taskDetails['title']) . '</h2>
+                            <span class="card-subtitle">' . htmlspecialchars($taskDetails['description']) . '</span>
                         </div>
                     </div>
                 </div>
@@ -64,7 +64,7 @@ class TaskTypeInfoElement extends AbstractFormElement
             $resultArray['html'] = '<div class="alert alert-warning">' . htmlspecialchars($languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.invalidTaskType')) . ': <code>' . htmlspecialchars($selectedValue) . '</code></div>';
         }
 
-        $resultArray['additionalHiddenFields'][] = '<input type="hidden" name="' . $parameterArray['itemFormElName'] . '" value="' . htmlspecialchars($selectedValue) . '" />';
+        $resultArray['html'] .= '<input type="hidden" name="' . $parameterArray['itemFormElName'] . '" value="' . htmlspecialchars($selectedValue) . '" />';
         return $resultArray;
     }
 }

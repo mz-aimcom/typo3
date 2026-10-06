@@ -15,17 +15,19 @@
 
 namespace TYPO3\CMS\Core\Resource\Rendering;
 
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Attribute\AsFileRenderer;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
 use TYPO3\CMS\Core\Resource\OnlineMedia\Helpers\OnlineMediaHelperInterface;
 use TYPO3\CMS\Core\Resource\OnlineMedia\Helpers\OnlineMediaHelperRegistry;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * YouTube renderer class
  */
+#[AsFileRenderer]
 class YouTubeRenderer implements FileRendererInterface
 {
     /**
@@ -34,26 +36,11 @@ class YouTubeRenderer implements FileRendererInterface
     protected $onlineMediaHelper;
 
     /**
-     * Returns the priority of the renderer
-     * This way it is possible to define/overrule a renderer
-     * for a specific file type/context.
-     * For example create a video renderer for a certain storage/driver type.
-     * Should be between 1 and 100, 100 is more important than 1
-     *
-     * @return int
-     */
-    public function getPriority()
-    {
-        return 1;
-    }
-
-    /**
      * Check if given File(Reference) can be rendered
      *
      * @param FileInterface $file File of FileReference to render
-     * @return bool
      */
-    public function canRender(FileInterface $file)
+    public function canRender(FileInterface $file): bool
     {
         return ($file->getMimeType() === 'video/youtube' || $file->getExtension() === 'youtube') && $this->getOnlineMediaHelper($file) !== false;
     }
@@ -84,16 +71,19 @@ class YouTubeRenderer implements FileRendererInterface
      *
      * @param int|string $width TYPO3 known format; examples: 220, 200m or 200c
      * @param int|string $height TYPO3 known format; examples: 220, 200m or 200c
-     * @return string
      */
-    public function render(FileInterface $file, $width, $height, array $options = [])
+    public function render(FileInterface $file, int|string $width, int|string $height, array $options = []): string
     {
         $options = $this->collectOptions($options, $file);
         $src = $this->createYouTubeUrl($options, $file);
+        if (empty($src)) {
+            return '';
+        }
         $attributes = $this->collectIframeAttributes($width, $height, $options);
 
         return sprintf(
-            '<iframe src="%s"%s></iframe>',
+            '<iframe %s="%s"%s></iframe>',
+            $options['srcAttribute'] ?? 'src',
             htmlspecialchars($src, ENT_QUOTES | ENT_HTML5),
             empty($attributes) ? '' : ' ' . $this->implodeAttributes($attributes)
         );
@@ -124,12 +114,13 @@ class YouTubeRenderer implements FileRendererInterface
         return $options;
     }
 
-    /**
-     * @return string
-     */
-    protected function createYouTubeUrl(array $options, FileInterface $file)
+    protected function createYouTubeUrl(array $options, FileInterface $file): string
     {
         $videoId = $this->getVideoIdFromFile($file);
+
+        if (empty($videoId)) {
+            return '';
+        }
 
         $urlParams = ['autohide=1'];
         $urlParams[] = 'controls=' . $options['controls'];
@@ -148,7 +139,10 @@ class YouTubeRenderer implements FileRendererInterface
             $urlParams[] = 'rel=' . (int)(bool)$options['relatedVideos'];
         }
         if (!isset($options['enablejsapi']) || !empty($options['enablejsapi'])) {
-            $urlParams[] = 'enablejsapi=1&origin=' . rawurlencode(GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST'));
+            // @todo: This renderer has a dependency to Request / TypoScript. Model this explicitly.
+            $urlParams[] = 'enablejsapi=1&origin=' . rawurlencode(
+                ($GLOBALS['TYPO3_REQUEST'] ?? null)?->getAttribute('normalizedParams')?->getRequestHost() ?? ''
+            );
         }
 
         $youTubeUrl = sprintf(
@@ -218,11 +212,14 @@ class YouTubeRenderer implements FileRendererInterface
     {
         $attributeList = [];
         foreach ($attributes as $name => $value) {
+            if ($value === null || $value === false) {
+                continue;
+            }
             $name = preg_replace('/[^\p{L}0-9_.-]/u', '', $name);
             if ($value === true) {
                 $attributeList[] = $name;
             } else {
-                $attributeList[] = $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_HTML5) . '"';
+                $attributeList[] = $name . '="' . htmlspecialchars((string)$value, ENT_QUOTES | ENT_HTML5) . '"';
             }
         }
         return implode(' ', $attributeList);
@@ -230,9 +227,11 @@ class YouTubeRenderer implements FileRendererInterface
 
     /**
      * HTML5 deprecated the "frameborder" attribute as everything should be done via styling.
+     *
+     * @todo: This renderer has a dependency to Request / TypoScript. Model this explicitly.
      */
     protected function shouldIncludeFrameBorderAttribute(): bool
     {
-        return GeneralUtility::makeInstance(PageRenderer::class)->getDocType()->shouldIncludeFrameBorderAttribute();
+        return DocType::createFromRequest($GLOBALS['TYPO3_REQUEST'] ?? null)->shouldIncludeFrameBorderAttribute();
     }
 }

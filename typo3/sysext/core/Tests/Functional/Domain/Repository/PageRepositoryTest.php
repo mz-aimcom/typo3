@@ -22,6 +22,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
+use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Context\WorkspaceAspect;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\CompositeExpression;
@@ -113,6 +114,30 @@ final class PageRepositoryTest extends FunctionalTestCase
         self::assertEquals('1002', $rows[1003]['_LOCALIZED_UID']);
         self::assertEquals('1001-1003', $rows[1003]['_MP_PARAM']);
         self::assertCount(2, $rows);
+    }
+
+    #[Test]
+    public function getMenuWithMountPointResolvesGroupRestrictedTargetWhenGroupAccessIsDisabled(): void
+    {
+        // Restrict the mount point overlay target (page 1001, referenced by mount point page 1003)
+        // to a frontend user group ...
+        $this->get(ConnectionPool::class)
+            ->getConnectionForTable('pages')
+            ->update('pages', ['fe_group' => '1'], ['uid' => 1001]);
+        // ... and act as a visitor that is not a member of that group, so the group access
+        // clause actually filters page 1001.
+        $context = new Context();
+        $context->setAspect('frontend.user', new UserAspect(null, [0, -2]));
+        $subject = new PageRepository($context);
+
+        // Menu generation disables the group access check. The mount point overlay must still
+        // resolve its (group restricted) target page, otherwise the entry vanishes from the menu.
+        $rows = $subject->getMenu([1000], '*', 'sorting', '', true, true);
+
+        self::assertArrayHasKey(1003, $rows);
+        self::assertEquals('root default language', $rows[1003]['title']);
+        self::assertEquals('1001', $rows[1003]['uid']);
+        self::assertEquals('1001-1003', $rows[1003]['_MP_PARAM']);
     }
 
     #[Test]
@@ -367,14 +392,14 @@ final class PageRepositoryTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function getWorkspaceVersionReturnsTheCorrectMethod(): void
+    public function getPage_noCheckReturnsTheCorrectMethod(): void
     {
         $wsid = 987654321;
         $context = new Context();
         $context->setAspect('workspace', new WorkspaceAspect($wsid));
         $subject = new PageRepository($context);
 
-        $pageRec = $subject->getWorkspaceVersionOfRecord('pages', 11);
+        $pageRec = $subject->getPage_noCheck(11);
 
         self::assertEquals(11, $pageRec['uid']);
         self::assertEquals(0, $pageRec['t3ver_oid']);
@@ -471,13 +496,13 @@ final class PageRepositoryTest extends FunctionalTestCase
         );
     }
 
-    protected function assertOverlayRow($row): void
+    private function assertOverlayRow($row): void
     {
         self::assertIsArray($row);
         self::assertArrayHasKey('_LOCALIZED_UID', $row);
     }
 
-    protected function assertNotOverlayRow($row): void
+    private function assertNotOverlayRow($row): void
     {
         self::assertIsArray($row);
         self::assertFalse(isset($row['_LOCALIZED_UID']));
@@ -600,7 +625,7 @@ final class PageRepositoryTest extends FunctionalTestCase
         $GLOBALS['TCA'][$table] = ['ctrl' => []];
         $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
 
-        $defaultConstraints = (new PageRepository(new Context()))->getDefaultConstraints($table);
+        $defaultConstraints = new PageRepository(new Context())->getDefaultConstraints($table);
 
         self::assertEquals([$defaultConstraint], $defaultConstraints);
         self::assertInstanceOf(ModifyDefaultConstraintsForDatabaseQueryEvent::class, $modifyDefaultConstraintsForDatabaseQueryEvent);
@@ -629,7 +654,7 @@ final class PageRepositoryTest extends FunctionalTestCase
         $eventListener = $container->get(ListenerProvider::class);
         $eventListener->addListener(BeforePageIsRetrievedEvent::class, 'before-page-is-retrieved-listener');
 
-        $result = (new PageRepository(new Context()))->getPage(1234);
+        $result = new PageRepository(new Context())->getPage(1234);
 
         self::assertEquals($page->getPageId(), $result['uid']);
         self::assertInstanceOf(BeforePageIsRetrievedEvent::class, $beforePageIsRetrievedEvent);

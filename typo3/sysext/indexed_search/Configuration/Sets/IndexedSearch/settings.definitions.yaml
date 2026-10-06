@@ -18,9 +18,20 @@ settings:
     category: indexedsearch.templates
   indexedsearch.targetPid:
     default: 0
-    type: int
+    type: page
     category: indexedsearch
   indexedsearch.rootPidList:
     default: ''
     type: string
+    category: indexedsearch
+  indexedsearch.pagination_type:
+    default: 'simple'
+    type: string
+    enum:
+      - simple
+      - slidingWindow
+    category: indexedsearch
+  indexedsearch.page_links:
+    default: 10
+    type: int
     category: indexedsearch

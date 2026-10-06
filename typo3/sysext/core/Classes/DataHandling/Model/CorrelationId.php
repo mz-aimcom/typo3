@@ -28,7 +28,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class CorrelationId implements \JsonSerializable
 {
     protected const DEFAULT_VERSION = 1;
-    protected const PATTERN_V1 = '#^(?P<flags>[[:xdigit:]]{4})\$(?:(?P<scope>[[:alnum:]]+):)?(?P<subject>[[:alnum:]]+)(?P<aspects>(?:\/[[:alnum:]._-]+)*)$#';
+    protected const PATTERN_V1 = '#^(?P<flags>[[:xdigit:]]{4})\$(?:(?P<scope>[[:alnum:]_-]+):)?(?P<subject>[[:alnum:]_-]+)(?P<aspects>(?:\/[[:alnum:]._-]+)*)$#';
     protected int $version = self::DEFAULT_VERSION;
     protected ?string $scope = null;
     protected int $capabilities = 0;
@@ -44,6 +44,17 @@ class CorrelationId implements \JsonSerializable
         $target = static::create();
         $target->scope = $scope;
         return $target;
+    }
+
+    /**
+     * The serialized prefix every correlation id of one scope starts with, "FLAGS $ SCOPE :".
+     * All history entries written during the same operation share it, while their subject
+     * differs per record, so it is the way to look up a whole operation.
+     */
+    public static function scopePrefix(string $scope): string
+    {
+        // 6-bit version 10-bit capabilities, freshly created ids never carry capabilities
+        return sprintf('%s$%s:', bin2hex(pack('n', self::DEFAULT_VERSION << 10)), $scope);
     }
 
     public static function forSubject(string $subject, string ...$aspects): self
@@ -64,7 +75,7 @@ class CorrelationId implements \JsonSerializable
         $target = static::create()
             ->withSubject($matches['subject'])
             ->withAspects(...$aspects);
-        $target->scope = $matches['scope'] ?? null;
+        $target->scope = $matches['scope'];
         $target->version = $flags >> 10;
         $target->capabilities = $flags & ((1 << 10) - 1);
         return $target;
@@ -93,9 +104,7 @@ class CorrelationId implements \JsonSerializable
         if ($this->subject === $subject) {
             return $this;
         }
-        $target = clone $this;
-        $target->subject = $subject;
-        return $target;
+        return clone($this, ['subject' => $subject]);
     }
 
     public function withAspects(string ...$aspects): self
@@ -103,9 +112,7 @@ class CorrelationId implements \JsonSerializable
         if ($this->aspects === $aspects) {
             return $this;
         }
-        $target = clone $this;
-        $target->aspects = $aspects;
-        return $target;
+        return clone($this, ['aspects' => $aspects]);
     }
 
     public function getScope(): ?string

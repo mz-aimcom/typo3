@@ -19,22 +19,11 @@ namespace TYPO3\CMS\Seo\Tests\Unit\MetaTag;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Page\PageRenderer;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Seo\MetaTag\TwitterCardMetaTagManager;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class TwitterCardMetaTagManagerTest extends UnitTestCase
 {
-    protected bool $resetSingletonInstances = true;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $pageRenderer = $this->getMockBuilder(PageRenderer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
-        GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
-    }
-
     #[Test]
     public function checkIfGetAllHandledPropertiesReturnsNonEmptyArray(): void
     {
@@ -118,8 +107,8 @@ final class TwitterCardMetaTagManagerTest extends UnitTestCase
                         ],
                     ],
                 ],
-                '<meta name="twitter:image" content="/path/to/image">' . PHP_EOL .
-                '<meta name="twitter:image:alt" content="Alternative title">',
+                '<meta name="twitter:image" content="/path/to/image">' . PHP_EOL
+                . '<meta name="twitter:image:alt" content="Alternative title">',
             ],
         ];
     }
@@ -180,8 +169,8 @@ final class TwitterCardMetaTagManagerTest extends UnitTestCase
             );
         }
 
-        $expected = '<meta name="twitter:image" content="/path/to/image">' . PHP_EOL .
-            '<meta name="twitter:title" content="This is the new title">';
+        $expected = '<meta name="twitter:image" content="/path/to/image">' . PHP_EOL
+            . '<meta name="twitter:title" content="This is the new title">';
 
         self::assertEquals($expected, $manager->renderAllProperties());
     }

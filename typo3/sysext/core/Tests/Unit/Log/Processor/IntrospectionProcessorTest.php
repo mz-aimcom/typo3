@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Log\Processor;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -25,14 +26,15 @@ use TYPO3\CMS\Core\Log\LogRecord;
 use TYPO3\CMS\Core\Log\Processor\IntrospectionProcessor;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class IntrospectionProcessorTest extends UnitTestCase
 {
-    protected IntrospectionProcessor&MockObject $processor;
+    private IntrospectionProcessor&MockObject $processor;
 
     /**
      * A dummy result for the debug_backtrace function
      */
-    protected array $dummyBacktrace = [
+    private array $dummyBacktrace = [
         [
             'file' => '/foo/filename1.php',
             'line' => 1,
@@ -63,7 +65,9 @@ final class IntrospectionProcessorTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->processor = $this->getAccessibleMock(IntrospectionProcessor::class, ['getDebugBacktrace']);
+        $this->processor = $this->getMockBuilder(IntrospectionProcessor::class)
+            ->onlyMethods(['getDebugBacktrace'])
+            ->getMock();
     }
 
     #[Test]

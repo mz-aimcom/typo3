@@ -17,13 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Mail;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\NullLogger;
-use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
+use Symfony\Component\Mailer\Event\MessageEvent;
 use Symfony\Component\Mailer\Transport\NullTransport;
+use Symfony\Component\Mailer\Transport\SendmailTransport;
 use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
+use Symfony\Component\Mailer\Transport\Smtp\Stream\SocketStream;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Log\LogManagerInterface;
@@ -39,17 +44,30 @@ use TYPO3\CMS\Core\Tests\Unit\Mail\Fixtures\FakeMemorySpoolFixture;
 use TYPO3\CMS\Core\Tests\Unit\Mail\Fixtures\FakeValidSpoolFixture;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class TransportFactoryTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected function getSubject(&$eventDispatcher): TransportFactory
+    private function getSubject(&$eventDispatcher): TransportFactory
     {
         $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
         $logger = new NullLogger();
-        $logManager = $this->createMock(LogManagerInterface::class);
+        $logManager = self::createStub(LogManagerInterface::class);
         $logManager->method('getLogger')->willReturn($logger);
-        return new TransportFactory($eventDispatcher, $logManager, $logger, new FileNameValidator());
+        $dispatcher = $eventDispatcher;
+        return new TransportFactory($dispatcher, $logManager, $logger, new FileNameValidator());
+    }
+
+    private function expectMessageDispatch(EventDispatcherInterface&MockObject $eventDispatcher): void
+    {
+        $eventDispatcher->expects($this->once())->method('dispatch')
+            ->with(self::isInstanceOf(MessageEvent::class))
+            ->willReturnCallback(static function (MessageEvent $event): MessageEvent {
+                $event->reject();
+                return $event;
+            });
     }
 
     /**
@@ -247,18 +265,15 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
+        self::assertInstanceOf(EsmtpTransport::class, $transport);
+        $this->expectMessageDispatch($eventDispatcher);
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
             ->text('foo')
             ->from('bar@foo.com')
         ;
-        try {
-            $transport->send($message);
-        } catch (TransportExceptionInterface $exception) {
-            // connection is not valid in tests, so we just catch the exception here.
-        }
+        $transport->send($message);
     }
 
     #[Test]
@@ -305,18 +320,15 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
+        self::assertInstanceOf(EsmtpTransport::class, $transport);
+        $this->expectMessageDispatch($eventDispatcher);
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
             ->text('foo')
             ->from('bar@foo.com')
         ;
-        try {
-            $transport->send($message);
-        } catch (TransportExceptionInterface $exception) {
-            // connection is not valid in tests, so we just catch the exception here.
-        }
+        $transport->send($message);
     }
 
     #[Test]
@@ -339,18 +351,15 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
+        self::assertInstanceOf(SendmailTransport::class, $transport);
+        $this->expectMessageDispatch($eventDispatcher);
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
             ->text('foo')
             ->from('bar@foo.com')
         ;
-        try {
-            $transport->send($message);
-        } catch (TransportExceptionInterface $exception) {
-            // connection is not valid in tests, so we just catch the exception here.
-        }
+        $transport->send($message);
     }
 
     #[Test]
@@ -373,7 +382,7 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch')->with(self::anything());
+        $eventDispatcher->expects($this->atLeastOnce())->method('dispatch');
 
         $message = new MailMessage();
         $message->setTo(['foo@bar.com'])
@@ -395,10 +404,13 @@ final class TransportFactoryTest extends UnitTestCase
         ];
 
         $transport = $this->getSubject($eventDispatcher)->get($mailSettings);
-
         self::assertInstanceOf(EsmtpTransport::class, $transport);
-        self::assertSame(explode(':', $mailSettings['transport_smtp_server'], 2)[0], $transport->getStream()->getHost());
-        self::assertSame((int)explode(':', $mailSettings['transport_smtp_server'], 2)[1], $transport->getStream()->getPort());
+
+        /** @var SocketStream $stream */
+        $stream = $transport->getStream();
+
+        self::assertSame(explode(':', $mailSettings['transport_smtp_server'], 2)[0], $stream->getHost());
+        self::assertSame((int)explode(':', $mailSettings['transport_smtp_server'], 2)[1], $stream->getPort());
         self::assertSame($mailSettings['transport_smtp_username'], $transport->getUsername());
         self::assertSame($mailSettings['transport_smtp_password'], $transport->getPassword());
         self::assertSame($mailSettings['transport_smtp_domain'], $transport->getLocalDomain());

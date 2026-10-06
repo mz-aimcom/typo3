@@ -26,6 +26,7 @@ use TYPO3\CMS\Core\Schema\Field\FieldCollection;
 use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\Field\LanguageFieldType;
 use TYPO3\CMS\Core\Schema\Field\RelationalFieldTypeInterface;
+use TYPO3\CMS\Core\Schema\Struct\WizardStep;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -40,6 +41,8 @@ readonly class TcaSchema implements SchemaInterface
         protected ?SchemaCollection $subSchemata = null,
         /** @var PassiveRelation[] */
         protected array $passiveRelations = [],
+        /** @var list<WizardStep> $wizardSteps */
+        protected array $wizardSteps = [],
     ) {}
 
     public function getName(): string
@@ -137,6 +140,8 @@ readonly class TcaSchema implements SchemaInterface
             // This is an implicit restriction with a custom configuration
             TcaSchemaCapability::RestrictionRootLevel => true,
             TcaSchemaCapability::RestrictionWebMount => !empty($this->schemaConfiguration['security']['ignoreWebMountRestriction'] ?? false),
+
+            TcaSchemaCapability::ExtbaseHistoryTracking => (bool)($this->schemaConfiguration['extbase']['enableHistoryTracking'] ?? true),
         };
     }
 
@@ -156,8 +161,9 @@ readonly class TcaSchema implements SchemaInterface
      *          : ($capability is TcaSchemaCapability::PrependLabelTextAtCopy ? Capability\ScalarCapability
      *          : ($capability is TcaSchemaCapability::DefaultSorting ? Capability\ScalarCapability
      *          : ($capability is TcaSchemaCapability::Label ? Capability\LabelCapability
+     *          : ($capability is TcaSchemaCapability::ExtbaseHistoryTracking ? Capability\ScalarCapability
      *          : ($capability is TcaSchemaCapability::AncestorReferenceField ? Capability\SystemInternalFieldCapability
-     *          : Capability\SystemInternalFieldCapability))))))))))))))))
+     *          : Capability\SystemInternalFieldCapability)))))))))))))))))
      */
     public function getCapability(TcaSchemaCapability $capability): Capability\SchemaCapabilityInterface
     {
@@ -188,6 +194,8 @@ readonly class TcaSchema implements SchemaInterface
             TcaSchemaCapability::RestrictionUserGroup => new Capability\FieldCapability($this->getField($this->schemaConfiguration['enablecolumns']['fe_group'])),
             TcaSchemaCapability::RestrictionRootLevel => new Capability\RootLevelCapability((int)($this->schemaConfiguration['rootLevel'] ?? 0), (bool)($this->schemaConfiguration['security']['ignoreRootLevelRestriction'] ?? false)),
             TcaSchemaCapability::RestrictionWebMount => new Capability\ScalarCapability((bool)($this->schemaConfiguration['security']['ignoreWebMountRestriction'] ?? false)),
+
+            TcaSchemaCapability::ExtbaseHistoryTracking => new Capability\ScalarCapability((bool)($this->schemaConfiguration['extbase']['enableHistoryTracking'] ?? true)),
         };
     }
 
@@ -297,6 +305,11 @@ readonly class TcaSchema implements SchemaInterface
             }
         }
         return $relations;
+    }
+
+    public function getWizardSteps(): array
+    {
+        return $this->wizardSteps;
     }
 
     public static function __set_state(array $state): self

@@ -2,24 +2,37 @@
 	"name": "typo3/cms-sys-note",
 	"type": "typo3-cms-framework",
 	"description": "TYPO3 CMS System Notes - Records with messages which can be placed on any page and contain instructions or other information related to a page or section.",
-	"homepage": "https://typo3.org",
-	"license": ["GPL-2.0-or-later"],
-	"authors": [{
-		"name": "TYPO3 Core Team",
-		"email": "typo3cms@typo3.org",
-		"role": "Developer"
-	}],
+	"homepage": "https://typo3.community/",
+	"funding": [
+		{
+			"type": "membership",
+			"url": "https://typo3.org/membership"
+		}
+	],
+	"license": [
+		"GPL-2.0-or-later"
+	],
+	"authors": [
+		{
+			"name": "TYPO3 Core Team",
+			"email": "typo3cms@typo3.org",
+			"role": "Developer"
+		}
+	],
 	"support": {
-		"chat": "https://typo3.org/help",
-		"docs": "https://docs.typo3.org",
-		"issues": "https://forge.typo3.org",
-		"source": "https://github.com/typo3/typo3"
+		"issues": "https://forge.typo3.org/issues/",
+		"forum": "https://talk.typo3.org/",
+		"source": "https://github.com/TYPO3/typo3/",
+		"docs": "https://docs.typo3.org/",
+		"rss": "https://news.typo3.com/rss/",
+		"chat": "https://typo3.community/meet/slack/",
+		"security": "https://typo3.org/security/"
 	},
 	"config": {
 		"sort-packages": true
 	},
 	"require": {
-		"typo3/cms-core": "14.0.*@dev"
+		"typo3/cms-core": "15.0.*@dev"
 	},
 	"suggest": {
 		"typo3/cms-dashboard": "TYPO3 users can add widgets that can help to quickly see existing sys_note records"
@@ -29,7 +42,7 @@
 	},
 	"extra": {
 		"branch-alias": {
-			"dev-main": "14.0.x-dev"
+			"dev-main": "15.0.x-dev"
 		},
 		"typo3/cms": {
 			"Package": {

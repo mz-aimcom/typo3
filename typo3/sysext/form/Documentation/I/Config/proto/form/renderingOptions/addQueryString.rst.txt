@@ -6,7 +6,7 @@ renderingOptions.addQueryString
       prototypes.<prototypeIdentifier>.formElementsDefinition.Form.renderingOptions.addQueryString
 
 :aspect:`Data type`
-      bool
+      bool/string
 
 :aspect:`Needed by`
       Frontend
@@ -23,7 +23,7 @@ renderingOptions.addQueryString
 :aspect:`Default value (for prototype 'standard')`
       .. code-block:: yaml
          :linenos:
-         :emphasize-lines: 11
+         :emphasize-lines: 12
 
          Form:
            renderingOptions:
@@ -54,4 +54,4 @@ renderingOptions.addQueryString
       ToDo
 
 :aspect:`Description`
-      Fluid f:form viewHelper option ``addQueryString``
+      Corresponds to the Fluid ``f:form`` ViewHelper option ``addQueryString``.

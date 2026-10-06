@@ -30,6 +30,7 @@ use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
@@ -37,6 +38,7 @@ use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -301,12 +303,12 @@ class Clipboard
                                 'maxHeight' => 64,
                             ]
                         );
-                        $thumb = '<img src="' . htmlspecialchars($processedFile->getPublicUrl() ?? '') . '" ' .
-                            'width="' . htmlspecialchars((string)$processedFile->getProperty('width')) . '" ' .
-                            'height="' . htmlspecialchars((string)$processedFile->getProperty('height')) . '" ' .
-                            'title="' . htmlspecialchars($processedFile->getName()) . '" alt="" loading="lazy" />';
+                        $thumb = '<img src="' . htmlspecialchars($processedFile->getPublicUrl() ?? '') . '" '
+                            . 'width="' . htmlspecialchars((string)$processedFile->getProperty('width')) . '" '
+                            . 'height="' . htmlspecialchars((string)$processedFile->getProperty('height')) . '" '
+                            . 'title="' . htmlspecialchars($processedFile->getName()) . '" alt="" loading="lazy" />';
                     }
-                    $linkItemText = GeneralUtility::fixed_lgd_cs($fileObject->getName(), (int)($this->getBackendUser()->uc['titleLen'] ?? 0));
+                    $linkItemText = BackendUtility::cropToTitleLength($fileObject->getName());
                     $combinedIdentifier = $fileObject->getParentFolder()->getCombinedIdentifier();
                     $filesRequested = $currentTable === '_FILE';
                     $records[] = [
@@ -335,10 +337,10 @@ class Clipboard
                     $records[] = [
                         'identifier' => $table . '|' . $uid,
                         'icon' => $this->iconFactory->getIconForRecord($table, $record, IconSize::SMALL)->render(),
-                        'title' => $this->linkItemText(htmlspecialchars(GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle(
+                        'title' => $this->linkItemText(htmlspecialchars(BackendUtility::cropToTitleLength(BackendUtility::getRecordTitle(
                             $table,
                             $record
-                        ), (int)$this->getBackendUser()->uc['titleLen'])), $record, $isRequestedTable),
+                        ))), $record, $isRequestedTable),
                         'infoDataDispatch' => [
                             'action' => 'TYPO3.InfoWindow.showItem',
                             'args' => GeneralUtility::jsonEncodeForHtmlAttribute([$table, (int)$uid], false),
@@ -410,19 +412,15 @@ class Clipboard
                 $queryBuilder->expr()->neq(
                     $languageCapability->getLanguageField()->getName(),
                     $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
-                ),
-                $queryBuilder->expr()->gt(
-                    'pid',
-                    $queryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
                 )
             )
             ->orderBy($languageCapability->getLanguageField()->getName());
 
         foreach ($queryBuilder->executeQuery()->fetchAllAssociative() as $record) {
-            $title = htmlspecialchars(GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($table, $record), (int)$this->getBackendUser()->uc['titleLen']));
+            $title = htmlspecialchars(BackendUtility::cropToTitleLength(BackendUtility::getRecordTitle($table, $record)));
             if (!$isRequestedTable) {
                 // In case the current table is not the requested table, e.g. "_FILE", wrap title in "muted" style
-                $title = '<span class="text-body-secondary">' . $title . '</span>';
+                $title = '<span class="text-variant">' . $title . '</span>';
             }
             $records[] = [
                 'icon' => $this->iconFactory->getIconForRecord($table, $record, IconSize::SMALL)->render(),
@@ -469,16 +467,16 @@ class Clipboard
         if (is_array($reference)) {
             if ($isRequestedTable) {
                 // Wrap in link to corresponding page in recordlist in case current requested table matches
-                $itemText = '<a href="' . htmlspecialchars((string)$this->uriBuilder->buildUriFromRoute('web_list', ['id' => $reference['pid']])) . '">' . $itemText . '</a>';
+                $itemText = '<a href="' . htmlspecialchars((string)$this->uriBuilder->buildUriFromRoute('records', ['id' => $reference['pid']])) . '">' . $itemText . '</a>';
             } else {
-                $itemText = '<span class="text-body-secondary">' . $itemText . '</span>';
+                $itemText = '<span class="text-variant">' . $itemText . '</span>';
             }
         } elseif (is_string($reference)) {
             if ($isRequestedTable && ExtensionManagementUtility::isLoaded('filelist')) {
                 // Wrap in link to the files folder in case current requested table matches and filelist is loaded
                 $itemText = '<a href="' . htmlspecialchars((string)$this->uriBuilder->buildUriFromRoute('media_management', ['id' => $reference])) . '">' . $itemText . '</a>';
             } else {
-                $itemText = '<span class="text-body-secondary">' . $itemText . '</span>';
+                $itemText = '<span class="text-variant">' . $itemText . '</span>';
             }
         }
         return $itemText;
@@ -662,23 +660,63 @@ class Clipboard
 
         foreach ($this->clipData[$this->current]['el'] as $reference => $value) {
             [$table, $uid] = explode('|', $reference);
-            if ($table !== '_FILE') {
-                if (!$value || !is_array(BackendUtility::getRecord($table, (int)$uid, 'uid'))) {
-                    unset($this->clipData[$this->current]['el'][$reference]);
-                    $this->changed = true;
-                }
-            } elseif (!$value) {
-                unset($this->clipData[$this->current]['el'][$reference]);
-                $this->changed = true;
-            } else {
+            $unset = false;
+
+            if (!$value) {
+                $unset = true;
+            } elseif ($table === '_FILE') {
                 try {
-                    $this->resourceFactory->retrieveFileOrFolderObject($value);
-                } catch (ResourceDoesNotExistException $e) {
-                    // The file has been deleted in the meantime, so just remove it silently
-                    unset($this->clipData[$this->current]['el'][$reference]);
+                    $fileOrFolder = $this->resourceFactory->retrieveFileOrFolderObject($value);
+
+                    if (($fileOrFolder instanceof File || $fileOrFolder instanceof Folder)
+                        && !$fileOrFolder->checkActionPermission('read')
+                    ) {
+                        $unset = true;
+                    }
+                } catch (InsufficientFolderAccessPermissionsException|ResourceDoesNotExistException) {
+                    // If either the file has been deleted in the meantime or the user lacks permissions
+                    // for the folder, we just remove the clipboard entry silently
+                    $unset = true;
                 }
+            } elseif (!$this->isRecordAccessAllowed($table, (int)$uid)) {
+                $unset = true;
+            }
+
+            if ($unset) {
+                $this->removeElement($reference);
             }
         }
+    }
+
+    protected function isRecordAccessAllowed(string $table, int $uid): bool
+    {
+        $row = BackendUtility::getRecord($table, (int)$uid, ['uid', 'pid']);
+        if (!is_array($row)) {
+            return false;
+        }
+
+        if (!$this->getBackendUser()->check('tables_select', $table)) {
+            return false;
+        }
+
+        $schema = $this->tcaSchemaFactory->get($table);
+        $rootLevelCapability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
+
+        $pid = (int)($table === 'pages' ? $row['uid'] : $row['pid']);
+        if ($pid === 0) {
+            return $this->getBackendUser()->isAdmin() || $rootLevelCapability->canAccessRecordsOnRootLevel();
+        }
+
+        $page = BackendUtility::getRecord('pages', $pid);
+        if (!is_array($page)) {
+            return false;
+        }
+
+        if (!$this->getBackendUser()->doesUserHaveAccess($page, Permission::PAGE_SHOW)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

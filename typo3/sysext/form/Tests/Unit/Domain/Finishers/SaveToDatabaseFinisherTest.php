@@ -17,15 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Unit\Domain\Finishers;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
+use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashInterface;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Form\Domain\Finishers\Exception\FinisherException;
 use TYPO3\CMS\Form\Domain\Finishers\FinisherContext;
 use TYPO3\CMS\Form\Domain\Finishers\SaveToDatabaseFinisher;
 use TYPO3\CMS\Form\Domain\Model\FormElements\FormElementInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class SaveToDatabaseFinisherTest extends UnitTestCase
 {
     #[Test]
@@ -57,7 +61,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
                 'two',
             ],
         ]);
-        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn($this->createMock(FormElementInterface::class));
+        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn(self::createStub(FormElementInterface::class));
         $databaseData = $saveToDatabaseFinisher->_call('prepareData', $elementsConfiguration, []);
 
         self::assertSame('one,two', $databaseData['bar']);
@@ -78,7 +82,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
 
         $saveToDatabaseFinisher->expects($this->once())->method('process')->with(0);
 
-        $saveToDatabaseFinisher->execute($this->createMock(FinisherContext::class));
+        $saveToDatabaseFinisher->execute(self::createStub(FinisherContext::class));
     }
 
     public static function skipIfValueIsEmptyDataProvider(): array
@@ -129,7 +133,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
         $saveToDatabaseFinisher->method('getFormValues')->willReturn([
             'foo' => $value,
         ]);
-        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn($this->createMock(FormElementInterface::class));
+        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn(self::createStub(FormElementInterface::class));
         $databaseData = $saveToDatabaseFinisher->_call('prepareData', $elementsConfiguration, []);
 
         self::assertSame($expectedEmpty, empty($databaseData));
@@ -138,6 +142,12 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
     #[Test]
     public function prepareDataHashesValue(): void
     {
+        $passwordHash = $this->createMock(PasswordHashInterface::class);
+        $passwordHash->expects($this->once())->method('getHashedPassword')->with('rawValue')->willReturn('hashedValue');
+        $passwordHashFactory = $this->createMock(PasswordHashFactory::class);
+        $passwordHashFactory->expects($this->once())->method('getDefaultHashInstance')->with('FE')->willReturn($passwordHash);
+        GeneralUtility::addInstance(PasswordHashFactory::class, $passwordHashFactory);
+
         $elementsConfiguration = [
             'password' => [
                 'mapOnDatabaseColumn' => 'password',
@@ -149,11 +159,10 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
         $saveToDatabaseFinisher->method('getFormValues')->willReturn([
             'password' => 'rawValue',
         ]);
-        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn($this->createMock(FormElementInterface::class));
+        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn(self::createStub(FormElementInterface::class));
         $databaseData = $saveToDatabaseFinisher->_call('prepareData', $elementsConfiguration, []);
 
-        $passwordHash = (new PasswordHashFactory())->getDefaultHashInstance('FE');
-        self::assertTrue($passwordHash->checkPassword('rawValue', $databaseData['password']));
+        self::assertSame('hashedValue', $databaseData['password']);
     }
 
     #[Test]
@@ -175,7 +184,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
             ],
         ]);
         $saveToDatabaseFinisher->expects($this->exactly(2))->method('process');
-        $saveToDatabaseFinisher->execute($this->createMock(FinisherContext::class));
+        $saveToDatabaseFinisher->execute(self::createStub(FinisherContext::class));
     }
 
     #[Test]
@@ -191,7 +200,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
         $saveToDatabaseFinisher->method('getFormValues')->willReturn([
             'date' => new \DateTime(),
         ]);
-        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn($this->createMock(FormElementInterface::class));
+        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn(self::createStub(FormElementInterface::class));
         $databaseData = $saveToDatabaseFinisher->_call('prepareData', $elementsConfiguration, []);
 
         $expected = '#^([0-9]{10})$#';
@@ -212,7 +221,7 @@ final class SaveToDatabaseFinisherTest extends UnitTestCase
         $saveToDatabaseFinisher->method('getFormValues')->willReturn([
             'date' => new \DateTime('2018-06-12'),
         ]);
-        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn($this->createMock(FormElementInterface::class));
+        $saveToDatabaseFinisher->method('getElementByIdentifier')->willReturn(self::createStub(FormElementInterface::class));
         $databaseData = $saveToDatabaseFinisher->_call('prepareData', $elementsConfiguration, []);
 
         self::assertSame('2018.06.12', $databaseData['date']);

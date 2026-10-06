@@ -20,8 +20,8 @@ namespace TYPO3\CMS\Filelist\ElementBrowser;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\ElementBrowser\Event\IsFileSelectableEvent;
-use TYPO3\CMS\Backend\View\FolderUtilityRenderer;
 use TYPO3\CMS\Backend\View\RecordSearchBoxComponent;
+use TYPO3\CMS\Backend\View\ResourceUtilityRenderer;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Resource\Filter\FileExtensionFilter;
 use TYPO3\CMS\Core\Resource\Folder;
@@ -65,16 +65,14 @@ class FileBrowser extends AbstractResourceBrowser
 
         $this->searchWord = trim((string)($request->getParsedBody()['searchTerm'] ?? $request->getQueryParams()['searchTerm'] ?? ''));
 
-        $fileExtensions = GeneralUtility::trimExplode('~', explode('|', $this->bparams)[3], true);
-        $allowed = preg_replace('/^allowed=/', '', $fileExtensions[0] ?? '', 1);
-        $disallowed = preg_replace('/^disallowed=/', '', $fileExtensions[1] ?? '', 1);
+        $fileExtensions = $this->browserParameters->getFileExtensions();
 
         $this->fileExtensionFilter = GeneralUtility::makeInstance(FileExtensionFilter::class);
-        if ($allowed !== '' && !str_contains($allowed, 'sys_file') && !str_contains($allowed, '*')) {
-            $this->fileExtensionFilter->setAllowedFileExtensions($allowed);
+        if ($fileExtensions['allowed'] !== []) {
+            $this->fileExtensionFilter->setAllowedFileExtensions(implode(',', $fileExtensions['allowed']));
         }
-        if ($disallowed !== '') {
-            $this->fileExtensionFilter->setDisallowedFileExtensions($disallowed);
+        if ($fileExtensions['disallowed'] !== []) {
+            $this->fileExtensionFilter->setDisallowedFileExtensions(implode(',', $fileExtensions['disallowed']));
         }
 
         $this->resourceDisplayMatcher = GeneralUtility::makeInstance(Matcher::class);
@@ -148,7 +146,7 @@ class FileBrowser extends AbstractResourceBrowser
             $markup[] = '        </div>';
             $markup[] = '    </div>';
             $markup[] = '    <div class="col-auto">';
-            $markup[] = '        ' . $this->getSortingModeButtons($this->filelist->mode);
+            $markup[] = '        ' . $this->getSortingModeButtons();
             $markup[] = '        ' . $this->getViewModeButton();
             $markup[] = '    </div>';
             $markup[] = '</div>';
@@ -161,9 +159,10 @@ class FileBrowser extends AbstractResourceBrowser
             $markup[] = $this->filelist->render($searchDemand, $this->view);
 
             // Build the file upload and folder creation form
-            $folderUtilityRenderer = GeneralUtility::makeInstance(FolderUtilityRenderer::class, $this);
-            $markup[] = $folderUtilityRenderer->uploadForm($this->getRequest(), $this->selectedFolder, $this->fileExtensionFilter);
-            $markup[] = $folderUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
+            $resourceUtilityRenderer = GeneralUtility::makeInstance(ResourceUtilityRenderer::class, $this);
+            $markup[] = $resourceUtilityRenderer->uploadForm($this->getRequest(), $this->selectedFolder, $this->fileExtensionFilter);
+            $markup[] = $resourceUtilityRenderer->addOnlineMedia($this->getRequest(), $this->selectedFolder, $this->fileExtensionFilter);
+            $markup[] = $resourceUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
 
             $contentHtml = implode('', $markup);
         }
@@ -179,6 +178,6 @@ class FileBrowser extends AbstractResourceBrowser
             return $content;
         }
         $this->pageRenderer->setBodyContent('<body ' . $this->getBodyTagParameters() . '>' . $content);
-        return $this->pageRenderer->render();
+        return $this->pageRenderer->render($this->getRequest());
     }
 }

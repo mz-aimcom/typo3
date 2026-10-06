@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Module;
 
 use TYPO3\CMS\Backend\Routing\Route;
-use TYPO3\CMS\Backend\Routing\Router;
+use TYPO3\CMS\Backend\Routing\RouterConfigurationEvent;
 use TYPO3\CMS\Core\Routing\RouteCollection;
 
 /**
@@ -89,10 +89,15 @@ final class ModuleRegistry
     }
 
     /**
-     * Needs to be called when the router is set up, AFTER all modules are loaded.
+     * Handle router configuration when the router is set up.
+     *
+     * The event registration is wired in `TYPO3\CMS\Backend\ServiceProvider::addEventListeners`
+     * instead of using an `AsEventListener` because this service is not autowired, but has a
+     * custom factory in `TYPO3\CMS\Backend\ServiceProvider`.
      */
-    public function registerRoutesForModules(Router $router): void
+    public function registerRoutesForModules(RouterConfigurationEvent $event): void
     {
+        $router = $event->router;
         foreach ($this->modules as $module) {
             if (!$module->hasParentModule() && !$module->isStandalone()) {
                 // Skip first level modules, which are not standalone
@@ -132,7 +137,7 @@ final class ModuleRegistry
      * @param ModuleInterface[] $modules
      * @return ModuleInterface[]
      */
-    protected function applyHierarchy(array $modules): array
+    private function applyHierarchy(array $modules): array
     {
         // Fetch top-level (parent) modules and fill them with sorted sub modules
         $topLevelModules = [];
@@ -154,8 +159,56 @@ final class ModuleRegistry
                 $subModule->setParentModule($module);
             }
         }
+
+        // Promote single submodules to standalone modules and rebuild top-level modules afterwards
+        $topLevelModules = array_filter(
+            $this->promoteSingleSubmodulesToStandalone($modules, $topLevelModules),
+            static fn(ModuleInterface $module): bool => !$module->hasParentModule() || $module->isStandalone()
+        );
+
         // Sort top level modules and return all modules (flat) with the correct sorting
         return $this->flattenModules($this->applySorting($topLevelModules));
+    }
+
+    /**
+     * Promotes submodules to standalone if their parent module has only one submodule and is not
+     * standalone itself. This makes single submodules behave like standalone top-level modules.
+     *
+     * @param ModuleInterface[] $modules
+     * @param ModuleInterface[] $topLevelModules
+     * @return ModuleInterface[]
+     */
+    private function promoteSingleSubmodulesToStandalone(array $modules, array $topLevelModules): array
+    {
+        foreach ($topLevelModules as $parentIdentifier => $parentModule) {
+            // Skip already standalone modules
+            if ($parentModule->isStandalone()) {
+                continue;
+            }
+            // Only promote if explicitly enabled via appearance setting
+            if (!($parentModule->getAppearance()['promotesSingleSubmoduleToStandalone'] ?? false)) {
+                continue;
+            }
+            $subModules = $parentModule->getSubModules();
+            if (count($subModules) !== 1) {
+                continue;
+            }
+
+            /** @var BaseModule $subModule */
+            $subModule = reset($subModules);
+
+            // Promote the submodule to standalone, inheriting parent properties
+            $subModule->promoteToStandalone(
+                $parentModule->getNavigationComponent(),
+                $parentModule->getPosition(),
+                $parentModule->getAliases()
+            );
+
+            // Remove parent module from registry
+            unset($modules[$parentIdentifier]);
+        }
+
+        return $modules;
     }
 
     /**
@@ -165,7 +218,7 @@ final class ModuleRegistry
      * @param ModuleInterface[] $modules
      * @return ModuleInterface[]
      */
-    protected function applySorting(array $modules): array
+    private function applySorting(array $modules): array
     {
         $modulePositionInformation = [];
         // First create a list of all needed data, that is the identifier, and its position
@@ -234,7 +287,7 @@ final class ModuleRegistry
      * to be added have dependencies to other modules and those modules exist, corresponding
      * modules are added to $alreadyOrderedModuleIdentifiers on the correct position as well.
      */
-    protected function populateOrderingsForDependencies(
+    private function populateOrderingsForDependencies(
         array $moduleIdentifiersToBeAdded,
         array $modulePositionInformation,
         array $alreadyOrderedModuleIdentifiers = []
@@ -289,7 +342,7 @@ final class ModuleRegistry
     /**
      * Create a flat modules array (looping through each level by calling "getSubmodules()" on the parent)
      */
-    protected function flattenModules(array $modules, $flatModules = []): array
+    private function flattenModules(array $modules, $flatModules = []): array
     {
         foreach ($modules as $module) {
             $flatModules[$module->getIdentifier()] = $module;
@@ -300,7 +353,7 @@ final class ModuleRegistry
         return $flatModules;
     }
 
-    protected function populateAliasMapping(): void
+    private function populateAliasMapping(): void
     {
         foreach ($this->modules as $moduleIdentifier => $module) {
             foreach ($module->getAliases() as $aliasIdentifier) {

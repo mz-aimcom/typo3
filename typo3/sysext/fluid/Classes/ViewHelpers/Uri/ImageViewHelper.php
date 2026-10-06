@@ -21,12 +21,14 @@ use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
+use TYPO3\CMS\Core\Resource\ProcessedFile;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Service\ImageService;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to resize, crop or convert a given image (if required) and return
@@ -59,6 +61,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
  */
 final class ImageViewHelper extends AbstractViewHelper
 {
+    public function __construct(
+        private readonly ResourceFactory $resourceFactory
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('src', 'string', 'src', false, '');
@@ -80,8 +86,6 @@ final class ImageViewHelper extends AbstractViewHelper
 
     /**
      * Resizes the image (if required) and returns its path. If the image was not resized, the path will be equal to $src
-     *
-     * @throws Exception
      */
     public function render(): string
     {
@@ -91,10 +95,10 @@ final class ImageViewHelper extends AbstractViewHelper
         $cropString = $this->arguments['crop'];
         $absolute = $this->arguments['absolute'];
         if (($src === '' && $image === null) || ($src !== '' && $image !== null)) {
-            throw new Exception(self::getExceptionMessage('You must either specify a string src or a File object.', $this->renderingContext), 1460976233);
+            throw new InvalidArgumentValueException(self::getExceptionMessage('You must either specify a string src or a File object.', $this->renderingContext), 1460976233);
         }
         if ((string)$this->arguments['fileExtension'] && !GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], (string)$this->arguments['fileExtension'])) {
-            throw new Exception(
+            throw new InvalidArgumentValueException(
                 self::getExceptionMessage(
                     'The extension ' . $this->arguments['fileExtension'] . ' is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\']'
                     . ' as a valid image file extension and can not be processed.',
@@ -104,8 +108,7 @@ final class ImageViewHelper extends AbstractViewHelper
             );
         }
         try {
-            $imageService = self::getImageService();
-            $image = $imageService->getImage($src, $image, $treatIdAsReference);
+            $image = $this->resourceFactory->resolveFileObject($image ?? $src, $treatIdAsReference);
 
             if ($cropString === null && $image->hasProperty('crop') && $image->getProperty('crop')) {
                 $cropString = $image->getProperty('crop');
@@ -132,12 +135,19 @@ final class ImageViewHelper extends AbstractViewHelper
                 $processingInstructions['fileExtension'] = $this->arguments['fileExtension'];
             }
 
-            $processedImage = $imageService->applyProcessingInstructions($image, $processingInstructions);
+            $processedImage = $image->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, $processingInstructions);
 
             if ($this->arguments['base64']) {
                 return 'data:' . $processedImage->getMimeType() . ';base64,' . base64_encode($processedImage->getContents());
             }
-            return $imageService->getImageUri($processedImage, $absolute);
+            $imageUri = (string)$processedImage->getPublicUrl();
+            $request = $this->renderingContext->hasAttribute(ServerRequestInterface::class)
+                ? $this->renderingContext->getAttribute(ServerRequestInterface::class)
+                : ($GLOBALS['TYPO3_REQUEST'] ?? null);
+            if ($imageUri !== '' && $absolute && $request instanceof ServerRequestInterface) {
+                $imageUri = GeneralUtility::locationHeaderUrl($imageUri, $request);
+            }
+            return $imageUri;
         } catch (ResourceDoesNotExistException $e) {
             // thrown if file does not exist
             throw new Exception(self::getExceptionMessage($e->getMessage(), $this->renderingContext), 1509741907, $e);
@@ -159,14 +169,9 @@ final class ImageViewHelper extends AbstractViewHelper
         if ($request instanceof RequestInterface) {
             $currentContentObject = $request->getAttribute('currentContentObject');
             if ($currentContentObject instanceof ContentObjectRenderer) {
-                return sprintf('Unable to render image uri in "%s": %s', $currentContentObject->currentRecord, $detailedMessage);
+                return sprintf('Unable to render image URI in "%s": %s', $currentContentObject->currentRecord, $detailedMessage);
             }
         }
-        return sprintf('Unable to render image uri: %s', $detailedMessage);
-    }
-
-    private static function getImageService(): ImageService
-    {
-        return GeneralUtility::makeInstance(ImageService::class);
+        return sprintf('Unable to render image URI: %s', $detailedMessage);
     }
 }

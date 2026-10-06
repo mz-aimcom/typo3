@@ -22,12 +22,12 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\RateLimiter\LimiterInterface;
 use TYPO3\CMS\Core\Authentication\Event\AfterUserLoggedInEvent;
 use TYPO3\CMS\Core\Context\Context;
-use TYPO3\CMS\Core\RateLimiter\RateLimiterFactory;
+use TYPO3\CMS\Core\Http\SetCookieService;
+use TYPO3\CMS\Core\RateLimiter\RateLimiterFactoryInterface;
 use TYPO3\CMS\Core\RateLimiter\RequestRateLimitedException;
 use TYPO3\CMS\Core\Session\UserSessionManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -37,14 +37,13 @@ use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 /**
  * This middleware authenticates a Frontend User (fe_users).
  */
-class FrontendUserAuthenticator implements MiddlewareInterface, LoggerAwareInterface
+readonly class FrontendUserAuthenticator implements MiddlewareInterface
 {
-    use LoggerAwareTrait;
-
     public function __construct(
-        protected readonly Context $context,
-        protected readonly RateLimiterFactory $rateLimiterFactory,
-        protected readonly EventDispatcherInterface $eventDispatcher
+        protected Context $context,
+        protected RateLimiterFactoryInterface $rateLimiterFactory,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected LoggerInterface $logger,
     ) {}
 
     /**
@@ -75,14 +74,17 @@ class FrontendUserAuthenticator implements MiddlewareInterface, LoggerAwareInter
 
         $response = $handler->handle($request);
 
-        // Store session data for fe_users if it still exists
-        if ($frontendUser instanceof FrontendUserAuthentication) {
-            $frontendUser->storeSessionData();
-            $response = $frontendUser->appendCookieToResponse($response, $request->getAttribute('normalizedParams'));
-            // Collect garbage in Frontend requests, which aren't fully cacheable (e.g. with cookies)
-            if ($response->hasHeader('Set-Cookie')) {
-                $this->sessionGarbageCollection();
-            }
+        // Store session data for fe_users
+        $frontendUser->storeSessionData();
+        $response = SetCookieService::create($frontendUser->name, $frontendUser->loginType)->applyCookieToResponse(
+            $response,
+            $frontendUser->getSession(),
+            $frontendUser->getCookieBehavior(),
+            $request->getAttribute('normalizedParams')
+        );
+        // Collect garbage in Frontend requests, which aren't fully cacheable (e.g. with cookies)
+        if ($response->hasHeader('Set-Cookie')) {
+            $this->sessionGarbageCollection();
         }
 
         return $response;
@@ -101,13 +103,13 @@ class FrontendUserAuthenticator implements MiddlewareInterface, LoggerAwareInter
         if (!$user->isActiveLogin($request)) {
             return null;
         }
-        $loginRateLimiter = $this->rateLimiterFactory->createLoginRateLimiter($user, $request);
+        $loginRateLimiter = $this->rateLimiterFactory->createLoginRateLimiter($request, $user->loginType);
         $limit = $loginRateLimiter->consume();
         if (!$limit->isAccepted()) {
             $this->logger->debug('Login request has been rate limited for IP address {ipAddress}', ['ipAddress' => $request->getAttribute('normalizedParams')->getRemoteAddress()]);
             $dateformat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] . ' ' . $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'];
-            $lockedUntil = $limit->getRetryAfter()->getTimestamp() > 0 ?
-                ' until ' . date($dateformat, $limit->getRetryAfter()->getTimestamp()) : '';
+            $lockedUntil = $limit->getRetryAfter()->getTimestamp() > 0
+                ? ' until ' . date($dateformat, $limit->getRetryAfter()->getTimestamp()) : '';
             throw new RequestRateLimitedException(
                 HttpUtility::HTTP_STATUS_403,
                 'The login is locked' . $lockedUntil . ' due to too many failed login attempts from your IP address.',

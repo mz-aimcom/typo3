@@ -28,14 +28,17 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @internal
  */
-class ModuleLoader
+readonly class ModuleLoader
 {
+    public function __construct(
+        private DependencyOrderingService $dependencyOrderingService,
+    ) {}
+
     /**
      * Validates, sorts and initiates the registered modules
      *
      * @param array<string, mixed> $modules
      * @return array<string, ModuleInterface>
-     * @throws \RuntimeException
      */
     public function validateSortAndInitializeModules(array $modules): array
     {
@@ -49,30 +52,22 @@ class ModuleLoader
                     1519490105
                 );
             }
-            if (empty($configuration['module']) ||
-                !is_string($configuration['module']) ||
-                !class_exists($configuration['module']) ||
-                !is_subclass_of(
-                    $configuration['module'],
-                    ModuleInterface::class,
-                    true
-                )
+            if (empty($configuration['module'])
+                || !is_string($configuration['module'])
+                || !class_exists($configuration['module'])
+                || !is_subclass_of($configuration['module'], ModuleInterface::class)
             ) {
                 throw new \RuntimeException(
-                    'The module "' .
-                    $identifier .
-                    '" defines an invalid module class. Ensure the class exists and implements the "' .
-                    ModuleInterface::class .
-                    '".',
+                    'The module "'
+                    . $identifier
+                    . '" defines an invalid module class. Ensure the class exists and implements the "'
+                    . ModuleInterface::class
+                    . '".',
                     1519490112
                 );
             }
         }
-
-        $orderedModules = GeneralUtility::makeInstance(DependencyOrderingService::class)->orderByDependencies(
-            $modules
-        );
-
+        $orderedModules = $this->dependencyOrderingService->orderByDependencies($modules);
         $moduleInstances = [];
         foreach ($orderedModules as $moduleConfiguration) {
             $module = GeneralUtility::makeInstance($moduleConfiguration['module']);

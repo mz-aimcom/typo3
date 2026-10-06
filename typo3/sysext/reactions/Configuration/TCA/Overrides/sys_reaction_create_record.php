@@ -67,16 +67,21 @@
 $GLOBALS['TCA']['sys_reaction']['ctrl']['typeicon_classes'][\TYPO3\CMS\Reactions\Reaction\CreateRecordReaction::getType()] = \TYPO3\CMS\Reactions\Reaction\CreateRecordReaction::getIconIdentifier();
 
 $GLOBALS['TCA']['sys_reaction']['palettes']['createRecord'] = [
-    'label' => 'LLL:EXT:reactions/Resources/Private/Language/locallang_db.xlf:palette.additional',
-    'showitem' => 'table_name, --linebreak--, storage_pid, impersonate_user, --linebreak--, fields',
+    'label' => 'reactions.db:palette.additional',
+    'showitem' => 'table_name, --linebreak--, storage_pid, impersonate_user',
+];
+
+$GLOBALS['TCA']['sys_reaction']['palettes']['createRecordFieldMap'] = [
+    'showitem' => 'fields',
 ];
 
 $GLOBALS['TCA']['sys_reaction']['types'][\TYPO3\CMS\Reactions\Reaction\CreateRecordReaction::getType()] = [
     'showitem' => '
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+        --div--;core.form.tabs:general,
         --palette--;;config,
         --palette--;;createRecord,
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+        --palette--;;createRecordFieldMap,
+        --div--;core.form.tabs:access,
         --palette--;;access',
     'columnsOverrides' => [
         'impersonate_user' => [

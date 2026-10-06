@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Controller\SwitchUserController;
@@ -24,19 +26,21 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class SwitchUserControllerTest extends UnitTestCase
 {
     /**
      * Same as in SwitchUserController
      */
-    protected const RECENT_USERS_LIMIT = 3;
+    protected const int RECENT_USERS_LIMIT = 3;
 
-    protected SwitchUserController&MockObject&AccessibleObjectInterface $subject;
+    private SwitchUserController&MockObject&AccessibleObjectInterface $subject;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['BE_USER'] = $this->createMock(BackendUserAuthentication::class);
+        $GLOBALS['BE_USER'] = self::createStub(BackendUserAuthentication::class);
         $GLOBALS['BE_USER']->uc = [
             'recentSwitchedToUsers' => [],
         ];

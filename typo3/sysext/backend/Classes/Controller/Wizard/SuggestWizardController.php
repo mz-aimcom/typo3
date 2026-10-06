@@ -31,6 +31,7 @@ use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Security\RawValue;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -39,11 +40,12 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class SuggestWizardController
+readonly class SuggestWizardController
 {
     public function __construct(
-        private readonly FlexFormTools $flexFormTools,
-        private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private FlexFormTools $flexFormTools,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private ConnectionPool $connectionPool,
     ) {}
 
     /**
@@ -65,7 +67,7 @@ class SuggestWizardController
         $flexFormFieldName = $parsedBody['flexFormFieldName'] ?? null;
         $flexFormContainerName = $parsedBody['flexFormContainerName'] ?? null;
         $flexFormContainerFieldName = $parsedBody['flexFormContainerFieldName'] ?? null;
-        $recordType = (string)($parsedBody['recordTypeValue'] ?? '');
+        $recordType = (string)($parsedBody['recordTypeValue'] ?? '') ?: null;
         $schema = $this->tcaSchemaFactory->get($tableName);
 
         // Determine TCA config of field
@@ -77,13 +79,14 @@ class SuggestWizardController
 
             // With possible columnsOverrides
             // @todo Validate if we can move this fallback recordType determination, should be do-able in v13?!
-            if ($recordType === '') {
+            if ($recordType === null) {
                 $recordType = BackendUtility::getTCAtypeValue(
                     $tableName,
-                    BackendUtility::getRecord($tableName, $uid) ?? []
+                    BackendUtility::getRecord($tableName, $uid) ?? [],
+                    true
                 );
             }
-            if ($recordType !== '' && $schema->hasSubSchema($recordType)) {
+            if ($recordType !== null && $schema->hasSubSchema($recordType)) {
                 $fieldConfig = $schema->getSubSchema($recordType)->getField($fieldName)->getConfiguration();
             }
         } else {
@@ -145,7 +148,6 @@ class SuggestWizardController
                 $config['addWhere'] = $whereClause;
             }
             if (isset($config['addWhere'])) {
-                $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
                 $replacement = [
                     '###THIS_UID###' => (int)$uid,
                     '###CURRENT_PID###' => (int)$pid,
@@ -159,13 +161,13 @@ class SuggestWizardController
                         $replacement['###PAGE_TSCONFIG_IDLIST###'] = implode(',', GeneralUtility::intExplode(',', (string)$fieldTSconfig['PAGE_TSCONFIG_IDLIST']));
                     }
                     if (isset($fieldTSconfig['PAGE_TSCONFIG_STR'])) {
-                        $connection = $connectionPool->getConnectionForTable($fieldConfig['foreign_table']);
+                        $connection = $this->connectionPool->getConnectionForTable($fieldConfig['foreign_table']);
                         // nasty hack, but it's currently not possible to just quote anything "inside" the value but not escaping
                         // the whole field as it is not known where it is used in the WHERE clause
                         $replacement['###PAGE_TSCONFIG_STR###'] = trim($connection->quote($fieldTSconfig['PAGE_TSCONFIG_STR']), '\'');
                     }
                 }
-                $config['addWhere'] = QueryHelper::quoteDatabaseIdentifiers($connectionPool->getConnectionForTable($queryTable), strtr(' ' . $config['addWhere'], $replacement));
+                $config['addWhere'] = QueryHelper::quoteDatabaseIdentifiers($this->connectionPool->getConnectionForTable($queryTable), strtr(' ' . $config['addWhere'], $replacement));
             }
 
             // instantiate the class that should fetch the records for this $queryTable
@@ -232,27 +234,28 @@ class SuggestWizardController
         if (is_array($wizardConfig[$queryTable] ?? null)) {
             ArrayUtility::mergeRecursiveWithOverrule($config, $wizardConfig[$queryTable]);
         }
+
         $globalSuggestTsConfig = $TSconfig['TCEFORM.']['suggest.'] ?? [];
         $currentFieldSuggestTsConfig = $TSconfig['TCEFORM.'][$table . '.'][$field . '.']['suggest.'] ?? [];
 
         // merge the configurations of different "levels" to get the working configuration for this table and
         // field (i.e., go from the most general to the most special configuration)
         if (is_array($globalSuggestTsConfig['default.'] ?? null)) {
-            ArrayUtility::mergeRecursiveWithOverrule($config, $globalSuggestTsConfig['default.']);
+            ArrayUtility::mergeRecursiveWithOverrule($config, $this->substituteRawValues($globalSuggestTsConfig['default.']));
         }
 
         if (is_array($globalSuggestTsConfig[$queryTable . '.'] ?? null)) {
-            ArrayUtility::mergeRecursiveWithOverrule($config, $globalSuggestTsConfig[$queryTable . '.']);
+            ArrayUtility::mergeRecursiveWithOverrule($config, $this->substituteRawValues($globalSuggestTsConfig[$queryTable . '.']));
         }
 
         // use $table instead of $queryTable here because we overlay a config
         // for the input-field here, not for the queried table
         if (is_array($currentFieldSuggestTsConfig['default.'] ?? null)) {
-            ArrayUtility::mergeRecursiveWithOverrule($config, $currentFieldSuggestTsConfig['default.']);
+            ArrayUtility::mergeRecursiveWithOverrule($config, $this->substituteRawValues($currentFieldSuggestTsConfig['default.']));
         }
 
         if (is_array($currentFieldSuggestTsConfig[$queryTable . '.'] ?? null)) {
-            ArrayUtility::mergeRecursiveWithOverrule($config, $currentFieldSuggestTsConfig[$queryTable . '.']);
+            ArrayUtility::mergeRecursiveWithOverrule($config, $this->substituteRawValues($currentFieldSuggestTsConfig[$queryTable . '.']));
         }
 
         return $config;
@@ -291,6 +294,18 @@ class SuggestWizardController
     }
 
     /**
+     * Wraps user functions in the configuration array as a `RawValue` object,
+     * to be asserted later when actually calling `GeneralUtility::callUserFunction`.
+     */
+    protected function substituteRawValues(array $config): array
+    {
+        if (!empty($config['renderFunc'])) {
+            $config['renderFunc'] = new RawValue($config['renderFunc']);
+        }
+        return $config;
+    }
+
+    /**
      * Returns the SQL WHERE clause to use for querying records. This is currently only relevant if a foreign_table
      * is configured and should be used; it could e.g. be used to limit to a certain subset of records from the
      * foreign table
@@ -302,7 +317,7 @@ class SuggestWizardController
         }
 
         // strip ORDER BY clause
-        return trim(preg_replace('/ORDER[[:space:]]+BY.*/i', '', $fieldConfig['foreign_table_where']));
+        return trim(preg_replace('/ORDER[[:space:]]+BY.*/si', '', $fieldConfig['foreign_table_where']));
     }
 
     protected function getBackendUser(): BackendUserAuthentication

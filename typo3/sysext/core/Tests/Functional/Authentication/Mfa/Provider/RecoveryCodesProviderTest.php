@@ -25,6 +25,7 @@ use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderRegistry;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaViewType;
 use TYPO3\CMS\Core\Authentication\Mfa\Provider\RecoveryCodes;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\Argon2iPasswordHash;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
@@ -71,7 +72,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
 
         // Add necessary query parameter
         self::assertTrue($this->subject->canProcess(
-            (new ServerRequest('https://example.com', 'POST'))
+            new ServerRequest('https://example.com', 'POST')
                 ->withQueryParams(['rc' => '12345678'])
         ));
     }
@@ -101,7 +102,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function verifyTest(): void
+    public function verifyValidatesRecoveryCode(): void
     {
         $code = '12345678';
         $hash = $this->get(PasswordHashFactory::class)
@@ -138,10 +139,10 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
 
         // Setup form data to activate provider
         $this->setupUser(['recovery-codes' => ['active' => false]]);
-        $codes = (new RecoveryCodes('BE'))->generatePlainRecoveryCodes();
+        $codes = new RecoveryCodes('BE')->generatePlainRecoveryCodes();
         $parsedBody = [
             'recoveryCodes' => implode(PHP_EOL, $codes),
-            'checksum' => $this->hashService->hmac(json_encode($codes) ?: '', 'recovery-codes-setup'),
+            'checksum' => $this->hashService->hmac(json_encode($codes) ?: '', 'recovery-codes-setup', HashAlgo::SHA3_256),
         ];
         self::assertTrue($this->subject->activate($request->withParsedBody($parsedBody), $propertyManager));
     }
@@ -209,7 +210,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
     {
         $this->setupUser();
         $response = $this->subject->handleRequest(
-            (new ServerRequest('https://example.com', 'GET'))->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE),
+            new ServerRequest('https://example.com', 'GET')->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE),
             MfaProviderPropertyManager::create($this->subject, $this->user),
             MfaViewType::SETUP
         );
@@ -219,7 +220,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
     #[Test]
     public function editViewTest(): void
     {
-        $request = (new ServerRequest('https://example.com', 'POST'))->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest('https://example.com', 'POST')->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $this->setupUser([
             'recovery-codes' => [
                 'codes' => ['some-code', 'another-code'],
@@ -241,7 +242,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
     #[Test]
     public function authViewTest(): void
     {
-        $request = (new ServerRequest('https://example.com', 'POST'))->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest('https://example.com', 'POST')->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $this->setupUser(['recovery-codes' => ['active' => true, 'codes' => ['some-code']]]);
         $propertyManager = MfaProviderPropertyManager::create($this->subject, $this->user);
         $response = $this->subject->handleRequest($request, $propertyManager, MfaViewType::AUTH)->getBody()->getContents();
@@ -256,7 +257,7 @@ final class RecoveryCodesProviderTest extends FunctionalTestCase
         self::assertStringContainsString('The maximum attempts for this provider are exceeded.', $response);
     }
 
-    protected function setupUser(array $additional = []): void
+    private function setupUser(array $additional = []): void
     {
         $this->user->user['mfa'] = json_encode(
             array_replace_recursive(['totp' => ['active' => true, 'secret' => 'KRMVATZTJFZUC53FONXW2ZJB']], $additional)

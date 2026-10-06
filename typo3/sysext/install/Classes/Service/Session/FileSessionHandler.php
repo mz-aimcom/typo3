@@ -46,8 +46,8 @@ class FileSessionHandler implements \SessionHandlerInterface
     private HashService $hashService;
 
     public function __construct(
-        ?string $sessionPath,
         int $expirationTimeInMinutes,
+        ?string $sessionPath = null,
     ) {
         $this->hashService = new HashService();
         $this->sessionPath = rtrim($sessionPath ?? Environment::getVarPath() . '/session', '/') . '/';
@@ -152,8 +152,8 @@ class FileSessionHandler implements \SessionHandlerInterface
         }
         if (!$result) {
             throw new Exception(
-                'Session file not writable. Please check permission on ' .
-                $this->sessionPath . ' and its subdirectories.',
+                'Session file not writable. Please check permission on '
+                . $this->sessionPath . ' and its subdirectories.',
                 1424355157
             );
         }

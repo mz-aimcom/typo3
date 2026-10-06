@@ -15,11 +15,16 @@
 
 namespace TYPO3\CMS\Core\Authentication;
 
+use Doctrine\DBAL\Types\Type;
+use Doctrine\DBAL\Types\Types;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\Event\AfterUserLoggedInEvent;
+use TYPO3\CMS\Core\Authentication\Exception\InvalidPageRecordException;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -30,7 +35,6 @@ use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\RootLevelRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
-use TYPO3\CMS\Core\Domain\Record;
 use TYPO3\CMS\Core\Domain\RecordInterface;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\ImmediateResponseException;
@@ -40,12 +44,14 @@ use TYPO3\CMS\Core\Resource\Filter\FileNameFilter;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Security\PermissionSet\PrincipalRole;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\SysLog\Action as SystemLogGenericAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
-use TYPO3\CMS\Core\SysLog\Type;
+use TYPO3\CMS\Core\SysLog\Repository\LogEntryRepository;
 use TYPO3\CMS\Core\SysLog\Type as SystemLogType;
 use TYPO3\CMS\Core\Type\Bitmask\BackendGroupMountOption;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -118,17 +124,15 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     protected ?UserTsConfig $userTsConfig = null;
 
     /**
+     * Cached user settings object
+     */
+    private ?UserSettings $userSettings = null;
+
+    /**
      * True if the user TSconfig was parsed and needs to be cached.
      * @todo: Should vanish, see todo below.
      */
     protected bool $userTSUpdated = false;
-
-    /**
-     * Contains last error message
-     * @internal should only be used from within TYPO3 Core
-     * @var string
-     */
-    public $errorMsg = '';
 
     /**
      * Cache for checkWorkspaceCurrent()
@@ -260,6 +264,20 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         parent::__construct();
     }
 
+    public function getUserSettings(): UserSettings
+    {
+        if ($this->userSettings === null) {
+            $factory = GeneralUtility::makeInstance(UserSettingsFactory::class);
+            $this->userSettings = $factory->createFromUserRecord($this->user ?? [], $this->uc);
+        }
+        return $this->userSettings;
+    }
+
+    protected function resetUserSettingsCache(): void
+    {
+        $this->userSettings = null;
+    }
+
     /**
      * Returns TRUE if user is admin
      * Basically this function evaluates if the ->user[admin] field has bit 0 set. If so, user is admin.
@@ -299,11 +317,12 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      *
      * @param array $row Is the pagerow for which the permissions is checked
      * @param int $perms Is the binary representation of the permission we are going to check. Every bit in this number represents a permission that must be set. See function explanation.
+     * @param bool $useDeleteClause Use the delete clause to check if a record is deleted
      * @return bool
      */
-    public function doesUserHaveAccess($row, $perms)
+    public function doesUserHaveAccess($row, $perms, bool $useDeleteClause = true)
     {
-        $userPerms = $this->calcPerms($row);
+        $userPerms = $this->calcPerms($row, $useDeleteClause);
         return ($userPerms & $perms) == $perms;
     }
 
@@ -319,7 +338,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      * @param int|array $idOrRow Page ID or full page record to check
      * @param string $readPerms Content of "->getPagePermsClause(1)" (read-permissions). If not set, they will be internally calculated (but if you have the correct value right away you can save that database lookup!)
      * @param bool $useDeleteClause Use the deleteClause to check if a record is deleted (default TRUE)
-     * @throws \RuntimeException
+     * @throws InvalidPageRecordException If the given page record is missing its uid
      * @return int|null The page UID of a page in the rootline that matched a mount point
      */
     public function isInWebMount($idOrRow, $readPerms = '', bool $useDeleteClause = true)
@@ -335,7 +354,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         $fetchPageFromDatabase = true;
         if (is_array($idOrRow)) {
             if (!isset($idOrRow['uid'])) {
-                throw new \RuntimeException('The given page record is invalid. Missing uid.', 1578950324);
+                throw new InvalidPageRecordException('The given page record is invalid. Missing uid.', 1578950324);
             }
             $checkRec = $idOrRow;
             $id = (int)$idOrRow['uid'];
@@ -413,6 +432,17 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             return true;
         }
         return false;
+    }
+
+    public function getRole(): PrincipalRole
+    {
+        if ($this->isSystemMaintainer()) {
+            return PrincipalRole::MAINTAINER;
+        }
+        if ($this->isAdmin()) {
+            return PrincipalRole::ADMIN;
+        }
+        return PrincipalRole::USER;
     }
 
     /**
@@ -605,7 +635,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $langValue = (int)$langValue;
         }
         // Language must either be explicitly allowed OR the lang Value be "-1" (all languages)
-        if ($langValue !== -1 && !$this->check('allowed_languages', (string)$langValue)) {
+        if ($langValue !== LanguageMarker::ALL_LANGUAGES && !$this->check('allowed_languages', (string)$langValue)) {
             return false;
         }
         return true;
@@ -661,26 +691,30 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     }
 
     /**
-     * Checking if a user has editing access to a record from a $GLOBALS['TCA'] table.
+     * Check if a user has editing access to a record from a $GLOBALS['TCA'] table.
+     * Returns a result object with access status and error message.
+     *
      * The checks do not take page permissions and other "environmental" things into account.
      * It only deals with record internals; If any values in the record fields disallows it.
      * For instance languages settings, authMode selector boxes are evaluated (and maybe more in the future).
      * It will check for workspace-dependent access.
-     * The function takes an ID (int) or row (array) as second argument.
      *
      * @param string $table Table name
      * @param array|RecordInterface $row Full record row
      * @param bool $newRecord Set, if testing a new (non-existing) record array. Will disable certain checks that doesn't make much sense in that context.
-     * @param null $_ unused
      * @param bool $checkFullLanguageAccess Set, whenever access to all translations of the record is required
-     * @return bool TRUE if OK, otherwise FALSE
+     * @return AccessCheckResult Result object with access decision and error message
      * @internal should only be used from within TYPO3 Core
      */
-    public function recordEditAccessInternals(string $table, array|RecordInterface $row, $newRecord = false, $_ = null, $checkFullLanguageAccess = false): bool
-    {
+    public function checkRecordEditAccess(
+        string $table,
+        array|RecordInterface $row,
+        bool $newRecord = false,
+        bool $checkFullLanguageAccess = false
+    ): AccessCheckResult {
         $schemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
         if (!$schemaFactory->has($table)) {
-            return false;
+            return new AccessCheckResult(false);
         }
         if ($row instanceof RecordInterface) {
             $row = $row->getRawRecord()->toArray();
@@ -688,11 +722,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         $schema = $schemaFactory->get($table);
         // Always return TRUE for Admin users.
         if ($this->isAdmin()) {
-            return true;
+            return new AccessCheckResult(true);
         }
         // Checking languages:
         if ($table === 'pages' && $checkFullLanguageAccess && !$this->checkFullLanguagesAccess($schema, $row)) {
-            return false;
+            return new AccessCheckResult(false);
         }
         if ($schema->isLanguageAware()) {
             $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
@@ -701,19 +735,16 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             // Language field must be found in input row - otherwise it does not make sense.
             if (isset($row[$languageField])) {
                 if (!$this->checkLanguageAccess($row[$languageField])) {
-                    $this->errorMsg = 'ERROR: Language was not allowed.';
-                    return false;
+                    return new AccessCheckResult(false, 'ERROR: Language was not allowed.');
                 }
                 if (
                     $checkFullLanguageAccess && $row[$languageField] == 0
                     && !$this->checkFullLanguagesAccess($table, $row)
                 ) {
-                    $this->errorMsg = 'ERROR: Related/affected language was not allowed.';
-                    return false;
+                    return new AccessCheckResult(false, 'ERROR: Related/affected language was not allowed.');
                 }
             } else {
-                $this->errorMsg = 'ERROR: The "languageField" field named "' . $languageField . '" was not found in testing record!';
-                return false;
+                return new AccessCheckResult(false, 'ERROR: The "languageField" field named "' . $languageField . '" was not found in testing record!');
             }
         }
         // Checking authMode fields:
@@ -722,10 +753,12 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 && $fieldType->isType(TableColumnType::SELECT)
                 && ($fieldType->getConfiguration()['authMode'] ?? false)
                 && !$this->checkAuthMode($table, $fieldName, $row[$fieldName])) {
-                $this->errorMsg = 'ERROR: authMode "' . $fieldType->getConfiguration()['authMode']
+                return new AccessCheckResult(
+                    false,
+                    'ERROR: authMode "' . $fieldType->getConfiguration()['authMode']
                         . '" failed for field "' . $fieldName . '" with value "'
-                        . $row[$fieldName] . '" evaluated';
-                return false;
+                        . $row[$fieldName] . '" evaluated'
+                );
             }
         }
         // Checking "editlock" feature (doesn't apply to new records)
@@ -733,13 +766,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $editLockFieldName = $schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName();
             if (isset($row[$editLockFieldName])) {
                 if ($row[$editLockFieldName]) {
-                    $this->errorMsg = 'ERROR: Record was locked for editing. Only admin users can change this state.';
-                    return false;
+                    return new AccessCheckResult(false, 'ERROR: Record was locked for editing. Only admin users can change this state.');
                 }
             } else {
-                $this->errorMsg = 'ERROR: The "editLock" field named "' . $editLockFieldName
-                    . '" was not found in testing record!';
-                return false;
+                return new AccessCheckResult(false, 'ERROR: The "editLock" field named "' . $editLockFieldName
+                    . '" was not found in testing record!');
             }
         }
         // Checking record permissions
@@ -752,11 +783,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 'newRecord' => $newRecord,
             ];
             if (!GeneralUtility::callUserFunction($funcRef, $params, $this)) {
-                return false;
+                return new AccessCheckResult(false);
             }
         }
         // Finally, return TRUE if all is well.
-        return true;
+        return new AccessCheckResult(true);
     }
 
     /**
@@ -789,9 +820,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         ) {
             return true;
         }
-        // Always for Live workspace, AND if live-edit is enabled
-        // and tables are completely without versioning it is ok as well.
-        if ($this->getTcaSchema($table)?->getRawConfiguration()['versioningWS_alwaysAllowLiveEdit'] ?? false) {
+        // Tables without versioning may allow live editing in any workspace
+        $schema = $this->getTcaSchema($table);
+        if (($schema?->getRawConfiguration()['versioningWS_alwaysAllowLiveEdit'] ?? false)
+            && !$schema->isWorkspaceAware()
+        ) {
             return true;
         }
         // If the answer is FALSE it means the only valid way to create or edit records by creating records in the workspace
@@ -982,7 +1015,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             ? MathUtility::forceIntegerInRange((int)$alertPopupsSetting, 0, JsConfirmation::ALL)
             : JsConfirmation::ALL;
 
-        return (new JsConfirmation($alertPopupsSetting))->get($bitmask);
+        return new JsConfirmation($alertPopupsSetting)->get($bitmask);
     }
 
     /**
@@ -1013,6 +1046,8 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $this->groupData['filemounts'] = $this->user['file_mountpoints'] ?? '';
             // Fileoperation permissions
             $this->groupData['file_permissions'] = $this->user['file_permissions'] ?? '';
+            // Category mounts
+            $this->groupData['category_perms'] = $this->user['category_perms'] ?? '';
 
             // Get the groups and accumulate their permission settings
             $mountOptions = new BackendGroupMountOption((int)($this->user['options'] ?? 0));
@@ -1034,6 +1069,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                     'allowed_languages' => '',
                     'custom_options' => '',
                     'file_permissions' => '',
+                    'category_perms' => '',
                     'workspace_perms' => 0, // Bitflag.
                 ];
                 // Add the group uid to internal arrays.
@@ -1059,6 +1095,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                 $this->groupData['allowed_languages'] .= ',' . $groupInfo['allowed_languages'];
                 $this->groupData['custom_options'] .= ',' . $groupInfo['custom_options'];
                 $this->groupData['file_permissions'] .= ',' . $groupInfo['file_permissions'];
+                $this->groupData['category_perms'] .= ',' . $groupInfo['category_perms'];
                 // Setting workspace permissions:
                 $this->groupData['workspace_perms'] |= $groupInfo['workspace_perms'];
                 if (!$this->firstMainGroup) {
@@ -1072,6 +1109,10 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             // which thus reflects the order of the TypoScript in TSconfig)
             $this->userGroupsUID = array_reverse(array_unique(array_reverse($this->userGroupsUID)));
 
+            // User TSconfig conditions like '[backend.user.isAdmin]' are evaluated against the
+            // 'backend.user' aspect. Refresh the snapshot before parsing: group data is resolved
+            // at this point, and the aspect would otherwise still be the empty default one.
+            GeneralUtility::makeInstance(Context::class)->setAspect('backend.user', new UserAspect($this));
             $this->prepareUserTsConfig();
 
             // Processing webmounts
@@ -1093,6 +1134,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             $this->groupData['available_widgets'] = StringUtility::uniqueList($this->groupData['available_widgets'] ?? '');
             $this->groupData['mfa_providers'] = StringUtility::uniqueList($this->groupData['mfa_providers'] ?? '');
             $this->groupData['file_permissions'] = StringUtility::uniqueList($this->groupData['file_permissions'] ?? '');
+            $this->groupData['category_perms'] = StringUtility::uniqueList($this->groupData['category_perms'] ?? '');
 
             // Check if the user access to all web mounts set
             if (!empty(trim($this->groupData['webmounts']))) {
@@ -1223,11 +1265,9 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         $categoryMountPoints = '';
 
         // Category mounts of the groups
-        if (is_array($this->userGroups)) {
-            foreach ($this->userGroups as $group) {
-                if ($group['category_perms']) {
-                    $categoryMountPoints .= ',' . $group['category_perms'];
-                }
+        foreach ($this->userGroups as $group) {
+            if ($group['category_perms']) {
+                $categoryMountPoints .= ',' . $group['category_perms'];
             }
         }
 
@@ -1295,28 +1335,18 @@ class BackendUserAuthentication extends AbstractUserAuthentication
             }
 
             $fileMountRecords = $queryBuilder->executeQuery()->fetchAllAssociative();
-            if ($fileMountRecords !== false) {
-                foreach ($fileMountRecords as $fileMount) {
-                    $readOnlySuffix = $fileMount['read_only'] ? '-readonly' : '';
-                    $fileMountRecordCache[$fileMount['identifier'] . $readOnlySuffix] = $fileMount;
-                }
+            foreach ($fileMountRecords as $fileMount) {
+                $readOnlySuffix = $fileMount['read_only'] ? '-readonly' : '';
+                $fileMountRecordCache[$fileMount['identifier'] . $readOnlySuffix] = $fileMount;
             }
         }
 
         // Read-only file mounts
         $readOnlyMountPoints = trim($this->getTSConfig()['options.']['folderTree.']['altElementBrowserMountPoints'] ?? '');
         if ($readOnlyMountPoints) {
-            // We cannot use the API here but need to fetch the default storage record directly
-            // to not instantiate it (which directly applies mount points) before all mount points are resolved!
-            $queryBuilder = $connectionPool->getQueryBuilderForTable('sys_file_storage');
-            $defaultStorageRow = $queryBuilder->select('uid')
-                ->from('sys_file_storage')
-                ->where(
-                    $queryBuilder->expr()->eq('is_default', $queryBuilder->createNamedParameter(1, Connection::PARAM_INT))
-                )
-                ->setMaxResults(1)
-                ->executeQuery()
-                ->fetchAssociative();
+            // Only the uid is resolved here: instantiating the default storage would apply
+            // the file mounts before all of them are resolved.
+            $defaultStorageUid = GeneralUtility::makeInstance(StorageRepository::class)->getDefaultStorageUid();
 
             $readOnlyMountPointArray = GeneralUtility::trimExplode(',', $readOnlyMountPoints);
             foreach ($readOnlyMountPointArray as $readOnlyMountPoint) {
@@ -1326,11 +1356,11 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                     $storageUid = (int)$readOnlyMountPointConfiguration[0];
                     $path = $readOnlyMountPointConfiguration[1];
                 } else {
-                    if (empty($defaultStorageRow)) {
+                    if ($defaultStorageUid === null) {
                         throw new \RuntimeException('Read only mount points have been defined in user TSconfig without specific storage, but a default storage could not be resolved.', 1404472382);
                     }
                     // Backwards compatibility: If no storage is passed, we use the default storage
-                    $storageUid = $defaultStorageRow['uid'];
+                    $storageUid = $defaultStorageUid;
                     $path = $readOnlyMountPointConfiguration[0];
                 }
                 $fileMountRecordCache[$storageUid . $path . '-readonly'] = [
@@ -1776,54 +1806,17 @@ class BackendUserAuthentication extends AbstractUserAuthentication
      */
     public function writelog($type, $action, $error, $_, $details, $data, $tablename = '', $recuid = '', $__ = null, $event_pid = -1, $___ = null, $userId = 0)
     {
-        if (!$userId && !empty($this->user['uid'])) {
-            $userId = $this->user['uid'];
-        }
-        if ($backuserid = $this->getOriginalUserIdWhenInSwitchUserMode()) {
-            if (empty($data)) {
-                $data = [];
-            }
-            $data['originalUser'] = $backuserid;
-        }
-        // @todo Remove this once this method is properly typed.
-        $type = (int)$type;
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_log');
-        $connection->insert(
-            'sys_log',
-            [
-                'userid' => (int)$userId,
-                'type' => $type,
-                'channel' => Type::toChannel($type),
-                'level' => Type::toLevel($type),
-                'action' => (int)$action,
-                'error' => (int)$error,
-                'details' => $details,
-                'log_data' => empty($data) ? '' : json_encode($data),
-                'tablename' => $tablename,
-                'recuid' => (int)$recuid,
-                'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
-                'tstamp' => $GLOBALS['EXEC_TIME'] ?? time(),
-                'event_pid' => (int)$event_pid,
-                'workspace' => $this->workspace,
-            ],
-            [
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_STR,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-                Connection::PARAM_INT,
-            ]
+        return GeneralUtility::makeInstance(LogEntryRepository::class)->writeLogEntryForBackendUser(
+            $this,
+            (int)$type,
+            (int)$action,
+            (int)$error,
+            (string)$details,
+            (array)$data,
+            (string)$tablename,
+            (int)$recuid,
+            (int)$event_pid,
         );
-        return (int)$connection->lastInsertId();
     }
 
     /**
@@ -1868,6 +1861,9 @@ class BackendUserAuthentication extends AbstractUserAuthentication
         // The groups are fetched and ready for permission checking in this initialization.
         // Tables.php must be read before this because stuff like the modules has impact in this
         $this->fetchGroupData();
+        // Refresh the user aspect snapshot now that the group data is resolved, as user
+        // TSconfig conditions evaluated during the UC initialization below rely on it.
+        GeneralUtility::makeInstance(Context::class)->setAspect('backend.user', new UserAspect($this));
         // Setting the UC array. It's needed with fetchGroupData first, due to default/overriding of values.
         $this->backendSetUC();
         if ($this->loginSessionStarted && !($this->getSessionData('mfa') ?? false)) {
@@ -1948,8 +1944,59 @@ class BackendUserAuthentication extends AbstractUserAuthentication
     public function resetUC()
     {
         $this->user['uc'] = '';
+        $this->user['user_settings'] = '';
         $this->uc = [];
+        $this->resetUserSettingsCache();
         $this->backendSetUC();
+    }
+
+    public function writeUC(): void
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return;
+        }
+
+        $this->logger->debug('writeUC: {userid_column}={value}', [
+            'userid_column' => $this->userid_column,
+            'value' => $userId,
+        ]);
+
+        $schema = GeneralUtility::makeInstance(UserSettingsSchema::class);
+        $profileSettings = [];
+        foreach ($schema->getJsonFieldSettingKeys() as $key) {
+            if (array_key_exists($key, $this->uc)) {
+                $profileSettings[$key] = $this->uc[$key];
+            }
+        }
+
+        $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getConnectionForTable($this->user_table);
+
+        $connection->update(
+            $this->user_table,
+            [
+                'uc' => serialize($this->uc),
+                // The array must be passed directly to prevent double JSON encoding.
+                // See: https://review.typo3.org/c/Packages/TYPO3.CMS/+/89293
+                'user_settings' => $profileSettings,
+            ],
+            [$this->userid_column => $userId],
+            [
+                'uc' => Connection::PARAM_LOB,
+                // @todo This behavior cannot be modified yet; the array value must be passed directly
+                //       until https://review.typo3.org/c/Packages/TYPO3.CMS/+/89293 is merged,
+                //       otherwise the value will be JSON-encoded twice.
+                'user_settings' => Type::getType(Types::JSON),
+            ],
+        );
+        // Set modified user settings `json_encoded()` to the instance user record to display the correct
+        // value on the same request without rereading whole user record and group information here. That
+        // ensures that the next call to `getUserSettings()` creates a new instance from this record with
+        // the new user settings using `UserSettingsFactory`.
+        $this->user['user_settings'] = json_encode($profileSettings);
+
+        $this->resetUserSettingsCache();
     }
 
     /**
@@ -2012,7 +2059,7 @@ class BackendUserAuthentication extends AbstractUserAuthentication
                     // If user is system maintainer, destroy its possibly valid install tool session.
                     $session = GeneralUtility::makeInstance(SessionService::class);
                     // @todo: It's kinda fishy installSessionHandler() is called here. We should be able to skip this.
-                    $session->installSessionHandler();
+                    $session->installSessionHandler($GLOBALS['TYPO3_REQUEST'] ?? null);
                     $session->destroySession($GLOBALS['TYPO3_REQUEST'] ?? null);
                 }
             }

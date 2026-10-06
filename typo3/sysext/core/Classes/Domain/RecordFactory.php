@@ -68,7 +68,6 @@ readonly class RecordFactory
      * based on the type of the record.
      *
      * This method does not handle special expansion of fields.
-     * @todo Now unused - we might want to remove this again
      */
     public function createFromDatabaseRow(string $table, array $record): RecordInterface
     {
@@ -184,13 +183,28 @@ readonly class RecordFactory
         );
         $event = new RecordCreationEvent($properties, $rawRecord, $systemProperties, $context, $recordIdentityMap, $schema);
         $this->eventDispatcher->dispatch($event);
-        return $event->isPropagationStopped()
-            ? $event->getRecord()
-            : new Record($event->getRawRecord(), $event->getProperties(), $event->getSystemProperties());
+        if ($event->isPropagationStopped()) {
+            return $event->getRecord();
+        }
+        if ($event->getRawRecord()->getMainType() === 'pages') {
+            return new Page($event->getRawRecord(), $event->getProperties(), $event->getSystemProperties());
+        }
+        return new Record($event->getRawRecord(), $event->getProperties(), $event->getSystemProperties());
     }
 
     protected function extractComputedProperties(array &$record): ComputedProperties
     {
+        $computed = $record['_computed'] ?? null;
+        if (is_array($computed)) {
+            $computedProperties = new ComputedProperties(
+                $computed['versionedUid'] ?? null,
+                $computed['localizedUid'] ?? null,
+                $computed['requestedOverlayLanguageId'] ?? null,
+                $computed['translationSource'] ?? null
+            );
+            unset($record['_computed']);
+            return $computedProperties;
+        }
         $computedProperties = new ComputedProperties(
             $record['_ORIG_uid'] ?? null,
             $record['_LOCALIZED_UID'] ?? null,

@@ -32,15 +32,15 @@ final class CountTest extends FunctionalTestCase
     ];
 
     /**
-     * @var int number of all records
+     * number of all records
      */
-    protected int $numberOfRecordsInFixture = 14;
+    private int $numberOfRecordsInFixture = 14;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/Fixtures/CountTestImport.csv');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $this->get(ConfigurationManagerInterface::class)->setRequest($request);
     }
 

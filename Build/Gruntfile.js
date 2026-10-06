@@ -70,9 +70,11 @@ module.exports = function (grunt) {
     pkg: grunt.file.readJSON('package.json'),
     paths: {
       sources: 'Sources/',
+      tests: 'tests/',
       root: '../',
       sass: '<%= paths.sources %>Sass/',
       typescript: '<%= paths.sources %>TypeScript/',
+      playwright: '<%= paths.tests %>playwright/',
       sysext: '<%= paths.root %>typo3/sysext/',
       form: '<%= paths.sysext %>form/Resources/',
       dashboard: '<%= paths.sysext %>dashboard/Resources/',
@@ -167,18 +169,85 @@ module.exports = function (grunt) {
       adminpanel: {
         src: '<%= paths.sass %>adminpanel.scss',
         dest: '<%= paths.adminpanel %>Public/Css/adminpanel.css',
+        options: {
+          processors: () => [
+            require('@csstools/postcss-sass')({
+              sass: require('sass'),
+              outputStyle: 'expanded',
+              precision: 8
+            }),
+            require('autoprefixer')(),
+            require('cssnano')({
+              preset: [
+                'default',
+              ],
+            }),
+            {
+              postcssPlugin: 'keep line breaks',
+              OnceExit(css) {
+                css.walk(node => {
+                  if (['rule', 'atrule'].includes(node.type)) {
+                    node.raws.before = "\n";
+                  }
+                })
+              },
+            },
+            {
+              postcssPlugin: 'adminpanel scope selectors',
+              // Prepend all selectors with the adminpanel identifier for specificity
+              // and replace :root with the identifier
+              OnceExit(css) {
+                const adminPanelSelector = '#TSFE_ADMIN_PANEL_FORM.typo3-kidjls9dksoje.typo3-adminPanel';
+                css.walkRules(rule => {
+                  // Skip rules inside @keyframes
+                  if (rule.parent?.type === 'atrule' && rule.parent?.name === 'keyframes') {
+                    return;
+                  }
+                  rule.selectors = rule.selectors.map(selector => {
+                    // Skip selectors targeting body element (these are global styles)
+                    if (selector.startsWith('body')) {
+                      return selector;
+                    }
+                    // Replace all occurrences of :root with the adminpanel identifier
+                    let processedSelector = selector.replace(/:root/g, adminPanelSelector);
+                    // Skip selectors that already start with the adminpanel identifier
+                    if (processedSelector.startsWith(adminPanelSelector)) {
+                      return processedSelector;
+                    }
+                    // Prepend the identifier to all other selectors
+                    return `${adminPanelSelector} ${processedSelector}`;
+                  });
+                });
+              },
+            },
+            require('postcss-banner')({
+              banner: 'This file is part of the TYPO3 CMS project.\n' +
+                '\n' +
+                'It is free software; you can redistribute it and/or modify it under\n' +
+                'the terms of the GNU General Public License, either version 2\n' +
+                'of the License, or any later version.\n' +
+                '\n' +
+                'For the full copyright and license information, please read the\n' +
+                'LICENSE.txt file that was distributed with this source code.\n' +
+                '\n' +
+                'The TYPO3 project - inspiring people to share!',
+              important: true,
+              inline: false
+            }),
+          ]
+        }
       },
       backend: {
         src: '<%= paths.sass %>backend.scss',
         dest: '<%= paths.backend %>Public/Css/backend.css',
       },
+      ckeditor5: {
+        src: '<%= paths.sass %>ckeditor5.scss',
+        dest: '<%= paths.sysext %>rte_ckeditor/Resources/Public/Css/editor.css',
+      },
       dashboard: {
         src: '<%= paths.sass %>dashboard.scss',
         dest: '<%= paths.dashboard %>Public/Css/dashboard.css',
-      },
-      dashboard_modal: {
-        src: '<%= paths.sass %>dashboard_modal.scss',
-        dest: '<%= paths.dashboard %>Public/Css/Modal/style.css',
       },
       form: {
         src: '<%= paths.sass %>form.scss',
@@ -207,12 +276,14 @@ module.exports = function (grunt) {
     eslint: {
       options: {
         cache: true,
-        cacheLocation: './.cache/eslintcache/'
+        cacheLocation: './.cache/eslintcache/',
+        fix: grunt.option('fix')
       },
       files: {
         src: [
           '<%= paths.typescript %>/**/*.ts',
-          './types/**/*.ts'
+          './types/**/*.ts',
+          '<%= paths.playwright %>/**/*.ts'
         ]
       }
     },
@@ -225,6 +296,16 @@ module.exports = function (grunt) {
         files: '<%= paths.typescript %>/**/*.ts',
         tasks: ['scripts', 'bell']
       }
+    },
+    'generate-types': {
+      labels: {
+        src: [
+          '<%= paths.sysext %>**/*.xlf',
+          '!<%= paths.sysext %>/**/*.*.xlf',
+          '!<%= paths.sysext %>/**/Tests/**/*.xlf',
+        ],
+        generator: './lib/generate-label-types.js',
+      },
     },
     'process-javascript': {
       ts: {
@@ -304,33 +385,16 @@ module.exports = function (grunt) {
           }
         ]
       },
-      extension_icons: {
-        files: [
-          {
-            dest: '<%= paths.sysext %>form/Resources/Public/Icons/Extension.svg',
-            src: '<%= paths.t3icons %>svgs/module/module-form.svg'
-          },
-          {
-            dest: '<%= paths.sysext %>reactions/Resources/Public/Icons/Extension.svg',
-            src: '<%= paths.t3icons %>svgs/module/module-reactions.svg'
-          },
-          {
-            dest: '<%= paths.sysext %>rte_ckeditor/Resources/Public/Icons/Extension.svg',
-            src: '<%= paths.t3icons %>svgs/module/module-rte-ckeditor.svg'
-          },
-          {
-            dest: '<%= paths.sysext %>linkvalidator/Resources/Public/Icons/Extension.svg',
-            src: '<%= paths.t3icons %>svgs/module/module-linkvalidator.svg'
-          }
-        ]
-      },
       fonts: {
         files: [
           {
             expand: true,
-            cwd: '<%= paths.node_modules %>source-sans/WOFF2/VAR/',
-            src: ['*.otf.woff2'],
-            dest: '<%= paths.sysext %>backend/Resources/Public/Fonts/SourceSans'
+            cwd: '<%= paths.node_modules %>@fontsource-variable/open-sans/files/',
+            src: [
+              'open-sans-latin-wdth-normal.woff2',
+              'open-sans-latin-wdth-italic.woff2'
+            ],
+            dest: '<%= paths.sysext %>backend/Resources/Public/Fonts/OpenSans'
           }
         ]
       },
@@ -386,22 +450,28 @@ module.exports = function (grunt) {
           '<%= paths.core %>Public/JavaScript/Contrib/@lit',
           '<%= paths.core %>Public/JavaScript/Contrib/@lit-labs',
         ]
+      },
+      icons: {
+        options: {
+          force: true
+        },
+        src: [
+          '<%= paths.sysext %>core/Resources/Public/Icons/T3Icons/',
+        ]
       }
     },
     esbuild: Object.fromEntries(Object.entries({
       core: [
         'autosize',
-        { name: 'bootstrap', bundle: true },
+        { name: 'intl-messageformat', bundle: true },
         'cropperjs',
         { name: 'css-tree', bundle: true },
         'dompurify',
         { name: 'flatpickr', bundle: true },
         { name: 'flatpickr/dist/l10n', src: 'node_modules/flatpickr/dist/esm/l10n/index.js', bundle: true },
         'interactjs',
-        'jquery',
-        { name: 'luxon', src: 'node_modules/luxon/build/es6/luxon.js' },
+        'luxon',
         'marked',
-        'nprogress',
         'shortcut-buttons-flatpickr',
         { name: 'sortablejs', src: 'node_modules/sortablejs/modular/sortable.complete.esm.js' },
         {
@@ -528,8 +598,20 @@ module.exports = function (grunt) {
    * - 3) Compiles all TypeScript files (*.ts) which are located in Sources/TypeScript/<EXTKEY>/*.ts
    * - 4) Process, minify and copy all generated JavaScript files to public folders
    */
-  grunt.registerTask('scripts', ['clear-built-js', 'concurrent:eslint_ts']);
+  grunt.registerTask('scripts', ['clear-built-js', 'generate-types:labels', 'concurrent:eslint_ts']);
   grunt.registerTask('ts', ['exec:ts', 'process-javascript:ts']);
+
+  /**
+   * grunt fonts task
+   *
+   * call "$ grunt fonts"
+   *
+   * this task does the following things:
+   * - 1) Remove previously built font files
+   * - 2) Copy font files from node_modules to public folders
+   * - 3) Compile webfonts SCSS file to CSS
+   */
+  grunt.registerTask('fonts', ['clear-fonts', 'copy:fonts', 'postcss:webfonts']);
 
   /**
    * grunt clear-build task
@@ -556,6 +638,37 @@ module.exports = function (grunt) {
     if (grunt.file.isDir('JavaScript')) {
       grunt.file.delete('JavaScript');
     }
+
+    grunt.file.expand('types/labels/*.d.ts').map(file => grunt.file.delete(file));
+  });
+
+  /**
+   * Removes previously built font files
+   */
+  grunt.registerTask('clear-fonts', function () {
+    const fontPath = '../typo3/sysext/backend/Resources/Public/Fonts';
+    if (grunt.file.isDir(fontPath)) {
+      grunt.file.delete(fontPath, { force: true });
+    }
+    grunt.log.ok(`Cleared ${fontPath}.`);
+  });
+
+  grunt.task.registerMultiTask('generate-types', function () {
+    const done = this.async();
+    const { src, generator } = this.data;
+
+    const process = async (src, generator) => {
+      const files = grunt.file.expand(src);
+      const { generate } = await import(generator);
+      await Promise.all(files.map(generate));
+    };
+
+    process(src, generator)
+      .then(done)
+      .catch(e => {
+        console.error(e)
+        done(false)
+      });
   });
 
   grunt.task.registerMultiTask('process-javascript', function () {
@@ -565,6 +678,7 @@ module.exports = function (grunt) {
     const { litnano } = require('litnano/rollup');
     const { mapImports } = require('./lib/map-import.js');
     const { minify } = require('rollup-plugin-esbuild');
+    const { build } = require('esbuild');
 
     const process = async (src, dest) => {
       const input = grunt.file.expand(src);
@@ -632,8 +746,31 @@ module.exports = function (grunt) {
         sourcemap: generateSourcemaps ? 'inline' : false,
       })
 
+      const filesToBundle = [
+        'backend/Resources/Public/JavaScript/Contrib/bootstrap.js',
+      ];
+
       for (const file of output) {
-        grunt.file.write(dest + file.fileName, file.code);
+        const { code, fileName } = file;
+        const target = dest + fileName;
+        if (filesToBundle.includes(fileName)) {
+          await build({
+            stdin: {
+              contents: code,
+              resolveDir: __dirname,
+              sourcefile: file.moduleIds[0],
+              loader: 'js'
+            },
+            external: ['@typo3'],
+            format: 'esm',
+            outfile: target,
+            minify: true,
+            bundle: true,
+            sourcemap: generateSourcemaps ? 'inline' : false,
+          });
+        } else {
+          grunt.file.write(target, code);
+        }
       }
     };
 

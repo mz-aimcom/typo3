@@ -20,16 +20,18 @@ namespace TYPO3\CMS\Viewpage\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Context\PageContext;
+use TYPO3\CMS\Backend\Context\PageContextFactory;
+use TYPO3\CMS\Backend\Domain\Model\Language\LanguageItem;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\LanguageAspectFactory;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
-use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -39,75 +41,79 @@ use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationCollection;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationMode;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\UriValue;
-use TYPO3\CMS\Core\Site\SiteFinder;
-use TYPO3\CMS\Core\Type\Bitmask\Permission;
-use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
- * Controller to show a frontend page in the backend. Backend "View" module.
+ * Controller to show a frontend page in the backend. Backend "Content > Preview" module.
  *
  * @internal This is a specific Backend Controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class ViewModuleController
+final class ViewModuleController
 {
+    private PageContext $pageContext;
+
     public function __construct(
-        protected readonly ModuleTemplateFactory $moduleTemplateFactory,
-        protected readonly IconFactory $iconFactory,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly PageRepository $pageRepository,
-        protected readonly SiteFinder $siteFinder,
-        protected readonly PolicyRegistry $policyRegistry,
+        private readonly ModuleTemplateFactory $moduleTemplateFactory,
+        private readonly IconFactory $iconFactory,
+        private readonly UriBuilder $uriBuilder,
+        private readonly PageRepository $pageRepository,
+        private readonly PolicyRegistry $policyRegistry,
+        private readonly ComponentFactory $componentFactory,
+        private readonly PageContextFactory $pageContextFactory,
+        private readonly PageDoktypeRegistry $pageDoktypeRegistry,
     ) {}
 
-    /**
-     * Show selected page.
-     */
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
     {
-        $languageService = $this->getLanguageService();
-        $pageId = (int)($request->getQueryParams()['id'] ?? 0);
-        $moduleData = $request->getAttribute('moduleData');
-        $pageInfo = BackendUtility::readPageAccess($pageId, $this->getBackendUser()->getPagePermsClause(Permission::PAGE_SHOW));
+        $pageContext = $request->getAttribute('pageContext');
+        if (!$pageContext instanceof PageContext) {
+            throw new \RuntimeException('Required PageContext not available', 1763630591);
+        }
+        $this->pageContext = $pageContext;
 
+        $languageService = $this->getLanguageService();
         $view = $this->moduleTemplateFactory->create($request);
         $view->setModuleId('typo3-module-viewpage');
         $view->setTitle(
-            $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
-            $pageInfo['title'] ?? ''
+            $languageService->translate('title', 'viewpage.module'),
+            $this->pageContext->getPageTitle()
         );
 
-        if (!$this->isValidDoktype($pageId)) {
-            $view->addFlashMessage(
-                $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:noValidPageSelected'),
-                '',
-                ContextualFeedbackSeverity::INFO
-            );
-            return $view->renderResponse('Empty');
+        if ($this->pageContext->isAccessible()) {
+            $view->getDocHeaderComponent()->setPageBreadcrumb($this->pageContext->pageRecord);
         }
 
-        $previewLanguages = $this->getPreviewLanguages($pageId);
-        if ($previewLanguages !== [] && $moduleData->clean('language', array_keys($previewLanguages))) {
-            $this->getBackendUser()->pushModuleData($moduleData->getModuleIdentifier(), $moduleData->toArray());
+        if (!$this->isValidPage()) {
+            $view->getDocHeaderComponent()->disableAutomaticReloadButton();
+            return $view->assign('info', $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:noValidPageSelected'))->renderResponse('Empty');
         }
-        $languageId = (int)$moduleData->get('language');
-        $targetUri = PreviewUriBuilder::create($pageId)
-            ->withAdditionalQueryParameters($this->getTypeParameterIfSet($pageId))
+
+        $previewLanguages = $this->getPreviewLanguages();
+        $languageId = $this->pageContext->getPrimaryLanguageId();
+        if (!isset($previewLanguages[$languageId])) {
+            // Fall back to 0 in case currently selected language is not allowed
+            $languageId = 0;
+            $this->pageContext = $this->pageContextFactory->createWithLanguages(
+                $request,
+                $this->pageContext->pageId,
+                [$languageId],
+                $this->getBackendUser()
+            );
+        }
+
+        $targetUri = PreviewUriBuilder::create($this->pageContext->pageId)
+            ->withAdditionalQueryParameters((($typeId = (int)($this->pageContext->getModuleTsConfig('web_view')['type'] ?? 0)) > 0) ? '&type=' . $typeId : '')
             ->withLanguage($languageId)
             ->buildUri();
         $targetUrl = (string)$targetUri;
         if ($targetUri === null || $targetUrl === '') {
-            $view->addFlashMessage(
-                $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:noSiteConfiguration'),
-                '',
-                ContextualFeedbackSeverity::WARNING
-            );
-            return $view->renderResponse('Empty');
+            return $view->assign('info', $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:noValidPageSelected'))->renderResponse('Empty');
         }
 
-        $this->registerDocHeader($view, $pageId, $languageId, $targetUrl);
+        $this->registerDocHeader($view, $previewLanguages, $languageId, $targetUrl);
+        $moduleData = $request->getAttribute('moduleData');
         $current = $moduleData->get('States')['current'] ?? [];
         $current['label'] = ($current['label'] ?? $languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:custom'));
         $current['width'] = MathUtility::forceIntegerInRange($current['width'] ?? 320, 300);
@@ -120,7 +126,7 @@ class ViewModuleController
         $view->assignMultiple([
             'current' => $current,
             'custom' => $custom,
-            'presetGroups' => $this->getPreviewPresets($pageId),
+            'presetGroups' => $this->getPreviewPresets(),
             'url' => $targetUrl,
         ]);
 
@@ -132,39 +138,35 @@ class ViewModuleController
         return $view->renderResponse('Show');
     }
 
-    protected function registerDocHeader(ModuleTemplate $view, int $pageId, int $languageId, string $targetUrl)
+    private function registerDocHeader(ModuleTemplate $view, array $previewLanguages, int $languageId, string $targetUrl): void
     {
         $languageService = $this->getLanguageService();
-        $languages = $this->getPreviewLanguages($pageId);
-        if (count($languages) > 1) {
-            $languageMenu = $view->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
-            $languageMenu->setIdentifier('_langSelector');
-            $languageMenu->setLabel(
-                $languageService->sL(
-                    'LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:moduleMenu.dropdown.label'
-                )
-            );
-            foreach ($languages as $value => $label) {
+        if (count($previewLanguages) > 1) {
+            $languageDropDownButton = $this->componentFactory->createDropDownButton()
+                ->setLabel($languageService->sL('core.core:labels.language'))
+                ->setShowActiveLabelText(true)
+                ->setShowLabelText(true);
+
+            foreach ($previewLanguages as $value => $language) {
                 $href = (string)$this->uriBuilder->buildUriFromRoute(
                     'page_preview',
                     [
-                        'id' => $pageId,
-                        'language' => (int)$value,
+                        'id' => $this->pageContext->pageId,
+                        'languages' => [(int)$value],
                     ]
                 );
-                $menuItem = $languageMenu->makeMenuItem()
-                    ->setTitle($label)
-                    ->setHref($href);
-                if ($languageId === (int)$value) {
-                    $menuItem->setActive(true);
+                $languageItem = $this->componentFactory->createDropDownRadio()
+                    ->setLabel($language['title'])
+                    ->setHref($href)
+                    ->setActive($languageId === (int)$value);
+                if (!empty($language['flagIcon'])) {
+                    $languageItem->setIcon($this->iconFactory->getIcon($language['flagIcon']));
                 }
-                $languageMenu->addMenuItem($menuItem);
+                $languageDropDownButton->addItem($languageItem);
             }
-            $view->getDocHeaderComponent()->getMenuRegistry()->addMenu($languageMenu);
+            $view->getDocHeaderComponent()->setLanguageSelector($languageDropDownButton);
         }
-
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $showButton = $buttonBar->makeLinkButton()
+        $showButton = $this->componentFactory->createLinkButton()
             ->setHref($targetUrl)
             ->setDataAttributes([
                 'dispatch-action' => 'TYPO3.WindowManager.localOpen',
@@ -177,41 +179,29 @@ class ViewModuleController
             ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
             ->setShowLabelText(true)
             ->setIcon($this->iconFactory->getIcon('actions-view-page', IconSize::SMALL));
-        $buttonBar->addButton($showButton);
+        $view->addButtonToButtonBar($showButton);
 
-        $refreshButton = $buttonBar->makeLinkButton()
-            ->setHref('#')
-            ->setClasses('t3js-viewpage-refresh')
-            ->setTitle($languageService->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang.xlf:refreshPage'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($refreshButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        // QR Code button
+        $view->addButtonToButtonBar(
+            $this->componentFactory->createQrCodeButton(
+                $this->componentFactory->getPreviewUrlForQrCode($this->pageContext->pageId, $languageId, $targetUrl)
+            )
+        );
 
         // Shortcut
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('page_preview')
-            ->setDisplayName($this->getShortcutTitle($pageId))
-            ->setArguments(['id' => $pageId]);
-        $buttonBar->addButton($shortcutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'page_preview',
+            sprintf(
+                '%s: %s [%d]',
+                $this->getLanguageService()->translate('short_description', 'viewpage.module'),
+                $this->pageContext->getPageTitle(),
+                $this->pageContext->pageId
+            ),
+            ['id' => $this->pageContext->pageId, 'languages' => [$languageId]],
+        );
     }
 
-    /**
-     * With page TS config it is possible to force a specific type id via mod.web_view.type for a page id or a page tree.
-     * The method checks if a type is set for the given id and returns the additional GET string.
-     */
-    protected function getTypeParameterIfSet(int $pageId): string
-    {
-        $typeParameter = '';
-        $typeId = (int)(BackendUtility::getPagesTSconfig($pageId)['mod.']['web_view.']['type'] ?? 0);
-        if ($typeId > 0) {
-            $typeParameter = '&type=' . $typeId;
-        }
-        return $typeParameter;
-    }
-
-    /**
-     * Get available presets for page id.
-     */
-    protected function getPreviewPresets(int $pageId): array
+    private function getPreviewPresets(): array
     {
         $presetGroups = [
             'desktop' => [],
@@ -219,17 +209,16 @@ class ViewModuleController
             'mobile' => [],
             'unidentified' => [],
         ];
-        $previewFrameWidthConfig = BackendUtility::getPagesTSconfig($pageId)['mod.']['web_view.']['previewFrameWidths.'] ?? [];
+        $previewFrameWidthConfig = $this->pageContext->getModuleTsConfig('web_view')['previewFrameWidths'] ?? [];
         foreach ($previewFrameWidthConfig as $item => $conf) {
             $data = [
-                'key' => substr($item, 0, -1),
+                'key' => (string)$item,
                 'label' => $conf['label'] ?? null,
                 'type' => $conf['type'] ?? 'unknown',
                 'width' => (isset($conf['width']) && (int)$conf['width'] > 0 && !str_contains($conf['width'], '%')) ? (int)$conf['width'] : null,
                 'height' => (isset($conf['height']) && (int)$conf['height'] > 0 && !str_contains($conf['height'], '%')) ? (int)$conf['height'] : null,
             ];
-            $width = (int)substr($item, 0, -1);
-            if (!isset($data['width']) && $width > 0) {
+            if (!isset($data['width']) && ($width = (int)$item) > 0) {
                 $data['width'] = $width;
             }
             if (!isset($data['label'])) {
@@ -248,76 +237,45 @@ class ViewModuleController
         return $presetGroups;
     }
 
-    /**
-     * Returns the preview languages
-     */
-    protected function getPreviewLanguages(int $pageId): array
+    private function getPreviewLanguages(): array
     {
         $languages = [];
-        $modSharedTSconfig = BackendUtility::getPagesTSconfig($pageId)['mod.']['SHARED.'] ?? [];
-        if (($modSharedTSconfig['view.']['disableLanguageSelector'] ?? false) === '1') {
+        $modSharedTSconfig = $this->pageContext->getModuleTsConfig('SHARED');
+        if (($modSharedTSconfig['view']['disableLanguageSelector'] ?? false) === '1') {
             return $languages;
         }
-
-        try {
-            $site = $this->siteFinder->getSiteByPageId($pageId);
-            $siteLanguages = $site->getAvailableLanguages($this->getBackendUser(), false, $pageId);
-
-            foreach ($siteLanguages as $siteLanguage) {
-                $languageAspectToTest = LanguageAspectFactory::createFromSiteLanguage($siteLanguage);
-                $page = $this->pageRepository->getPageOverlay($this->pageRepository->getPage($pageId), $siteLanguage->getLanguageId());
-
-                if ($this->pageRepository->isPageSuitableForLanguage($page, $languageAspectToTest)) {
-                    $languages[$siteLanguage->getLanguageId()] = $siteLanguage->getTitle();
-                }
+        $languageItems = array_filter($this->pageContext->languageInformation->languageItems, static fn(LanguageItem $languageItem): bool => $languageItem->isAvailable());
+        foreach ($languageItems as $languageItem) {
+            $languageAspectToTest = LanguageAspectFactory::createFromSiteLanguage($languageItem->siteLanguage);
+            $page = $this->pageRepository->getPageOverlay($this->pageRepository->getPage($this->pageContext->pageId), $languageItem->getLanguageId());
+            if ($this->pageRepository->isPageSuitableForLanguage($page, $languageAspectToTest)) {
+                $languages[$languageItem->getLanguageId()] = [
+                    'title' => $languageItem->getTitle(),
+                    'flagIcon' => $languageItem->getFlagIdentifier(),
+                ];
             }
-        } catch (SiteNotFoundException $e) {
-            // do nothing
         }
         return $languages;
     }
 
     /**
-     * Verifies if doktype of given page is valid - not a folder / spacer / ...
+     * Verifies if page itself and also the doktype is valid - not a folder / spacer / ...
      */
-    protected function isValidDoktype(int $pageId = 0): bool
+    private function isValidPage(): bool
     {
-        if ($pageId === 0) {
+        if (!$this->pageContext->isAccessible() || $this->pageContext->pageId === 0) {
             return false;
         }
-        $page = BackendUtility::getRecord('pages', $pageId);
-        $pageType = (int)($page['doktype'] ?? 0);
-        return $pageType !== 0
-            && !in_array($pageType, [
-                PageRepository::DOKTYPE_SPACER,
-                PageRepository::DOKTYPE_SYSFOLDER,
-            ], true);
+        $pageType = (int)($this->pageContext->pageRecord['doktype'] ?? 0);
+        return $this->pageDoktypeRegistry->isPageViewable($pageType, $this->pageContext->pageId);
     }
 
-    /**
-     * Returns the shortcut title for the current page.
-     */
-    protected function getShortcutTitle(int $pageId): string
-    {
-        $pageTitle = '';
-        $pageRow = BackendUtility::getRecord('pages', $pageId) ?? [];
-        if ($pageRow !== []) {
-            $pageTitle = BackendUtility::getRecordTitle('pages', $pageRow);
-        }
-        return sprintf(
-            '%s: %s [%d]',
-            $this->getLanguageService()->sL('LLL:EXT:viewpage/Resources/Private/Language/locallang_mod.xlf:mlang_labels_tablabel'),
-            $pageTitle,
-            $pageId
-        );
-    }
-
-    protected function getBackendUser(): BackendUserAuthentication
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

@@ -29,7 +29,7 @@ final class ModifyRedirectManagementControllerViewDataEventTest extends UnitTest
     #[Test]
     public function gettersReturnsSetValues(): void
     {
-        $demand = $this->createMock(Demand::class);
+        $demand = self::createStub(Demand::class);
         $redirects = [
             ['dummy' => 'value1'],
         ];
@@ -45,8 +45,12 @@ final class ModifyRedirectManagementControllerViewDataEventTest extends UnitTest
         $integrityStatusCodes = [
             ['dummy' => 'value1'],
         ];
+        $creators = [
+            1 => ['label' => 'admin', 'avatar' => '<span class="avatar"></span>'],
+            0 => ['label' => '[Not Tracked]', 'avatar' => ''],
+        ];
         $showHitCounter = true;
-        $view = $this->createMock(ViewInterface::class);
+        $view = self::createStub(ViewInterface::class);
         $event = new ModifyRedirectManagementControllerViewDataEvent(
             $demand,
             $redirects,
@@ -57,6 +61,7 @@ final class ModifyRedirectManagementControllerViewDataEventTest extends UnitTest
             $view,
             new ServerRequest(),
             $integrityStatusCodes,
+            $creators,
         );
         self::assertSame($demand, $event->getDemand());
         self::assertSame($redirects, $event->getRedirects());
@@ -66,5 +71,6 @@ final class ModifyRedirectManagementControllerViewDataEventTest extends UnitTest
         self::assertSame($showHitCounter, $event->getShowHitCounter());
         self::assertSame($view, $event->getView());
         self::assertSame($integrityStatusCodes, $event->getIntegrityStatusCodes());
+        self::assertSame($creators, $event->getCreators());
     }
 }

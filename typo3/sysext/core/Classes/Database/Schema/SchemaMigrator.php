@@ -19,13 +19,17 @@ namespace TYPO3\CMS\Core\Database\Schema;
 
 use Doctrine\DBAL\Exception as DBALException;
 use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\ForeignKeyConstraint;
 use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\SchemaDiff;
 use Doctrine\DBAL\Schema\SchemaException;
 use Doctrine\DBAL\Schema\Table;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\Schema\Exception\InvalidIndexDefinitionException;
 use TYPO3\CMS\Core\Database\Schema\Exception\StatementException;
 use TYPO3\CMS\Core\Database\Schema\Parser\Parser;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
@@ -38,13 +42,15 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
  * @internal not part of public core API.
  */
 #[Autoconfigure(public: true)]
-class SchemaMigrator
+readonly class SchemaMigrator
 {
     public function __construct(
-        private readonly ConnectionPool $connectionPool,
-        private readonly Parser $parser,
-        private readonly DefaultTcaSchema $defaultTcaSchema,
-        private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private ConnectionPool $connectionPool,
+        private Parser $parser,
+        private DefaultTcaSchema $defaultTcaSchema,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        #[Autowire(service: 'cache.runtime')]
+        private FrontendInterface $runtime,
     ) {}
 
     /**
@@ -66,7 +72,7 @@ class SchemaMigrator
         $updateSuggestions = [];
         foreach ($this->connectionPool->getConnectionNames() as $connectionName) {
             $connection = $this->connectionPool->getConnectionByName($connectionName);
-            $connectionMigrator = ConnectionMigrator::create($connectionName, $connection, $tables);
+            $connectionMigrator = new ConnectionMigrator($connectionName, $connection, $this->connectionPool, $tables);
             $updateSuggestions[$connectionName] = $connectionMigrator->getUpdateSuggestions($remove);
         }
         return $updateSuggestions;
@@ -89,7 +95,7 @@ class SchemaMigrator
         $schemaDiffs = [];
         foreach ($this->connectionPool->getConnectionNames() as $connectionName) {
             $connection = $this->connectionPool->getConnectionByName($connectionName);
-            $connectionMigrator = ConnectionMigrator::create($connectionName, $connection, $tables);
+            $connectionMigrator = new ConnectionMigrator($connectionName, $connection, $this->connectionPool, $tables);
             $schemaDiffs[$connectionName] = $connectionMigrator->getSchemaDiff();
         }
         return $schemaDiffs;
@@ -100,7 +106,7 @@ class SchemaMigrator
      * filtered by the statements hashes, one by one.
      *
      * @param string[] $statements The CREATE TABLE statements
-     * @param string[] $selectedStatements The hashes of the update suggestions to execute
+     * @param array<array-key, mixed> $selectedStatements Hashes as keys
      * @throws DBALException
      * @throws SchemaException
      * @throws \InvalidArgumentException
@@ -155,7 +161,7 @@ class SchemaMigrator
         $result = [];
         foreach ($this->connectionPool->getConnectionNames() as $connectionName) {
             $connection = $this->connectionPool->getConnectionByName($connectionName);
-            $connectionMigrator = ConnectionMigrator::create($connectionName, $connection, $tables);
+            $connectionMigrator = new ConnectionMigrator($connectionName, $connection, $this->connectionPool, $tables);
             $lastResult = $connectionMigrator->install($createOnly);
             $result = array_merge($result, $lastResult);
         }
@@ -222,7 +228,45 @@ class SchemaMigrator
         $tables = $this->mergeTableDefinitions($tables);
         $tables = $this->enrichTablesFromDefaultTCASchema($tables);
         $tables = $this->ensureDefaultTCAFieldsAreOrdered($tables);
+        $this->assertIndexesCoverDeclaredColumnsOnly($tables);
         return $tables;
+    }
+
+    /**
+     * An index over a column the table does not have is invalid, and has to be caught here: only
+     * after merging is it known which columns a table really has, since extensions add indexes to
+     * tables of other extensions in a statement that does not repeat the columns.
+     *
+     * MySQL and PostgreSQL reject such an index themselves. SQLite does not - it reads a quoted
+     * identifier that matches no column as a string literal and indexes that constant instead. The
+     * resulting index has no column at all, which makes introspecting the database impossible from
+     * then on, so this must never be handed down to the platform.
+     *
+     * @param array<non-empty-string, Table> $tables
+     * @throws InvalidIndexDefinitionException
+     */
+    private function assertIndexesCoverDeclaredColumnsOnly(array $tables): void
+    {
+        foreach ($tables as $table) {
+            $columnNames = [];
+            foreach ($table->getColumns() as $column) {
+                $columnNames[strtolower($this->trimIdentifierQuotes($column->getName()))] = true;
+            }
+            foreach ($table->getIndexes() as $index) {
+                foreach ($index->getColumns() as $indexColumnName) {
+                    $columnName = $this->trimIdentifierQuotes($indexColumnName);
+                    // Index columns may carry a prefix length, as in "title(10)".
+                    $columnName = preg_replace('/\(\d+\)$/', '', $columnName) ?? $columnName;
+                    if (!isset($columnNames[strtolower($columnName)])) {
+                        throw InvalidIndexDefinitionException::forUnknownColumn(
+                            $this->trimIdentifierQuotes($table->getName()),
+                            $this->trimIdentifierQuotes($index->getName()),
+                            $columnName
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -329,10 +373,10 @@ class SchemaMigrator
             $currentTableDefinition = $return[$tableName];
             $return[$tableName] = new Table(
                 $tableName,
-                $this->mergeColumns(...array_values($currentTableDefinition->getColumns()), ...array_values($table->getColumns())),
+                $this->mergeColumns(...$currentTableDefinition->getColumns(), ...$table->getColumns()),
                 $this->mergeIndexes(...array_values($currentTableDefinition->getIndexes()), ...array_values($table->getIndexes())),
                 [],
-                array_merge($currentTableDefinition->getForeignKeys(), $table->getForeignKeys()),
+                $this->mergeForeignKeys(...array_values($currentTableDefinition->getForeignKeys()), ...array_values($table->getForeignKeys())),
                 array_merge($currentTableDefinition->getOptions(), $table->getOptions())
             );
         }
@@ -364,6 +408,27 @@ class SchemaMigrator
             $mergedIndexes[$index->getName()] = $index;
         }
         return array_values($mergedIndexes);
+    }
+
+    /**
+     * Unnamed foreign key constraints cannot be identified by name and are therefore kept as they are.
+     * Doctrine generates a name for them, but only as the array key - not on the constraint itself.
+     *
+     * @param ForeignKeyConstraint ...$foreignKeys
+     * @return ForeignKeyConstraint[]
+     */
+    private function mergeForeignKeys(ForeignKeyConstraint ...$foreignKeys): array
+    {
+        $mergedForeignKeys = [];
+        foreach ($foreignKeys as $foreignKey) {
+            $foreignKeyName = $foreignKey->getName();
+            if ($foreignKeyName === '') {
+                $mergedForeignKeys[] = $foreignKey;
+                continue;
+            }
+            $mergedForeignKeys[$foreignKeyName] = $foreignKey;
+        }
+        return array_values($mergedForeignKeys);
     }
 
     /**
@@ -484,5 +549,6 @@ class SchemaMigrator
     protected function flushDatabaseSchemaCache(): void
     {
         Bootstrap::createCache('database_schema')->flush();
+        $this->runtime->flush();
     }
 }

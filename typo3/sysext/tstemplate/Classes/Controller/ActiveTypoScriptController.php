@@ -22,12 +22,10 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Module\ModuleData;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Http\RedirectResponse;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
@@ -130,7 +128,7 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
         }
         $displayComments = $moduleData->get('displayComments');
 
-        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid);
+        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid, $this->createVisibilityAspect());
 
         // Build the constant include tree
         $constantIncludeTree = $this->treeBuilder->getTreeBySysTemplateRowsAndSite('constants', $sysTemplateRows, new LosslessTokenizer(), $site);
@@ -176,9 +174,9 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewButtonToDocHeader($view, $pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_active.xlf:submodule.title'));
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'templateTitle' => $templateTitle,
@@ -246,7 +244,7 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
             }
         }
 
-        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid);
+        $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootlineWithUidOverride($rootLine, $request, $selectedTemplateUid, $this->createVisibilityAspect());
 
         // Get current value of to-edit object path
         // Build the constant include tree
@@ -298,8 +296,7 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title']);
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
-        $this->addBackButtonToDocHeader($view, $pageUid);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -368,8 +365,7 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
             case 'addChild':
                 $childName = str_replace('\\', '', $parsedBody['childName'] ?? '');
                 if (empty($childName) || preg_replace('/[^a-zA-Z0-9_\.]*/', '', $childName) != $childName) {
-                    $flashMessage = GeneralUtility::makeInstance(
-                        FlashMessage::class,
+                    $flashMessage = new FlashMessage(
                         $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_active.xlf:updateAction.noSpaces'),
                         $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_active.xlf:updateAction.lineNotAdded'),
                         ContextualFeedbackSeverity::WARNING,
@@ -399,8 +395,7 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
             $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
             $dataHandler->start($recordData, []);
             $dataHandler->process_datamap();
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $newLine,
                 $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_active.xlf:updateAction.lineAdded'),
                 ContextualFeedbackSeverity::OK,
@@ -496,34 +491,5 @@ final class ActiveTypoScriptController extends AbstractTemplateModuleController
             $this->getBackendUser()->pushModuleData($moduleData->getModuleIdentifier(), $moduleData->toArray());
         }
         return $typoscriptConditions;
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_active.xlf:submodule.title'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
-    }
-
-    private function addBackButtonToDocHeader(ModuleTemplate $view, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $backButton = $buttonBar->makeLinkButton()
-            ->setHref((string)$this->uriBuilder->buildUriFromRoute('typoscript_active', ['id' => $pageUid]))
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.goBack'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL));
-        $buttonBar->addButton($backButton);
     }
 }

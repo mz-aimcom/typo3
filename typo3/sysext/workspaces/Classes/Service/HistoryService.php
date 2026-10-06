@@ -25,14 +25,13 @@ use TYPO3\CMS\Core\DataHandling\History\RecordHistoryStore;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\DiffGranularity;
 use TYPO3\CMS\Core\Utility\DiffUtility;
 
 /**
  * @internal
  */
-readonly class HistoryService implements SingletonInterface
+readonly class HistoryService
 {
     public function __construct(
         private Avatar $avatar,
@@ -44,10 +43,6 @@ readonly class HistoryService implements SingletonInterface
 
     /**
      * Gets the editing history of a record.
-     *
-     * @param string $table Name of the table
-     * @param int $id Uid of the record
-     * @return array Record history entries
      */
     public function getHistory(string $table, int $id): array
     {
@@ -93,12 +88,20 @@ readonly class HistoryService implements SingletonInterface
             $differences = $this->getDifferences($entry);
         }
 
-        $beUserRecord = BackendUtility::getRecord('be_users', $entry['userid']);
+        // Only backend users can be resolved from be_users, a frontend user must not be
+        // attributed to the backend user that happens to have the same uid.
+        $beUserRecord = null;
+        if ((string)($entry['usertype'] ?? '') === RecordHistoryStore::USER_BACKEND) {
+            $beUserRecord = BackendUtility::getRecord('be_users', $entry['userid']);
+        }
 
         return [
             'datetime' => htmlspecialchars(BackendUtility::datetime($entry['tstamp'])),
             'user' => htmlspecialchars($beUserRecord['username'] ?? 'unknown'),
-            'user_avatar' => $this->avatar->render($beUserRecord),
+            'user_realName' => htmlspecialchars($beUserRecord['realName'] ?? ''),
+            'user_uid' => (int)($beUserRecord['uid'] ?? 0),
+            // Avatar->render() falls back to the *current* backend user when handed no record
+            'user_avatar' => $beUserRecord !== null ? $this->avatar->render($beUserRecord) : '',
             'differences' => $differences,
         ];
     }
@@ -149,9 +152,6 @@ readonly class HistoryService implements SingletonInterface
 
     /**
      * Gets an instance of the record history of a record.
-     *
-     * @param string $table Name of the table
-     * @param int $id Uid of the record
      */
     protected function getHistoryEntries(string $table, int $id): array
     {

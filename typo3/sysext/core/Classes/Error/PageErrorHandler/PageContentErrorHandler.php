@@ -27,6 +27,7 @@ use TYPO3\CMS\Core\Http\Client\GuzzleClientFactory;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
@@ -49,6 +50,7 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
     protected LinkService $link;
     protected RequestFactoryInterface $requestFactory;
     protected GuzzleClientFactory $guzzleClientFactory;
+    protected PageRenderer $pageRenderer;
 
     /**
      * PageContentErrorHandler constructor.
@@ -70,6 +72,7 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
         $this->link = $container->get(LinkService::class);
         $this->requestFactory = $container->get(RequestFactoryInterface::class);
         $this->guzzleClientFactory = $container->get(GuzzleClientFactory::class);
+        $this->pageRenderer = $container->get(PageRenderer::class);
     }
 
     public function handlePageError(ServerRequestInterface $request, string $message, array $reasons = []): ResponseInterface
@@ -94,7 +97,7 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
             }
             // Create a sub-request and do not take any special query parameters into account
             $subRequest = $request->withQueryParams([])->withUri(new Uri($resolvedUrl))->withMethod('GET');
-            $subResponse = $this->stashEnvironment(fn(): ResponseInterface => $this->sendSubRequest($subRequest, $urlParams['pageuid'], $request));
+            $subResponse = $this->sendSubRequest($subRequest, $urlParams['pageuid'], $request);
 
             if ($subResponse->getStatusCode() >= 300) {
                 throw new \RuntimeException(sprintf('Error handler could not fetch error page "%s", status code: %s', $resolvedUrl, $subResponse->getStatusCode()), 1544172839);
@@ -104,28 +107,14 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
                 ->withHeader('content-type', $subResponse->getHeader('content-type'))
                 ->withBody($subResponse->getBody());
 
-            foreach (['Content-Security-Policy', 'Content-Security-Policy-Report-Only'] as $header) {
+            foreach (['Content-Security-Policy', 'Content-Security-Policy-Report-Only', 'Content-Encoding'] as $header) {
                 if ($subResponse->hasHeader($header)) {
                     $response = $response->withHeader($header, $subResponse->getHeader($header));
                 }
             }
             return $response;
-        } catch (InvalidRouteArgumentsException | SiteNotFoundException $e) {
+        } catch (InvalidRouteArgumentsException|SiteNotFoundException $e) {
             return new HtmlResponse('Invalid error handler configuration: ' . $this->errorHandlerConfiguration['errorContentSource']);
-        }
-    }
-
-    /**
-     * Stash and restore portions of the global environment around a subrequest callable.
-     */
-    protected function stashEnvironment(callable $fetcher): ResponseInterface
-    {
-        $parkedTsfe = $GLOBALS['TSFE'] ?? null;
-        $GLOBALS['TSFE'] = null;
-        try {
-            return $fetcher();
-        } finally {
-            $GLOBALS['TSFE'] = $parkedTsfe;
         }
     }
 
@@ -143,6 +132,9 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
         }
 
         $request = $request->withAttribute('originalRequest', $originalRequest);
+
+        // Reset page renderer as it might contain content from current rendering request.
+        $this->pageRenderer->reset($request);
 
         return $this->application->handle($request);
     }
@@ -197,7 +189,7 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
     protected function resolveUrl(ServerRequestInterface $request, array $urlParams): string
     {
         if (!in_array($urlParams['type'], ['page', 'url'])) {
-            throw new \InvalidArgumentException('PageContentErrorHandler can only handle TYPO3 urls of types "page" or "url"', 1522826609);
+            throw new \InvalidArgumentException('PageContentErrorHandler can only handle TYPO3 URLs of types "page" or "url"', 1522826609);
         }
         if ($urlParams['type'] === 'url') {
             return $urlParams['url'];
@@ -205,12 +197,7 @@ class PageContentErrorHandler implements PageErrorHandlerInterface
 
         // Get the site related to the configured error page
         $site = $this->siteFinder->getSiteByPageId($urlParams['pageuid']);
-        // Fall back to current request for the site
-        if (!$site instanceof Site) {
-            $site = $request->getAttribute('site', null);
-        }
-        /** @var SiteLanguage $requestLanguage */
-        $requestLanguage = $request->getAttribute('language', null);
+        $requestLanguage = $request->getAttribute('language');
         // Try to get the current request language from the site that was found above
         if ($requestLanguage instanceof SiteLanguage && $requestLanguage->isEnabled()) {
             try {

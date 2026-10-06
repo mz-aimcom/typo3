@@ -21,7 +21,6 @@ use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Statement;
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Database\Connection;
@@ -37,13 +36,6 @@ final class PositionPlaceholderPreparedStatementTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/Fixtures/DataSet/queryBuilder_preparedStatement.csv');
-    }
-
-    #[Test]
-    #[DoesNotPerformAssertions]
-    public function canBeInstantiated(): void
-    {
-        $this->get(ConnectionPool::class)->getQueryBuilderForTable('pages');
     }
 
     #[Test]
@@ -168,7 +160,7 @@ final class PositionPlaceholderPreparedStatementTest extends FunctionalTestCase
     #[Test]
     public function preparedStatementWorksIfRetrievedThroughRuntimeCacheAndPriorResultSetNotFreedAfterIncompleteDataRetrieval(): void
     {
-        $runtimeCache = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
+        $runtimeCache = $this->get(CacheManager::class)->getCache('runtime');
         $cacheIdentifier = 'prepared-statement-through-runtime-cache';
         $queryBuilder = $this->get(ConnectionPool::class)->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()

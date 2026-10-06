@@ -25,17 +25,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class CheckboxToggleElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -84,24 +73,14 @@ class CheckboxToggleElement extends AbstractFormElement
         $formElementValue = (int)($this->data['parameterArray']['itemFormElValue'] ?? 0);
         $cols = (int)($this->data['parameterArray']['fieldConf']['config']['cols'] ?? 0);
         if ($cols > 1) {
-            [$colClass, $colClear] = $this->calculateColumnMarkup($cols);
-            $elementHtml .= '<div class="row">';
-            $counter = 0;
+            $elementHtml .= '<div class="form-grid" style="--typo3-form-grid-columns: ' . $cols . ';">';
             // $itemKey is important here, because items could have been removed via TSConfig
             foreach ($items as $itemKey => $itemDefinition) {
                 $label = $itemDefinition['label'];
-                $elementHtml .=
-                    '<div class="' . $colClass . '">'
-                        . $this->renderSingleCheckboxElement($label, $itemKey, $formElementValue, $numberOfItems, $this->data['parameterArray'], $disabled) .
-                    '</div>';
-                ++$counter;
-                if ($counter < $numberOfItems && !empty($colClear)) {
-                    foreach ($colClear as $rowBreakAfter => $clearClass) {
-                        if ($counter % $rowBreakAfter === 0) {
-                            $elementHtml .= '<div class="clearfix ' . $clearClass . '"></div>';
-                        }
-                    }
-                }
+                $elementHtml
+                    .= '<div class="form-group">'
+                        . $this->renderSingleCheckboxElement($label, $itemKey, $formElementValue, $numberOfItems, $this->data['parameterArray'], $disabled)
+                    . '</div>';
             }
             $elementHtml .= '</div>';
         } else {

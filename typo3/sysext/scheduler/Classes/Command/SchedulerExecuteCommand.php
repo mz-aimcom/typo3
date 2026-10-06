@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Scheduler\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -24,6 +25,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use TYPO3\CMS\Core\Attribute\AsNonSchedulableCommand;
+
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -36,6 +39,8 @@ use TYPO3\CMS\Scheduler\Service\TaskService;
 /**
  * CLI command for EXT:scheduler to execute tasks
  */
+#[AsCommand('scheduler:execute', 'Executes given TYPO3 Scheduler tasks.')]
+#[AsNonSchedulableCommand]
 class SchedulerExecuteCommand extends Command
 {
     protected SymfonyStyle $io;
@@ -44,12 +49,12 @@ class SchedulerExecuteCommand extends Command
         protected readonly Context $context,
         protected readonly SchedulerTaskRepository $taskRepository,
         protected readonly TaskService $taskService,
-        protected Scheduler $scheduler,
+        protected readonly Scheduler $scheduler,
     ) {
         parent::__construct();
     }
 
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->addOption(
@@ -69,7 +74,7 @@ class SchedulerExecuteCommand extends Command
         if (count($input->getOption('task')) > 0) {
             $taskGroups = $this->taskRepository->getGroupedTasks()['taskGroupsWithTasks'];
             $tasksToRun = $this->getTasksToRun($taskGroups, $input->getOption('task'));
-            $this->runTasks($tasksToRun, $taskGroups);
+            $this->runTasks(array_keys($tasksToRun), $taskGroups, $tasksToRun);
 
             return Command::SUCCESS;
         }
@@ -89,7 +94,7 @@ class SchedulerExecuteCommand extends Command
             return;
         }
 
-        $tasksToRunQuestion = new ChoiceQuestion('Run tasks (comma seperated list): ', $selectableTasks);
+        $tasksToRunQuestion = new ChoiceQuestion('Run tasks (comma-separated list): ', $selectableTasks);
         $tasksToRunQuestion->setAutocompleterValues(array_keys($selectableTasks));
         $tasksToRunQuestion->setMultiselect(true);
         $tasksToRun = $questionHelper->ask($input, $output, $tasksToRunQuestion);
@@ -97,7 +102,7 @@ class SchedulerExecuteCommand extends Command
         $this->runTasks($tasksToRun, $taskGroups);
     }
 
-    private function runTasks($selectedTasks, $taskGroups): void
+    private function runTasks($selectedTasks, $taskGroups, array $resolvedTasks = []): void
     {
         $taskUids = $this->getTaskUidsFromSelection($selectedTasks, $taskGroups);
         ksort($taskUids);
@@ -106,7 +111,7 @@ class SchedulerExecuteCommand extends Command
         foreach ($taskUids as $taskUid) {
             try {
                 $uid = (int)$taskUid;
-                $task = $this->taskRepository->findByUid($uid);
+                $task = $resolvedTasks[$uid] ?? $this->taskRepository->findByUid($uid);
                 $additionalInformation = $task->getAdditionalInformation() === '' ? '' : ' (' . $task->getAdditionalInformation() . ')';
                 $taskDetails = $this->taskService->getTaskDetailsFromTask($task);
                 $space = str_repeat(' ', $numLength - strlen((string)$task->getTaskUid()));
@@ -138,17 +143,19 @@ class SchedulerExecuteCommand extends Command
 
     private function getLanguageService(): LanguageService
     {
-        return GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('default');
+        return GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('en');
     }
 
     private function getTasksToRun(array $taskGroups, array $taskList): array
     {
         $taskUids = array_unique($this->getTaskUidsFromSelection($taskList, $taskGroups));
+        $tasks = [];
         foreach ($taskUids as $taskUid) {
             // This will throw an exception if the task uid was not found and print it to the console.
-            $this->taskRepository->findByUid((int)$taskUid);
+            $taskUid = (int)$taskUid;
+            $tasks[$taskUid] = $this->taskRepository->findByUid($taskUid);
         }
-        return $taskUids;
+        return $tasks;
     }
 
     protected function getSelectableTasks(mixed $taskGroups): array

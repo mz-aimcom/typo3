@@ -58,8 +58,8 @@ final readonly class FrontendGenerationPageIndexingTrigger
         $typoScriptConfigArray = $request->getAttribute('frontend.typoscript')->getConfigArray();
         $pageArguments = $request->getAttribute('routing');
         $pageInformation = $request->getAttribute('frontend.page.information');
+        $pageParts = $request->getAttribute('frontend.page.parts');
         $pageRecord = $pageInformation->getPageRecord();
-        $tsfe = $request->getAttribute('frontend.controller');
 
         // Determine if page should be indexed, and if so, configure and initialize indexer
         if (!($typoScriptConfigArray['index_enable'] ?? false)) {
@@ -68,9 +68,15 @@ final readonly class FrontendGenerationPageIndexingTrigger
 
         // Indexer configuration from Extension Manager interface:
         $disableFrontendIndexing = (bool)$this->extensionConfiguration->get('indexed_search', 'disableFrontendIndexing');
-        $forceIndexing = $this->eventDispatcher->dispatch(new EnableIndexingEvent($event->getRequest()))->isIndexingEnabled();
+        $enableIndexingEvent = $this->eventDispatcher->dispatch(new EnableIndexingEvent($event->getRequest()));
+        $forceIndexing = $enableIndexingEvent->isIndexingEnabled();
 
         $this->timeTracker->push('Index page');
+        if ($enableIndexingEvent->isIndexingDisabled()) {
+            $this->timeTracker->setTSlogMessage('Index page? No, Indexing was disabled by an event listener.');
+            $this->timeTracker->pull();
+            return;
+        }
         if ($disableFrontendIndexing && !$forceIndexing) {
             $this->timeTracker->setTSlogMessage('Index page? No, Ordinary Frontend indexing during rendering is disabled.');
             return;
@@ -107,11 +113,11 @@ final readonly class FrontendGenerationPageIndexingTrigger
             // The creation date of the TYPO3 page
             'crdate' => $pageRecord['crdate'],
             'rootline_uids' => [],
-            'content' => $tsfe->content,
+            'content' => $event->getContent(),
             // Alternative title for indexing
             'indexedDocTitle' => $this->pageTitleProviderManager->getTitle($request),
             // Most recent modification time (seconds) of the content on the page. Used to evaluate whether it should be re-indexed.
-            'mtime' => $tsfe->register['SYS_LASTCHANGED'] ?? $pageRecord['SYS_LASTCHANGED'],
+            'mtime' => $pageParts->getLastChanged(),
             // Whether to index external documents like PDF, DOC etc.
             'index_externals' => $typoScriptConfigArray['index_externals'] ?? true,
             // Length of description text (max 250, default 200)

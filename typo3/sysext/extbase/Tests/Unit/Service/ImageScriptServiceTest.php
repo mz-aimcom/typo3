@@ -19,7 +19,7 @@ namespace TYPO3\CMS\Extbase\Tests\Unit\Service;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileReference;
@@ -32,31 +32,21 @@ final class ImageScriptServiceTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected ImageService $subject;
-
-    /**
-     * Initialize ImageService and environment service mock
-     */
-    protected function setUp(): void
+    protected function tearDown(): void
     {
-        parent::setUp();
-        $resourceFactory = $this->createMock(ResourceFactory::class);
-        $this->subject = new ImageService($resourceFactory);
-        $_SERVER['HTTP_HOST'] = 'foo.bar';
+        unset($GLOBALS['TYPO3_REQUEST']);
+        parent::tearDown();
     }
 
     #[Test]
-    public function fileIsUnwrappedFromReferenceForProcessing(): void
+    public function processingIsDelegatedToTheGivenFileReference(): void
     {
+        $subject = new ImageService(self::createStub(ResourceFactory::class));
         $reference = $this->getMockBuilder(FileReference::class)->disableOriginalConstructor()->getMock();
-        $file = $this->createMock(File::class);
-        $processedFile = $this->createMock(ProcessedFile::class);
-        $file->expects($this->once())->method('process')->willReturn($processedFile);
-        $reference->expects($this->once())->method('getOriginalFile')->willReturn($file);
-        $processedFile->expects($this->once())->method('getOriginalFile')->willReturn($file);
-        $processedFile->expects($this->atLeastOnce())->method('getPublicUrl')->willReturn('https://example.com/foo.png');
+        $processedFile = self::createStub(ProcessedFile::class);
+        $reference->expects($this->once())->method('process')->willReturn($processedFile);
 
-        $this->subject->applyProcessingInstructions($reference, []);
+        self::assertSame($processedFile, $subject->applyProcessingInstructions($reference, []));
     }
 
     public static function prefixIsCorrectlyAppliedToGetImageUriDataProvider(): array
@@ -72,15 +62,11 @@ final class ImageScriptServiceTest extends UnitTestCase
     #[Test]
     public function prefixIsCorrectlyAppliedToGetImageUri($imageUri, $expected): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
-        $GLOBALS['TSFE'] = new \stdClass();
-        $GLOBALS['TSFE']->absRefPrefix = '/prefix/';
-
+        $subject = new ImageService(self::createStub(ResourceFactory::class));
         $file = $this->createMock(File::class);
         $file->expects($this->once())->method('getPublicUrl')->willReturn($imageUri);
 
-        self::assertSame($expected, $this->subject->getImageUri($file));
+        self::assertSame($expected, $subject->getImageUri($file));
     }
 
     public static function prefixIsCorrectlyAppliedToGetImageUriWithAbsolutePathDataProvider(): array
@@ -96,14 +82,13 @@ final class ImageScriptServiceTest extends UnitTestCase
     #[Test]
     public function prefixIsCorrectlyAppliedToGetImageUriWithForcedAbsoluteUrl($imageUri, $expected): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
-            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
-        $GLOBALS['TSFE'] = new \stdClass();
-        $GLOBALS['TSFE']->absRefPrefix = '/prefix/';
+        $subject = new ImageService(self::createStub(ResourceFactory::class));
+        $normalizedParams = NormalizedParams::createFromServerParams(['HTTP_HOST' => 'foo.bar', 'SCRIPT_NAME' => '/index.php']);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()->withAttribute('normalizedParams', $normalizedParams);
 
         $file = $this->createMock(File::class);
         $file->expects($this->once())->method('getPublicUrl')->willReturn($imageUri);
 
-        self::assertSame($expected, $this->subject->getImageUri($file, true));
+        self::assertSame($expected, $subject->getImageUri($file, true));
     }
 }

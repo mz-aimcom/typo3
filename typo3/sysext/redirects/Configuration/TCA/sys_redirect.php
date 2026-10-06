@@ -11,6 +11,7 @@ return [
         'label_alt_force' => true,
         'crdate' => 'createdon',
         'tstamp' => 'updatedon',
+        'hideTable' => true,
         'versioningWS' => false,
         'groupName' => 'system',
         'default_sortby' => 'source_host, source_path',
@@ -18,6 +19,7 @@ return [
         'security' => [
             'ignoreWebMountRestriction' => true,
             'ignoreRootLevelRestriction' => true,
+            'ignorePageTypeRestriction' => true,
         ],
         'delete' => 'deleted',
         'enablecolumns' => [
@@ -25,17 +27,46 @@ return [
             'starttime' => 'starttime',
             'endtime' => 'endtime',
         ],
+        'typeicon_column' => 'redirect_type',
         'typeicon_classes' => [
             'default' => 'mimetypes-x-sys_redirect',
+            'qrcode' => 'actions-qrcode',
+            'short_url' => 'module-urls',
         ],
+        'type' => 'redirect_type',
     ],
     'types' => [
-        '1' => [
+        'default' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general, --palette--;;source, --palette--;;targetdetails, protected, --palette--;;internals,
-                --div--;LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:tabs.redirectCount, disable_hitcount, hitcount, lasthiton, createdon,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access, --palette--;;visibility,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes, description',
+                --div--;core.form.tabs:general, --palette--;;source, --palette--;;targetdetails, protected, --palette--;;internals,
+                --div--;redirects.db:tabs.redirectCount, disable_hitcount, hitcount, lasthiton, createdon,
+                --div--;core.form.tabs:access, --palette--;;visibility,
+                --div--;core.form.tabs:notes, description, redirect_type',
+            'columnsOverrides' => [
+                'source_host' => [
+                    'config' => [
+                        'default' => '*',
+                    ],
+                ],
+            ],
+        ],
+        'qrcode' => [
+            'title' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.redirect_type.qr_code',
+            'showitem' => '
+                --div--;core.form.tabs:general, --palette--;;qrcode_target,qrcode_display,
+                --div--;redirects.db:tabs.redirectCount, disable_hitcount, hitcount, lasthiton, createdon,
+                --div--;core.form.tabs:access, --palette--;;visibility,
+                --div--;core.form.tabs:notes, description, redirect_type
+                ',
+        ],
+        'short_url' => [
+            'title' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.redirect_type.short_url',
+            'showitem' => '
+                --div--;core.form.tabs:general, --palette--;;short_url_target,
+                --div--;redirects.db:tabs.redirectCount, disable_hitcount, hitcount, lasthiton, createdon,
+                --div--;core.form.tabs:access, --palette--;;visibility,
+                --div--;core.form.tabs:notes, description, redirect_type
+                ',
         ],
     ],
     'palettes' => [
@@ -43,16 +74,50 @@ return [
             'showitem' => 'disabled, --linebreak--, starttime, endtime',
         ],
         'source' => [
-            'showitem' => 'source_host, --linebreak--, source_path, respect_query_parameters, is_regexp',
+            'showitem' => 'source_host, source_path, --linebreak--, respect_query_parameters, is_regexp',
         ],
         'targetdetails' => [
             'showitem' => 'target, target_statuscode, --linebreak--, force_https, keep_query_parameters',
         ],
         'internals' => [
-            'showitem' => 'creation_type, integrity_status',
+            'showitem' => 'creation_type, integrity_status, --linebreak--, createdby',
+        ],
+        'qrcode_target' => [
+            'showitem' => 'source_host, target, --linebreak--, createdby, force_https',
+        ],
+        'short_url_target' => [
+            'showitem' => 'short_url, --linebreak--, target, --linebreak--, createdby, force_https',
         ],
     ],
     'columns' => [
+        'redirect_type' => [
+            'config' => [
+                'type' => 'passthrough',
+                'default' => 'default',
+            ],
+        ],
+        'qrcode_display' => [
+            'config' => [
+                'type' => 'none',
+                'renderType' => 'qrCode',
+            ],
+        ],
+        'short_url' => [
+            'label' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.short_url',
+            'description' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.short_url.description',
+            'config' => [
+                'type' => 'none',
+                'renderType' => 'shortUrl',
+                'fieldControl' => [
+                    'shortUrlGenerator' => [
+                        'renderType' => 'shortUrlGenerator',
+                        'options' => [
+                            'title' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.short_url.shortUrlGenerator',
+                        ],
+                    ],
+                ],
+            ],
+        ],
         'source_host' => [
             'label' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.source_host',
             'config' => [
@@ -60,14 +125,7 @@ return [
                 'required' => true,
                 'eval' => 'trim,' . \TYPO3\CMS\Redirects\Evaluation\SourceHost::class,
                 // items will be extended by local sys_domain records using dataprovider TYPO3\CMS\Redirects\FormDataProvider\ValuePickerItemDataProvider
-                'valuePicker' => [
-                    'items' => [
-                        [   'label' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_module_redirect.xlf:source_host_global_text',
-                            'value' => '*',
-                        ],
-                    ],
-                ],
-                'default' => '*',
+                'valuePicker' => [],
             ],
         ],
         'source_path' => [
@@ -115,7 +173,7 @@ return [
                 'required' => true,
                 'allowedTypes' => ['page', 'file', 'url', 'record'],
                 'appearance' => [
-                    'allowedOptions' => ['params', 'rel'],
+                    'allowedOptions' => ['params'],
                 ],
             ],
         ],
@@ -163,7 +221,7 @@ return [
             'exclude' => true,
             'label' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.hitcount',
             'config' => [
-                'type' => 'input',
+                'type' => 'number',
                 'size' => 5,
                 'default' => 0,
                 'readOnly' => true,
@@ -240,6 +298,15 @@ return [
                 ],
                 'default' => 1,
                 'readOnly' => true,
+            ],
+        ],
+        'createdby' => [
+            'label' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.createdby',
+            'description' => 'LLL:EXT:redirects/Resources/Private/Language/locallang_db.xlf:sys_redirect.createdby.description',
+            'config' => [
+                'type' => 'passthrough',
+                'renderType' => 'creationInformation',
+                'default' => 0,
             ],
         ],
         'integrity_status' => [

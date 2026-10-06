@@ -23,10 +23,9 @@ use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Core\View\ViewFactoryData;
+use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Core\View\ViewInterface as CoreViewInterface;
-use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
-use TYPO3\CMS\Fluid\View\FluidViewAdapter;
-use TYPO3Fluid\Fluid\View\TemplateView as FluidTemplateView;
 
 /**
  * Creates a View for backend usage. This is a low level factory. Extensions typically use ModuleTemplate instead.
@@ -34,8 +33,8 @@ use TYPO3Fluid\Fluid\View\TemplateView as FluidTemplateView;
 final readonly class BackendViewFactory
 {
     public function __construct(
-        protected RenderingContextFactory $renderingContextFactory,
-        protected PackageManager $packageManager,
+        private ViewFactoryInterface $viewFactory,
+        private PackageManager $packageManager,
     ) {}
 
     /**
@@ -62,22 +61,20 @@ final readonly class BackendViewFactory
             }
         }
         // Always add EXT:backend/Resources/Private/ as first default path to resolve
-        // default Layouts/Module.html and its partials.
+        // default Layouts/Module.fluid.html and its partials.
         if (!in_array('typo3/cms-backend', $packageNames, true)) {
             array_unshift($packageNames, 'typo3/cms-backend');
         }
 
         // @todo: This assumes the pageId is *always* given as 'id' in request.
         // @todo: It would be cool if a middleware adds final pageTS - already overlayed by userTS - as attribute to request, to use it here.
-        $pageTs = [];
         $pageId = $request->getParsedBody()['id'] ?? $request->getQueryParams()['id'] ?? 0;
-        if (MathUtility::canBeInterpretedAsInteger($pageId)) {
+        if (!MathUtility::canBeInterpretedAsInteger($pageId)) {
             // Some BE controllers misuse the 'id' argument for something else than the page-uid (especially filelist module).
-            // We check if 'id' is an integer here to skip pageTsConfig calculation if that is the case.
-            // @todo: Mid-term, misuses should vanish, making 'id' a Backend convention. Affected is
-            //        at least ext:filelist, plus record linking modals that use 'pid'.
-            $pageTs = BackendUtility::getPagesTSconfig((int)$pageId);
+            // Fall back to the global pageTsConfig (including userTsConfig overrides) in that case.
+            $pageId = 0;
         }
+        $pageTs = BackendUtility::getPagesTSconfig((int)$pageId);
 
         $templatePaths = [
             'templateRootPaths' => [],
@@ -112,9 +109,11 @@ final readonly class BackendViewFactory
             }
         }
 
-        // @todo: Inject ViewFactoryInterface instead, and use it.
-        $renderingContext = $this->renderingContextFactory->create($templatePaths, $request);
-        $fluidView = new FluidTemplateView($renderingContext);
-        return new FluidViewAdapter($fluidView);
+        return $this->viewFactory->create(new ViewFactoryData(
+            templateRootPaths: $templatePaths['templateRootPaths'],
+            partialRootPaths: $templatePaths['partialRootPaths'],
+            layoutRootPaths: $templatePaths['layoutRootPaths'],
+            request: $request,
+        ));
     }
 }

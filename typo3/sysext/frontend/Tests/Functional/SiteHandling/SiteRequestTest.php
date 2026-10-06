@@ -407,7 +407,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $responseStructure = ResponseContent::fromString(
             (string)$response->getBody()
@@ -457,7 +457,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -473,15 +473,10 @@ final class SiteRequestTest extends AbstractTestCase
         );
     }
 
-    /**
-     * @todo Response body cannot be asserted since PageContentErrorHandler::handlePageError executes request via HTTP (not internally)
-     */
     #[DataProvider('restrictedPageSendsForbiddenResponseWithUnauthorizedVisitorDataProvider')]
     #[Test]
     public function restrictedPageSendsForbiddenResponseWithUnauthorizedVisitorWithHavingPageErrorHandling(string $uri, int $frontendUserId): void
     {
-        self::markTestSkipped('Skipped until PageContentErrorHandler::handlePageError does not use HTTP anymore');
-
         $this->writeSiteConfiguration(
             'website-local',
             $this->buildSiteConfiguration(1000, 'https://website.local/'),
@@ -491,12 +486,19 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
+        );
+        $responseStructure = ResponseContent::fromString(
+            (string)$response->getBody()
         );
 
         self::assertSame(
             403,
             $response->getStatusCode()
+        );
+        self::assertSame(
+            'Page forbidden',
+            $responseStructure->getScopePath('page/title')
         );
     }
 
@@ -513,7 +515,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -550,7 +552,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $responseStructure = ResponseContent::fromString(
             (string)$response->getBody()
@@ -594,7 +596,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame(
@@ -614,15 +616,10 @@ final class SiteRequestTest extends AbstractTestCase
         );
     }
 
-    /**
-     * @todo Response body cannot be asserted since PageContentErrorHandler::handlePageError executes request via HTTP (not internally)
-     */
     #[DataProvider('restrictedPageWithParentSysFolderSendsForbiddenResponseWithUnauthorizedVisitorDataProvider')]
     #[Test]
     public function restrictedPageWithParentSysFolderSendsForbiddenResponseWithUnauthorizedVisitorWithHavingPageErrorHandling(string $uri, int $frontendUserId): void
     {
-        self::markTestSkipped('Skipped until PageContentErrorHandler::handlePageError does not use HTTP anymore');
-
         $this->writeSiteConfiguration(
             'website-local',
             $this->buildSiteConfiguration(1000, 'https://website.local/'),
@@ -632,12 +629,19 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
+        );
+        $responseStructure = ResponseContent::fromString(
+            (string)$response->getBody()
         );
 
         self::assertSame(
             403,
             $response->getStatusCode()
+        );
+        self::assertSame(
+            'Page forbidden',
+            $responseStructure->getScopePath('page/title')
         );
     }
 
@@ -654,7 +658,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -696,7 +700,7 @@ final class SiteRequestTest extends AbstractTestCase
 
         $response = $this->executeFrontendSubRequest(
             new InternalRequest($uri),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
         $json = json_decode((string)$response->getBody(), true);
 
@@ -758,15 +762,10 @@ final class SiteRequestTest extends AbstractTestCase
         );
     }
 
-    /**
-     * @todo Response body cannot be asserted since PageContentErrorHandler::handlePageError executes request via HTTP (not internally)
-     */
     #[DataProvider('pageRenderingStopsWithInvalidCacheHashDataProvider')]
     #[Test]
     public function pageRequestSendsNotFoundResponseWithInvalidCacheHashWithHavingPageErrorHandling(string $uri): void
     {
-        self::markTestSkipped('Skipped until PageContentErrorHandler::handlePageError does not use HTTP anymore');
-
         $this->writeSiteConfiguration(
             'website-local',
             $this->buildSiteConfiguration(1000, 'https://website.local/'),
@@ -775,10 +774,17 @@ final class SiteRequestTest extends AbstractTestCase
         );
 
         $response = $this->executeFrontendSubRequest(new InternalRequest($uri));
+        $responseStructure = ResponseContent::fromString(
+            (string)$response->getBody()
+        );
 
         self::assertSame(
             404,
             $response->getStatusCode()
+        );
+        self::assertSame(
+            'Page not found',
+            $responseStructure->getScopePath('page/title')
         );
     }
 
@@ -821,8 +827,9 @@ final class SiteRequestTest extends AbstractTestCase
         // '4408d27a916d51e624b69af3554f516dbab61037a9f7b9fd6f81b4d3bedeccb6'
         $queries = [
             // @todo Currently fails since cHash is verified after(!) redirect to page 1100
-            // '?&cHash=7d1f13fa91159dac7feb3c824936b39d&id=1000',
-            '?&cHash=f42b850e435f0cedd366f5db749fc1af&id=1100',
+            // '?&cHash=76796a848e61a31b6cf1f1ae696e12409189abfc7a06364e8a971c7a2eb40922&id=1000',
+            // default SHA3-256 HMAC
+            '?&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31&id=1100',
         ];
         $customQueries = [
             '&testing[value]=1',
@@ -937,7 +944,7 @@ final class SiteRequestTest extends AbstractTestCase
                 307,
                 [
                     'X-Redirect-By' => ['TYPO3 Shortcut/Mountpoint'],
-                    'location' => ['https://blog.local/authors?additional=value&type=1&cHash=9a534a0ab3d092ac113a3d8b5ea577ba'],
+                    'location' => ['https://blog.local/authors?additional=value&type=1&cHash=df7d1c0cb17b047ce35e079a81bdd62b54d7283208346958fba89eec4da91bd6'],
                 ],
             ],
         ];

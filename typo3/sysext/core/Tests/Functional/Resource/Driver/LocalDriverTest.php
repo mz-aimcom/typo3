@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Resource\Driver;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
@@ -30,6 +31,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class LocalDriverTest extends FunctionalTestCase
 {
     protected bool $initializeDatabase = false;
@@ -67,7 +69,8 @@ final class LocalDriverTest extends FunctionalTestCase
         // This would cause problems if you fill "/fileadmin/" into the base path field of a sys_file_storage record and select "relative" as path type
         $relativeDriverConfiguration = [
             'pathType' => 'relative',
-            'basePath' => '/typo3temp/var/tests/',
+            // A directory that exists below the document root in both installation modes.
+            'basePath' => '/typo3temp/assets/',
         ];
         $subject = $this->getAccessibleMock(LocalDriver::class, null);
         $basePath = $subject->_call('calculateBasePath', $relativeDriverConfiguration);

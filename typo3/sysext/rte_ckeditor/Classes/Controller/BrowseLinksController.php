@@ -178,9 +178,9 @@ class BrowseLinksController extends AbstractLinkBrowserController
                     $currentLinkClassIsAllowed = false;
                 }
                 if (
-                    isset($classesAnchor[$this->displayedLinkHandlerId]) &&
-                    in_array($linkClass, $classesAnchor['all'], true) &&
-                    !in_array($linkClass, $classesAnchor[$this->displayedLinkHandlerId], true)
+                    isset($classesAnchor[$this->displayedLinkHandlerId])
+                    && in_array($linkClass, $classesAnchor['all'], true)
+                    && !in_array($linkClass, $classesAnchor[$this->displayedLinkHandlerId], true)
                 ) {
                     // Current class is limited to specific link types but not available in current link type
                     $currentLinkClassIsAllowed = false;
@@ -347,9 +347,9 @@ class BrowseLinksController extends AbstractLinkBrowserController
 
         return '
             <div class="element-browser-form-group">
-                <label for="lrel" class="form-label">' .
-                    htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:linkRelationship')) .
-                '</label>
+                <label for="lrel" class="form-label">'
+                    . htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:linkRelationship'))
+                . '</label>
                 <input type="text" name="lrel" class="form-control" value="' . htmlspecialchars($currentRel) . '" />
             </div>
             ';
@@ -374,15 +374,11 @@ class BrowseLinksController extends AbstractLinkBrowserController
                 <label for="ltarget" class="form-label">
                     ' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:target')) . '
                 </label>
-                <span class="input-group">
-                    <input id="ltarget" type="text" name="ltarget" class="t3js-linkTarget form-control"
-                        value="' . htmlspecialchars($target) . '" />
-                    <select name="ltarget_type" class="t3js-targetPreselect form-select">
-                        <option value=""></option>
-                        <option value="_top">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:top')) . '</option>
-                        <option value="_blank">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:newWindow')) . '</option>
-                    </select>
-                </span>
+                <typo3-backend-combobox>
+                    <input id="ltarget" type="text" name="ltarget" class="form-control" value="' . htmlspecialchars($this->linkAttributeValues['target'] ?? '') . '" />
+                    <typo3-backend-combobox-choice value="_top" icon="actions-window">' . $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:top') . '</typo3-backend-combobox-choice>
+                    <typo3-backend-combobox-choice value="_blank" icon="actions-window-open">' . $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:newWindow') . '</typo3-backend-combobox-choice>
+                </typo3-backend-combobox>
             </div>';
     }
 

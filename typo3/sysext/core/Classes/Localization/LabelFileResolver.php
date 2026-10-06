@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Core\Localization;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Localization\Exception\FileNotFoundException;
+use TYPO3\CMS\Core\Package\Exception\UnknownPackageException;
 use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
@@ -33,6 +34,9 @@ use TYPO3\CMS\Core\Utility\PathUtility;
  * - Detecting resource override files via $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides']
  * - Determining file loading order without merging content
  *
+ * This class does not handle reading of file contents, and also returns the full path,
+ * so it does not care about caching. Should be handled at a more outer stage.
+ *
  * @internal not part of TYPO3's public API.
  */
 #[Autoconfigure(public: true)]
@@ -40,25 +44,115 @@ readonly class LabelFileResolver
 {
     public function __construct(
         protected PackageManager $packageManager,
+        protected TranslationDomainResolver $translationDomainResolver,
     ) {}
 
-    public function resolveFileReference(string $fileReference, string $locale, bool $useDefault = true): string
+    /**
+     * Find all label files in a package, but also find overrides.
+     * All files are returned in the order they should be loaded.
+     */
+    public function getAllLabelFilesOfPackage(string $packageKey, $defaultLocaleOnlyForCacheWarmup = false): array
+    {
+        $result = [];
+        try {
+            $packagePath = $this->packageManager->getPackage($packageKey)->getPackagePath();
+        } catch (UnknownPackageException) {
+            throw new \InvalidArgumentException(sprintf('Package with key "%s" not found', $packageKey), 1760479988);
+        }
+        $directoriesToSearch = [
+            'Resources/Private/Language/',
+            'Configuration/Sets/',
+        ];
+        $allowedFileExtensions = $this->getSupportedExtensions();
+        $allowedFileExtensions = implode(',', $allowedFileExtensions);
+        foreach ($directoriesToSearch as $searchPath) {
+            $searchPath = $packagePath . $searchPath;
+            $files = GeneralUtility::getAllFilesAndFoldersInPath([], $searchPath, $allowedFileExtensions);
+            foreach ($files as $file) {
+                $fileName = PathUtility::basename($file);
+                $locale = $this->translationDomainResolver->getLocaleFromLanguageFile($fileName);
+                if ($locale === null) {
+                    $locale = 'default';
+                }
+                if ($defaultLocaleOnlyForCacheWarmup && $locale !== 'default') {
+                    continue;
+                }
+
+                $relativeFilePath = substr($file, strlen($packagePath));
+                $fileReference = 'EXT:' . $packageKey . '/' . $relativeFilePath;
+
+                if ($defaultLocaleOnlyForCacheWarmup) {
+                    $result[$locale][] = $fileReference;
+                    continue;
+                }
+
+                try {
+                    $orderedFiles = $this->getOrderedFileResources($fileReference, $locale);
+                    if ($orderedFiles !== []) {
+                        if (!isset($result[$locale])) {
+                            $result[$locale] = [];
+                        }
+                        $result[$locale] = array_merge($result[$locale], $orderedFiles);
+                    }
+                } catch (FileNotFoundException $e) {
+                }
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Finds the actual files needed to resolve a file resource.
+     * This should be used later-on directly in LocalizationFactory.
+     */
+    protected function getOrderedFileResources(string $fileReference, string $locale): array
+    {
+        $result = [];
+        try {
+            $baseFile = $this->resolveFileReference($fileReference, $locale);
+            if ($baseFile !== null) {
+                $result[] = $baseFile;
+            }
+        } catch (FileNotFoundException $e) {
+
+        }
+        $overrideFiles = $this->getOverrideFilePaths($fileReference, $locale);
+        if ($overrideFiles !== []) {
+            $result = array_merge($result, $overrideFiles);
+        }
+        return $result;
+    }
+
+    /**
+     * @throws FileNotFoundException
+     */
+    public function resolveFileReference(string $fileReference, string $locale): ?string
     {
         $actualSourcePath = $this->getAbsoluteFileReference($fileReference);
         if (PathUtility::isExtensionPath($fileReference)) {
             $actualSourcePath = $this->resolveExtensionResourcePath($actualSourcePath, $locale, $fileReference);
         }
-        if ($useDefault) {
-            return $this->resolveLocalizedFilePath($actualSourcePath, $locale);
+
+        if ($locale === 'default') {
+            // The "default" (=base) locale must not contain other language entries.
+            // Otherwise, when checking for a base locale file, it will hold an array of ALL
+            // other language variants, and then due to alphabetical sorting, any language with a
+            // first character AFTER "l" (locallang) would be regarded as the base entry.
+            return $actualSourcePath;
         }
-        return $actualSourcePath;
+
+        // Find localized file. If no localized version exists, return null.
+        $localizedSourcePath = $this->resolveLocalizedFilePath($actualSourcePath, $locale);
+        return $localizedSourcePath;
     }
 
     /**
      * Get override file paths for localization
      *
      * This method returns an array of override file paths that should be loaded
-     * for the given file reference and language key
+     * for the given file reference and language key. It supports both file path syntax
+     * (e.g., 'EXT:core/Resources/Private/Language/locallang.xlf') and domain syntax
+     * (e.g., 'core.messages').
      *
      * @return array<string> Array of absolute file paths to override files
      */
@@ -73,18 +167,29 @@ readonly class LabelFileResolver
         $overrideFiles = $GLOBALS['TYPO3_CONF_VARS']['LANG']['resourceOverrides'];
         $supportedExtensions = $this->getSupportedExtensions();
 
+        // Build list of keys to check: file paths (with various extensions)
+        $keysToCheck = [];
         foreach ($supportedExtensions as $extension) {
-            $fullFileReference = $fileReferenceWithoutExtension . '.' . $extension;
+            $keysToCheck[] = $fileReferenceWithoutExtension . '.' . $extension;
+        }
 
+        // Also add domain key for domain-syntax override support
+        $domain = $this->translationDomainResolver->mapFileNameToDomain($fileReference);
+        if ($domain !== $fileReference && $this->translationDomainResolver->isValidDomainName($domain)) {
+            $keysToCheck[] = $domain;
+        }
+
+        foreach ($keysToCheck as $key) {
             // Check language-specific overrides first
-            if (isset($overrideFiles[$locale][$fullFileReference]) && is_array($overrideFiles[$locale][$fullFileReference])) {
-                $validOverrideFiles = array_merge($validOverrideFiles, $overrideFiles[$locale][$fullFileReference]);
+            if (isset($overrideFiles[$locale][$key]) && is_array($overrideFiles[$locale][$key])) {
+                $validOverrideFiles = array_merge($validOverrideFiles, $overrideFiles[$locale][$key]);
             }
             // Check general overrides (applies to all languages)
-            elseif (isset($overrideFiles[$fullFileReference]) && is_array($overrideFiles[$fullFileReference])) {
-                $validOverrideFiles = array_merge($validOverrideFiles, $overrideFiles[$fullFileReference]);
+            elseif (isset($overrideFiles[$key]) && is_array($overrideFiles[$key])) {
+                $validOverrideFiles = array_merge($validOverrideFiles, $overrideFiles[$key]);
             }
         }
+        $validOverrideFiles = array_unique($validOverrideFiles);
 
         // Convert relative paths to absolute paths
         $absoluteOverrideFiles = [];
@@ -98,12 +203,15 @@ readonly class LabelFileResolver
                 }
             }
         }
+        $absoluteOverrideFiles = array_unique($absoluteOverrideFiles);
 
         return $absoluteOverrideFiles;
     }
 
     /**
      * Get absolute file reference
+     *
+     * @throws FileNotFoundException Source localization file not found.
      */
     protected function getAbsoluteFileReference(string $fileReference): string
     {
@@ -120,12 +228,9 @@ readonly class LabelFileResolver
         throw new FileNotFoundException(sprintf('Source localization file (%s) not found', $fileReference), 1306410755);
     }
 
-    /**
-     * Get file reference without extension
-     */
-    protected function getFileReferenceWithoutExtension(string $fileReference): string
+    public function getFileReferenceWithoutExtension(string $fileReference): string
     {
-        return preg_replace('/\\.[a-z0-9]+$/i', '', $fileReference) ?? $fileReference;
+        return $this->translationDomainResolver->getFileReferenceWithoutExtension($fileReference);
     }
 
     /**
@@ -185,20 +290,24 @@ readonly class LabelFileResolver
      *
      * Examples:
      * - Source: "/ext/core/Resources/Private/Language/locallang.xlf"
-     * - For locale "de": tries "de.locallang.xlf" in same dir, then "/var/labels/de/core/de.locallang.xlf"
+     * - For locale "de": tries "de.locallang.xlf" in same dir, then "/var/labels/de/core/Resources/Private/Language/de.locallang.xlf"
      * - For locale "de-CH": tries both "de-CH.locallang.xlf" and "de_CH.locallang.xlf" variants
      *
      * @param string $sourcePath Absolute path to the source localization file
      * @param string $locale Language locale (e.g., "de", "de-CH", "de_AT")
-     * @return string Absolute path to the localized file, or original path if not found
+     * @return ?string Absolute path to the localized file, or null if no localized version found
      */
-    protected function resolveLocalizedFilePath(string $sourcePath, string $locale): string
+    protected function resolveLocalizedFilePath(string $sourcePath, string $locale): ?string
     {
         $possiblePrefixes = [$locale];
         if (str_contains($locale, '_')) {
             $possiblePrefixes[] = str_replace('_', '-', $locale);
         } elseif (str_contains($locale, '-')) {
             $possiblePrefixes[] = str_replace('-', '_', $locale);
+        }
+        $packageRootPaths = [];
+        foreach ($this->packageManager->getActivePackages() as $package) {
+            $packageRootPaths[$package->getPackageKey()] = $package->getPackagePath();
         }
 
         foreach ($possiblePrefixes as $fileNamePrefix) {
@@ -214,28 +323,27 @@ readonly class LabelFileResolver
             }
 
             // Try labels directory structure
-            if (str_starts_with($sourcePath, Environment::getFrameworkBasePath() . '/')) {
-                $validatedPrefix = Environment::getFrameworkBasePath() . '/';
-            } elseif (str_starts_with($sourcePath, Environment::getExtensionsPath() . '/')) {
-                $validatedPrefix = Environment::getExtensionsPath() . '/';
-            } else {
-                return $sourcePath;
+            $relativePathInPackagePath = '';
+            $extensionKey = null;
+            foreach ($packageRootPaths as $packageKey => $packageRootPath) {
+                if (str_starts_with($sourcePath, $packageRootPath)) {
+                    $relativePathInPackagePath = substr($sourcePath, strlen($packageRootPath));
+                    $extensionKey = $packageKey;
+                    break;
+                }
+            }
+            if ($relativePathInPackagePath === '' || $extensionKey === null) {
+                continue;
             }
 
-            [$extensionKey, $file_extPath] = explode('/', substr($sourcePath, strlen($validatedPrefix)), 2);
-            $temp = GeneralUtility::revExplode('/', $file_extPath, 2);
-            if (count($temp) === 1) {
-                array_unshift($temp, '');
-            }
-            [$file_extPath, $file_fileName] = $temp;
-
-            $localizedPath = Environment::getLabelsPath() . '/' . $fileNamePrefix . '/' . $extensionKey . '/' . ($file_extPath ? $file_extPath . '/' : '') . $fileNamePrefix . '.' . $file_fileName;
+            [$relativePathInPackagePath, $baseName] = GeneralUtility::revExplode('/', $relativePathInPackagePath, 2);
+            $localizedPath = Environment::getLabelsPath() . '/' . $fileNamePrefix . '/' . $extensionKey . '/' . ($relativePathInPackagePath ? $relativePathInPackagePath . '/' : '') . $fileNamePrefix . '.' . $baseName;
 
             if (@is_file($localizedPath)) {
                 return $localizedPath;
             }
         }
 
-        return $sourcePath;
+        return null;
     }
 }

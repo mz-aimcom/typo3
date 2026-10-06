@@ -19,10 +19,13 @@ namespace TYPO3\CMS\Core\Tests\Functional\Site\Set;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Site\Set\YamlSetDefinitionProvider;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class YamlSetDefinitionProviderTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $testExtensionsToLoad = [
         'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_sets',
     ];
@@ -39,7 +42,7 @@ final class YamlSetDefinitionProviderTest extends FunctionalTestCase
     #[Test]
     public function getLoadsSettingsYamlFileWithProcessedImports(): void
     {
-        $setPath = $this->instancePath . '/typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_sets/Configuration/Sets/Set6/config.yaml';
+        $setPath = GeneralUtility::getFileAbsFileName('EXT:test_sets/Configuration/Sets/Set6/config.yaml');
 
         $expected = [
             'foo.baz' => 'bar',
@@ -48,5 +51,57 @@ final class YamlSetDefinitionProviderTest extends FunctionalTestCase
         $actual = $this->subject->get(new \SplFileInfo($setPath));
 
         self::assertSame($expected, $actual->settings);
+    }
+
+    #[Test]
+    public function getDerivesEnumSettingLabelsAndDescriptionFromLabelsXlf(): void
+    {
+        $setPath = GeneralUtility::getFileAbsFileName('EXT:test_sets/Configuration/Sets/SetEnumLabels/config.yaml');
+
+        $setDefinition = $this->subject->get(new \SplFileInfo($setPath), 'EXT:test_sets/Configuration/Sets/SetEnumLabels/');
+        $settingsDefinitions = [];
+        foreach ($setDefinition->settingsDefinitions as $settingDefinition) {
+            $settingsDefinitions[$settingDefinition->key] = $settingDefinition;
+        }
+
+        self::assertSame(
+            'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.foo.enumDerived',
+            $settingsDefinitions['foo.enumDerived']->label
+        );
+        self::assertSame(
+            'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.description.foo.enumDerived',
+            $settingsDefinitions['foo.enumDerived']->description
+        );
+        self::assertSame(
+            [
+                'optionDerivedLiteralA' => 'Derived literal option A',
+                'optionDerivedLiteralB' => 'Derived literal option B',
+            ],
+            $settingsDefinitions['foo.enumDerived']->enum
+        );
+        self::assertSame(
+            [
+                'optionExplicitLll' => 'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.explicit.foo.enumExplicit.optionExplicitLll',
+                'optionExplicitLiteral' => 'Explicit literal option',
+                'optionExplicitKeyOnly' => 'optionExplicitKeyOnly',
+                'optionExplicitEmptyLabel' => '',
+            ],
+            $settingsDefinitions['foo.enumExplicit']->enum
+        );
+        self::assertSame(
+            'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.foo.enumList',
+            $settingsDefinitions['foo.enumList']->label
+        );
+        self::assertSame(
+            'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.description.foo.enumList',
+            $settingsDefinitions['foo.enumList']->description
+        );
+        self::assertSame(
+            [
+                'optionListA' => 'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.foo.enumList.enum.optionListA',
+                'optionListB' => 'LLL:EXT:test_sets/Configuration/Sets/SetEnumLabels/labels.xlf:settings.foo.enumList.enum.optionListB',
+            ],
+            $settingsDefinitions['foo.enumList']->enum
+        );
     }
 }

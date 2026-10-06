@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Adminpanel\Tests\Unit\Utility;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Adminpanel\Utility\StateUtility;
@@ -24,6 +25,7 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Frontend\Authentication\FrontendBackendUserAuthentication;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class StateUtilityTest extends UnitTestCase
 {
     #[Test]
@@ -37,7 +39,7 @@ final class StateUtilityTest extends UnitTestCase
     #[Test]
     public function isEnabledReturnsFalseIfNoBackendUserInFrontendContextIsLoggedIn(): void
     {
-        $GLOBALS['BE_USER'] = $this->getMockBuilder(BackendUserAuthentication::class)->disableOriginalConstructor()->getMock();
+        $GLOBALS['BE_USER'] = self::createStub(BackendUserAuthentication::class);
         $isEnabled = StateUtility::isActivatedForUser();
         self::assertFalse($isEnabled);
     }
@@ -70,7 +72,7 @@ final class StateUtilityTest extends UnitTestCase
     #[Test]
     public function isEnabledReturnsTrueIfAtLeastOneModuleIsEnabled(array $tsConfig): void
     {
-        $beUserMock = $this->getMockBuilder(FrontendBackendUserAuthentication::class)->disableOriginalConstructor()->getMock();
+        $beUserMock = self::createStub(FrontendBackendUserAuthentication::class);
         $beUserMock->method('getTSConfig')->willReturn($tsConfig);
         $GLOBALS['BE_USER'] = $beUserMock;
         $isEnabled = StateUtility::isActivatedForUser();
@@ -108,7 +110,7 @@ final class StateUtilityTest extends UnitTestCase
     #[Test]
     public function isEnabledReturnsFalseIfNoModulesEnabled(array $tsConfig): void
     {
-        $beUserMock = $this->getMockBuilder(FrontendBackendUserAuthentication::class)->disableOriginalConstructor()->getMock();
+        $beUserMock = self::createStub(FrontendBackendUserAuthentication::class);
         $beUserMock->method('getTSConfig')->willReturn($tsConfig);
         $GLOBALS['BE_USER'] = $beUserMock;
         $isEnabled = StateUtility::isActivatedForUser();
@@ -145,7 +147,7 @@ final class StateUtilityTest extends UnitTestCase
     #[Test]
     public function isHiddenForUserReturnsCorrectValue(array $tsConfig, bool $expected): void
     {
-        $beUserMock = $this->getMockBuilder(FrontendBackendUserAuthentication::class)->disableOriginalConstructor()->getMock();
+        $beUserMock = self::createStub(FrontendBackendUserAuthentication::class);
         $beUserMock->method('getTSConfig')->willReturn($tsConfig);
         $GLOBALS['BE_USER'] = $beUserMock;
         $isEnabled = StateUtility::isHiddenForUser();

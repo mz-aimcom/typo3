@@ -28,7 +28,7 @@ final class CObjectViewHelperTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -48,7 +48,7 @@ final class CObjectViewHelperTest extends FunctionalTestCase
     #[Test]
     public function viewHelperAcceptsDataParameter(): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -63,14 +63,14 @@ lib.test = TEXT
 lib.test.current = 1
 EOT
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
         self::assertStringContainsString('foo', (string)$response->getBody());
     }
 
     #[Test]
     public function viewHelperAcceptsChildrenClosureAsData(): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -85,14 +85,14 @@ lib.test = TEXT
 lib.test.current = 1
 EOT
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
         self::assertStringContainsString('foo', (string)$response->getBody());
     }
 
     #[Test]
     public function viewHelperAcceptsIntegerBasedTagContentAsData(): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -107,14 +107,14 @@ lib.test = TEXT
 lib.test.current = 1
 EOT
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
         self::assertStringContainsString('4711', (string)$response->getBody());
     }
 
     #[Test]
     public function renderThrowsExceptionIfTypoScriptObjectPathDoesNotExist(): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -129,13 +129,13 @@ EOT
         ]);
         $this->expectException(Exception::class);
         $this->expectExceptionCode(1540246570);
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
     }
 
     #[Test]
     public function renderThrowsExceptionIfNestedTypoScriptObjectPathDoesNotExist(): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -150,6 +150,6 @@ EOT
         ]);
         $this->expectException(Exception::class);
         $this->expectExceptionCode(1253191023);
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
     }
 }

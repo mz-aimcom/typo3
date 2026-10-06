@@ -11,22 +11,30 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, type TemplateResult, LitElement } from 'lit';
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
+import { PseudoButtonLitElement } from '@typo3/backend/element/pseudo-button';
 import Notification from '@typo3/backend/notification';
-import { lll } from '@typo3/core/lit-helper';
+import labels from '~labels/backend.copytoclipboard';
 
-export function copyToClipboard(text: string): void {
+export function copyToClipboard(text: string, silent: boolean = false): void {
   if (!text.length) {
     console.warn('No text for copy to clipboard given.');
-    Notification.error(lll('copyToClipboard.error'));
+    if (!silent) {
+      Notification.error(labels.get('copyToClipboard.error'));
+    }
     return;
   }
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then((): void => {
-      Notification.success(lll('copyToClipboard.success'), '', 1);
+      document.dispatchEvent(new CustomEvent('copy-to-clipboard-success'));
+      if (!silent) {
+        Notification.success(labels.get('copyToClipboard.success'), '', 1);
+      }
     }).catch((): void => {
-      Notification.error(lll('copyToClipboard.error'));
+      document.dispatchEvent(new CustomEvent('copy-to-clipboard-error'));
+      if (!silent) {
+        Notification.error(labels.get('copyToClipboard.error'));
+      }
     });
   } else {
     const textarea = document.createElement('textarea');
@@ -36,12 +44,19 @@ export function copyToClipboard(text: string): void {
     textarea.select();
     try {
       if (document.execCommand('copy')) {
-        Notification.success(lll('copyToClipboard.success'), '', 1);
-      } else {
-        Notification.error(lll('copyToClipboard.error'));
+        document.dispatchEvent(new CustomEvent('copy-to-clipboard-success'));
+        if (!silent) {
+          Notification.success(labels.get('copyToClipboard.success'), '', 1);
+        }
+      } else if (!silent) {
+        document.dispatchEvent(new CustomEvent('copy-to-clipboard-error'));
+        Notification.error(labels.get('copyToClipboard.error'));
       }
     } catch {
-      Notification.error(lll('copyToClipboard.error'));
+      if (!silent) {
+        document.dispatchEvent(new CustomEvent('copy-to-clipboard-error'));
+        Notification.error(labels.get('copyToClipboard.error'));
+      }
     }
     document.body.removeChild(textarea);
   }
@@ -54,49 +69,25 @@ export function copyToClipboard(text: string): void {
  * the operating systems' clipboard.
  *
  * @example
- * <typo3-copy-to-clipboard text="some text">
+ * <typo3-copy-to-clipboard text="some text" silent>
  *   Copy to clipboard
  * </typo3-copy-to-clipboard>
  */
 @customElement('typo3-copy-to-clipboard')
-export class CopyToClipboard extends LitElement {
-  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
+export class CopyToClipboard extends PseudoButtonLitElement {
   @property({ type: String }) text: string;
+  @property({ type: Boolean }) silent: boolean = false;
 
-  public constructor() {
-    super();
-    this.addEventListener('click', (e: Event): void => {
-      e.preventDefault();
-      this.copyToClipboard();
-    });
-    this.addEventListener('keydown', (e: KeyboardEvent): void => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.copyToClipboard();
-      }
-    });
-  }
-
-  public override connectedCallback(): void {
-    if (!this.hasAttribute('role')) {
-      this.setAttribute('role', 'button');
-    }
-    if (!this.hasAttribute('tabindex')) {
-      this.setAttribute('tabindex', '0');
-    }
-  }
-
-  protected override render(): TemplateResult {
-    return html`<slot></slot>`;
-  }
-
-  private copyToClipboard(): void {
+  protected override buttonActivated(): void {
     if (typeof this.text !== 'string') {
       console.warn('No text for copy to clipboard given.');
-      Notification.error(lll('copyToClipboard.error'));
+      if (!this.silent) {
+        document.dispatchEvent(new CustomEvent('copy-to-clipboard-error'));
+        Notification.error(labels.get('copyToClipboard.error'));
+      }
       return;
     }
-    copyToClipboard(this.text);
+    copyToClipboard(this.text, this.silent);
   }
 }
 

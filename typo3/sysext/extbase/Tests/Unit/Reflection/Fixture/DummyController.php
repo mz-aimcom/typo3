@@ -17,12 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture;
 
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Attribute as Extbase;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator;
 
 /**
- * Fixture class with @validate annotations
+ * Fixture class with #[Validate] attributes
  * Note: This class is excluded from phpstan analysing, because of errors which are test-purpose related.
  */
 class DummyController extends ActionController
@@ -30,19 +30,13 @@ class DummyController extends ActionController
     /**
      * @param $fooParam
      */
-    public function methodWithoutValidateAnnotationsAction($fooParam): void {}
+    public function methodWithoutValidateAttributesAction($fooParam): void {}
 
-    /**
-     * @Extbase\Validate(param="fooParam", validator="StringLength", options={"minimum": 1, "maximum": 10})
-     * @Extbase\Validate(param="fooParam", validator="NotEmpty")
-     * @Extbase\Validate(param="fooParam", validator="\TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator")
-     * @Extbase\Validate(param="fooParam", validator="TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator")
-     */
-    public function methodWithValidateAnnotationsAction(string $fooParam): void {}
-
-    #[Extbase\Validate(['param' => 'fooParam', 'validator' => 'StringLength', 'options' => ['minimum' => 1, 'maximum' => 10]])]
-    #[Extbase\Validate(['param' => 'fooParam', 'validator' => 'NotEmpty'])]
-    #[Extbase\Validate(['param' => 'fooParam', 'validator' => '\TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator'])]
-    #[Extbase\Validate(['param' => 'fooParam', 'validator' => NotEmptyValidator::class])]
-    public function methodWithValidateAttributesAction(string $fooParam): void {}
+    public function methodWithValidateAttributesAction(
+        #[Extbase\Validate(validator: 'StringLength', options: ['minimum' => 1, 'maximum' => 10])]
+        #[Extbase\Validate(validator: 'NotEmpty')]
+        #[Extbase\Validate(validator: '\TYPO3\CMS\Extbase\Validation\Validator\NotEmptyValidator')]
+        #[Extbase\Validate(validator: NotEmptyValidator::class)]
+        string $fooParam,
+    ): void {}
 }

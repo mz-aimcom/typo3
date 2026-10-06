@@ -40,7 +40,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  *
  * @internal
  */
-#[AsCommand('cleanup:versions', 'Find all versioned records and possibly cleans up invalid records in the database.')]
+#[AsCommand('cleanup:versions', 'Finds all versioned records and possibly cleans up invalid records in the database.')]
 class WorkspaceVersionRecordsCommand extends Command
 {
     /**
@@ -78,7 +78,7 @@ class WorkspaceVersionRecordsCommand extends Command
     /**
      * Configuring the command options
      */
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->setHelp('Traverse page tree and find versioned records. Also list all versioned records, additionally with some inconsistencies in the database, which can cleaned up with the "action" option. If you want to get more detailed information, use the --verbose option.')

@@ -17,35 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Utility;
 
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UriInterface;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Resource\Exception\InvalidFileException;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolvePublicResourceException;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolveSystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\Publishing\UriGenerationOptions;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 
 /**
  * Class with helper functions for file paths.
  */
-class PathUtility
+readonly class PathUtility
 {
-    /**
-     * Gets the relative path from the current used script to a given directory.
-     *
-     * The allowed TYPO3 path is checked as well, thus it's not possible to go to upper levels.
-     * @deprecated will be removed in TYPO3 v15.0.
-     */
-    public static function getRelativePathTo(string $absolutePath): ?string
-    {
-        trigger_error('PathUtility::getRelativePathTo() will be removed in TYPO3 v15.0', E_USER_DEPRECATED);
-        return self::getRelativePath(self::dirname(Environment::getCurrentScript()), $absolutePath, false);
-    }
-
     /**
      * Creates an absolute URL out of really any input path, removes '../' parts for the targetPath
      *
-     * TODO: And this exactly is a big issue as it mixes file system paths with (relative) URLs
-     * TODO: Additionally it depends on the current request and can not do its job on CLI
-     * TODO: deprecate entirely and replace with stricter API
-     *
-     * Until we have a replacement for this API, the safest way to call this method is by providing absolute filesystem paths
-     * and use \TYPO3\CMS\Core\Utility\PathUtility::getPublicResourceWebPath whenever possible.
+     * @todo: And this exactly is a big issue as it mixes file system paths with (relative) URLs.
+     *        Additionally, it depends on the current request and can not do its job on CLI.
+     *        Deprecate entirely and replace with stricter API.
      *
      * @param string $targetPath can be "../typo3conf/ext/myext/myfile.js" or "/myfile.js"
      * @param bool $prefixWithSitePath Don't use this argument. It is only used by TYPO3 in one place, which are subject to removal.
@@ -85,79 +77,35 @@ class PathUtility
         }
 
         if ($prefixWithSitePath) {
-            $targetPath = GeneralUtility::getIndpEnv('TYPO3_SITE_PATH') . $targetPath;
+            // @todo: Another reason this method must fall.
+            $targetPath = NormalizedParams::createFromServerParams($_SERVER)->getSitePath() . $targetPath;
         }
 
         return $targetPath;
     }
 
     /**
-     * Dedicated method to resolve the path of public extension resources
+     * @internal Will be removed (or made private) before v14 LTS release
      *
-     * @internal This method should not be used for now except for TYPO3 core. It may be removed or be changed any time
-     * @param bool $prefixWithSitePath Don't use this argument. It is only used by TYPO3 in one place, which is subject to removal.
+     * @throws CanNotResolvePublicResourceException
+     * @throws CanNotResolveSystemResourceException
      */
-    public static function getPublicResourceWebPath(string $resourcePath, bool $prefixWithSitePath = true): string
+    public static function getSystemResourceUri(string $resourceIdentifier, ?ServerRequestInterface $request = null, ?UriGenerationOptions $options = null): UriInterface
     {
-        if (!self::isExtensionPath($resourcePath)) {
-            throw new InvalidFileException(sprintf('Given resource path "%s" must start with "EXT:", but does not.', $resourcePath), 1630089406);
-        }
-        $absoluteFilePath = GeneralUtility::getFileAbsFileName($resourcePath);
-        if (!str_contains($resourcePath, 'Resources/Public')) {
-            if (!str_starts_with($absoluteFilePath, Environment::getPublicPath())) {
-                // This will be thrown in Composer mode, when extension are installed in vendor folder
-                throw new InvalidFileException(sprintf('Given file "%s" is expected to be in public directory, but is not.', $resourcePath), 1635268969);
-            }
-            trigger_error(sprintf('Public resource "%s" is not in extension\'s Resources/Public folder. This is deprecated and will not be supported any more in future TYPO3 versions.', $resourcePath), E_USER_DEPRECATED);
-        }
-
-        return self::getAbsoluteWebPath($absoluteFilePath, $prefixWithSitePath);
+        $resourceFactory = GeneralUtility::makeInstance(SystemResourceFactory::class);
+        $resource = $resourceFactory->createPublicResource($resourceIdentifier);
+        $resourcePublisher = GeneralUtility::makeInstance(SystemResourcePublisherInterface::class);
+        return $resourcePublisher->generateUri($resource, $request, $options);
     }
 
     /**
      * Checks whether the given path is an extension resource
      */
-    public static function isExtensionPath(string $path): bool
+    public static function isExtensionPath(string $path, bool $includePackagePaths = false): bool
     {
-        return str_starts_with($path, 'EXT:');
-    }
-
-    /**
-     * Gets the relative path from a source directory to a target directory.
-     * The allowed TYPO3 path is checked as well, thus it's not possible to go to upper levels.
-     *
-     * @param string $sourcePath Absolute source path
-     * @param string $targetPath Absolute target path
-     * @deprecated will be removed in TYPO3 v15.0
-     */
-    public static function getRelativePath(string $sourcePath, string $targetPath, bool $triggerDeprecation = true): ?string
-    {
-        if ($triggerDeprecation) {
-            trigger_error('PathUtility::getRelativePath() will be removed in TYPO3 v15.0', E_USER_DEPRECATED);
-        }
-        $relativePath = null;
-        $sourcePath = rtrim(GeneralUtility::fixWindowsFilePath($sourcePath), '/');
-        $targetPath = rtrim(GeneralUtility::fixWindowsFilePath($targetPath), '/');
-        if ($sourcePath !== $targetPath) {
-            $commonPrefix = self::getCommonPrefix([$sourcePath, $targetPath]);
-            if ($commonPrefix !== null && GeneralUtility::isAllowedAbsPath($commonPrefix)) {
-                $commonPrefixLength = strlen($commonPrefix);
-                $resolvedSourcePath = '';
-                $resolvedTargetPath = '';
-                $sourcePathSteps = 0;
-                if (strlen($sourcePath) > $commonPrefixLength) {
-                    $resolvedSourcePath = (string)substr($sourcePath, $commonPrefixLength);
-                }
-                if (strlen($targetPath) > $commonPrefixLength) {
-                    $resolvedTargetPath = (string)substr($targetPath, $commonPrefixLength);
-                }
-                if ($resolvedSourcePath !== '') {
-                    $sourcePathSteps = count(explode('/', $resolvedSourcePath));
-                }
-                $relativePath = self::sanitizeTrailingSeparator(str_repeat('../', $sourcePathSteps) . $resolvedTargetPath);
-            }
-        }
-        return $relativePath;
+        return
+            str_starts_with($path, 'EXT:')
+            || ($includePackagePaths && str_starts_with($path, 'PKG:'));
     }
 
     /**

@@ -23,17 +23,16 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Special data provider for setting all fields of the current
  * record to "readOnly" in case a non system maintainer is editing
  * a system maintainer record.
  */
-class SystemMaintainerAsReadonly implements FormDataProviderInterface
+readonly class SystemMaintainerAsReadonly implements FormDataProviderInterface
 {
     public function __construct(
-        private readonly FlashMessageService $flashMessageService,
+        private FlashMessageService $flashMessageService,
     ) {}
 
     public function addData(array $result): array
@@ -50,8 +49,7 @@ class SystemMaintainerAsReadonly implements FormDataProviderInterface
             $message = $this->getLanguageService()->sL(
                 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:formEngine.beUser.information.adminCanNotChangeSystemMaintainer'
             );
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $message,
                 '',
                 ContextualFeedbackSeverity::INFO

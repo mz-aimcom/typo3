@@ -18,15 +18,16 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Configuration;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\Yaml\Yaml;
 use TYPO3\CMS\Core\Configuration\Exception\SiteConfigurationWriteException;
 use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
 use TYPO3\CMS\Core\Configuration\SiteWriter;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class SiteWriterTest extends UnitTestCase
@@ -40,7 +41,9 @@ final class SiteWriterTest extends UnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $basePath = Environment::getVarPath() . '/tests/unit';
+        // The unique sub directory keeps the files of other test cases, which use
+        // the same root, out of the cleanup below.
+        $basePath = Environment::getVarPath() . '/tests/unit/' . StringUtility::getUniqueId('siteWriter_');
         $this->fixturePath = $basePath . '/fixture/config/sites';
         if (!file_exists($this->fixturePath)) {
             GeneralUtility::mkdir_deep($this->fixturePath);
@@ -59,7 +62,7 @@ final class SiteWriterTest extends UnitTestCase
         copy($configFixture, $siteConfig);
 
         // load with resolved imports as the module does
-        $configuration = (new YamlFileLoader($this->createMock(LoggerInterface::class)))
+        $configuration = new YamlFileLoader(self::createStub(LoggerInterface::class))
             ->load(
                 GeneralUtility::fixWindowsFilePath($siteConfig),
                 YamlFileLoader::PROCESS_IMPORTS
@@ -74,7 +77,7 @@ final class SiteWriterTest extends UnitTestCase
         $subject = new SiteWriter(
             $this->fixturePath,
             new NoopEventDispatcher(),
-            new YamlFileLoader($this->createMock(LoggerInterface::class))
+            new YamlFileLoader(self::createStub(LoggerInterface::class))
         );
         $subject->write($identifier, $configuration, true);
 
@@ -93,7 +96,7 @@ final class SiteWriterTest extends UnitTestCase
         copy($configFixture, $siteConfig);
 
         // load with resolved imports as the module does
-        $configuration = (new YamlFileLoader($this->createMock(LoggerInterface::class)))
+        $configuration = new YamlFileLoader(self::createStub(LoggerInterface::class))
             ->load(
                 GeneralUtility::fixWindowsFilePath($siteConfig),
                 YamlFileLoader::PROCESS_IMPORTS
@@ -112,7 +115,7 @@ final class SiteWriterTest extends UnitTestCase
         $subject = new SiteWriter(
             $this->fixturePath,
             new NoopEventDispatcher(),
-            new YamlFileLoader($this->createMock(LoggerInterface::class))
+            new YamlFileLoader(self::createStub(LoggerInterface::class))
         );
         $subject->write($identifier, $configuration, true);
 
@@ -135,7 +138,6 @@ final class SiteWriterTest extends UnitTestCase
 
     #[DataProvider('writingPlaceholdersIsHandledDataProvider')]
     #[Test]
-    #[DoesNotPerformAssertions]
     public function writingPlaceholdersIsHandled(array $changes): void
     {
         $identifier = 'testsite';
@@ -144,7 +146,7 @@ final class SiteWriterTest extends UnitTestCase
         $siteConfig = $this->fixturePath . '/' . $identifier . '/config.yaml';
         copy($configFixture, $siteConfig);
         // load with resolved imports as the module does
-        $configuration = (new YamlFileLoader($this->createMock(LoggerInterface::class)))
+        $configuration = new YamlFileLoader(self::createStub(LoggerInterface::class))
             ->load(
                 GeneralUtility::fixWindowsFilePath($siteConfig),
                 YamlFileLoader::PROCESS_IMPORTS
@@ -153,9 +155,10 @@ final class SiteWriterTest extends UnitTestCase
         $subject = new SiteWriter(
             $this->fixturePath,
             new NoopEventDispatcher(),
-            new YamlFileLoader($this->createMock(LoggerInterface::class))
+            new YamlFileLoader(self::createStub(LoggerInterface::class))
         );
         $subject->write($identifier, $configuration, true);
+        self::assertSame($changes['customProperty'], Yaml::parseFile($siteConfig)['customProperty']);
     }
 
     #[Test]
@@ -172,7 +175,7 @@ final class SiteWriterTest extends UnitTestCase
         $siteConfig = $this->fixturePath . '/' . $identifier . '/config.yaml';
         copy($configFixture, $siteConfig);
         // load with resolved imports as the module does
-        $configuration = (new YamlFileLoader($this->createMock(LoggerInterface::class)))
+        $configuration = new YamlFileLoader(self::createStub(LoggerInterface::class))
             ->load(
                 GeneralUtility::fixWindowsFilePath($siteConfig),
                 YamlFileLoader::PROCESS_IMPORTS
@@ -181,7 +184,7 @@ final class SiteWriterTest extends UnitTestCase
         $subject = new SiteWriter(
             $this->fixturePath,
             new NoopEventDispatcher(),
-            new YamlFileLoader($this->createMock(LoggerInterface::class))
+            new YamlFileLoader(self::createStub(LoggerInterface::class))
         );
         $subject->write($identifier, $configuration, true);
     }
@@ -197,7 +200,7 @@ final class SiteWriterTest extends UnitTestCase
         copy($configFixture, $siteConfig);
 
         // load with resolved imports as the module does
-        $configuration = (new YamlFileLoader($this->createMock(LoggerInterface::class)))
+        $configuration = new YamlFileLoader(self::createStub(LoggerInterface::class))
             ->load(
                 GeneralUtility::fixWindowsFilePath($siteConfig),
                 YamlFileLoader::PROCESS_IMPORTS
@@ -209,7 +212,7 @@ final class SiteWriterTest extends UnitTestCase
         $subject = new SiteWriter(
             $this->fixturePath,
             new NoopEventDispatcher(),
-            new YamlFileLoader($this->createMock(LoggerInterface::class))
+            new YamlFileLoader(self::createStub(LoggerInterface::class))
         );
         $subject->write($identifier, $configuration, true);
 

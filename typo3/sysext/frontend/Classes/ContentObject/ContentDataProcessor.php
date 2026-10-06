@@ -25,11 +25,11 @@ use TYPO3\CMS\Frontend\DataProcessing\DataProcessorRegistry;
  * A class that contains methods that can be used to use the dataProcessing functionality
  */
 #[Autoconfigure(public: true)]
-class ContentDataProcessor
+readonly class ContentDataProcessor
 {
     public function __construct(
-        private readonly ContainerInterface $container,
-        private readonly DataProcessorRegistry $dataProcessorRegistry,
+        private ContainerInterface $container,
+        private DataProcessorRegistry $dataProcessorRegistry,
     ) {}
 
     /**
@@ -75,8 +75,8 @@ class ContentDataProcessor
         $dataProcessor = $this->container->get($serviceName);
         if (!$dataProcessor instanceof DataProcessorInterface) {
             throw new \UnexpectedValueException(
-                'Processor with service name "' . $serviceName . '" ' .
-                'must implement interface "' . DataProcessorInterface::class . '"',
+                'Processor with service name "' . $serviceName . '" '
+                . 'must implement interface "' . DataProcessorInterface::class . '"',
                 1635927108
             );
         }
@@ -91,8 +91,8 @@ class ContentDataProcessor
 
         if (!in_array(DataProcessorInterface::class, class_implements($className) ?: [], true)) {
             throw new \UnexpectedValueException(
-                'Processor with class name "' . $className . '" ' .
-                'must implement interface "' . DataProcessorInterface::class . '"',
+                'Processor with class name "' . $className . '" '
+                . 'must implement interface "' . DataProcessorInterface::class . '"',
                 1427455377
             );
         }

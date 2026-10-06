@@ -1,0 +1,24 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Content/Unwrapped"/>
+
+<f:section name="Main">
+    <f:render
+        partial="Components/Textmediateaser"
+        arguments="{
+            image: record.image.0,
+            header: '{f:render.text(record: record, field: \'header\')}',
+            paragraphs: '{f:render.text(record: record, field: \'bodytext\')}',
+            date: record.date,
+            category: '{f:render.text(record: record, field: \'subheader\')}',
+            link: record.tx_themecamino_link,
+            label: '{f:render.text(record: record, field: \'tx_themecamino_link_label\')}',
+            icon: record.tx_themecamino_link_icon,
+        }"
+    />
+</f:section>
+
+</html>

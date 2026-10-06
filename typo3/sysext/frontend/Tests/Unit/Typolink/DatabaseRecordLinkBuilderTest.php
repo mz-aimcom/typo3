@@ -17,11 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Tests\Unit\Typolink;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\LinkHandler\RecordLinkHandler;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
-use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -32,9 +32,9 @@ use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Typolink\DatabaseRecordLinkBuilder;
-use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class DatabaseRecordLinkBuilderTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -110,15 +110,15 @@ final class DatabaseRecordLinkBuilderTest extends UnitTestCase
         $typoScriptConfig = [
             'config.' => [
                 'recordLinks.' => [
-                    'tx_news.' =>
-                        [
+                    'tx_news.'
+                        => [
                             'forceLink' => '0',
-                            'typolink.' =>
-                                [
+                            'typolink.'
+                                => [
                                     'parameter' => $parameterFromTypoScript,
                                     'additionalParams' => '&tx_news_pi1[news]={field:uid}',
-                                    'additionalParams.' =>
-                                        [
+                                    'additionalParams.'
+                                        => [
                                             'insertData' => '1',
                                         ],
                                 ],
@@ -127,16 +127,16 @@ final class DatabaseRecordLinkBuilderTest extends UnitTestCase
             ],
         ];
         $pageTsConfig = [
-            'TCEMAIN.' =>
-                [
-                    'linkHandler.' =>
-                        [
-                            'tx_news.' =>
-                                [
+            'TCEMAIN.'
+                => [
+                    'linkHandler.'
+                        => [
+                            'tx_news.'
+                                => [
                                     'handler' => RecordLinkHandler::class,
                                     'label' => 'News',
-                                    'configuration.' =>
-                                        [
+                                    'configuration.'
+                                        => [
                                             'table' => 'tx_news_domain_model_news',
                                         ],
                                     'scanAfter' => 'page',
@@ -158,13 +158,12 @@ final class DatabaseRecordLinkBuilderTest extends UnitTestCase
         $contentObjectRendererMock = $this->createMock(ContentObjectRenderer::class);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray($typoScriptConfig);
-        $request = (new ServerRequest())->withAttribute('frontend.typoscript', $frontendTypoScript)->withAttribute('currentContentObject', $contentObjectRendererMock);
+        $request = new ServerRequest()->withAttribute('frontend.typoscript', $frontendTypoScript)->withAttribute('currentContentObject', $contentObjectRendererMock);
         $contentObjectRendererMock->method('getRequest')->willReturn($request);
-        GeneralUtility::setSingletonInstance(Context::class, new Context());
-        GeneralUtility::addInstance(PageRepository::class, $pageRepositoryMock);
         GeneralUtility::addInstance(ContentObjectRenderer::class, $contentObjectRendererMock);
 
         $pageRepositoryMock
+            ->expects($this->atLeastOnce())
             ->method('checkRecord')
             ->with('tx_news_domain_model_news', 1)
             ->willReturn(
@@ -174,24 +173,20 @@ final class DatabaseRecordLinkBuilderTest extends UnitTestCase
             );
 
         $contentObjectRendererMock->expects($this->once())->method('start');
-        $contentObjectRendererMock->expects($this->once())->method('createLink');
+        $contentObjectRendererMock->expects($this->once())->method('createLink')->with($linkText, $expectedConfiguration);
 
         // Act
-        $databaseRecordLinkBuilder = $this->getAccessibleMock(
-            DatabaseRecordLinkBuilder::class,
-            ['getPageTsConfig'],
-            [
-                $this->createMock(TcaSchemaFactory::class),
+        $databaseRecordLinkBuilder = $this->getMockBuilder(DatabaseRecordLinkBuilder::class)
+            ->onlyMethods(['getPageTsConfig'])
+            ->setConstructorArgs([
+                self::createStub(TcaSchemaFactory::class),
                 new NullFrontend('testing'),
                 new TypoLinkCodecService(new NoopEventDispatcher()),
-            ]
-        );
+                new NoopEventDispatcher(),
+                $pageRepositoryMock,
+            ])
+            ->getMock();
         $databaseRecordLinkBuilder->method('getPageTsConfig')->willReturn($pageTsConfig);
-        try {
-            $databaseRecordLinkBuilder->buildLink($extractedLinkDetails, $confFromDb, $request, $linkText);
-        } catch (UnableToLinkException) {
-            // Assert
-            $contentObjectRendererMock->expects($this->once())->method('typoLink')->with($linkText, $expectedConfiguration);
-        }
+        $databaseRecordLinkBuilder->buildLink($extractedLinkDetails, $confFromDb, $request, $linkText);
     }
 }

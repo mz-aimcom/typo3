@@ -25,7 +25,6 @@ use GuzzleHttp\Handler\MockHandler as GuzzleMockHandler;
 use GuzzleHttp\HandlerStack as GuzzleHandlerStack;
 use GuzzleHttp\Middleware as GuzzleMiddleware;
 use GuzzleHttp\Psr7\Response as GuzzleResponse;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\NetworkExceptionInterface;
@@ -38,13 +37,6 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  */
 final class ClientTest extends UnitTestCase
 {
-    #[Test]
-    #[DoesNotPerformAssertions]
-    public function canBeInstantiated(): void
-    {
-        new Client();
-    }
-
     #[Test]
     public function sendRequest(): void
     {
@@ -80,7 +72,7 @@ final class ClientTest extends UnitTestCase
     public function requestException(): void
     {
         $request = new Request('https://example.com', 'GET', 'php://temp');
-        $exception = $this->createMock(GuzzleRequestException::class);
+        $exception = self::createStub(GuzzleRequestException::class);
         $exception->method('getRequest')->willReturn($request);
         $mock = new GuzzleMockHandler([$exception]);
         $handler = GuzzleHandlerStack::create($mock);
@@ -94,7 +86,7 @@ final class ClientTest extends UnitTestCase
     public function networkException(): void
     {
         $request = new Request('https://example.com', 'GET', 'php://temp');
-        $exception = $this->createMock(GuzzleConnectException::class);
+        $exception = self::createStub(GuzzleConnectException::class);
         $exception->method('getRequest')->willReturn($request);
         $mock = new GuzzleMockHandler([$exception]);
         $handler = GuzzleHandlerStack::create($mock);
@@ -109,7 +101,7 @@ final class ClientTest extends UnitTestCase
     {
         $request = new Request('https://example.com', 'GET', 'php://temp');
         $mock = new GuzzleMockHandler([
-            new class () extends \RuntimeException implements GuzzleExceptionInterface {},
+            new class extends \RuntimeException implements GuzzleExceptionInterface {},
         ]);
         $handler = GuzzleHandlerStack::create($mock);
         $client = new Client(['handler' => $handler]);

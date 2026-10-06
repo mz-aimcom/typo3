@@ -42,6 +42,10 @@ final class TypolinkViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly TypoLinkCodecService $typoLinkCodecService
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('parameter', 'mixed', 'stdWrap.typolink style parameter string', true);
@@ -54,7 +58,8 @@ final class TypolinkViewHelper extends AbstractViewHelper
         $this->registerArgument('addQueryString', 'string', 'If set, the current query parameters will be kept in the URL. If set to "untrusted", then ALL query parameters will be added. Be aware, that this might lead to problems when the generated link is cached.', false, false);
         $this->registerArgument('addQueryStringExclude', 'string', 'Define parameters to be excluded from the query string (only active if addQueryString is set)', false, '');
         $this->registerArgument('absolute', 'bool', 'Ensure the resulting URL is an absolute URL', false, false);
-        $this->registerArgument('parts-as', 'string', 'Variable name containing typoLink parts (if any)', false, 'typoLinkParts');
+        $this->registerArgument('partsAs', 'string', 'Variable name containing typoLink parts (if any), defaults to "typoLinkParts"');
+        $this->registerArgument('parts-as', 'string', 'Only kept for backwards compatibility, use "partsAs" instead');
         $this->registerArgument('textWrap', 'string', 'Wrap the link using the typoscript "wrap" data type', false, '');
     }
 
@@ -65,11 +70,10 @@ final class TypolinkViewHelper extends AbstractViewHelper
     public function render(): string
     {
         $parameter = $this->arguments['parameter'] ?? '';
-        $partsAs = $this->arguments['parts-as'] ?? 'typoLinkParts';
-        $typoLinkCodecService = GeneralUtility::makeInstance(TypoLinkCodecService::class);
+        $partsAs = $this->arguments['partsAs'] ?? $this->arguments['parts-as'] ?? 'typoLinkParts';
         if (!$parameter instanceof TypolinkParameter) {
             $parameter = TypolinkParameter::createFromTypolinkParts(
-                is_scalar($parameter) ? $typoLinkCodecService->decode((string)$parameter) : []
+                is_scalar($parameter) ? $this->typoLinkCodecService->decode((string)$parameter) : []
             );
         }
         // Merge the $parameter with other arguments
@@ -81,7 +85,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
         $content = (string)$this->renderChildren();
         // clean up exposed variables
         $this->renderingContext->setVariableProvider($variableProvider->getGlobalVariableProvider());
-        $typolink = $typoLinkCodecService->encode($typolinkParameter);
+        $typolink = $this->typoLinkCodecService->encode($typolinkParameter);
         if ($typolink !== '') {
             $request = null;
             if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
@@ -104,7 +108,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
             'ATagParams' => $aTagParams,
             'forceAbsoluteUrl' => $absolute,
         ];
-        if (isset($arguments['language']) && $arguments['language'] !== null) {
+        if (array_key_exists('language', $arguments) && $arguments['language'] !== null) {
             $instructions['language'] = (string)$arguments['language'];
         }
         if ($addQueryString && $addQueryString !== 'false') {

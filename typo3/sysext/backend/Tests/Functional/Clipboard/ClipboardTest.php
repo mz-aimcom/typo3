@@ -34,7 +34,7 @@ final class ClipboardTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -126,7 +126,7 @@ final class ClipboardTest extends FunctionalTestCase
                 1,
                 '_FILE',
                 [
-                    '<span class="text-body-secondary">FR: Interne</span>',
+                    '<span class="text-variant">FR: Interne</span>',
                 ],
             ],
         ];

@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\Processor;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\Processor\SelectItemProcessor;
@@ -25,6 +27,8 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class SelectItemProcessorTest extends UnitTestCase
 {
     public static function dividersAddedForEachGroupAndSortedDataProvider(): iterable
@@ -62,6 +66,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => null,
                     'description' => null,
                 ],
@@ -69,6 +74,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => null,
                     'description' => null,
                 ],
@@ -76,6 +82,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => null,
                     'description' => null,
                 ],
@@ -83,6 +90,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => null,
                     'description' => null,
                 ],
@@ -119,6 +127,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'none',
                     'description' => null,
                 ],
@@ -126,6 +135,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'none',
                     'description' => null,
                 ],
@@ -138,6 +148,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -145,7 +156,55 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
+                    'description' => null,
+                ],
+            ],
+        ];
+
+        yield 'numeric group' => [
+            'items' => [
+                [
+                    'label' => 'foo',
+                    'value' => 'three',
+                    'group' => '2026',
+                ],
+                [
+                    'label' => 'foo',
+                    'value' => 'one',
+                    'group' => 'group1',
+                ],
+            ],
+            'groups' => [
+                'group1' => 'Group 1',
+            ],
+            'sortOrders' => [],
+            'expected' => [
+                [
+                    'label' => 'Group 1',
+                    'value' => '--div--',
+                    'group' => 'group1',
+                ],
+                [
+                    'label' => 'foo',
+                    'value' => 'one',
+                    'icon' => null,
+                    'iconOverlay' => null,
+                    'group' => 'group1',
+                    'description' => null,
+                ],
+                [
+                    'label' => '2026',
+                    'value' => '--div--',
+                    'group' => '2026',
+                ],
+                [
+                    'label' => 'foo',
+                    'value' => 'three',
+                    'icon' => null,
+                    'iconOverlay' => null,
+                    'group' => '2026',
                     'description' => null,
                 ],
             ],
@@ -186,6 +245,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -193,6 +253,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -205,6 +266,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -212,6 +274,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -256,6 +319,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -263,6 +327,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -275,6 +340,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -282,6 +348,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -334,6 +401,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -341,6 +409,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -353,6 +422,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -360,6 +430,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -414,6 +485,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -421,6 +493,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -433,6 +506,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -440,6 +514,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -486,6 +561,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -493,6 +569,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -505,6 +582,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -512,6 +590,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -558,6 +637,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -565,6 +645,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -577,6 +658,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -584,6 +666,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -630,6 +713,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'One',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -637,6 +721,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Two',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -649,6 +734,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Four',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -656,6 +742,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Three',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -702,6 +789,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Two',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -709,6 +797,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'One',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -721,6 +810,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Three',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -728,6 +818,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Four',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -775,6 +866,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Foo',
                     'value' => 'one',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -782,6 +874,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Foo',
                     'value' => 'two',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group1',
                     'description' => null,
                 ],
@@ -794,6 +887,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Foo',
                     'value' => 'four',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -801,6 +895,7 @@ final class SelectItemProcessorTest extends UnitTestCase
                     'label' => 'Foo',
                     'value' => 'three',
                     'icon' => null,
+                    'iconOverlay' => null,
                     'group' => 'group2',
                     'description' => null,
                 ],
@@ -813,11 +908,11 @@ final class SelectItemProcessorTest extends UnitTestCase
     public function dividersAreAddedForEachGroupWithLanguageServiceFactoryFallback(array $items, array $groups, array $sortOrders, array $expected): void
     {
         $GLOBALS['BE_USER'] = $this->getMockBuilder(BackendUserAuthentication::class)->getMock();
-        $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceMock->method('sL')->willReturnArgument(0);
-        $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturn($languageServiceMock);
-        $selectItemProcessor = new SelectItemProcessor($languageServiceFactoryMock);
+        $languageServiceStub = self::createStub(LanguageService::class);
+        $languageServiceStub->method('sL')->willReturnArgument(0);
+        $languageServiceFactoryStub = self::createStub(LanguageServiceFactory::class);
+        $languageServiceFactoryStub->method('createFromUserPreferences')->willReturn($languageServiceStub);
+        $selectItemProcessor = new SelectItemProcessor($languageServiceFactoryStub);
         $result = $selectItemProcessor->groupAndSortItems($items, $groups, $sortOrders);
 
         self::assertSame($expected, $result);
@@ -828,17 +923,17 @@ final class SelectItemProcessorTest extends UnitTestCase
     public function dividersAreAddedForEachGroupWithGlobalLang(array $items, array $groups, array $sortOrders, array $expected): void
     {
         $GLOBALS['BE_USER'] = $this->getMockBuilder(BackendUserAuthentication::class)->getMock();
-        $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceMock->method('sL')->willReturnArgument(0);
-        $GLOBALS['LANG'] = $languageServiceMock;
-        $languageServiceFactoryMock = $this->createMock(LanguageServiceFactory::class);
-        $languageServiceFactoryMock->method('createFromUserPreferences')->with(self::anything())->willReturnCallback(static function () {
+        $languageServiceStub = self::createStub(LanguageService::class);
+        $languageServiceStub->method('sL')->willReturnArgument(0);
+        $GLOBALS['LANG'] = $languageServiceStub;
+        $languageServiceFactoryStub = self::createStub(LanguageServiceFactory::class);
+        $languageServiceFactoryStub->method('createFromUserPreferences')->willReturnCallback(static function () {
             throw new \RuntimeException(
                 'LanguageServiceFactory->createFromUserPreferences() should not be called in ' . __METHOD__,
                 1689946260
             );
         });
-        $selectItemProcessor = new SelectItemProcessor($languageServiceFactoryMock);
+        $selectItemProcessor = new SelectItemProcessor($languageServiceFactoryStub);
         $result = $selectItemProcessor->groupAndSortItems($items, $groups, $sortOrders);
 
         self::assertSame($expected, $result);

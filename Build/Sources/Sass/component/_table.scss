@@ -98,6 +98,12 @@
         box-sizing: content-box;
     }
 
+    .col-indicator {
+        width: 10px;
+        padding-inline-end: 0;
+        white-space: nowrap;
+    }
+
     .col-time {
         width: 8ch;
         white-space: nowrap;
@@ -135,6 +141,9 @@
 
     .col-recordtitle {
         width: 250px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .col-path {
@@ -179,7 +188,7 @@
 
     // Column contents are cut off with an ellipsis if they get too large.
     // The overflow is limited to the td cells,to avoid clipping dropdowns in the header.
-    td.col-responsive {
+    .col-responsive {
         max-width: 200px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -282,9 +291,11 @@
     --typo3-table-bg: var(--typo3-component-bg);
     --typo3-table-border-width: var(--typo3-component-border-width);
     --typo3-table-border-color: var(--typo3-component-border-color);
+    --typo3-table-border-radius: var(--typo3-component-border-radius);
+    --typo3-table-progress-height: 3px;
     width: 100%;
     color: var(--typo3-table-color);
-    border-radius: var(--typo3-component-border-radius);
+    border-radius: var(--typo3-table-border-radius);
     box-shadow: var(--typo3-component-box-shadow);
     margin-bottom: var(--typo3-spacing);
     overflow-x: auto;
@@ -309,6 +320,13 @@
             border-top: 0;
             border-bottom: var(--typo3-table-border-width) solid var(--typo3-table-border-color);
         }
+    }
+
+    > typo3-backend-progress-bar {
+        --progress-border-radius: 0;
+        --progress-bar-height: var(--typo3-table-progress-height);
+        height: 0;
+        user-select: none;
     }
 
     > .table {
@@ -359,33 +377,6 @@
 }
 
 //
-// Sorting
-//
-// @deprecated since 13.4 and will be removed in v15, not used in core
-//
-.table-sorting-button {
-    padding: 0;
-    border: 0;
-    font-weight: inherit;
-    font-size: inherit;
-    background: transparent;
-    display: inline-flex;
-    align-items: center;
-    gap: .25em;
-}
-
-.table-sorting-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--typo3-light-secondary-color);
-
-    .table-sorting-button-active & {
-        color: var(--typo3-light-primary-color);
-    }
-}
-
-//
 // Variants
 //
 @each $state, $value in $base-variants {
@@ -401,40 +392,58 @@
 .table .active {
     --typo3-table-color: var(--typo3-table-primary-color);
     --typo3-table-bg: var(--typo3-table-primary-bg);
-    --typo3-table-border-color: var(--typo3-table-primary-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
 }
 
 .table-selected,
 .table .selected {
     --typo3-table-color: var(--typo3-table-info-color);
     --typo3-table-bg: var(--typo3-table-info-bg);
-    --typo3-table-border-color: var(--typo3-table-info-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
 }
 
 .table-installed,
 .table .installed {
     --typo3-table-color: var(--typo3-table-success-color);
     --typo3-table-bg: var(--typo3-table-success-bg);
-    --typo3-table-border-color: var(--typo3-table-success-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
 }
 
 .table-insecure,
 .table .insecure {
     --typo3-table-color: var(--typo3-table-danger-color);
     --typo3-table-bg: var(--typo3-table-danger-bg);
-    --typo3-table-border-color: var(--typo3-table-danger-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
 }
 
 .table-outdated,
 .table .outdated {
     --typo3-table-color: var(--typo3-table-warning-color);
     --typo3-table-bg: var(--typo3-table-warning-bg);
-    --typo3-table-border-color: var(--typo3-table-warning-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
 }
 
 .table-available,
 .table .available {
     --typo3-table-color: var(--typo3-table-info-color);
     --typo3-table-bg: var(--typo3-table-info-bg);
-    --typo3-table-border-color: var(--typo3-table-info-border-color);
+    --typo3-table-border-color: color-mix(in srgb, var(--typo3-table-bg), var(--typo3-table-color) 10%);
+}
+
+//
+// Drop position indicators
+// Colors the border-bottom of the row above the drop position
+//
+.table tr:has(+ .row-drop-before) > *,
+.table .row-drop-after:not(:last-child) > * {
+    box-shadow: inset 0 -1px 0 0 var(--typo3-state-primary-border-color);
+    border-bottom-color: var(--typo3-state-primary-border-color);
+}
+
+.table .row-drop-before:first-child > * {
+    box-shadow: inset 0 2px 0 0 var(--typo3-state-primary-border-color);
+}
+
+.table .row-drop-after:last-child > * {
+    box-shadow: inset 0 -2px 0 0 var(--typo3-state-primary-border-color);
 }

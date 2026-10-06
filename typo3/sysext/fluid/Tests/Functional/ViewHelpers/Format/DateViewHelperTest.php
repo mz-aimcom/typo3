@@ -29,9 +29,9 @@ final class DateViewHelperTest extends FunctionalTestCase
     protected bool $initializeDatabase = false;
 
     /**
-     * @var string Backup of current timezone, it is manipulated in tests
+     * Backup of current timezone, it is manipulated in tests
      */
-    protected $timezone;
+    private string $timezone;
 
     protected function setUp(): void
     {
@@ -51,7 +51,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="1980-12-13"></f:format.date>');
-        self::assertSame('1980-12-13', (new TemplateView($context))->render());
+        self::assertSame('1980-12-13', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -59,7 +59,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date format="d.m.Y">1980-02-01</f:format.date>');
-        self::assertSame('01.02.1980', (new TemplateView($context))->render());
+        self::assertSame('01.02.1980', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -67,7 +67,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date format="%Y-%m-%d">1980-02-01</f:format.date>');
-        self::assertSame('1980-02-01', (new TemplateView($context))->render());
+        self::assertSame('1980-02-01', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -75,7 +75,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date></f:format.date>');
-        self::assertSame('', (new TemplateView($context))->render());
+        self::assertSame('', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -83,7 +83,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date=""></f:format.date>');
-        self::assertSame(date('Y-m-d', $GLOBALS['EXEC_TIME']), (new TemplateView($context))->render());
+        self::assertSame(date('Y-m-d', $GLOBALS['EXEC_TIME']), new TemplateView($context)->render());
     }
 
     #[Test]
@@ -92,7 +92,7 @@ final class DateViewHelperTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] = '';
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date>@1391876733</f:format.date>');
-        self::assertSame('2014-02-08', (new TemplateView($context))->render());
+        self::assertSame('2014-02-08', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -101,7 +101,7 @@ final class DateViewHelperTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] = 'l, j. M y';
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date>@1391876733</f:format.date>');
-        self::assertSame('Saturday, 8. Feb 14', (new TemplateView($context))->render());
+        self::assertSame('Saturday, 8. Feb 14', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -109,7 +109,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:for each="{1391876733:\'1391876734\'}" as="i" iteration="iterator" key="k"><f:format.date>{k}</f:format.date></f:for>');
-        self::assertSame('2014-02-08', (new TemplateView($context))->render());
+        self::assertSame('2014-02-08', new TemplateView($context)->render());
     }
 
     /**
@@ -121,7 +121,7 @@ final class DateViewHelperTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] = 'l, j. M y';
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('{f:format.date(date: "@1645115363", format:"{undefinedVariable}")}');
-        self::assertSame('Thursday, 17. Feb 22', (new TemplateView($context))->render());
+        self::assertSame('Thursday, 17. Feb 22', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -131,7 +131,7 @@ final class DateViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1241722579);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date>foo</f:format.date>');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     #[Test]
@@ -139,7 +139,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date>1359891658</f:format.date>');
-        self::assertEquals('2013-02-03', (new TemplateView($context))->render());
+        self::assertEquals('2013-02-03', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -147,7 +147,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="1980-12-12">1359891658</f:format.date>');
-        self::assertEquals('1980-12-12', (new TemplateView($context))->render());
+        self::assertEquals('1980-12-12', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -155,7 +155,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="now" format="Y"/>');
-        self::assertEquals(date('Y'), (new TemplateView($context))->render());
+        self::assertEquals(date('Y'), new TemplateView($context)->render());
     }
 
     #[Test]
@@ -163,7 +163,7 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="-1 year" base="2017-01-01" format="Y"/>');
-        self::assertEquals('2016', (new TemplateView($context))->render());
+        self::assertEquals('2016', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -171,87 +171,83 @@ final class DateViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="@1435784732" base="1485907200" format="Y"/>');
-        self::assertEquals('2015', (new TemplateView($context))->render());
+        self::assertEquals('2015', new TemplateView($context)->render());
     }
 
-    public static function viewHelperRespectsDefaultTimezoneForIntegerTimestampDataProvider(): array
+    public static function viewHelperRespectsTimezoneDataProvider(): array
     {
         return [
-            'Europe/Berlin' => [
+            'integer, Europe/Berlin' => [
                 'Europe/Berlin',
+                1359891658, // 2013-02-03 11:40 UTC
                 '2013-02-03 12:40',
             ],
-            'Asia/Riyadh' => [
+            'integer, Asia/Riyadh' => [
                 'Asia/Riyadh',
+                1359891658, // 2013-02-03 11:40 UTC
                 '2013-02-03 14:40',
             ],
-        ];
-    }
-
-    #[DataProvider('viewHelperRespectsDefaultTimezoneForIntegerTimestampDataProvider')]
-    #[Test]
-    public function viewHelperRespectsDefaultTimezoneForIntegerTimestamp(string $timezone, string $expected): void
-    {
-        date_default_timezone_set($timezone);
-        $date = 1359891658; // 2013-02-03 11:40 UTC
-        $context = $this->get(RenderingContextFactory::class)->create();
-        $context->getTemplatePaths()->setTemplateSource('<f:format.date date="' . $date . '" format="Y-m-d H:i"/>');
-        self::assertEquals($expected, (new TemplateView($context))->render());
-    }
-
-    #[DataProvider('viewHelperRespectsDefaultTimezoneForIntegerTimestampDataProvider')]
-    #[Test]
-    public function viewHelperRespectGivenTimezoneForIntegerTimestamp(string $timezone, string $expected): void
-    {
-        $date = 1359891658; // 2013-02-03 11:40 UTC
-        $context = $this->get(RenderingContextFactory::class)->create();
-        $context->getTemplatePaths()->setTemplateSource('<f:format.date timezone="' . $timezone . '" date="' . $date . '" format="Y-m-d H:i"/>');
-        self::assertEquals($expected, (new TemplateView($context))->render());
-    }
-
-    public static function viewHelperRespectsDefaultTimezoneForStringTimestampDataProvider(): array
-    {
-        return [
-            'Europe/Berlin UTC' => [
+            'string, Europe/Berlin UTC' => [
                 'Europe/Berlin',
                 '@1359891658',
                 '2013-02-03 12:40',
             ],
-            'Europe/Berlin Moscow' => [
+            'string, Europe/Berlin Moscow' => [
                 'Europe/Berlin',
                 '03/Oct/2000:14:55:36 +0400',
                 '2000-10-03 12:55',
             ],
-            'Asia/Riyadh UTC' => [
+            'string, Asia/Riyadh UTC' => [
                 'Asia/Riyadh',
                 '@1359891658',
                 '2013-02-03 14:40',
             ],
-            'Asia/Riyadh Moscow' => [
+            'string, Asia/Riyadh Moscow' => [
                 'Asia/Riyadh',
                 '03/Oct/2000:14:55:36 +0400',
                 '2000-10-03 13:55',
             ],
+
         ];
     }
 
-    #[DataProvider('viewHelperRespectsDefaultTimezoneForStringTimestampDataProvider')]
-    #[Test]
-    public function viewHelperRespectsDefaultTimezoneForStringTimestamp(string $timeZone, string $date, string $expected): void
+    public static function viewHelperRespectsTimezoneForObjectsDataProvider(): array
     {
-        date_default_timezone_set($timeZone);
-        $context = $this->get(RenderingContextFactory::class)->create();
-        $context->getTemplatePaths()->setTemplateSource('<f:format.date date="' . $date . '" format="Y-m-d H:i"/>');
-        self::assertEquals($expected, (new TemplateView($context))->render());
+        return [
+            'mutable object' => [
+                'Asia/Riyadh',
+                new \DateTime('@1359891658'), // 2013-02-03 11:40 UTC
+                '2013-02-03 14:40',
+            ],
+            'immutable object' => [
+                'Asia/Riyadh',
+                new \DateTimeImmutable('@1359891658'), // 2013-02-03 11:40 UTC
+                '2013-02-03 14:40',
+            ],
+        ];
     }
 
-    #[DataProvider('viewHelperRespectsDefaultTimezoneForStringTimestampDataProvider')]
     #[Test]
-    public function viewHelperRespectsGivenTimezoneForStringTimestamp(string $timeZone, string $date, string $expected): void
+    #[DataProvider('viewHelperRespectsTimezoneDataProvider')]
+    public function viewHelperRespectsDefaultTimezone(string $timezone, mixed $date, string $expected): void
+    {
+        date_default_timezone_set($timezone);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getVariableProvider()->add('date', $date);
+        $context->getTemplatePaths()->setTemplateSource('<f:format.date date="{date}" format="Y-m-d H:i"/>');
+        self::assertEquals($expected, new TemplateView($context)->render());
+    }
+
+    #[Test]
+    #[DataProvider('viewHelperRespectsTimezoneDataProvider')]
+    #[DataProvider('viewHelperRespectsTimezoneForObjectsDataProvider')]
+    public function viewHelperRespectsTimezone(string $timezone, mixed $date, string $expected): void
     {
         $context = $this->get(RenderingContextFactory::class)->create();
-        $context->getTemplatePaths()->setTemplateSource('<f:format.date timezone="' . $timeZone . '" date="' . $date . '" format="Y-m-d H:i"/>');
-        self::assertEquals($expected, (new TemplateView($context))->render());
+        $context->getVariableProvider()->add('date', $date);
+        $context->getVariableProvider()->add('timezone', $timezone);
+        $context->getTemplatePaths()->setTemplateSource('<f:format.date timezone="{timezone}" date="{date}" format="Y-m-d H:i"/>');
+        self::assertEquals($expected, new TemplateView($context)->render());
     }
 
     public static function viewHelperUsesIcuBasedPatternDataProvider(): \Generator
@@ -279,6 +275,6 @@ final class DateViewHelperTest extends FunctionalTestCase
         $date = '03/Oct/2000:14:55:36 +0400';
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:format.date date="' . $date . '" pattern="' . $pattern . '" locale="' . $locale . '"/>');
-        self::assertEquals($expected, (new TemplateView($context))->render());
+        self::assertEquals($expected, new TemplateView($context)->render());
     }
 }

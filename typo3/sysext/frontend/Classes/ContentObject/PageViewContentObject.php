@@ -24,6 +24,8 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Frontend\ContentObject\Exception\ContentRenderingException;
+use TYPO3Fluid\Fluid\View\Exception\InvalidLayoutException;
+use TYPO3Fluid\Fluid\View\Exception\InvalidPartialException;
 use TYPO3Fluid\Fluid\View\Exception\InvalidTemplateResourceException;
 
 /**
@@ -39,14 +41,11 @@ use TYPO3Fluid\Fluid\View\Exception\InvalidTemplateResourceException;
  * In contrast to FLUIDTEMPLATE, by design this cObject
  * - does not handle custom layoutRootPaths and partialRootPaths
  * - does not handle Extbase specialities
- * - does not handle HeaderAssets and FooterAssets
  * - does not handle "templateName.", "template." and "file." resolving from cObject
- *
- * @internal this cObject is considered experimental until TYPO3 v13 LTS
  */
 final class PageViewContentObject extends AbstractContentObject
 {
-    private const reservedVariables = ['site', 'language', 'page'];
+    private const array reservedVariables = ['site', 'language', 'page'];
 
     public function __construct(
         private readonly ContentDataProcessor $contentDataProcessor,
@@ -71,7 +70,7 @@ final class PageViewContentObject extends AbstractContentObject
      *     mylabel.value = Label from TypoScript
      *   }
      *
-     * @param array $conf Array of TypoScript properties
+     * @param mixed $conf Array of TypoScript properties (marked as "mixed" currently because we don't know what we're receiving)
      * @return string The HTML output
      * @throws ContentRenderingException
      */
@@ -89,7 +88,7 @@ final class PageViewContentObject extends AbstractContentObject
         $paths = array_map(PathUtility::sanitizeTrailingSeparator(...), $conf['paths.']);
         $viewFactoryData = new ViewFactoryData(
             // @todo: Do discuss: Rename 'paths.' to 'templateRootPaths.' again?
-            templateRootPaths: $paths,
+            templateRootPaths: array_map(static fn(string $path): string => $path . 'Pages/', $paths),
             // @todo: We should *still* allow setting both partialRootPaths and layoutRootPaths, and only fall back to
             //        [templateRootPaths]/Partials and [templateRootPaths]/Layouts if not set. And the fallback should be
             //        advertised as best practice.
@@ -111,27 +110,25 @@ final class PageViewContentObject extends AbstractContentObject
             $pageInformationObject->getPageRecord(),
             $pageInformationObject->getRootLine()
         );
-        $templateFileName = 'Pages/' . ucfirst($pageLayoutName);
         try {
-            return $view->render($templateFileName);
+            return $view->render($pageLayoutName);
         } catch (InvalidTemplateResourceException $e) {
-            // Only add a PAGEVIEW specific message in case the exception has been thrown for the given $templateFileName.
-            if (str_contains($e->getMessage(), $templateFileName)) {
-                $templateFileName .= '.html';
-                $checkedPaths = implode(', ', array_map(static fn($path) => $path . $templateFileName, $paths));
-                throw new InvalidTemplateResourceException(
-                    sprintf(
-                        'PAGEVIEW TypoScript object: Failed to resolve the expected template file "%s" for layout "%s". See also: %s. The following paths were checked: %s',
-                        $templateFileName,
-                        $pageLayoutName,
-                        (new Typo3Information())->getDocsLink('t3tsref:cobj-pageview'),
-                        $checkedPaths,
-                    ),
-                    1742058289,
-                    $e
-                );
+            // Only add a PAGEVIEW specific message in case the exception has been thrown for the given template.
+            if ($e instanceof InvalidPartialException || $e instanceof InvalidLayoutException || $e->templateName !== 'Default/' . $pageLayoutName) {
+                throw $e;
             }
-            throw $e;
+            throw new InvalidTemplateResourceException(
+                sprintf(
+                    'PAGEVIEW TypoScript object: Failed to resolve a template file for page layout "%s". See also: %s. The following paths were checked: "%s"',
+                    $pageLayoutName,
+                    Typo3Information::getDocsLink('t3tsref:cobj-pageview'),
+                    implode('", "', $e->evaluatedTemplatePaths),
+                ),
+                1742058289,
+                $e,
+                $e->templateName,
+                $e->evaluatedTemplatePaths,
+            );
         }
     }
 
@@ -143,10 +140,11 @@ final class PageViewContentObject extends AbstractContentObject
      */
     private function getContentObjectVariables(array $conf): array
     {
+        $pageInformation = $this->request->getAttribute('frontend.page.information');
         $variables = [
             'site' => $this->request->getAttribute('site'),
             'language' => $this->request->getAttribute('language'),
-            'page' => $this->request->getAttribute('frontend.page.information'),
+            'page' => $pageInformation,
         ];
         // Accumulate the variables to be process and loop them through cObjGetSingle
         if (is_array($conf['variables.'] ?? false) && $conf['variables.'] !== []) {
@@ -164,6 +162,14 @@ final class PageViewContentObject extends AbstractContentObject
                 $variables[$variableName] = $this->cObj->cObjGetSingle($cObjType, $cObjConf, 'variables.' . $variableName);
             }
         }
+        if (!($conf['contentAs'] ?? false) && isset($variables['content'])) {
+            throw new \InvalidArgumentException(
+                'No variable name ("contentAs" option) for the content areas has been defined in PAGEVIEW, and the fallback name "content" is not available because it has been manually set.',
+                1726475574
+            );
+        }
+
+        $variables[$conf['contentAs'] ?? 'content'] = $pageInformation->getPageLayout()?->getContentAreas()->withRequest($this->request);
         return $variables;
     }
 }

@@ -300,7 +300,7 @@ This value is overridden by the value set in the page-record (field="cache_timeo
             Use a class name for individual exception handlers
 
             See TSref for details:
-            https://docs.typo3.org/typo3cms/TyposcriptReference/Setup/Config/Index.html#contentobjectexceptionhandler
+            https://docs.typo3.org/permalink/t3tsref:confval-config-contentobjectexceptionhandler
 ]]></description>
             <default><![CDATA[
 ]]></default>
@@ -421,7 +421,7 @@ config.inlineStyle2TempFile = 1]]></description>
 ]]></default>
         </property>
         <property name="linkVars" type="string">
-            <description><![CDATA[HTTP_GET_VARS, which should be passed on with links in TYPO3. This is compiled into a string stored in $GLOBALS["TSFE"]->linkVars
+            <description><![CDATA[HTTP_GET_VARS, which should be passed on with links in TYPO3. This is compiled into a string.
 
 The values are rawurlencoded in PHP.
 
@@ -529,57 +529,6 @@ config.removeDefaultJS = external
 config.removeDefaultJS = 1]]></description>
             <default><![CDATA[
 ]]></default>
-        </property>
-        <property name="compressJs" type="boolean">
-            <description><![CDATA[Enabling this option together with $TYPO3_CONF_VARS['FE']['compressionLevel'] in the Install Tool delivers Frontend JavaScript files using GZIP compression.
-
-This can significantly reduce file sizes of linked JavaScript files and thus decrease loading times.
-
-Please not that this requires .htaccess to be adjusted, as otherwise the files will not be readable by the user agent. Please see the description of $TYPO3_CONF_VARS['FE']['compressionLevel'] in the Install Tool.
-
-Example:
-
-config.compressJs = 1
-            ]]></description>
-            <default><![CDATA[false]]></default>
-        </property>
-        <property name="compressCss" type="boolean">
-            <description><![CDATA[If set, CSS files will be minified and compressed.
-
-Minification will remove all excess space. The more significant compression step (using Gzip compression) requires $TYPO3_CONF_VARS['FE']['compressionLevel'] to be enabled in the Install Tool together with the gzip-related compressionLevel options in .htaccess, as otherwise the files will not be readable by the user agent.
-
-Example:
-
-config.compressCss = 1]]></description>
-            <default><![CDATA[false]]></default>
-        </property>
-        <property name="concatenateJs" type="boolean">
-            <description><![CDATA[Setting config.concatenateJs merges Javascript files referenced in the Frontend together.
-
-Example:
-
-config.concatenateJs = 1
-
-Note: TYPO3 comes with a built-in concatenation handler, but you can also register your own one using $GLOBALS['TYPO3_CONF_VARS']['FE']['jsConcatenateHandler'].
-
-Example:
-
-$GLOBALS['TYPO3_CONF_VARS']['FE']['jsConcatenateHandler'] = \TYPO3\CMS\Core\Utility\ExtensionManagementUtility::extPath('myext') . 'Classes/class.tx_myext_jsConcatenateHandler.php:tx_myext_jsConcatenateHandler->concatenateJs';]]></description>
-            <default><![CDATA[false]]></default>
-        </property>
-        <property name="concatenateCss" type="boolean">
-            <description><![CDATA[Setting config.concatenateCss merges Stylesheet files referenced in the Frontend together.
-
-Example:
-
-config.concatenateCss = 1
-
-Note: TYPO3 comes with a built-in concatenation handler, but you can also register your own using $GLOBALS['TYPO3_CONF_VARS']['FE']['cssConcatenateHandler'].
-
-Example:
-
-$GLOBALS['TYPO3_CONF_VARS']['FE']['cssConcatenateHandler'] = \TYPO3\CMS\Core\Utility\ExtensionManagementUtility::extPath('myext') . 'Classes/class.tx_myext_cssConcatenateHandler.php:tx_myext_cssConcatenateHandler->concatenateCss';]]></description>
-            <default><![CDATA[false]]></default>
         </property>
         <property name="sendCacheHeaders" type="boolean">
             <description><![CDATA[If set, TYPO3 will output cache-control headers to the client based mainly on  whether the page was cached internally. This feature allows client browsers and/or reverse proxies to take load of TYPO3 websites.
@@ -2066,8 +2015,8 @@ When set to "all" the same check is carried out but it will not look if "Hide pa
         <property name="special" type="HMENU_SPECIAL">
             <description><![CDATA["directory" / "list" / "updated" / "browse" / "rootline" / "keywords" / "language"
             (See TSref for details:
-            <a href="https://docs.typo3.org/typo3cms/TyposcriptReference/ContentObjects/Hmenu/#hmenu-special-property">
-            https://docs.typo3.org/typo3cms/TyposcriptReference/ContentObjects/Hmenu/#hmenu-special-property</a> )]]></description>
+            <a href="https://docs.typo3.org/permalink/t3tsref:confval-hmenu-special">
+            https://docs.typo3.org/permalink/t3tsref:confval-hmenu-special</a> )]]></description>
             <default><![CDATA[
 ]]></default>
         </property>
@@ -3537,8 +3486,8 @@ This adds the tables tt_content, tt_address, tt_links, tx_myexttable]]></descrip
     </type>
     <type id="SEARCHRESULT">
         <property name="addExtUrlsAndShortCuts" type="boolean">
-            <description><![CDATA[If set, then the doktypes 3 and 4 (External URLS and Shortcuts) are added to the doktypes being searched.
-However at this point in time, no pages will be select if they do not have at least one tt_content record on them! That is because the pages and tt_content (or other) table is joined. So there must at least one occurrence of a tt_content element on an External URL / Shortcut page for them to show up.]]></description>
+            <description><![CDATA[If set, then the doktypes 3 (Link) and 4 (Shortcut) are added to the doktypes being searched.
+However at this point in time, no pages will be select if they do not have at least one tt_content record on them! That is because the pages and tt_content (or other) table is joined. So there must at least one occurrence of a tt_content element on an Link / Shortcut page for them to show up.]]></description>
             <default><![CDATA[
 ]]></default>
         </property>
@@ -3855,10 +3804,6 @@ Each file has optional properties:
 
 .external - If set, there is no file existence check. Useful for inclusion of external files.
 
-.disableCompression - If config.minifyCSS is enabled, this disables the compression of this file.
-
-.excludeFromConcatenation - If config.concatenateCss is enabled, this prevents the file from being concatenated.
-
 .inline - Inline the contents of the CSS file using a <style> tag.
 
 Example:
@@ -3894,10 +3839,6 @@ Each file has optional properties:
 .allWrap - wraps the complete tag, useful for conditional comments.
 
 .external - If set, there is no file existence check. Useful for inclusion of external files.
-
-.disableCompression - If config.minifyJS is enabled, this disables the compression of this file.
-
-.excludeFromConcatenation - If config.concatenateJs is enabled, this prevents the file from being concatenated.
 
 Example:
 
@@ -3973,7 +3914,6 @@ page.jsInline {
 Note:
 
 with config.removeDefaultJS = external, the inlineJS is moved to external file.
-with config.compressJs = 1, the jsInline will be minified as well.
 ]]></description>
             <default><![CDATA[
 ]]></default>
@@ -4833,7 +4773,7 @@ Special keyword: "total" is substituted with count(*)]]></description>
 ]]></default>
         </property>
         <property name="languageField" type="string">
-            <description><![CDATA[If set, this points to the field in the record which holds a reference to a site language. And if set, the records returned by the select-function will be selected only if the value of this field matches the $GLOBALS["TSFE"]->sys_language_uid (which is set by the config.sys_language_uid option)]]></description>
+            <description><![CDATA[If set, this points to the field in the record which holds a reference to a site language. And if set, the records returned by the select-function will be selected only if the value of this field matches the frontend language which is set by the config.sys_language_uid option]]></description>
             <default><![CDATA[
 ]]></default>
         </property>

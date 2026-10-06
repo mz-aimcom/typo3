@@ -7,12 +7,14 @@ use TYPO3\CMS\Install\Controller\BackendModuleController;
  * Definitions for modules provided by EXT:insatall
  */
 return [
-    'tools_toolsmaintenance' => [
-        'parent' => 'tools',
+    'system_maintenance' => [
+        'parent' => 'system',
         'access' => 'systemMaintainer',
-        'path' => '/module/tools/maintenance',
+        'position' => ['before' => '*'],
+        'path' => '/module/system/maintenance',
+        'aliases' => ['tools_toolsmaintenance'],
         'iconIdentifier' => 'module-install-maintenance',
-        'labels' => 'LLL:EXT:install/Resources/Private/Language/ModuleInstallMaintenance.xlf',
+        'labels' => 'install.modules.maintenance',
         'routes' => [
             '_default' => [
                 'target' => BackendModuleController::class . '::maintenanceAction',
@@ -25,12 +27,14 @@ return [
             ],
         ],
     ],
-    'tools_toolssettings' => [
-        'parent' => 'tools',
+    'system_settings' => [
+        'parent' => 'system',
         'access' => 'systemMaintainer',
-        'path' => '/module/tools/settings',
+        'position' => ['before' => '*'],
+        'path' => '/module/system/settings',
+        'aliases' => ['tools_toolssettings'],
         'iconIdentifier' => 'module-install-settings',
-        'labels' => 'LLL:EXT:install/Resources/Private/Language/ModuleInstallSettings.xlf',
+        'labels' => 'install.modules.settings',
         'routes' => [
             '_default' => [
                 'target' => BackendModuleController::class . '::settingsAction',
@@ -43,12 +47,14 @@ return [
             ],
         ],
     ],
-    'tools_toolsupgrade' => [
-        'parent' => 'tools',
+    'system_upgrade' => [
+        'parent' => 'system',
         'access' => 'systemMaintainer',
-        'path' => '/module/tools/upgrade',
+        'position' => ['before' => '*'],
+        'path' => '/module/system/upgrade',
+        'aliases' => ['tools_toolsupgrade'],
         'iconIdentifier' => 'module-install-upgrade',
-        'labels' => 'LLL:EXT:install/Resources/Private/Language/ModuleInstallUpgrade.xlf',
+        'labels' => 'install.modules.upgrade',
         'routes' => [
             '_default' => [
                 'target' => BackendModuleController::class . '::upgradeAction',
@@ -61,12 +67,14 @@ return [
             ],
         ],
     ],
-    'tools_toolsenvironment' => [
-        'parent' => 'tools',
+    'system_environment' => [
+        'parent' => 'system',
         'access' => 'systemMaintainer',
-        'path' => '/module/tools/environment',
+        'position' => ['before' => '*'],
+        'path' => '/module/system/environment',
+        'aliases' => ['tools_toolsenvironment'],
         'iconIdentifier' => 'module-install-environment',
-        'labels' => 'LLL:EXT:install/Resources/Private/Language/ModuleInstallEnvironment.xlf',
+        'labels' => 'install.modules.environment',
         'routes' => [
             '_default' => [
                 'target' => BackendModuleController::class . '::environmentAction',

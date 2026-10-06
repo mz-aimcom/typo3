@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Routing;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
 use Symfony\Component\Routing\Exception\MissingMandatoryParametersException;
@@ -25,7 +26,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspectFactory;
 use TYPO3\CMS\Core\Domain\Page;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
-use TYPO3\CMS\Core\Exception\SiteNotFoundException;
+use TYPO3\CMS\Core\ExpressionLanguage\Resolver;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Routing\Aspect\AspectFactory;
 use TYPO3\CMS\Core\Routing\Aspect\MappableProcessor;
@@ -36,13 +37,13 @@ use TYPO3\CMS\Core\Routing\Enhancer\EnhancerInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\InflatableEnhancerInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\ResultingInterface;
 use TYPO3\CMS\Core\Routing\Enhancer\RoutingEnhancerInterface;
+use TYPO3\CMS\Core\Routing\Event\AfterPageUriGeneratedEvent;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
-use TYPO3\CMS\Frontend\Page\CacheHashCalculator;
 
 /**
  * Page Router - responsible for a page based on a request, by looking up the slug of the page path.
@@ -74,9 +75,9 @@ class PageRouter implements RouterInterface
     protected Site $site;
     protected EnhancerFactory $enhancerFactory;
     protected AspectFactory $aspectFactory;
-    protected CacheHashCalculator $cacheHashCalculator;
     protected Context $context;
     protected RequestContextFactory $requestContextFactory;
+    protected EventDispatcherInterface $eventDispatcher;
 
     /**
      * A page router is always bound to a specific site.
@@ -87,20 +88,16 @@ class PageRouter implements RouterInterface
         $this->context = $context ?? GeneralUtility::makeInstance(Context::class);
         $this->enhancerFactory = GeneralUtility::makeInstance(EnhancerFactory::class);
         $this->aspectFactory = GeneralUtility::makeInstance(AspectFactory::class, $this->context);
-        $this->cacheHashCalculator = GeneralUtility::makeInstance(CacheHashCalculator::class);
         $this->requestContextFactory = GeneralUtility::makeInstance(RequestContextFactory::class);
+        $this->eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
     }
 
     /**
      * Finds a RouteResult based on the given request.
-     *
-     * @param RouteResultInterface|SiteRouteResult|null $previousResult
-     * @return RouteResultInterface|PageArguments
-     * @throws RouteNotFoundException
      */
-    public function matchRequest(ServerRequestInterface $request, ?RouteResultInterface $previousResult = null): RouteResultInterface
+    public function matchRequest(ServerRequestInterface $request, ?RouteResultInterface $previousResult = null): RouteResultInterface|PageArguments
     {
-        if ($previousResult === null) {
+        if (!$previousResult instanceof SiteRouteResult) {
             throw new RouteNotFoundException('No previous result given. Cannot find a page for an empty route part', 1555303496);
         }
 
@@ -141,7 +138,7 @@ class PageRouter implements RouterInterface
 
         /** @var RouteCollection<string, Route> $fullCollection */
         $fullCollection = new RouteCollection();
-        foreach ($pageCandidates ?? [] as $page) {
+        foreach ($pageCandidates as $page) {
             $pageIdForDefaultLanguage = (int)($page['l10n_parent'] ?: $page['uid']);
             $pagePath = $page['slug'];
             $pageCollection = new RouteCollection();
@@ -152,7 +149,7 @@ class PageRouter implements RouterInterface
                 ['utf8' => true, '_page' => $page]
             );
             $pageCollection->add('default', $defaultRouteForPage);
-            $enhancers = $this->getEnhancersForPage($pageIdForDefaultLanguage, $language);
+            $enhancers = $this->getEnhancersForPage($pageIdForDefaultLanguage, $language, $page);
             foreach ($enhancers as $enhancer) {
                 if ($enhancer instanceof DecoratingEnhancerInterface) {
                     $enhancer->decorateForMatching($pageCollection, $urlPath);
@@ -262,7 +259,7 @@ class PageRouter implements RouterInterface
         $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $context);
 
         if ($route instanceof Page) {
-            $page = $route->toArray();
+            $page = $route->toArray(true);
         } elseif (is_array($route)
             // Check 3rd party input $route for basic requirements
             && isset($route['uid'], $route['sys_language_uid'], $route['l10n_parent'], $route['slug'])
@@ -286,13 +283,14 @@ class PageRouter implements RouterInterface
             // If the MountPoint page has a different site, the link needs to be generated
             // with the base of the MountPoint page, this is especially relevant for cross-domain linking
             // Because the language contains the full base, it is retrieved in this case.
-            try {
-                [, $mountPointPage] = explode('-', (string)reset($mountPointPairs));
-                $site = GeneralUtility::makeInstance(SiteMatcher::class)
-                    ->matchByPageId((int)$mountPointPage);
-                $language = $site->getLanguageById($language->getLanguageId());
-            } catch (SiteNotFoundException $e) {
-                // No alternative site found, use the existing one
+            [, $mountPointPage] = explode('-', (string)reset($mountPointPairs));
+            $site = GeneralUtility::makeInstance(SiteMatcher::class)
+                ->matchByPageId((int)$mountPointPage);
+            // Fall back to the existing language if the resolved site does not have a
+            // matching language
+            $targetLanguages = $site->getLanguages();
+            if (isset($targetLanguages[$language->getLanguageId()])) {
+                $language = $targetLanguages[$language->getLanguageId()];
             }
             // Store the MP parameter in the page record, so it could be used for any enhancers
             $page['MPvar'] = $parameters['MP'];
@@ -309,9 +307,10 @@ class PageRouter implements RouterInterface
         );
         $collection->add('default', $defaultRouteForPage);
 
-        // cHash is never considered because cHash is built by this very method.
+        // cHash is never considered as an input parameter, since it is calculated by
+        // an AfterPageUriGeneratedEvent listener, once the final URI has been generated.
         unset($originalParameters['cHash']);
-        $enhancers = $this->getEnhancersForPage($pageId, $language);
+        $enhancers = $this->getEnhancersForPage($pageId, $language, $page);
         foreach ($enhancers as $enhancer) {
             if ($enhancer instanceof RoutingEnhancerInterface) {
                 $enhancer->enhanceForGeneration($collection, $originalParameters);
@@ -341,16 +340,16 @@ class PageRouter implements RouterInterface
         $referenceType = $type === static::ABSOLUTE_PATH ? UrlGenerator::ABSOLUTE_PATH : UrlGenerator::ABSOLUTE_URL;
         /**
          * @var string $routeName
-         * @var Route $route
+         * @var Route $routeCandidate
          */
-        foreach ($allRoutes as $routeName => $route) {
+        foreach ($allRoutes as $routeName => $routeCandidate) {
             try {
                 $parameters = $originalParameters;
-                if ($route->hasOption('deflatedParameters')) {
-                    $parameters = $route->getOption('deflatedParameters');
+                if ($routeCandidate->hasOption('deflatedParameters')) {
+                    $parameters = $routeCandidate->getOption('deflatedParameters');
                 }
                 // skip the route, in case any aspect of it could not be mapped to a value
-                if ($mappableProcessor->generate($route, $parameters) === false) {
+                if ($mappableProcessor->generate($routeCandidate, $parameters) === false) {
                     continue;
                 }
                 // ABSOLUTE_URL is used as default fallback
@@ -362,11 +361,11 @@ class PageRouter implements RouterInterface
                 // (even if not applied in route, it will be exposed during resolving)
                 $appliedDefaults = $matchedRoute->getOption('_appliedDefaults') ?? [];
                 parse_str($uri->getQuery(), $remainingQueryParameters);
-                $enhancer = $route->getEnhancer();
+                $enhancer = $routeCandidate->getEnhancer();
                 if ($enhancer instanceof InflatableEnhancerInterface) {
                     $remainingQueryParameters = $enhancer->inflateParameters($remainingQueryParameters);
                 }
-                $pageRouteResult = $this->buildPageArguments($route, array_merge($appliedDefaults, $parameters), $remainingQueryParameters);
+                $pageRouteResult = $this->buildPageArguments($routeCandidate, array_merge($appliedDefaults, $parameters), $remainingQueryParameters);
                 break;
             } catch (MissingMandatoryParametersException $e) {
                 // no match
@@ -382,20 +381,22 @@ class PageRouter implements RouterInterface
             // if it does happen, generator logic has flaws
             throw new InvalidRouteArgumentsException('Route arguments are dirty', 1537613247);
         }
+        if ($pageRouteResult === null) {
+            // for generating URLs this should(!) never happen, as $pageRouteResult is always set together with $uri
+            throw new InvalidRouteArgumentsException('Uri could not be built for page "' . $pageId . '"', 1789567896);
+        }
 
-        if ($matchedRoute && $pageRouteResult && !empty($pageRouteResult->getDynamicArguments())) {
-            $cacheHash = $this->generateCacheHash($pageId, $pageRouteResult);
-
+        if (!empty($pageRouteResult->getDynamicArguments())) {
             $queryArguments = $pageRouteResult->getQueryArguments();
-            if (!empty($cacheHash)) {
-                $queryArguments['cHash'] = $cacheHash;
-            }
             $uri = $uri->withQuery(http_build_query($queryArguments, '', '&', PHP_QUERY_RFC3986));
         }
         if ($fragment) {
             $uri = $uri->withFragment($fragment);
         }
-        return $uri;
+
+        $event = new AfterPageUriGeneratedEvent($uri, $route, $originalParameters, $fragment, $type, $language, $this->site, $pageId, $pageRouteResult);
+        $this->eventDispatcher->dispatch($event);
+        return $event->getUri();
     }
 
     /**
@@ -406,10 +407,8 @@ class PageRouter implements RouterInterface
      *
      * This is done recursively when multiple mount point parameter pairs
      *
-     * @param int $pageId
      * @param string $pagePath the original path of the page
      * @param array $mountPointPairs an array with MP pairs (like ['13-3', '4-2'] for recursive mount points)
-     * @param PageRepository $pageRepository
      */
     protected function resolveMountPointParameterIntoPageSlug(
         int $pageId,
@@ -462,12 +461,14 @@ class PageRouter implements RouterInterface
      *
      * @return EnhancerInterface[]
      */
-    protected function getEnhancersForPage(int $pageId, SiteLanguage $language): array
+    protected function getEnhancersForPage(int $pageId, SiteLanguage $language, array $page = []): array
     {
         $enhancers = [];
+        $resolver = null;
         foreach ($this->site->getConfiguration()['routeEnhancers'] ?? [] as $enhancerConfiguration) {
-            // Check if there is a restriction to page Ids.
-            if (is_array($enhancerConfiguration['limitToPages'] ?? null) && !in_array($pageId, $enhancerConfiguration['limitToPages'])) {
+            if (is_array($enhancerConfiguration['limitToPages'] ?? null)
+                && !$this->matchesPageLimitation($enhancerConfiguration['limitToPages'], $pageId, $page, $language, $resolver)
+            ) {
                 continue;
             }
             $enhancerType = $enhancerConfiguration['type'] ?? '';
@@ -485,19 +486,45 @@ class PageRouter implements RouterInterface
         return $enhancers;
     }
 
-    protected function generateCacheHash(int $pageId, PageArguments $arguments): string
+    /**
+     * Checks whether the current page matches any of the limitToPages conditions.
+     * Each entry in the array is OR-combined:
+     * - Integer values are matched against the page ID (existing behavior)
+     * - String values are evaluated as Symfony ExpressionLanguage expressions
+     *   with access to the `page`, `site` and `siteLanguage` variables
+     */
+    protected function matchesPageLimitation(array $limitToPages, int $pageId, array $page, SiteLanguage $language, ?Resolver &$resolver): bool
     {
-        return $this->cacheHashCalculator->calculateCacheHash(
-            $this->getCacheHashParameters($pageId, $arguments)
-        );
-    }
-
-    protected function getCacheHashParameters(int $pageId, PageArguments $arguments): array
-    {
-        $hashParameters = $arguments->getDynamicArguments();
-        $hashParameters['id'] = $pageId;
-        $uri = http_build_query($hashParameters, '', '&', PHP_QUERY_RFC3986);
-        return $this->cacheHashCalculator->getRelevantParameters($uri);
+        foreach ($limitToPages as $limitation) {
+            if (is_int($limitation)) {
+                if ($limitation === $pageId) {
+                    return true;
+                }
+                continue;
+            }
+            if (is_string($limitation) && $limitation !== '') {
+                if ($page === []) {
+                    continue;
+                }
+                $resolver ??= GeneralUtility::makeInstance(
+                    Resolver::class,
+                    'routing',
+                    [
+                        'page' => $page,
+                        'site' => $this->site,
+                        'siteLanguage' => $language,
+                    ]
+                );
+                try {
+                    if ($resolver->evaluate($limitation)) {
+                        return true;
+                    }
+                } catch (\Exception) {
+                    continue;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -579,18 +606,19 @@ class PageRouter implements RouterInterface
     protected function assertMaximumStaticMappableAmount(Route $route, array $variableNames = [])
     {
         // empty when only values of route defaults where used
-        if (empty($variableNames)) {
+        if ($variableNames === []) {
             return;
         }
+        /** @var array<StaticMappableAspectInterface&\Countable> $mappers */
         $mappers = $route->filterAspects(
             [StaticMappableAspectInterface::class, \Countable::class],
             $variableNames
         );
-        if (empty($mappers)) {
+        if ($mappers === []) {
             return;
         }
 
-        $multipliers = array_map('count', $mappers);
+        $multipliers = array_map(count(...), $mappers);
         $product = array_product($multipliers);
         if ($product > 10000) {
             throw new \OverflowException(
@@ -602,10 +630,8 @@ class PageRouter implements RouterInterface
 
     /**
      * Determine parameters that have been processed.
-     *
-     * @param array $results
      */
-    protected function filterProcessedParameters(Route $route, $results): array
+    protected function filterProcessedParameters(Route $route, array $results): array
     {
         return array_intersect_key(
             $results,

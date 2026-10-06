@@ -110,33 +110,32 @@ final class UriTest extends UnitTestCase
     public function noSchemeWithDomainAlikeIsInterpretedAsPath(): void
     {
         $subject = new Uri('www.example.com');
-        // This is counter intuitive, but interpreted as path.
-        // Although we'd like to see protocol independent `//` here,
-        // we must not change this, as…
-        self::assertEquals('/www.example.com', (string)$subject);
+        // Although this looks intuitive, it is important to understand,
+        // that www.example.com is interpreted as path, not as host name,
+        // since the authority separator "//" is missing.
+        self::assertEquals('www.example.com', (string)$subject);
 
-        // …this behaviour is security relevant.
-        // This invalid domain name – given without a scheme – is
-        // only "save" because they are considered to be paths
+        // This invalid domain name – given without an authority separator – is
+        // only "safe" because it is considered to be a path
         // (invalid hostname alike is not parsed as a hostname):
         $subject = new Uri('evil.tld\\@host.tld');
-        self::assertEquals('/evil.tld%5C@host.tld', (string)$subject);
+        self::assertEquals('evil.tld%5C@host.tld', (string)$subject);
 
         $subject = new Uri('evil.tld\\\\\\@host.tld');
-        self::assertEquals('/evil.tld%5C%5C%5C@host.tld', (string)$subject);
+        self::assertEquals('evil.tld%5C%5C%5C@host.tld', (string)$subject);
     }
 
     #[Test]
     public function noSchemeWithDomainAlikeAndTrailingSlashIsInterpretedAsPath(): void
     {
         $subject = new Uri('www.example.com/');
-        self::assertEquals('/www.example.com/', (string)$subject);
+        self::assertEquals('www.example.com/', (string)$subject);
 
         $subject = new Uri('evil.tld\\@host.tld/');
-        self::assertEquals('/evil.tld%5C@host.tld/', (string)$subject);
+        self::assertEquals('evil.tld%5C@host.tld/', (string)$subject);
 
         $subject = new Uri('evil.tld\\\\\\@host.tld/');
-        self::assertEquals('/evil.tld%5C%5C%5C@host.tld/', (string)$subject);
+        self::assertEquals('evil.tld%5C%5C%5C@host.tld/', (string)$subject);
     }
 
     public static function validPortsDataProvider(): array
@@ -199,7 +198,56 @@ final class UriTest extends UnitTestCase
     public function noPortAndNoSchemeDoesNotRenderPort(): void
     {
         $subject = new Uri('www.example.com');
-        self::assertEquals('/www.example.com', (string)$subject);
+        self::assertEquals('www.example.com', (string)$subject);
+    }
+
+    #[Test]
+    public function rootlessPathWithNoAuthorityIsNotPrefixedWithSlash(): void
+    {
+        $subject = new Uri('foo/bar/baz');
+        self::assertEquals('foo/bar/baz', (string)$subject);
+    }
+
+    #[Test]
+    public function relativePathWithNoAuthorityIsNotPrefixedWithSlash(): void
+    {
+        $subject = new Uri('./foo/bar/baz');
+        self::assertEquals('./foo/bar/baz', (string)$subject);
+    }
+
+    #[Test]
+    public function rootlessPathWithAuthorityIsPrefixedWithSlash(): void
+    {
+        $subject = new Uri('//example.com')->withPath('foo/bar/baz');
+        self::assertEquals('//example.com/foo/bar/baz', (string)$subject);
+    }
+
+    #[Test]
+    public function relativePathWithAuthorityIsPrefixedWithSlash(): void
+    {
+        $subject = new Uri('//example.com')->withPath('./foo/bar/baz');
+        self::assertEquals('//example.com/./foo/bar/baz', (string)$subject);
+    }
+
+    #[Test]
+    public function rootlessPathWithColonInFirstSegmentAndNoAuthorityIsNotPrefixedWithDotSlash(): void
+    {
+        $subject = new Uri('')->withPath('foo:bar/baz');
+        self::assertEquals('./foo:bar/baz', (string)$subject);
+    }
+
+    #[Test]
+    public function rootlessPathWithColonInOnlySegmentAndNoAuthorityIsNotPrefixedWithDotSlash(): void
+    {
+        $subject = new Uri('')->withPath('foo:bar');
+        self::assertEquals('./foo:bar', (string)$subject);
+    }
+
+    #[Test]
+    public function rootlessPathWithColonInSegmentAndAuthorityIsNotPrefixedWithSlash(): void
+    {
+        $subject = new Uri('//example.com')->withPath('foo:bar');
+        self::assertEquals('//example.com/foo:bar', (string)$subject);
     }
 
     #[Test]
@@ -442,7 +490,7 @@ final class UriTest extends UnitTestCase
     #[Test]
     public function getAuthorityOmitsPortForStandardSchemePortCombinations($scheme, $port): void
     {
-        $uri = (new Uri())
+        $uri = new Uri()
             ->withHost('example.com')
             ->withScheme($scheme)
             ->withPort($port);
@@ -452,7 +500,7 @@ final class UriTest extends UnitTestCase
     #[Test]
     public function getPathIsProperlyEncoded(): void
     {
-        $uri = (new Uri())->withPath('/foo^bar');
+        $uri = new Uri()->withPath('/foo^bar');
         $expected = '/foo%5Ebar';
         self::assertEquals($expected, $uri->getPath());
     }
@@ -460,7 +508,7 @@ final class UriTest extends UnitTestCase
     #[Test]
     public function getPathDoesNotBecomeDoubleEncoded(): void
     {
-        $uri = (new Uri())->withPath('/foo%5Ebar');
+        $uri = new Uri()->withPath('/foo%5Ebar');
         $expected = '/foo%5Ebar';
         self::assertEquals($expected, $uri->getPath());
     }
@@ -480,7 +528,7 @@ final class UriTest extends UnitTestCase
     #[Test]
     public function getQueryIsProperlyEncoded($query, $expected): void
     {
-        $uri = (new Uri())->withQuery($query);
+        $uri = new Uri()->withQuery($query);
         self::assertEquals($expected, $uri->getQuery());
     }
 
@@ -488,14 +536,14 @@ final class UriTest extends UnitTestCase
     #[Test]
     public function getQueryIsNotDoubleEncoded($query, $expected): void
     {
-        $uri = (new Uri())->withQuery($expected);
+        $uri = new Uri()->withQuery($expected);
         self::assertEquals($expected, $uri->getQuery());
     }
 
     #[Test]
     public function getFragmentIsProperlyEncoded(): void
     {
-        $uri = (new Uri())->withFragment('/p^th?key^=`bar#b@z');
+        $uri = new Uri()->withFragment('/p^th?key^=`bar#b@z');
         $expected = '/p%5Eth?key%5E=%60bar%23b@z';
         self::assertEquals($expected, $uri->getFragment());
     }
@@ -504,7 +552,7 @@ final class UriTest extends UnitTestCase
     public function getFragmentIsNotDoubleEncoded(): void
     {
         $expected = '/p%5Eth?key%5E=%60bar%23b@z';
-        $uri = (new Uri())->withFragment($expected);
+        $uri = new Uri()->withFragment($expected);
         self::assertEquals($expected, $uri->getFragment());
     }
 
@@ -701,5 +749,84 @@ final class UriTest extends UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         new Uri($invalidUri);
+    }
+
+    /**
+     * These test cases document reported URI parsing inconsistencies from security
+     * researchers at Tsinghua University (reports T9, T10, T13, T18, T24) and prove
+     * that TYPO3's Uri class correctly rejects them via filter_var() validation.
+     *
+     * @return iterable<non-empty-string, array{non-empty-string, non-empty-string}>
+     */
+    public static function securityVulnerabilityClaimsDataProvider(): iterable
+    {
+        // T9 - Invalid IPv6 Format (RFC 2732/3986)
+        yield 'T9a: IPv6-like with domain name and port' => [
+            'http://[0:0::vulndetector.com]:80',
+            'RFC 2732/3986: IPv6 must be valid address only. Domain names in brackets invalid. Filter_var correctly rejects.',
+        ];
+
+        yield 'T9b: IPv6-like with domain name, no port' => [
+            'http://[2001:db8::vulndetector.com]',
+            'RFC 2732/3986: Invalid IPv6 with domain suffix. Filter_var correctly rejects.',
+        ];
+
+        // T10 - IPv6 Zone ID (RFC 6874)
+        yield 'T10: IPv6 Zone ID with %251' => [
+            'http://[fe80::1%251]/',
+            'RFC 6874: Zone ID should decode %25 to %. Filter_var correctly rejects as WHATWG does not support Zone IDs.',
+        ];
+
+        // T13 - Host Resolution Priority (RFC 3986)
+        yield 'T13a: Mixed bracket notation - bracketed IPv4 followed by plain IP' => [
+            'http://[192.168.0.1]127.0.0.1/',
+            'RFC 3986 first-match-wins: Entire host [192.168.0.1]127.0.0.1 is invalid. Filter_var correctly rejects.',
+        ];
+
+        yield 'T13b: Mixed bracket notation - bracketed IPv4 followed by domain name' => [
+            'http://[192.168.0.1]vulndetector.com/',
+            'RFC 3986 first-match-wins: Entire host [192.168.0.1]vulndetector.com/ is invalid. Filter_var correctly rejects.',
+        ];
+
+        yield 'T13c: Mixed bracket notation - plain IP followed by bracketed IP' => [
+            'http://127.0.0.1[192.168.0.1]/',
+            'RFC 3986: Host 127.0.0.1[192.168.0.1] is invalid format. Filter_var correctly rejects.',
+        ];
+
+        // T18 - Multiple Ports (RFC 3986)
+        yield 'T18: Multiple ports separated by colons' => [
+            'http://192.168.1.1:1111:2222/',
+            'RFC 3986: Only one port allowed. Parse_url embeds first port in host, filter_var correctly rejects.',
+        ];
+
+        // T24 - Backslash in Path (RFC 3986)
+        yield 'T24: Backslash in path after domain' => [
+            'http://vulndetector.com\admin\api',
+            'RFC 3986: Backslash not allowed in path. Parse_url treats as host, filter_var correctly rejects.',
+        ];
+    }
+
+    /**
+     * Verify that reported security vulnerability claims are correctly rejected.
+     *
+     * External security researchers reported several URI parsing patterns that could
+     * lead to SSRF, ACL bypass, or open redirect vulnerabilities due to parser
+     * inconsistencies. This test documents those claims and proves that TYPO3's
+     * Uri class correctly rejects all of them.
+     *
+     * The Uri class uses a two-stage validation:
+     * 1. parse_url() for initial parsing (permissive, may parse malformed URLs)
+     * 2. filter_var(FILTER_VALIDATE_URL) for security validation (strict, rejects these)
+     *
+     * @param string $malformedUri The claimed malicious URI pattern
+     * @param string $description Explanation of the vulnerability claim and why it's rejected
+     */
+    #[DataProvider('securityVulnerabilityClaimsDataProvider')]
+    #[Test]
+    public function securityVulnerabilityClaimsAreRejected(string $malformedUri, string $description): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1728057216);
+        new Uri($malformedUri);
     }
 }

@@ -28,18 +28,24 @@ use TYPO3\CMS\Core\Resource\Index\FileIndexRepository;
 use TYPO3\CMS\Core\Resource\Index\MetaDataRepository;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\ProcessedFileRepository;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * The aspect cleans up database records, processed files and file references
+ * Clean up database records, processed files and file references
  *
- * We do not have AOP in TYPO3 for now, thus the aspect which
- * deals with deleted files is a list of PSR-14 event listeners which react on file deletion.
+ * The aspect which deals with deleted files is a list of PSR-14
+ * event listeners which react on file deletion.
  *
  * @internal this is a list of Event Listeners, and not part of TYPO3 Core API.
  */
-final class FileDeletionAspect
+final readonly class FileDeletionAspect
 {
+    public function __construct(
+        private ConnectionPool $connectionPool,
+        private MetaDataRepository $metaDataRepository,
+        private ProcessedFileRepository $processedFileRepository,
+        private FileIndexRepository $fileIndexRepository,
+    ) {}
+
     #[AsEventListener('delete-processed-files-after-add')]
     public function cleanupProcessedFilesPostFileAdd(AfterFileAddedEvent $event): void
     {
@@ -67,25 +73,18 @@ final class FileDeletionAspect
         if ($fileObject instanceof File) {
             $this->cleanupProcessedFiles($fileObject);
             $this->cleanupCategoryReferences($fileObject);
-            $this->getFileIndexRepository()->remove($fileObject->getUid());
-            $this->getMetaDataRepository()->removeByFileUid($fileObject->getUid());
+            $this->fileIndexRepository->remove($fileObject->getUid());
+            $this->metaDataRepository->removeByFileUid($fileObject->getUid());
 
             // remove all references
-            GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_file_reference')
-                ->delete(
-                    'sys_file_reference',
-                    [
-                        'uid_local' => $fileObject->getUid(),
-                    ]
-                );
+            $this->connectionPool->getConnectionForTable('sys_file_reference')->delete(
+                'sys_file_reference',
+                [
+                    'uid_local' => $fileObject->getUid(),
+                ]
+            );
         } elseif ($fileObject instanceof ProcessedFile) {
-            GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_file_processedfile')
-                ->delete(
-                    'sys_file_processedfile',
-                    [
-                        'uid' => $fileObject->getUid(),
-                    ]
-                );
+            $this->processedFileRepository->remove($fileObject);
         }
     }
 
@@ -100,18 +99,17 @@ final class FileDeletionAspect
 
         if ($metaDataUid <= 0) {
             // No metadata record exists for the given file. The file might not
-            // have been indexed or the meta data record was deleted manually.
+            // have been indexed or the metadata record was deleted manually.
             return;
         }
 
-        GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable('sys_category_record_mm')
-            ->delete(
-                'sys_category_record_mm',
-                [
-                    'uid_foreign' => $metaDataUid,
-                    'tablenames' => 'sys_file_metadata',
-                ]
-            );
+        $this->connectionPool->getConnectionForTable('sys_category_record_mm')->delete(
+            'sys_category_record_mm',
+            [
+                'uid_foreign' => $metaDataUid,
+                'tablenames' => 'sys_file_metadata',
+            ]
+        );
     }
 
     /**
@@ -123,27 +121,11 @@ final class FileDeletionAspect
         if (!$fileObject instanceof File) {
             return;
         }
-
-        foreach ($this->getProcessedFileRepository()->findAllByOriginalFile($fileObject) as $processedFile) {
+        foreach ($this->processedFileRepository->findAllByOriginalFile($fileObject) as $processedFile) {
             if ($processedFile->exists()) {
                 $processedFile->delete(true);
             }
             $this->removeFromRepository($processedFile);
         }
-    }
-
-    private function getFileIndexRepository(): FileIndexRepository
-    {
-        return GeneralUtility::makeInstance(FileIndexRepository::class);
-    }
-
-    private function getMetaDataRepository(): MetaDataRepository
-    {
-        return GeneralUtility::makeInstance(MetaDataRepository::class);
-    }
-
-    private function getProcessedFileRepository(): ProcessedFileRepository
-    {
-        return GeneralUtility::makeInstance(ProcessedFileRepository::class);
     }
 }

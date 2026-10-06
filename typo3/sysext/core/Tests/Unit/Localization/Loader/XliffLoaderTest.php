@@ -17,16 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Localization\Loader;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Localization\Loader\XliffLoader;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class XliffLoaderTest extends UnitTestCase
 {
     public static function canLoadXliffDataProvider(): \Generator
     {
-        yield 'Can load default language' => [
+        yield 'Can load default language (XLIFF 1.2)' => [
             'languageKey' => 'en',
             'fixture' => 'locallang.xlf',
             'expectedMessages' => [
@@ -36,7 +39,7 @@ final class XliffLoaderTest extends UnitTestCase
             ],
             'requireApprovedLocalizations' => false,
         ];
-        yield 'Can load French translation with approved only' => [
+        yield 'Can load French translation with approved only (XLIFF 1.2)' => [
             'languageKey' => 'fr',
             'fixture' => 'fr.locallang.xlf',
             'expectedMessages' => [
@@ -45,13 +48,113 @@ final class XliffLoaderTest extends UnitTestCase
             ],
             'requireApprovedLocalizations' => true,
         ];
-        yield 'Can load French translation with non-approved' => [
+        yield 'Can load French translation with non-approved (XLIFF 1.2)' => [
             'languageKey' => 'fr',
             'fixture' => 'fr.locallang.xlf',
             'expectedMessages' => [
                 'label1' => 'Ceci est le libellé no. 1',
                 'label2' => 'Ceci est le libellé no. 2 [approved]',
-                'label3' => 'Ceci est le libellé no. 3 [not approved]',
+                'label3' => 'Voici la libellule n° 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load default language (XLIFF 2.0)' => [
+            'languageKey' => 'en',
+            'fixture' => 'locallang-v2.xlf',
+            'expectedMessages' => [
+                'label1' => 'This is label #1',
+                'label2' => 'This is label #2',
+                'label3' => 'This is label #3',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load French translation with approved only (XLIFF 2.0)' => [
+            'languageKey' => 'fr',
+            'fixture' => 'fr.locallang-v2.xlf',
+            'expectedMessages' => [
+                'label1' => 'Ceci est le libellé no. 1',
+                'label2' => 'Ceci est le libellé no. 2 [approved]',
+            ],
+            'requireApprovedLocalizations' => true,
+        ];
+        yield 'Can load French translation with non-approved (XLIFF 2.0)' => [
+            'languageKey' => 'fr',
+            'fixture' => 'fr.locallang-v2.xlf',
+            'expectedMessages' => [
+                'label1' => 'Ceci est le libellé no. 1',
+                'label2' => 'Ceci est le libellé no. 2 [approved]',
+                'label3' => 'Voici la libellule n° 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load German translation with approved only (XLIFF 2.0)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+            ],
+            'requireApprovedLocalizations' => true,
+        ];
+        yield 'Can load German translation with non-approved (XLIFF 2.0)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+                'label3' => 'Das ist Kennung Nummer 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load German translation without trgLang attribute having source tags only and approved only (XLIFF 2.0)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2--original_without_targets.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+                /*
+                 * @todo: For "original XLIFF" files without "trgLang" attribute and with "source" tags only:
+                 *        There is no concept of "translation approval" by unit in place. Remove following line, when implemented.
+                 */
+                'label3' => 'Das ist Kennung Nummer 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => true,
+        ];
+        yield 'Can load German translation without trgLang attribute having source tags only and non-approved (XLIFF 2.0)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2--original_without_targets.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+                'label3' => 'Das ist Kennung Nummer 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load German translation with trgLang attribute having target tags only and approved only (XLIFF 2.0 - invalid)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2--invalid_without_sources.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+            ],
+            'requireApprovedLocalizations' => true,
+        ];
+        yield 'Can load German translation with trgLang attribute having target tags only and non-approved (XLIFF 2.0 - invalid)' => [
+            'languageKey' => 'de',
+            'fixture' => 'de.locallang-v2--invalid_without_sources.xlf',
+            'expectedMessages' => [
+                'label1' => 'Das ist Kennung Nummer 1',
+                'label2' => 'Das ist Kennung Nummer 2 [approved]',
+                'label3' => 'Das ist Kennung Nummer 3 [not approved]',
+            ],
+            'requireApprovedLocalizations' => false,
+        ];
+        yield 'Can load default language (XLIFF 2.1)' => [
+            'languageKey' => 'en',
+            'fixture' => 'locallang-v21.xlf',
+            'expectedMessages' => [
+                'label1' => 'This is label #1',
+                'label2' => 'This is label #2',
             ],
             'requireApprovedLocalizations' => false,
         ];
@@ -96,16 +199,12 @@ final class XliffLoaderTest extends UnitTestCase
     {
         $this->expectException(\TYPO3\CMS\Core\Localization\Exception\InvalidXmlFileException::class);
 
-        // Create a temporary invalid XML file
-        $tempFile = tempnam(sys_get_temp_dir(), 'invalid_xlf_');
+        $tempFile = GeneralUtility::tempnam('invalid_xlf_');
+        $this->testFilesToDelete[] = $tempFile;
         file_put_contents($tempFile, '<?xml version="1.0"?><invalid><unclosed>');
 
-        try {
-            $subject = new XliffLoader();
-            $subject->load($tempFile, 'en');
-        } finally {
-            unlink($tempFile);
-        }
+        $subject = new XliffLoader();
+        $subject->load($tempFile, 'en');
     }
 
     #[Test]
@@ -117,7 +216,22 @@ final class XliffLoaderTest extends UnitTestCase
 
         $messages = $catalogue->all('messages');
 
-        // For default language, source should be used as target
+        // For default language file without target-language attribute having source tags only, source should be used as "target".
+        self::assertEquals('This is label #1', $messages['label1']);
+        self::assertEquals('This is label #2', $messages['label2']);
+        self::assertEquals('This is label #3', $messages['label3']);
+    }
+
+    #[Test]
+    public function canHandleDefaultLanguageWithDefaultLanguageFileBasedOnNonEnglishWithTargets(): void
+    {
+        $fixturePath = __DIR__ . '/Fixtures/locallang--based_on_non_english_with_targets.xlf';
+        $subject = new XliffLoader();
+        $catalogue = $subject->load($fixturePath, 'en');
+
+        $messages = $catalogue->all('messages');
+
+        // For default language file with target-language attribute having source and target tags, target should be used as "target".
         self::assertEquals('This is label #1', $messages['label1']);
         self::assertEquals('This is label #2', $messages['label2']);
         self::assertEquals('This is label #3', $messages['label3']);
@@ -138,5 +252,77 @@ final class XliffLoaderTest extends UnitTestCase
         self::assertArrayHasKey('label1', $messages);
         self::assertArrayHasKey('label2', $messages);
         self::assertArrayNotHasKey('label3', $messages); // explicitly not approved
+    }
+
+    /**
+     * @see https://forge.typo3.org/issues/70867
+     */
+    #[Test]
+    public function normalizesWhitespaceWithoutXmlSpacePreserve(): void
+    {
+        $fixturePath = __DIR__ . '/Fixtures/locallang-whitespace.xlf';
+        $subject = new XliffLoader();
+        $catalogue = $subject->load($fixturePath, 'en');
+
+        $messages = $catalogue->all('messages');
+
+        // Without xml:space="preserve", whitespace should be normalized
+        self::assertEquals('This is a multi-line string.', $messages['multiline.default']);
+        self::assertEquals('Multiple spaces here', $messages['spaces.default']);
+        self::assertEquals('Indented text with multiple lines and extra spaces', $messages['mixed.default']);
+    }
+
+    /**
+     * @see https://forge.typo3.org/issues/70867
+     */
+    #[Test]
+    public function preservesWhitespaceWithXmlSpacePreserve(): void
+    {
+        $fixturePath = __DIR__ . '/Fixtures/locallang-whitespace.xlf';
+        $subject = new XliffLoader();
+        $catalogue = $subject->load($fixturePath, 'en');
+
+        $messages = $catalogue->all('messages');
+
+        // With xml:space="preserve", whitespace should be kept as-is
+        self::assertEquals("This is a\n        multi-line\n        string.", $messages['multiline.preserve']);
+        self::assertEquals('Multiple   spaces   here', $messages['spaces.preserve']);
+        self::assertEquals("\n          Indented text\n          with multiple lines\n          and   extra   spaces\n        ", $messages['mixed.preserve']);
+    }
+
+    /**
+     * @see https://forge.typo3.org/issues/70867
+     */
+    #[Test]
+    public function normalizesWhitespaceWithoutXmlSpacePreserveXliff2(): void
+    {
+        $fixturePath = __DIR__ . '/Fixtures/locallang-whitespace-v2.xlf';
+        $subject = new XliffLoader();
+        $catalogue = $subject->load($fixturePath, 'en');
+
+        $messages = $catalogue->all('messages');
+
+        // Without xml:space="preserve", whitespace should be normalized
+        self::assertEquals('This is a multi-line string.', $messages['multiline.default']);
+        self::assertEquals('Multiple spaces here', $messages['spaces.default']);
+        self::assertEquals('Indented text with multiple lines and extra spaces', $messages['mixed.default']);
+    }
+
+    /**
+     * @see https://forge.typo3.org/issues/70867
+     */
+    #[Test]
+    public function preservesWhitespaceWithXmlSpacePreserveXliff2(): void
+    {
+        $fixturePath = __DIR__ . '/Fixtures/locallang-whitespace-v2.xlf';
+        $subject = new XliffLoader();
+        $catalogue = $subject->load($fixturePath, 'en');
+
+        $messages = $catalogue->all('messages');
+
+        // With xml:space="preserve", whitespace should be kept as-is
+        self::assertEquals("This is a\n        multi-line\n        string.", $messages['multiline.preserve']);
+        self::assertEquals('Multiple   spaces   here', $messages['spaces.preserve']);
+        self::assertEquals("\n          Indented text\n          with multiple lines\n          and   extra   spaces\n        ", $messages['mixed.preserve']);
     }
 }

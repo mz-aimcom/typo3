@@ -28,6 +28,7 @@ use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationOriginType;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Scope;
 use TYPO3\CMS\Core\Site\Set\InvalidCategoryDefinitionsException;
 use TYPO3\CMS\Core\Site\Set\InvalidSetException;
+use TYPO3\CMS\Core\Site\Set\InvalidSetRouteEnhancersException;
 use TYPO3\CMS\Core\Site\Set\InvalidSettingsDefinitionsException;
 use TYPO3\CMS\Core\Site\Set\InvalidSettingsException;
 use TYPO3\CMS\Core\Site\Set\SetCollector;
@@ -65,8 +66,34 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
             'backend.modules' => [ static::class, 'configureBackendModules' ],
             'content.security.policies' => [ static::class, 'configureContentSecurityPolicies' ],
             'icons' => [ static::class, 'configureIcons' ],
+            'fluid.namespaces' => [ static::class, 'configureFluidNamespaces' ],
+            'fluid.component.collections' => [ static::class, 'configureFluidComponentCollections' ],
             SetCollector::class => [ static::class, 'configureSetCollector' ],
         ];
+    }
+
+    public static function configureFluidNamespaces(ContainerInterface $container, \ArrayObject $namespaces, ?string $path = null): \ArrayObject
+    {
+        $packageConfiguration = ($path ?? static::getPackagePath()) . 'Configuration/Fluid/Namespaces.php';
+        if (file_exists($packageConfiguration)) {
+            $namespacesInPackage = self::requireFile($packageConfiguration);
+            if (is_array($namespacesInPackage)) {
+                $namespaces->exchangeArray(array_merge_recursive($namespaces->getArrayCopy(), $namespacesInPackage));
+            }
+        }
+        return $namespaces;
+    }
+
+    public static function configureFluidComponentCollections(ContainerInterface $container, \ArrayObject $componentCollections, ?string $path = null): \ArrayObject
+    {
+        $packageConfiguration = ($path ?? static::getPackagePath()) . 'Configuration/Fluid/ComponentCollections.php';
+        if (file_exists($packageConfiguration)) {
+            $componentCollectionsInPackage = self::requireFile($packageConfiguration);
+            if (is_array($componentCollectionsInPackage)) {
+                $componentCollections->exchangeArray(array_replace_recursive($componentCollections->getArrayCopy(), $componentCollectionsInPackage));
+            }
+        }
+        return $componentCollections;
     }
 
     /**
@@ -221,6 +248,10 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
                     'error' => SetError::invalidSettings,
                     'logLine' => 'Set {setName} invalidated {file} because of invalid settings.yaml: {reason}',
                 ],
+                InvalidSetRouteEnhancersException::class => [
+                    'error' => SetError::invalidRouteEnhancers,
+                    'logLine' => 'Set {setName} invalidated {file} because of invalid route-enhancers.yaml: {reason}',
+                ],
                 InvalidSetException::class => [
                     'error' => SetError::invalidSet,
                     'logLine' => 'Invalid set {setName} in {file}: {reason}',
@@ -230,7 +261,7 @@ abstract class AbstractServiceProvider implements ServiceProviderInterface
             try {
                 $virtualSetPath = 'EXT:' . $extensionKey . '/Configuration/Sets/' . basename(dirname($fileInfo->getPathname())) . '/';
                 $setCollector->add($setProvider->get($fileInfo, $virtualSetPath));
-            } catch (InvalidSettingsDefinitionsException|InvalidCategoryDefinitionsException|InvalidSettingsException|InvalidSetException $e) {
+            } catch (InvalidSettingsDefinitionsException|InvalidCategoryDefinitionsException|InvalidSettingsException|InvalidSetRouteEnhancersException|InvalidSetException $e) {
                 $errorDetails = $errorMap[get_class($e)];
                 $setCollector->addError(
                     $errorDetails['error'],

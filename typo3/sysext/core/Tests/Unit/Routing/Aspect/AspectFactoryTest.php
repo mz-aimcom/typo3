@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Routing\Aspect;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Routing\Aspect\AspectFactory;
@@ -26,14 +27,15 @@ use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class AspectFactoryTest extends UnitTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['routing']['aspects'] = [
-            'Persisted' => get_class($this->createMock(PersistedMappableAspectInterface::class)),
-            'Aspect' => get_class($this->createMock(AspectInterface::class)),
+            'Persisted' => get_class(self::createStub(PersistedMappableAspectInterface::class)),
+            'Aspect' => get_class(self::createStub(AspectInterface::class)),
         ];
     }
 
@@ -45,8 +47,8 @@ final class AspectFactoryTest extends UnitTestCase
         $this->expectExceptionCode(1538079481);
         $aspectFactory->createAspects(
             ['a' => []],
-            $this->createMock(SiteLanguage::class),
-            $this->createMock(Site::class)
+            self::createStub(SiteLanguage::class),
+            self::createStub(Site::class)
         );
     }
 
@@ -58,8 +60,8 @@ final class AspectFactoryTest extends UnitTestCase
         $this->expectExceptionCode(1538079482);
         $aspectFactory->createAspects(
             ['a' => ['type' => 'Undefined']],
-            $this->createMock(SiteLanguage::class),
-            $this->createMock(Site::class)
+            self::createStub(SiteLanguage::class),
+            self::createStub(Site::class)
         );
     }
 
@@ -133,8 +135,8 @@ final class AspectFactoryTest extends UnitTestCase
         $aspectFactory = new AspectFactory();
         $aspects = $aspectFactory->createAspects(
             $settings,
-            $this->createMock(SiteLanguage::class),
-            $this->createMock(Site::class)
+            self::createStub(SiteLanguage::class),
+            self::createStub(Site::class)
         );
         self::assertSame(array_keys($aspects), array_keys($expectation));
         array_walk($aspects, static function ($aspect, $key) use ($expectation) {

@@ -23,7 +23,6 @@ use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Message\UriInterface;
 use Symfony\Component\DependencyInjection\Attribute\AsAlias;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Class to create ServerRequest objects
@@ -33,7 +32,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal Note that this is not public API yet.
  */
 #[AsAlias(ServerRequestFactoryInterface::class, public: true)]
-class ServerRequestFactory implements ServerRequestFactoryInterface
+readonly class ServerRequestFactory implements ServerRequestFactoryInterface
 {
     /**
      * Create a new server request.
@@ -65,12 +64,19 @@ class ServerRequestFactory implements ServerRequestFactoryInterface
 
         $method = $serverParameters['REQUEST_METHOD'] ?? 'GET';
         try {
-            $uri = new Uri(GeneralUtility::getIndpEnv('TYPO3_REQUEST_URL'));
+            // Note an early middleware creates NormalizedParams again to attach it as request attribute.
+            // Doing this twice per request is considered ok for now since NormalizedParams is constructed
+            // quite quickly with just a few string operations in it. We also may not want ot attach NormalizedParams
+            // as request attribute here already to not 'pollute' ServerRequest early. Another option is to
+            // hand over NormalizedParams to this method and have callers handle the decision if the attribute
+            // is attached as request attribute on their own.
+            $uri = new Uri(NormalizedParams::createFromServerParams($serverParameters)->getRequestUrl());
         } catch (\InvalidArgumentException $e) {
             if (Environment::isCli()) {
                 throw new InvalidRequestUrlOnCliException(
                     'Usage of ' . __METHOD__ . ' on CLI is discouraged. In case you rely on the method, you have to fake a valid request URL using $_SERVER.',
-                    1701105725
+                    1701105725,
+                    $e,
                 );
             }
             throw $e;
@@ -91,7 +97,7 @@ class ServerRequestFactory implements ServerRequestFactoryInterface
             $request = $request->withQueryParams($_GET);
         }
         $parsedBody = $_POST;
-        if (empty($parsedBody) && in_array($method, ['PUT', 'PATCH', 'DELETE'])) {
+        if (empty($parsedBody) && in_array($method, ['PUT', 'PATCH', 'DELETE', 'QUERY'])) {
             parse_str((string)file_get_contents('php://input'), $parsedBody);
         }
         if (!empty($parsedBody)) {
@@ -117,7 +123,7 @@ class ServerRequestFactory implements ServerRequestFactoryInterface
                 // Cookies are handled using the $_COOKIE superglobal
                 continue;
             }
-            if (!empty($value)) {
+            if ($value !== '') {
                 if (str_starts_with($key, 'HTTP_')) {
                     $name = str_replace('_', ' ', substr($key, 5));
                     $name = str_replace(' ', '-', ucwords(strtolower($name)));

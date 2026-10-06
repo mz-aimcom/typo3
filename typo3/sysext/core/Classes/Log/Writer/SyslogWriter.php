@@ -71,10 +71,7 @@ class SyslogWriter extends AbstractWriter
             $this->facilities['local7'] = LOG_LOCAL7;
         }
         parent::__construct($options);
-        if (!openlog('TYPO3', LOG_ODELAY | LOG_PID, $this->facility)) {
-            $facilityName = array_search($this->facility, $this->facilities);
-            throw new \RuntimeException('Could not open syslog for facility ' . $facilityName, 1321722682);
-        }
+        openlog('TYPO3', LOG_ODELAY | LOG_PID, $this->facility);
     }
 
     /**
@@ -126,15 +123,11 @@ class SyslogWriter extends AbstractWriter
     /**
      * Writes the log record to syslog
      *
-     * @param LogRecord $record Log record
      * @return \TYPO3\CMS\Core\Log\Writer\WriterInterface
-     * @throws \RuntimeException
      */
     public function writeLog(LogRecord $record)
     {
-        if (syslog(LogLevel::normalizeLevel($record->getLevel()), $this->getMessageForSyslog($record)) === false) {
-            throw new \RuntimeException('Could not write log record to syslog', 1345036337);
-        }
+        syslog(LogLevel::normalizeLevel($record->getLevel()), $this->getMessageForSyslog($record));
         return $this;
     }
 }

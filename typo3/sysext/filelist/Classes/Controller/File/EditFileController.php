@@ -22,16 +22,16 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Form\FormResultCompiler;
+use TYPO3\CMS\Backend\Form\FormResultFactory;
+use TYPO3\CMS\Backend\Form\FormResultHandler;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
-use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Http\ResponseFactory;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFileAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Exception\InvalidFileException;
@@ -105,6 +105,9 @@ class EditFileController
         protected readonly StreamFactoryInterface $streamFactory,
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly NodeFactory $nodeFactory,
+        protected readonly ComponentFactory $componentFactory,
+        protected readonly FormResultFactory $formResultFactory,
+        protected readonly FormResultHandler $formResultHandler,
     ) {}
 
     /**
@@ -135,7 +138,8 @@ class EditFileController
             ?? $queryParams['returnUrl']
             ?? (string)$this->uriBuilder->buildUriFromRoute('media_management', [
                 'id' => $parentFolder->getCombinedIdentifier(),
-            ])
+            ]),
+            $request
         );
 
         if (!$file->isTextFile()) {
@@ -152,7 +156,7 @@ class EditFileController
         $formData = $this->formEngineData;
         $formData['databaseRow']['data'] = $file->getContents();
         $formData['databaseRow']['target'] = $file->getUid();
-        $formData['databaseRow']['redirect'] = (string)$this->uriBuilder->buildUriFromRoute('file_edit', ['target' => $combinedIdentifier]);
+        $formData['databaseRow']['redirect'] = (string)$this->uriBuilder->buildUriFromRoute('file_edit', ['target' => $combinedIdentifier, 'returnUrl' => $returnUrl]);
         $formData['processedTca']['columns']['data'] = $dataColumnDefinition;
 
         $formData = $this->eventDispatcher->dispatch(
@@ -160,14 +164,14 @@ class EditFileController
         )->getFormData();
 
         $resultArray = $this->nodeFactory->create($formData)->render();
-        $formResultCompiler = GeneralUtility::makeInstance(FormResultCompiler::class);
-        $formResultCompiler->mergeResult($resultArray);
+        $formResult = $this->formResultFactory->create($resultArray);
 
-        // Rendering of the output via fluid
+        $this->formResultHandler->addAssets($formResult);
+        // Rendering of the output via fluid and PageRenderer
         $view->assignMultiple([
             'moduleUrlTceFile' => (string)$this->uriBuilder->buildUriFromRoute('tce_file'),
             'fileName' => $file->getName(),
-            'form' => $formResultCompiler->addCssFiles() . ($resultArray['html'] ?? '') . $formResultCompiler->printNeededJSFunctions(),
+            'form' => $formResult->html,
         ]);
         $content = $view->render('File/EditFile');
 
@@ -179,34 +183,17 @@ class EditFileController
     protected function addDocHeaderButtons(ModuleTemplate $view, string $returnUrl): void
     {
         $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-
-        // Save button
-        $saveButton = $buttonBar->makeInputButton()
-            ->setName('_save')
-            ->setValue('1')
-            ->setForm('EditFileController')
-            ->setShowLabelText(true)
-            ->setTitle($languageService->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:file_edit.php.submit'))
-            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL));
-        $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 20);
-
-        // Cancel button
-        $closeButton = $buttonBar->makeLinkButton()
-            ->setShowLabelText(true)
-            ->setHref($returnUrl)
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.cancel'))
-            ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-        $buttonBar->addButton($closeButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
+        $view->addButtonToButtonBar(
+            $this->componentFactory->createSaveButton('EditFileController')
+                ->setTitle($languageService->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:file_edit.php.submit')),
+            ButtonBar::BUTTON_POSITION_LEFT,
+            20
+        );
+        $view->addButtonToButtonBar($this->componentFactory->createCloseButton($returnUrl), ButtonBar::BUTTON_POSITION_LEFT, 10);
     }
 
     protected function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
-    }
-
-    protected function getBackendUser(): BackendUserAuthentication
-    {
-        return $GLOBALS['BE_USER'];
     }
 }

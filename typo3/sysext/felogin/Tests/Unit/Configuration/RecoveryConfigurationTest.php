@@ -17,14 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\FrontendLogin\Tests\Unit\Configuration;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use Symfony\Component\Mime\Address;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\DateTimeAspect;
-use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManager;
@@ -32,11 +30,12 @@ use TYPO3\CMS\FrontendLogin\Configuration\IncompleteConfigurationException;
 use TYPO3\CMS\FrontendLogin\Configuration\RecoveryConfiguration;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class RecoveryConfigurationTest extends UnitTestCase
 {
-    protected MockObject&ConfigurationManager $configurationManager;
+    private MockObject&ConfigurationManager $configurationManager;
 
-    protected array $settings = [
+    private array $settings = [
         'email_from' => 'example@example.com',
         'email_fromName' => 'TYPO3 Installation',
         'email' => [
@@ -49,24 +48,22 @@ final class RecoveryConfigurationTest extends UnitTestCase
         'replyTo' => '',
     ];
 
-    protected RecoveryConfiguration $subject;
-    protected LoggerInterface $logger;
+    private RecoveryConfiguration $subject;
 
     protected function setUp(): void
     {
         $this->configurationManager = $this->getMockBuilder(ConfigurationManager::class)->disableOriginalConstructor()->getMock();
-        $this->logger = new NullLogger();
 
         parent::setUp();
     }
 
-    protected function setupSubject(?Context $context = null): void
+    private function setupSubject(?Context $context = null): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'bar';
 
         $context ??= new Context();
 
-        $this->configurationManager->method('getConfiguration')->with(ConfigurationManager::CONFIGURATION_TYPE_SETTINGS)
+        $this->configurationManager->expects($this->atLeastOnce())->method('getConfiguration')->with(ConfigurationManager::CONFIGURATION_TYPE_SETTINGS)
             ->willReturn($this->settings);
 
         $this->subject = new RecoveryConfiguration(
@@ -75,8 +72,6 @@ final class RecoveryConfigurationTest extends UnitTestCase
             new Random(),
             new HashService()
         );
-
-        $this->subject->setLogger($this->logger);
     }
 
     #[Test]
@@ -178,44 +173,6 @@ final class RecoveryConfigurationTest extends UnitTestCase
         $this->setupSubject();
 
         self::assertNull($this->subject->getReplyTo());
-    }
-
-    #[Test]
-    public function getMailTemplatePathsReturnsAnInstanceOfTemplatePathsObjectWithConfigurationOfTypoScript(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'] = [
-            0 => 'EXT:core/Resources/Private/Templates/',
-            10 => 'EXT:backend/Resources/Private/Templates/',
-        ];
-        $this->setupSubject();
-        $actualTemplatePaths = $this->subject->getMailTemplatePaths();
-        self::assertSame(
-            [
-                0 => Environment::getPublicPath() . '/typo3/sysext/core/Resources/Private/Templates/',
-                10 => Environment::getPublicPath() . '/typo3/sysext/backend/Resources/Private/Templates/',
-                20 => '/some/path/to/a/template/folder/',
-            ],
-            $actualTemplatePaths->getTemplateRootPaths()
-        );
-    }
-
-    #[Test]
-    public function getMailTemplatePathsReplacesTemplatePathsWithPathsConfiguredInTypoScript(): void
-    {
-        $GLOBALS['TYPO3_CONF_VARS']['MAIL']['templateRootPaths'] = [
-            0 => 'EXT:core/Resources/Private/Templates/',
-            10 => 'EXT:backend/Resources/Private/Templates/',
-        ];
-        $this->settings['email']['templateRootPaths'] = [10 => '/some/path/to/a/template/folder/'];
-        $this->setupSubject();
-        $actualTemplatePaths = $this->subject->getMailTemplatePaths();
-        self::assertSame(
-            [
-                0 => Environment::getPublicPath() . '/typo3/sysext/core/Resources/Private/Templates/',
-                10 => '/some/path/to/a/template/folder/',
-            ],
-            $actualTemplatePaths->getTemplateRootPaths()
-        );
     }
 
     #[Test]

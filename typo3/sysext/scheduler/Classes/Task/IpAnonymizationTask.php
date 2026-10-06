@@ -29,8 +29,10 @@ use TYPO3\CMS\Core\Utility\IpAnonymizationUtility;
  * This task anonymizes IP addresses in tables older than the given number of days.
  *
  * Available tables must be registered in
- * $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['scheduler']['tasks'][\TYPO3\CMS\Scheduler\Task\IpAnonymizationTask::class]['options']['tables']
- * See ext_localconf.php of scheduler extension for an example
+ * $GLOBALS['TCA']['tx_scheduler_task']['types'][\TYPO3\CMS\Scheduler\Task\IpAnonymizationTask::class]['taskOptions']['tables']
+ *
+ * See scheduler_ip_anonymization_task.php of scheduler extension for an example.
+ *
  * @internal This class is a specific scheduler task implementation is not considered part of the Public TYPO3 API.
  */
 class IpAnonymizationTask extends AbstractTask
@@ -176,7 +178,11 @@ class IpAnonymizationTask extends AbstractTask
 
         $tableConfigurationFromConfVars = $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['scheduler']['tasks'][self::class]['options']['tables'] ?? [];
         if (!empty($tableConfigurationFromConfVars)) {
-            trigger_error('Usage of $GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'scheduler\'][\'tasks\'][' . self::class . '][\'options\'][\'tables\'] to define table options is deprecated and will stop working in TYPO3 v15. Use $tca[\'tx_scheduler_task\'][\'types\'][' . self::class . '][\'taskOptions\'][\'tables\'] instead.', E_USER_DEPRECATED);
+            // @deprecated will be removed in v16: this SC_OPTIONS fallback is intentionally
+            //             kept beyond v15 because SC_OPTIONS-based scheduler task registration
+            //             is still read in TaskService::getAvailableTaskTypes() to keep legacy
+            //             (non-native) tasks migratable. Remove together with that support.
+            trigger_error('Usage of $GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'scheduler\'][\'tasks\'][' . self::class . '][\'options\'][\'tables\'] to define table options is deprecated and will stop working in TYPO3 v16. Use $tca[\'tx_scheduler_task\'][\'types\'][' . self::class . '][\'taskOptions\'][\'tables\'] instead.', E_USER_DEPRECATED);
             if (is_array($tableConfigurationFromConfVars)) {
                 $tableConfiguration = array_replace_recursive($tableConfiguration, $tableConfigurationFromConfVars);
             }

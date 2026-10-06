@@ -16,14 +16,14 @@
 namespace TYPO3\CMS\Backend\Routing;
 
 use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\Routing\Matcher\UrlMatcher;
 use Symfony\Component\Routing\Route as SymfonyRoute;
-use TYPO3\CMS\Backend\Routing\Exception\MethodNotAllowedException;
 use TYPO3\CMS\Backend\Routing\Exception\ResourceNotFoundException;
+use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
 use TYPO3\CMS\Core\Routing\RequestContextFactory;
 use TYPO3\CMS\Core\Routing\RouteCollection;
-use TYPO3\CMS\Core\SingletonInterface;
 
 /**
  * Implementation of a class for adding routes, collecting throughout the Bootstrap
@@ -36,7 +36,11 @@ use TYPO3\CMS\Core\SingletonInterface;
  *
  * The architecture is inspired by the Symfony Routing Component.
  */
-class Router implements SingletonInterface
+#[Autoconfigure(
+    public: true,
+    configurator: '@' . RouterConfigurator::class,
+)]
+class Router
 {
     /**
      * All routes used in the TYPO3 Backend
@@ -55,12 +59,29 @@ class Router implements SingletonInterface
      */
     public function addRoute(string $routeIdentifier, Route $route, array $aliases = []): void
     {
+        $route = $this->migrateLegacyAccess($routeIdentifier, $route);
         $symfonyRoute = new SymfonyRoute($route->getPath(), [], [], $route->getOptions());
         $symfonyRoute->setMethods($route->getMethods());
         $this->routeCollection->add($routeIdentifier, $symfonyRoute);
         foreach ($aliases as $aliasName) {
             $this->routeCollection->addAlias($aliasName, $routeIdentifier);
         }
+    }
+
+    /**
+     * Migrates the legacy route access "public", which only omitted the request token.
+     */
+    private function migrateLegacyAccess(string $routeIdentifier, Route $route): Route
+    {
+        if ($route->getOption('module') === null && $route->getOption('access') === RouteAccess::LEGACY_PUBLIC) {
+            trigger_error(
+                'The route access "public" of the backend route "' . $routeIdentifier . '" has been deprecated in TYPO3 v15 and will be removed in TYPO3 v16.'
+                . ' Use "anonymous" to allow access without a backend user or "authenticated-without-token" to only omit the request token.',
+                E_USER_DEPRECATED
+            );
+            $route->setOption('access', RouteAccess::AuthenticatedWithoutToken->value);
+        }
+        return $route;
     }
 
     public function addRouteCollection(RouteCollection $routeCollection): void
@@ -71,10 +92,8 @@ class Router implements SingletonInterface
     /**
      * Fetch all registered routes, only use in UriBuilder. Does not care about aliases,
      * so be careful with using this method.
-     *
-     * @return Route[]
      */
-    public function getRoutes(): iterable
+    public function getRoutes(): \Iterator
     {
         return $this->routeCollection->getIterator();
     }
@@ -114,10 +133,7 @@ class Router implements SingletonInterface
         foreach ($this->routeCollection->getIterator() as $routeIdentifier => $route) {
             // This check is done in a simple way as there are no parameters yet (get parameters only)
             if ($route->getPath() === $pathInfo) {
-                $routeResult = new Route($route->getPath(), $route->getOptions());
-                // Store the name of the Route in the _identifier option so the token can be checked against that
-                $routeResult->setOption('_identifier', $routeIdentifier);
-                return $routeResult;
+                return Route::fromSymfonyRoute($route, $routeIdentifier);
             }
         }
 
@@ -141,25 +157,17 @@ class Router implements SingletonInterface
         }
         $requestContext = $this->requestContextFactory->fromBackendRequest($request);
         try {
-            $result = (new UrlMatcher($this->routeCollection, $requestContext))->match($path);
+            $result = new UrlMatcher($this->routeCollection, $requestContext)->match($path);
             $matchedSymfonyRoute = $this->routeCollection->get($result['_route']);
             if ($matchedSymfonyRoute === null) {
                 throw new ResourceNotFoundException('The requested resource "' . $path . '" was not found.', 1607596900);
             }
         } catch (\Symfony\Component\Routing\Exception\MethodNotAllowedException $e) {
-            throw new MethodNotAllowedException($e->getMessage(), 1612649842);
+            throw new MethodNotAllowedException($e->getAllowedMethods(), 1612649842, $e);
         } catch (\Symfony\Component\Routing\Exception\ResourceNotFoundException $e) {
             throw new ResourceNotFoundException('The requested resource "' . $path . '" was not found.', 1612649840);
         }
-        // Apply matched method to route
-        $matchedOptions = $matchedSymfonyRoute->getOptions();
-        $methods = $matchedOptions['methods'] ?? [];
-        unset($matchedOptions['methods']);
-        $route = new Route($matchedSymfonyRoute->getPath(), $matchedOptions);
-        if (count($methods) > 0) {
-            $route->setMethods($methods);
-        }
-        $route->setOption('_identifier', $result['_route']);
+        $route = Route::fromSymfonyRoute($matchedSymfonyRoute, $result['_route']);
         unset($result['_route']);
         return new RouteResult($route, $result);
     }

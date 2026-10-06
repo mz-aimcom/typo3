@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
+  <file source-language="en" datatype="plaintext" original="EXT:reactions/Resources/Private/Language/module.xlf" date="2025-10-20T12:00:00Z" product-name="reactions">
+    <header/>
+    <body>
+      <trans-unit id="title">
+        <source>Reactions</source>
+      </trans-unit>
+      <trans-unit id="short_description">
+        <source>Manage incoming HTTP webhooks to external system</source>
+      </trans-unit>
+      <trans-unit id="description">
+        <source>Configure secure endpoints that allow external services to trigger actions in TYPO3. Respond to webhooks from GitHub, payment providers, form services, and other platforms to automate workflows.</source>
+      </trans-unit>
+      <trans-unit id="heading_text">
+        <source>Reactions — Manage Incoming HTTP Webhooks</source>
+      </trans-unit>
+      <trans-unit id="reaction_not_found.title">
+        <source>No reactions found!</source>
+      </trans-unit>
+      <trans-unit id="reaction_not_found.message">
+        <source>There are currently no reaction records found in the database.</source>
+      </trans-unit>
+      <trans-unit id="reaction_create">
+        <source>Create new reaction</source>
+      </trans-unit>
+      <trans-unit id="reaction_not_found_with_filter.title">
+        <source>No reactions found</source>
+      </trans-unit>
+      <trans-unit id="reaction_not_found_with_filter.message">
+        <source>With the current set of filters applied, no reactions could be found.</source>
+      </trans-unit>
+      <trans-unit id="reaction_no_filter">
+        <source>Remove all filter</source>
+      </trans-unit>
+      <trans-unit id="reaction_no_implementation_class">
+        <source>Implementation class for reaction type "%s" is missing.</source>
+      </trans-unit>
+      <trans-unit id="reaction_example">
+        <source>Example</source>
+      </trans-unit>
+      <trans-unit id="reaction_try_out">
+        <source>Try Out</source>
+      </trans-unit>
+      <trans-unit id="reaction_try_out_title">
+        <source>Try Out: %s</source>
+      </trans-unit>
+      <trans-unit id="reaction_example_hint">
+        <source>Send this request from an external system. Replace the placeholder with the secret of the reaction and customize the field values.</source>
+      </trans-unit>
+      <trans-unit id="reaction_example_copy">
+        <source>Copy example</source>
+      </trans-unit>
+      <trans-unit id="dry_run">
+        <source>Dry run</source>
+      </trans-unit>
+      <trans-unit id="dry_run_hint">
+        <source>Resolves a payload against the field map as the user this reaction impersonates. No record is written and the secret is not checked. The target table may still reject a value when the record is actually written.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_error">
+        <source>The dry run could not be resolved.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_payload">
+        <source>Payload</source>
+      </trans-unit>
+      <trans-unit id="dry_run_submit">
+        <source>Execute dry run</source>
+      </trans-unit>
+      <trans-unit id="dry_run_invalid_json">
+        <source>The payload is not a JSON object. The endpoint treats such a request as an empty payload.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_no_record">
+        <source>No record would be created</source>
+      </trans-unit>
+      <trans-unit id="dry_run_record">
+        <source>A record would be created in table "%1$s" on page %2$s, as user "%3$s".</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.disabled">
+        <source>The reaction is disabled, so the endpoint rejects every request.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.scheduled">
+        <source>The reaction is not active yet, so the endpoint rejects every request until its start date.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.expired">
+        <source>The reaction has expired, so the endpoint rejects every request.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.noUser">
+        <source>The reaction impersonates no backend user, or one that is disabled or deleted, so there is nobody to write the record as.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.tableNotPermitted">
+        <source>The impersonated user may not modify records of the target table.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.pageMissing">
+        <source>The storage page does not exist.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_obstacle.pageNotPermitted">
+        <source>The impersonated user may not create records on the storage page.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_fields">
+        <source>Fields resolved from the payload</source>
+      </trans-unit>
+      <trans-unit id="dry_run_skipped">
+        <source>Fields that would be skipped</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.notMappable">
+        <source>The target table offers no such field.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.notPermitted">
+        <source>The impersonated user may not write this field.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.placeholderUnresolved">
+        <source>The payload carries no value under the path of the placeholder.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.resolvedToNothing">
+        <source>The payload carries nothing under the path of the placeholder.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.valueNotHoldable">
+        <source>The checkbox cannot hold this value.</source>
+      </trans-unit>
+      <trans-unit id="dry_run_reason.valueNotOffered">
+        <source>The field does not offer this value.</source>
+      </trans-unit>
+      <trans-unit id="reaction_endpoint">
+        <source>Endpoint</source>
+      </trans-unit>
+      <trans-unit id="filter.sendButton">
+        <source>Filter</source>
+      </trans-unit>
+      <trans-unit id="filter.resetButton">
+        <source>Reset</source>
+      </trans-unit>
+      <trans-unit id="filter.name">
+        <source>Name</source>
+      </trans-unit>
+      <trans-unit id="filter.reaction_type">
+        <source>Reaction Type</source>
+      </trans-unit>
+      <trans-unit id="filter.reaction_type.showAll">
+        <source>Show all</source>
+      </trans-unit>
+      <trans-unit id="pagination.previous">
+        <source>previous</source>
+      </trans-unit>
+      <trans-unit id="pagination.next">
+        <source>next</source>
+      </trans-unit>
+      <trans-unit id="pagination.first">
+        <source>first</source>
+      </trans-unit>
+      <trans-unit id="pagination.last">
+        <source>last</source>
+      </trans-unit>
+      <trans-unit id="pagination.records">
+        <source>Records</source>
+      </trans-unit>
+      <trans-unit id="pagination.page">
+        <source>Page</source>
+      </trans-unit>
+      <trans-unit id="pagination.refresh">
+        <source>Refresh</source>
+      </trans-unit>
+      <trans-unit id="labels.delete.title">
+        <source>Delete reactions</source>
+      </trans-unit>
+      <trans-unit id="labels.delete.message">
+        <source>Delete all marked reactions? You can restore deleted reactions from the TYPO3 recycler.</source>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

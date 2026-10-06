@@ -27,7 +27,7 @@ use TYPO3\CMS\Core\DataHandling\Model\CorrelationId;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Redirects\Service\SlugService;
+use TYPO3\CMS\Redirects\Service\TemporaryPermissionMutationService;
 
 /**
  * @internal
@@ -38,13 +38,14 @@ readonly class RecordHistoryRollbackController
     public function __construct(
         private LanguageServiceFactory $languageServiceFactory,
         private RecordHistoryRollback $recordHistoryRollback,
+        private TemporaryPermissionMutationService $temporaryPermissionMutationService
     ) {}
 
     public function revertCorrelation(ServerRequestInterface $request): ResponseInterface
     {
         $languageService = $this->languageServiceFactory->createFromUserPreferences($this->getBackendUser());
         $revertedCorrelationTypes = [];
-        $correlationIds = $request->getQueryParams()['correlation_ids'] ?? [];
+        $correlationIds = $request->getParsedBody()['correlation_ids'] ?? [];
         /** @var CorrelationId[] $correlationIds */
         $correlationIds = array_map(
             static function (string $correlationId) {
@@ -53,11 +54,10 @@ readonly class RecordHistoryRollbackController
             $correlationIds
         );
         foreach ($correlationIds as $correlationId) {
-            $aspects = $correlationId->getAspects();
-            if (count($aspects) < 2 || $aspects[0] !== SlugService::CORRELATION_ID_IDENTIFIER) {
-                continue;
+            $type = $correlationId->getAspects()[1] ?? null;
+            if ($type !== null) {
+                $revertedCorrelationTypes[] = $type;
             }
-            $revertedCorrelationTypes[] = $correlationId->getAspects()[1];
             $this->rollBackCorrelation($correlationId);
         }
         $result = [
@@ -84,11 +84,35 @@ readonly class RecordHistoryRollbackController
 
     protected function rollBackCorrelation(CorrelationId $correlationId): void
     {
-        foreach (GeneralUtility::makeInstance(RecordHistory::class)->findEventsForCorrelation((string)$correlationId) as $recordHistoryEntry) {
+        $currentUserId = $this->getBackendUser()->getUserId();
+        $historyEntries = GeneralUtility::makeInstance(RecordHistory::class)->findEventsForCorrelation((string)$correlationId);
+
+        // Verify the correlation belongs to the current user before allowing rollback.
+        // All entries sharing a correlation_id are written by the same user, so checking
+        // any one entry is sufficient; we use the first (most recent) for the guard.
+        $firstEntry = reset($historyEntries);
+        if ($firstEntry === false || (int)$firstEntry['userid'] !== $currentUserId) {
+            return;
+        }
+
+        // Temporary add permissions to the user to perform the action.
+        // Store if we need to revert those changes after the actions.
+        $addedTableSelect = $this->temporaryPermissionMutationService->addTableSelect();
+        $addedTableModify = $this->temporaryPermissionMutationService->addTableModify();
+
+        foreach ($historyEntries as $recordHistoryEntry) {
             $element = $recordHistoryEntry['tablename'] . ':' . $recordHistoryEntry['recuid'];
             $tempRecordHistory = GeneralUtility::makeInstance(RecordHistory::class, $element);
             $tempRecordHistory->setLastHistoryEntryNumber((int)$recordHistoryEntry['uid']);
             $this->recordHistoryRollback->performRollback('ALL', $tempRecordHistory->getDiff($tempRecordHistory->getChangeLog()));
+        }
+
+        // Revert temporary permissions
+        if ($addedTableSelect) {
+            $this->temporaryPermissionMutationService->removeTableSelect();
+        }
+        if ($addedTableModify) {
+            $this->temporaryPermissionMutationService->removeTableModify();
         }
     }
 

@@ -27,7 +27,6 @@ use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\InconsistentQuerySettingsException;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\UnsupportedOrderException;
@@ -63,7 +62,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -82,17 +81,17 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
 
-        $query = $this->createMock(QueryInterface::class);
-        $query->method('getSource')->willReturn($this->createMock(SourceInterface::class));
+        $query = self::createStub(QueryInterface::class);
+        $query->method('getSource')->willReturn(self::createStub(SourceInterface::class));
         $query->method('getOrderings')->willReturn([]);
         $query->method('getStatement')->willReturn(null);
         // Test part: getConstraint returns not implemented object
-        $query->method('getConstraint')->willReturn($this->createMock(ConstraintInterface::class));
+        $query->method('getConstraint')->willReturn(self::createStub(ConstraintInterface::class));
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1476199898);
@@ -105,7 +104,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -127,7 +126,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -149,7 +148,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -175,7 +174,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -201,7 +200,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -219,7 +218,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -240,7 +239,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function languageStatementWorksInBackendContext(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
         $context = new Context();
@@ -262,7 +261,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
         $GLOBALS['TCA']['tx_blogexample_domain_model_blog']['ctrl']['delete'] = null;
         $tcaSchemaFactory = $this->get(TcaSchemaFactory::class);
         $tcaSchemaFactory->rebuild($GLOBALS['TCA']);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
         $context = new Context();
@@ -284,7 +283,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -306,7 +305,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function addGetLanguageStatementWorksInBackendContextWithSubselectionTakesDeleteStatementIntoAccountIfNecessary(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
@@ -329,7 +328,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -356,7 +355,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
 
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -377,7 +376,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -402,7 +401,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function expressionIsOmittedForIgnoreEnableFieldsAreAndDoNotIncludeDeletedInBackendContext(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
@@ -424,7 +423,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function expressionIsGeneratedForIgnoreEnableFieldsAndDoNotIncludeDeletedInBackendContext(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
@@ -446,7 +445,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function expressionIsGeneratedForDoNotIgnoreEnableFieldsAndIncludeDeletedInBackendContext(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
@@ -467,7 +466,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function expressionIsGeneratedForDoNotIgnoreEnableFieldsAndDoNotIncludeDeletedInBackendContext(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
@@ -490,7 +489,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -514,7 +513,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -538,7 +537,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -564,7 +563,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -597,16 +596,15 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
         $tcaSchemaFactory->load($GLOBALS['TCA'], true);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
         $dateAspect = new DateTimeAspect(new \DateTimeImmutable('3.1.2016'));
-        $context = new Context();
+        $context = $this->get(Context::class);
         $context->setAspect('date', $dateAspect);
-        GeneralUtility::setSingletonInstance(Context::class, $context);
-        $querySettings = new Typo3QuerySettings(new Context(), $this->get(ConfigurationManagerInterface::class));
+        $querySettings = new Typo3QuerySettings($context, $this->get(ConfigurationManagerInterface::class));
         $querySettings->setRespectStoragePage(false);
         $query = $blogRepository->createQuery();
         $query->setQuerySettings($querySettings);
@@ -621,20 +619,21 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     public function respectEnableFieldsSettingGeneratesCorrectStatementWithOnlyEndTimeInBackendContext(): void
     {
         // simulate time for backend enable fields
-        $GLOBALS['SIM_ACCESS_TIME'] = 1451779200;
+        $this->get(Context::class)->setAspect('date', new DateTimeAspect(new \DateTimeImmutable('3.1.2016')));
         $GLOBALS['TCA']['tx_blogexample_domain_model_blog']['ctrl']['enablecolumns']['endtime'] = 'endtime_column';
         $GLOBALS['TCA']['tx_blogexample_domain_model_blog']['columns']['endtime_column']['config']['type'] = 'datetime';
         $tcaSchemaFactory = $this->get(TcaSchemaFactory::class);
         $tcaSchemaFactory->load($GLOBALS['TCA'], true);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
         $blogRepository = $this->get(BlogRepository::class);
         $context = new Context();
         $querySettings = new Typo3QuerySettings($context, $this->get(ConfigurationManagerInterface::class));
         $querySettings->setRespectStoragePage(false);
+        $querySettings->setIgnoreEnableFields(false);
         $query = $blogRepository->createQuery();
         $query->setQuerySettings($querySettings);
 
@@ -649,7 +648,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     {
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -713,7 +712,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
         $tcaSchemaFactory->load($GLOBALS['TCA'], true);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
@@ -733,7 +732,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
     #[Test]
     public function tcaWithoutCtrlCreatesAValidSQLStatement(): void
     {
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $registryEntryRepository = $this->get(RegistryEntryRepository::class);
         $querySettings = new Typo3QuerySettings(new Context(), $this->get(ConfigurationManagerInterface::class));
@@ -758,7 +757,7 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/Fixtures/Typo3DbQueryParserTestImport.csv');
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
-        $GLOBALS['TYPO3_REQUEST'] = (new ServerRequest())
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
             ->withAttribute('frontend.typoscript', $frontendTypoScript);
         $blogRepository = $this->get(BlogRepository::class);
@@ -767,5 +766,225 @@ final class Typo3DbQueryParserTest extends FunctionalTestCase
 
         $query->matching($query->like('title', '%BlOg%'));
         self::assertCount(2, $query->execute());
+    }
+
+    #[Test]
+    public function orderingWithConcatExpressionGeneratesCorrectSql(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->concat('title', 'description'), QueryInterface::ORDER_ASCENDING);
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(1, $orderBy);
+        $expectation = 'CONCAT('
+            . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title')
+            . ', '
+            . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('description')
+            . ') ASC';
+        self::assertSame($expectation, $orderBy[0]);
+    }
+
+    #[Test]
+    public function orderingWithTrimExpressionGeneratesCorrectSql(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->trim('title'), QueryInterface::ORDER_DESCENDING);
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(1, $orderBy);
+        $expectation = 'TRIM('
+            . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title')
+            . ') DESC';
+        self::assertSame($expectation, $orderBy[0]);
+    }
+
+    #[Test]
+    public function orderingWithCoalesceExpressionGeneratesCorrectSql(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->coalesce('subtitle', 'title'), QueryInterface::ORDER_ASCENDING);
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(1, $orderBy);
+        $expectation = 'COALESCE('
+            . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('subtitle')
+            . ', '
+            . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title')
+            . ') ASC';
+        self::assertSame($expectation, $orderBy[0]);
+    }
+
+    #[Test]
+    public function orderingWithNestedExpressionsGeneratesCorrectSql(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy(
+            $query->concat(
+                $query->trim('title'),
+                $query->trim('description')
+            ),
+            QueryInterface::ORDER_ASCENDING
+        );
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(1, $orderBy);
+        $expectation = 'CONCAT('
+            . 'TRIM(' . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title') . ')'
+            . ', '
+            . 'TRIM(' . $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('description') . ')'
+            . ') ASC';
+        self::assertSame($expectation, $orderBy[0]);
+    }
+
+    #[Test]
+    public function fluentOrderByApiWorks(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query
+            ->orderBy('title', QueryInterface::ORDER_ASCENDING)
+            ->addOrderBy('description', QueryInterface::ORDER_DESCENDING);
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(2, $orderBy);
+        $expectation = [
+            0 => $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title') . ' ASC',
+            1 => $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('description') . ' DESC',
+        ];
+        self::assertSame($expectation, $orderBy);
+    }
+
+    #[Test]
+    public function backwardsCompatibilityWithSetOrderingsPreserved(): void
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $typo3DbQueryParser = $this->get(Typo3DbQueryParser::class);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->setOrderings([
+            'title' => QueryInterface::ORDER_ASCENDING,
+            'description' => QueryInterface::ORDER_DESCENDING,
+        ]);
+
+        $queryBuilder = $typo3DbQueryParser->convertQueryToDoctrineQueryBuilder($query);
+
+        $orderBy = $queryBuilder->getOrderBy();
+        self::assertCount(2, $orderBy);
+        $expectation = [
+            0 => $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('title') . ' ASC',
+            1 => $queryBuilder->quoteIdentifier('tx_blogexample_domain_model_blog') . '.' . $queryBuilder->quoteIdentifier('description') . ' DESC',
+        ];
+        self::assertSame($expectation, $orderBy);
+    }
+
+    #[Test]
+    public function orderingWithConcatExpressionExecutesSuccessfully(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/Typo3DbQueryParserTestImport.csv');
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->concat('title', 'description'), QueryInterface::ORDER_ASCENDING);
+
+        // This proves the generated SQL is valid and executes successfully
+        $results = $query->execute();
+        self::assertCount(2, $results);
+    }
+
+    #[Test]
+    public function orderingWithTrimExpressionExecutesSuccessfully(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/Typo3DbQueryParserTestImport.csv');
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->trim('title'), QueryInterface::ORDER_DESCENDING);
+
+        // This proves the generated SQL is valid and executes successfully
+        $results = $query->execute();
+        self::assertCount(2, $results);
+    }
+
+    #[Test]
+    public function orderingWithCoalesceExpressionExecutesSuccessfully(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/Typo3DbQueryParserTestImport.csv');
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $blogRepository = $this->get(BlogRepository::class);
+        $query = $blogRepository->createQuery();
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->orderBy($query->coalesce('subtitle', 'title'), QueryInterface::ORDER_ASCENDING);
+
+        // This proves the generated SQL is valid and executes successfully
+        $results = $query->execute();
+        self::assertCount(2, $results);
     }
 }

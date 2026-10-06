@@ -29,9 +29,9 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class EditDocumentControllerTest extends FunctionalTestCase
 {
-    protected EditDocumentController $subject;
+    private EditDocumentController $subject;
 
-    protected NormalizedParams $normalizedParams;
+    private NormalizedParams $normalizedParams;
 
     /**
      * Sets up this test case.
@@ -53,7 +53,7 @@ final class EditDocumentControllerTest extends FunctionalTestCase
     #[Test]
     public function processedDataTakesOverDefaultValues(): void
     {
-        $request = (new ServerRequest('https://www.example.com/', 'POST'))
+        $request = new ServerRequest('https://www.example.com/', 'POST')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $defaultValues = [
             'colPos' => 123,
@@ -83,7 +83,7 @@ final class EditDocumentControllerTest extends FunctionalTestCase
     #[Test]
     public function processedDataDoesNotOverridePostWithDefaultValues(): void
     {
-        $request = (new ServerRequest('https://www.example.com/', 'POST'))
+        $request = new ServerRequest('https://www.example.com/', 'POST')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $defaultValues = [
             'colPos' => 123,
@@ -109,7 +109,132 @@ final class EditDocumentControllerTest extends FunctionalTestCase
         self::assertEquals(302, $response->getStatusCode());
     }
 
-    protected function getParsedBody(array $additionalData = []): array
+    #[Test]
+    public function savedokaddrecordRedirectsToWizardAddWithTheRealPersistedUid(): void
+    {
+        $request = new ServerRequest('https://www.example.com/', 'POST')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+
+        $queryParams = [
+            'edit' => [
+                'tt_content' => [
+                    -1 => 'new',
+                ],
+            ],
+        ];
+        $parsedBody = [
+            'data' => [
+                'tt_content' => [
+                    'NEW123456' => [
+                        'sys_language_uid' => 0,
+                        'header' => 'Test header',
+                        'pid' => -1,
+                    ],
+                ],
+            ],
+            '_savedokaddrecord' => '1',
+            'addRecordAfterSave' => [
+                'originalUid' => 'NEW123456',
+                'ownerTable' => 'tt_content',
+                'ownerField' => 'some_group_field',
+                'table' => 'sys_category',
+                'pid' => '1',
+                'setValue' => 'append',
+                'flexFormPath' => '',
+            ],
+        ];
+
+        $request = $request
+            ->withAttribute('normalizedParams', $this->normalizedParams)
+            ->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']))
+            ->withQueryParams($queryParams)
+            ->withParsedBody($parsedBody);
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+
+        $response = $this->subject->mainAction($request);
+
+        self::assertEquals(302, $response->getStatusCode());
+
+        $newRecord = BackendUtility::getRecord('tt_content', 2);
+        self::assertSame('Test header', $newRecord['header']);
+
+        $location = $response->getHeaderLine('Location');
+        self::assertStringContainsString('wizard/add', $location);
+        self::assertStringContainsString('uid%5D=' . $newRecord['uid'], $location);
+        self::assertStringContainsString('table%5D=tt_content', $location);
+        self::assertStringContainsString('field%5D=some_group_field', $location);
+        self::assertStringNotContainsString('NEW123456', $location);
+
+        // Once the wizard is done, it must redirect back to the document that was
+        // being edited (built server-side from the now-persisted editconf), not to
+        // whatever URL a client happened to submit. See add-record.ts, which
+        // deliberately no longer sends its own returnUrl for this exact reason.
+        $decodedLocation = rawurldecode(rawurldecode($location));
+        self::assertStringContainsString('typo3/record/edit', $decodedLocation);
+        self::assertStringContainsString('edit[tt_content][' . $newRecord['uid'] . ']=edit', $decodedLocation);
+    }
+
+    #[Test]
+    public function savedokaddrecordKeepsQueryParametersOfTheCurrentDocumentInTheReturnUrl(): void
+    {
+        $request = new ServerRequest('https://www.example.com/', 'POST')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+
+        // This is how Wizard/AddController opens a new record: "returnEditConf" tells it
+        // to link the record back into the field of the document that started the wizard,
+        // once this document is closed. It must survive a nested "+" click, otherwise the
+        // outer wizard never links anything.
+        $queryParams = [
+            'edit' => [
+                'tt_content' => [
+                    -1 => 'new',
+                ],
+            ],
+            'returnEditConf' => 1,
+            'columnsOnly' => [
+                'tt_content' => ['header'],
+            ],
+        ];
+        $parsedBody = [
+            'data' => [
+                'tt_content' => [
+                    'NEW123456' => [
+                        'sys_language_uid' => 0,
+                        'header' => 'Test header',
+                        'pid' => -1,
+                    ],
+                ],
+            ],
+            '_savedok' => '1',
+            '_savedokaddrecord' => '1',
+            'addRecordAfterSave' => [
+                'originalUid' => 'NEW123456',
+                'ownerTable' => 'tt_content',
+                'ownerField' => 'some_group_field',
+                'table' => 'sys_category',
+                'pid' => '1',
+                'setValue' => 'append',
+                'flexFormPath' => '',
+            ],
+        ];
+
+        $request = $request
+            ->withAttribute('normalizedParams', $this->normalizedParams)
+            ->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']))
+            ->withQueryParams($queryParams)
+            ->withParsedBody($parsedBody);
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+
+        $response = $this->subject->mainAction($request);
+
+        self::assertEquals(302, $response->getStatusCode());
+
+        $decodedLocation = rawurldecode(rawurldecode($response->getHeaderLine('Location')));
+        self::assertStringContainsString('returnEditConf=1', $decodedLocation);
+        self::assertStringContainsString('columnsOnly[tt_content][0]=header', $decodedLocation);
+    }
+
+    private function getParsedBody(array $additionalData = []): array
     {
         return [
             'data' => [
@@ -121,11 +246,11 @@ final class EditDocumentControllerTest extends FunctionalTestCase
                     ], $additionalData),
                 ],
             ],
-            'doSave' => true,
+            '_savedok' => '1',
         ];
     }
 
-    protected function getQueryParamsWithDefaults(array $defaultValues): array
+    private function getQueryParamsWithDefaults(array $defaultValues): array
     {
         return [
             'edit' => [

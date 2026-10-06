@@ -30,17 +30,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class SelectSingleElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -176,16 +165,14 @@ class SelectSingleElement extends AbstractFormElement
             $optionGroup = is_array($selectItemGroup['header'] ?? null);
             $options .= ($optionGroup ? '<optgroup label="' . htmlspecialchars($selectItemGroup['header']['title'], ENT_COMPAT, 'UTF-8', false) . '">' : '');
 
-            if (is_array($selectItemGroup['items'])) {
-                foreach ($selectItemGroup['items'] as $item) {
-                    $options .= '<option value="' . htmlspecialchars($item['value']) . '" data-icon="' .
-                        htmlspecialchars($item['icon']) . '"'
-                        . ($item['selected'] ? ' selected="selected"' : '') . '>' . htmlspecialchars($item['title'], ENT_COMPAT, 'UTF-8', false) . '</option>';
+            foreach ($selectItemGroup['items'] as $item) {
+                $options .= '<option value="' . htmlspecialchars($item['value']) . '" data-icon="'
+                    . htmlspecialchars($item['icon']) . '"'
+                    . ($item['selected'] ? ' selected="selected"' : '') . '>' . htmlspecialchars($item['title'], ENT_COMPAT, 'UTF-8', false) . '</option>';
 
-                    // At least one select item with icon found.
-                    if (!empty($item['icon'])) {
-                        $hasIcons = true;
-                    }
+                // At least one select item with icon found.
+                if (!empty($item['icon'])) {
+                    $hasIcons = true;
                 }
             }
             $options .= ($optionGroup ? '</optgroup>' : '');

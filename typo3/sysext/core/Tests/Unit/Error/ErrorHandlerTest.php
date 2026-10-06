@@ -36,15 +36,10 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class ErrorHandlerTest extends UnitTestCase
 {
     // These are borrowed from DefaultConfiguration.php.
-    // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
-    //        and only kept here here because possible custom PHP extensions may still use it.
-    //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
-    protected const DEFAULT_ERROR_HANDLER_LEVELS = E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR);
-    protected const DEFAULT_EXCEPTIONAL_ERROR_LEVELS = E_ALL & ~(2048 /* deprecated E_STRICT */ | E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR | E_DEPRECATED | E_USER_DEPRECATED | E_WARNING | E_USER_ERROR | E_USER_NOTICE | E_USER_WARNING);
-    protected ErrorHandlerInterface $subject;
+    protected const DEFAULT_ERROR_HANDLER_LEVELS = E_ALL & ~(E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR);
+    protected const DEFAULT_EXCEPTIONAL_ERROR_LEVELS = E_ALL & ~(E_NOTICE | E_COMPILE_WARNING | E_COMPILE_ERROR | E_CORE_WARNING | E_CORE_ERROR | E_PARSE | E_ERROR | E_DEPRECATED | E_USER_DEPRECATED | E_WARNING | E_USER_ERROR | E_USER_NOTICE | E_USER_WARNING);
 
-    protected LoggerInterface $unusedLogger;
-    protected LoggerInterface $trackingLogger;
+    private LoggerInterface $trackingLogger;
 
     protected bool $resetSingletonInstances = true;
 
@@ -55,7 +50,7 @@ final class ErrorHandlerTest extends UnitTestCase
     {
         parent::setUp();
 
-        $this->trackingLogger = new class () implements LoggerInterface {
+        $this->trackingLogger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -69,6 +64,7 @@ final class ErrorHandlerTest extends UnitTestCase
         };
     }
 
+    // @phpstan-ignore attributes.forbidden.methodScope (to avoid inconsistencies when testing our custom error handler)
     #[WithoutErrorHandler]
     #[Test]
     #[DataProvider('errorTests')]
@@ -86,7 +82,7 @@ final class ErrorHandlerTest extends UnitTestCase
         ?string $errorsLogLevel,
         ?string $exceptionMessage
     ): void {
-        $logManager = new class () extends LogManager implements LogManagerInterface {
+        $logManager = new class extends LogManager implements LogManagerInterface {
             protected array $loggers = [];
             public function getLogger(string $name = ''): LoggerInterface
             {
@@ -116,10 +112,14 @@ final class ErrorHandlerTest extends UnitTestCase
             // An exception happened when it shouldn't; let PHPUnit deal with it.
             throw $e;
         }
+        self::assertNull($exceptionMessage);
         self::assertEquals($expectedReturn, $return);
         if ($deprecationsLogMessage) {
-            self::assertEquals($deprecationsLogMessage, $logManager->getLogger('TYPO3.CMS.deprecations')->records[0]['message']);
-            self::assertEquals($deprecationsLogLevel, $logManager->getLogger('TYPO3.CMS.deprecations')->records[0]['level']);
+            $deprecationLogger = $logManager->getLogger('TYPO3.CMS.deprecations');
+            if (property_exists($deprecationLogger, 'records')) {
+                self::assertEquals($deprecationsLogMessage, $deprecationLogger->records[0]['message']);
+                self::assertEquals($deprecationsLogLevel, $deprecationLogger->records[0]['level']);
+            }
         }
         /**
          * disabled until the new channel is in place

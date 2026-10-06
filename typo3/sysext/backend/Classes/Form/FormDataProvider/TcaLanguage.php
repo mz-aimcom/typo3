@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
-use TYPO3\CMS\Core\Site\Entity\Site;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Site\SiteFinder;
 
 /**
@@ -51,7 +51,7 @@ class TcaLanguage extends AbstractItemProvider implements FormDataProviderInterf
             // Initialize site languages to be fetched
             $siteLanguages = [];
 
-            if (($result['effectivePid'] ?? 0) === 0 || !($result['site'] ?? null) instanceof Site) {
+            if (($result['effectivePid'] ?? 0) === 0) {
                 // In case we deal with a pid=0 record or a record on a page outside
                 // of a site config, all languages from all sites should be added.
                 foreach ($this->siteFinder->getAllSites() as $site) {
@@ -70,9 +70,40 @@ class TcaLanguage extends AbstractItemProvider implements FormDataProviderInterf
                 }
                 ksort($siteLanguages);
             } elseif (($result['systemLanguageRows'] ?? []) !== []) {
+                $isLanguageField = $fieldName === ($result['processedTca']['ctrl']['languageField'] ?? '');
+
+                $currentLanguageId = (int)($result['databaseRow'][$fieldName] ?? 0);
+
+                $availablePageLanguageIds = [];
+                if ($isLanguageField && $table !== 'pages' && !empty($result['pageLanguageOverlayRows'])) {
+                    foreach ($result['pageLanguageOverlayRows'] as $pageTranslation) {
+                        $availablePageLanguageIds[] = (int)($pageTranslation['sys_language_uid'] ?? 0);
+                    }
+                }
+
                 // Add system languages available for the current site
                 foreach ($result['systemLanguageRows'] as $languageId => $language) {
-                    if ($languageId !== -1) {
+                    if ($languageId === LanguageMarker::ALL_LANGUAGES) {
+                        continue;
+                    }
+                    if ($isLanguageField && $table === 'pages') {
+                        // For pages table language field: only show the current language
+                        // (language cannot be changed via FormEngine after creation)
+                        if ($languageId === $currentLanguageId) {
+                            $siteLanguages[$languageId] = [
+                                'title' => $language['title'],
+                                'flagIconIdentifier' => $language['flagIconIdentifier'],
+                            ];
+                        }
+                    } elseif ($isLanguageField && $availablePageLanguageIds !== []) {
+                        // For other tables' language field: only show languages with page translations
+                        if ($languageId === 0 || in_array($languageId, $availablePageLanguageIds, true)) {
+                            $siteLanguages[$languageId] = [
+                                'title' => $language['title'],
+                                'flagIconIdentifier' => $language['flagIconIdentifier'],
+                            ];
+                        }
+                    } else {
                         $siteLanguages[$languageId] = [
                             'title' => $language['title'],
                             'flagIconIdentifier' => $language['flagIconIdentifier'],
@@ -100,7 +131,7 @@ class TcaLanguage extends AbstractItemProvider implements FormDataProviderInterf
             }
 
             // Add the "special" group for "ALL" and / or user defined items
-            if (($table !== 'pages' && isset($result['systemLanguageRows'][-1])) || $userDefinedItems !== []) {
+            if (($table !== 'pages' && isset($result['systemLanguageRows'][LanguageMarker::ALL_LANGUAGES])) || $userDefinedItems !== []) {
                 $fieldConfig['config']['items'][] = [
                     'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.specialLanguages',
                     'value' => '--div--',
@@ -108,10 +139,10 @@ class TcaLanguage extends AbstractItemProvider implements FormDataProviderInterf
             }
             // Add "-1" for all TCA records except pages in case the user is allowed to.
             // The item is added to the "special" group, in order to not provide it as default by accident.
-            if ($table !== 'pages' && isset($result['systemLanguageRows'][-1])) {
+            if ($table !== 'pages' && isset($result['systemLanguageRows'][LanguageMarker::ALL_LANGUAGES])) {
                 $fieldConfig['config']['items'][] = [
                     'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.allLanguages',
-                    'value' => -1,
+                    'value' => LanguageMarker::ALL_LANGUAGES,
                     'icon' => 'flags-multiple',
                 ];
             }

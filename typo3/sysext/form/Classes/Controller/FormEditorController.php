@@ -18,13 +18,16 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\Controller;
 
 use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Backend\Dto\Breadcrumb\BreadcrumbNode;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
+use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -33,6 +36,7 @@ use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
@@ -43,6 +47,9 @@ use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Mvc\View\JsonView;
 use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinitionConversionService;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\PersistenceManagerConfiguration;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\Prototype\FormElementDefinitionCollection;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\Prototype\PrototypeConfiguration;
 use TYPO3\CMS\Form\Domain\Exception\RenderingException;
 use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
 use TYPO3\CMS\Form\Event\BeforeFormIsSavedEvent;
@@ -51,8 +58,10 @@ use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormCon
 use TYPO3\CMS\Form\Mvc\Persistence\Exception\PersistenceManagerException;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 use TYPO3\CMS\Form\Service\DatabaseService;
+use TYPO3\CMS\Form\Service\FormEditorEnrichmentService;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3\CMS\Form\Type\FormDefinitionArray;
+use TYPO3\CMS\Form\Utility\DateRangeValidatorPatterns;
 
 /**
  * The form editor controller
@@ -80,6 +89,8 @@ class FormEditorController extends ActionController
         protected readonly ViewFactoryInterface $viewFactory,
         protected readonly DatabaseService $databaseService,
         protected readonly CacheManager $cacheManager,
+        protected readonly ComponentFactory $componentFactory,
+        protected readonly FormEditorEnrichmentService $formEditorEnrichmentService,
     ) {}
 
     /**
@@ -87,18 +98,21 @@ class FormEditorController extends ActionController
      *
      * @throws PersistenceManagerException
      */
-    protected function indexAction(string $formPersistenceIdentifier, ?string $prototypeName = null): ResponseInterface
+    protected function indexAction(string $formPersistenceIdentifier = '', ?string $prototypeName = null, string $returnUrl = ''): ResponseInterface
     {
+        if ($formPersistenceIdentifier === '') {
+            return new RedirectResponse((string)$this->coreUriBuilder->buildUriFromRoute('form_manager'));
+        }
         $formSettings = $this->getFormSettings();
-        if (!$this->formPersistenceManager->isAllowedPersistencePath($formPersistenceIdentifier, $formSettings)) {
+        if (!$this->formPersistenceManager->isAllowedPersistenceIdentifier($formPersistenceIdentifier)) {
             throw new PersistenceManagerException(sprintf('Read "%s" is not allowed', $formPersistenceIdentifier), 1614500662);
         }
         if (PathUtility::isExtensionPath($formPersistenceIdentifier)
-            && !($formSettings['persistenceManager']['allowSaveToExtensionPaths'] ?? false)
+            && !PersistenceManagerConfiguration::fromArray($formSettings['persistenceManager'] ?? [])->allowSaveToExtensionPaths
         ) {
             throw new PersistenceManagerException('Edit an extension formDefinition is not allowed.', 1478265661);
         }
-        $formDefinition = $this->formPersistenceManager->load($formPersistenceIdentifier, $formSettings, []);
+        $formDefinition = $this->formPersistenceManager->load($formPersistenceIdentifier);
         if ($prototypeName === null) {
             $prototypeName = $formDefinition['prototypeName'] ?? 'standard';
         } else {
@@ -111,11 +125,12 @@ class FormEditorController extends ActionController
         }
         $formDefinition['prototypeName'] = $prototypeName;
         $prototypeConfiguration = $this->configurationService->getPrototypeConfiguration($prototypeName);
-        $formDefinition = $this->transformFormDefinitionForFormEditor($prototypeConfiguration, $formDefinition);
+        $formEditorConfiguration = PrototypeConfiguration::fromArray($prototypeConfiguration)->formEditor;
+        $formDefinition = $this->transformFormDefinitionForFormEditor($prototypeConfiguration, $formDefinition, $formPersistenceIdentifier);
         $formEditorDefinitions = $this->getFormEditorDefinitions($prototypeConfiguration);
         $additionalViewModelJavaScriptModules = array_map(
             static fn(string $name) => JavaScriptModuleInstruction::create($name),
-            $prototypeConfiguration['formEditor']['dynamicJavaScriptModules']['additionalViewModelModules'] ?? []
+            $formEditorConfiguration->getAdditionalViewModelModules()
         );
         array_map($this->pageRenderer->getJavaScriptRenderer()->addJavaScriptModuleInstruction(...), $additionalViewModelJavaScriptModules);
         $formEditorAppInitialData = [
@@ -128,29 +143,33 @@ class FormEditorController extends ActionController
                 'saveForm' => $this->uriBuilder->uriFor('saveForm'),
             ],
             'additionalViewModelModules' => $additionalViewModelJavaScriptModules,
-            'maximumUndoSteps' => $prototypeConfiguration['formEditor']['maximumUndoSteps'],
+            'maximumUndoSteps' => $formEditorConfiguration->maximumUndoSteps,
         ];
-        $moduleTemplate = $this->initializeModuleTemplate($this->request);
+        $moduleTemplate = $this->initializeModuleTemplate($this->request, $returnUrl);
         $moduleTemplate->assign('formEditorTemplates', $this->renderFormEditorTemplates($prototypeConfiguration, $formEditorDefinitions));
+        $moduleTemplate->getDocHeaderComponent()->addBreadcrumbSuffixNode(new BreadcrumbNode(
+            identifier: $formPersistenceIdentifier,
+            label: $formDefinition['label'],
+            icon: 'content-form',
+        ));
         $addInlineSettings = [
             'FormEditor' => [
                 'typo3WinBrowserUrl' => (string)$this->coreUriBuilder->buildUriFromRoute('wizard_element_browser'),
+                'dateEditor' => [
+                    'absolutePattern' => DateRangeValidatorPatterns::RFC3339_FULL_DATE,
+                ],
             ],
         ];
         $addInlineSettings = array_replace_recursive(
             $addInlineSettings,
-            $prototypeConfiguration['formEditor']['addInlineSettings']
+            $formEditorConfiguration->addInlineSettings
         );
         if (json_encode($formEditorAppInitialData) === false) {
             throw new Exception('The form editor app data could not be encoded', 1628677079);
         }
         $javaScriptModules = array_map(
             static fn(string $name) => JavaScriptModuleInstruction::create($name),
-            array_filter(
-                $prototypeConfiguration['formEditor']['dynamicJavaScriptModules'] ?? [],
-                fn(string $name) => in_array($name, self::JS_MODULE_NAMES, true),
-                ARRAY_FILTER_USE_KEY
-            )
+            $formEditorConfiguration->getJavaScriptModulesForRoles(self::JS_MODULE_NAMES)
         );
         $pageRenderer = $this->pageRenderer;
         $pageRenderer->getJavaScriptRenderer()->addJavaScriptModuleInstruction(
@@ -158,19 +177,28 @@ class FormEditorController extends ActionController
                 ->invoke('dispatchFormEditor', $javaScriptModules, $formEditorAppInitialData)
         );
         array_map($pageRenderer->getJavaScriptRenderer()->addJavaScriptModuleInstruction(...), $javaScriptModules);
-        $pageRenderer->addInlineSettingArray(null, $addInlineSettings);
-        $pageRenderer->addInlineLanguageLabelFile('EXT:form/Resources/Private/Language/locallang_formEditor_failSafeErrorHandling_javascript.xlf');
-        $stylesheets = $prototypeConfiguration['formEditor']['stylesheets'];
-        foreach ($stylesheets as $stylesheet) {
-            $pageRenderer->addCssFile($stylesheet);
-        }
+        $pageRenderer->addInlineSettingArray('', $addInlineSettings);
+        $this->addFormEditorStylesheets($formEditorConfiguration->stylesheets);
         $moduleTemplate->setModuleClass($this->request->getPluginName() . '_' . $this->request->getControllerName());
         $moduleTemplate->setFlashMessageQueue($this->getFlashMessageQueue());
         $moduleTemplate->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/locallang_module.xlf:mlang_tabs_tab'),
+            $this->getLanguageService()->translate('title', 'form.module'),
             $formDefinition['label']
         );
         return $moduleTemplate->renderResponse('Backend/FormEditor/Index');
+    }
+
+    /**
+     * Add configured stylesheets and CKEditor UI styles when rte_ckeditor is loaded.
+     */
+    protected function addFormEditorStylesheets(array $stylesheets): void
+    {
+        if (ExtensionManagementUtility::isLoaded('rte_ckeditor')) {
+            $stylesheets[] = 'EXT:rte_ckeditor/Resources/Public/Css/editor.css';
+        }
+        foreach (array_unique($stylesheets) as $stylesheet) {
+            $this->pageRenderer->addCssFile($stylesheet);
+        }
     }
 
     /**
@@ -190,7 +218,7 @@ class FormEditorController extends ActionController
     {
         $formDefinition = $formDefinition->getArrayCopy();
         $event = $this->eventDispatcher->dispatch(
-            new BeforeFormIsSavedEvent($formPersistenceIdentifier, $formDefinition),
+            new BeforeFormIsSavedEvent($formPersistenceIdentifier, $formDefinition, $this->request),
         );
         $formPersistenceIdentifier = $event->formPersistenceIdentifier;
         $formDefinition = $event->form;
@@ -198,14 +226,13 @@ class FormEditorController extends ActionController
             'status' => 'success',
         ];
         try {
-            $formSettings = $this->getFormSettings();
-            if (!$this->formPersistenceManager->isAllowedPersistencePath($formPersistenceIdentifier, $formSettings)) {
+            if (!$this->formPersistenceManager->isAllowedPersistenceIdentifier($formPersistenceIdentifier)) {
                 throw new PersistenceManagerException(sprintf('Save "%s" is not allowed', $formPersistenceIdentifier), 1614500663);
             }
-            $this->formPersistenceManager->save($formPersistenceIdentifier, $formDefinition, $formSettings);
+            $this->formPersistenceManager->save($formPersistenceIdentifier, $formDefinition, []);
             $this->flushPageCache($formPersistenceIdentifier);
             $prototypeConfiguration = $this->configurationService->getPrototypeConfiguration($formDefinition['prototypeName']);
-            $formDefinition = $this->transformFormDefinitionForFormEditor($prototypeConfiguration, $formDefinition);
+            $formDefinition = $this->transformFormDefinitionForFormEditor($prototypeConfiguration, $formDefinition, $formPersistenceIdentifier);
             $response['formDefinition'] = $formDefinition;
         } catch (PersistenceManagerException $e) {
             $response = [
@@ -232,12 +259,18 @@ class FormEditorController extends ActionController
     protected function renderFormPageAction(
         FormDefinitionArray $formDefinition,
         int $pageIndex,
-        ?string $prototypeName = null
+        ?string $prototypeName = null,
+        ?string $formPersistenceIdentifier = null
     ): ResponseInterface {
         $prototypeName = $prototypeName ?: $formDefinition['prototypeName'] ?? 'standard';
         $formDefinition = $formDefinition->getArrayCopy();
+        $formDefinition['renderingOptions']['previewMode'] = true;
         $formDefinition = $this->arrayFormFactory->build($formDefinition, $prototypeName, $this->request);
-        $formDefinition->setRenderingOption('previewMode', true);
+
+        if ($formPersistenceIdentifier !== null) {
+            $formDefinition->setRenderingOption('formPersistenceIdentifier', $formPersistenceIdentifier);
+        }
+
         $form = $formDefinition->bind($this->request);
         $form->setCurrentSiteLanguage($this->buildFakeSiteLanguage(0, 0));
         $form->overrideCurrentPage($pageIndex);
@@ -284,19 +317,28 @@ class FormEditorController extends ActionController
     {
         /** @var array<string, list<array<string, array{key: string, cssKey: string, label: string, description: string, sorting: int, iconIdentifier: string}>>> $formElementsByGroup */
         $formElementsByGroup = [];
-        foreach ($formElementsDefinition as $formElementName => $formElementConfiguration) {
-            if (!isset($formElementConfiguration['group']) || ($isInsertPages && $formElementConfiguration['group'] !== 'page') || (!$isInsertPages && $formElementConfiguration['group'] === 'page')) {
+        $prototype = PrototypeConfiguration::fromArray($prototypeConfiguration);
+        $definitions = [];
+        foreach ($formElementsDefinition as $identifier => $formElementConfiguration) {
+            if (is_string($identifier) && is_array($formElementConfiguration)) {
+                $definitions[$identifier] = ['formEditor' => $formElementConfiguration];
+            }
+        }
+        $formElements = FormElementDefinitionCollection::fromArray($definitions);
+        foreach ($formElements as $formElementDefinition) {
+            $formEditorDefinition = $formElementDefinition->formEditor;
+            if ($formEditorDefinition->group === null || ($isInsertPages && $formEditorDefinition->group !== 'page') || (!$isInsertPages && $formEditorDefinition->group === 'page')) {
                 continue;
             }
-            if (!isset($formElementsByGroup[$formElementConfiguration['group']])) {
-                $formElementsByGroup[$formElementConfiguration['group']] = [];
+            if (!isset($formElementsByGroup[$formEditorDefinition->group])) {
+                $formElementsByGroup[$formEditorDefinition->group] = [];
             }
             $formElementConfiguration = $this->translationService->translateValuesRecursive(
-                $formElementConfiguration,
-                $prototypeConfiguration['formEditor']['translationFiles'] ?? []
+                $formEditorDefinition->getRaw(),
+                $prototype->formEditor->translationFiles,
             );
-            $formElementsByGroup[$formElementConfiguration['group']][] = [
-                'identifier' => $formElementName,
+            $formElementsByGroup[$formEditorDefinition->group][] = [
+                'identifier' => $formElementDefinition->identifier,
                 'label' => $formElementConfiguration['label'],
                 'description' => $formElementConfiguration['description'] ?? '',
                 'requestType' => 'event',
@@ -306,7 +348,7 @@ class FormEditorController extends ActionController
             ];
         }
         $formGroups = [];
-        foreach ($prototypeConfiguration['formEditor']['formElementGroups'] ?? [] as $groupName => $groupConfiguration) {
+        foreach ($prototype->formEditor->formElementGroups as $groupName => $groupConfiguration) {
             if (!isset($formElementsByGroup[$groupName])) {
                 continue;
             }
@@ -315,7 +357,7 @@ class FormEditorController extends ActionController
             });
             $groupConfiguration = $this->translationService->translateValuesRecursive(
                 $groupConfiguration,
-                $prototypeConfiguration['formEditor']['translationFiles'] ?? []
+                $prototype->formEditor->translationFiles,
             );
             $formGroups[$groupName] = [
                 'identifier' => $groupName,
@@ -331,48 +373,30 @@ class FormEditorController extends ActionController
      */
     protected function getFormEditorDefinitions(array $prototypeConfiguration): array
     {
-        $formEditorDefinitions = [];
-        foreach ([$prototypeConfiguration, $prototypeConfiguration['formEditor']] as $configuration) {
-            foreach ($configuration as $firstLevelItemKey => $firstLevelItemValue) {
-                if (!str_ends_with($firstLevelItemKey, 'Definition')) {
-                    continue;
-                }
-                $reducedKey = substr($firstLevelItemKey, 0, -10);
-                foreach ($firstLevelItemValue as $formEditorDefinitionKey => $formEditorDefinitionValue) {
-                    if (isset($formEditorDefinitionValue['formEditor'])) {
-                        $formEditorDefinitionValue = array_intersect_key($formEditorDefinitionValue, array_flip(['formEditor']));
-                        $formEditorDefinitions[$reducedKey][$formEditorDefinitionKey] = $formEditorDefinitionValue['formEditor'];
-                    } else {
-                        $formEditorDefinitions[$reducedKey][$formEditorDefinitionKey] = $formEditorDefinitionValue;
-                    }
-                }
-            }
-        }
+        $prototype = PrototypeConfiguration::fromArray($prototypeConfiguration);
+        $formEditorDefinitions = $prototype->getFormEditorDefinitions();
         $formEditorDefinitions = ArrayUtility::reIndexNumericArrayKeysRecursive($formEditorDefinitions);
+        $formEditorDefinitions = $this->formEditorEnrichmentService->enrichFormEditorDefinitions($formEditorDefinitions);
         return $this->translationService->translateValuesRecursive(
             $formEditorDefinitions,
-            $prototypeConfiguration['formEditor']['translationFiles'] ?? []
+            $prototype->formEditor->translationFiles,
         );
     }
 
     /**
      * Initialize ModuleTemplate and register docheader icons.
      */
-    protected function initializeModuleTemplate(RequestInterface $request): ModuleTemplate
+    protected function initializeModuleTemplate(RequestInterface $request, string $returnUrl = ''): ModuleTemplate
     {
         $moduleTemplate = $this->moduleTemplateFactory->create($request);
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
         $getVars = $request->getArguments();
         if (isset($getVars['action']) && $getVars['action'] === 'index') {
-            $closeButton = $buttonBar->makeLinkButton()
+            $closeUrl = $returnUrl !== '' ? $returnUrl : (string)$this->coreUriBuilder->buildUriFromRoute('web_FormFormbuilder');
+            $closeButton = $this->componentFactory->createCloseButton($closeUrl)
                 ->setDataAttributes(['identifier' => 'closeButton'])
-                ->setHref((string)$this->coreUriBuilder->buildUriFromRoute('web_FormFormbuilder'))
-                ->setClasses('formeditor-element-close-form-button hidden')
-                ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
-                ->setShowLabelText(true)
-                ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-            $buttonBar->addButton($closeButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
-            $saveButton = $buttonBar->makeInputButton()
+                ->setClasses('formeditor-element-close-form-button hidden');
+            $moduleTemplate->addButtonToButtonBar($closeButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+            $saveButton = $this->componentFactory->createInputButton()
                 ->setDataAttributes(['identifier' => 'saveButton'])
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.save_button'))
                 ->setName('formeditor-save-form')
@@ -380,23 +404,23 @@ class FormEditorController extends ActionController
                 ->setClasses('formeditor-element-save-form-button hidden')
                 ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
                 ->setShowLabelText(true);
-            $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
-            $undoButton = $buttonBar->makeInputButton()
+            $moduleTemplate->addButtonToButtonBar($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
+            $undoButton = $this->componentFactory->createInputButton()
                 ->setDataAttributes(['identifier' => 'undoButton'])
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.undo_button'))
                 ->setName('formeditor-undo-form')
                 ->setValue('undo')
                 ->setClasses('formeditor-element-undo-form-button hidden disabled')
                 ->setIcon($this->iconFactory->getIcon('actions-edit-undo', IconSize::SMALL));
-            $buttonBar->addButton($undoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
-            $redoButton = $buttonBar->makeInputButton()
+            $moduleTemplate->addButtonToButtonBar($undoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
+            $redoButton = $this->componentFactory->createInputButton()
                 ->setDataAttributes(['identifier' => 'redoButton'])
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:formEditor.redo_button'))
                 ->setName('formeditor-redo-form')
                 ->setValue('redo')
                 ->setClasses('formeditor-element-redo-form-button hidden disabled')
                 ->setIcon($this->iconFactory->getIcon('actions-edit-redo', IconSize::SMALL));
-            $buttonBar->addButton($redoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
+            $moduleTemplate->addButtonToButtonBar($redoButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
         }
         return $moduleTemplate;
     }
@@ -438,36 +462,34 @@ class FormEditorController extends ActionController
     /**
      * @todo move this to FormDefinitionConversionService
      */
-    protected function transformFormDefinitionForFormEditor(array $prototypeConfiguration, array $formDefinition): array
+    protected function transformFormDefinitionForFormEditor(array $prototypeConfiguration, array $formDefinition, string $formPersistenceIdentifier): array
     {
         /** @var array<string, list<string>> $multiValueFormElementProperties */
         $multiValueFormElementProperties = [];
         /** @var array<string, list<string>> $multiValueFinisherProperties */
         $multiValueFinisherProperties = [];
-        foreach ($prototypeConfiguration['formElementsDefinition'] as $type => $configuration) {
-            if (!isset($configuration['formEditor']['editors'])) {
-                continue;
-            }
-            foreach ($configuration['formEditor']['editors'] as $editorConfiguration) {
-                if (($editorConfiguration['templateName'] ?? '') === 'Inspector-PropertyGridEditor') {
-                    $multiValueFormElementProperties[$type][] = $editorConfiguration['propertyPath'];
-                }
+        $prototype = PrototypeConfiguration::fromArray($prototypeConfiguration);
+        foreach ($prototype->formElements as $formElementDefinition) {
+            $propertyPaths = $formElementDefinition->formEditor->getPropertyGridPropertyPaths();
+            if ($propertyPaths !== []) {
+                $multiValueFormElementProperties[$formElementDefinition->identifier] = $propertyPaths;
             }
         }
-        foreach ($prototypeConfiguration['formElementsDefinition']['Form']['formEditor']['propertyCollections']['finishers'] ?? [] as $configuration) {
-            if (!isset($configuration['editors'])) {
-                continue;
-            }
-            foreach ($configuration['editors'] as $editorConfiguration) {
-                if (($editorConfiguration['templateName'] ?? '') === 'Inspector-PropertyGridEditor') {
-                    $multiValueFinisherProperties[$configuration['identifier']][] = $editorConfiguration['propertyPath'];
+        $formDefinitionConfiguration = $prototype->formElements->get('Form');
+        if ($formDefinitionConfiguration !== null) {
+            foreach ($formDefinitionConfiguration->formEditor->propertyCollections as $propertyCollectionDefinition) {
+                if ($propertyCollectionDefinition->identifier === null) {
+                    continue;
+                }
+                $propertyPaths = $propertyCollectionDefinition->editors->getPropertyPathsForTemplate('Inspector-PropertyGridEditor');
+                if ($propertyPaths !== []) {
+                    $multiValueFinisherProperties[$propertyCollectionDefinition->identifier] = $propertyPaths;
                 }
             }
         }
         $formDefinition = $this->filterEmptyArrays($formDefinition);
         $formDefinition = $this->migrateEmailFinisherRecipients($formDefinition);
-        // @todo: replace with rte parsing
-        $formDefinition = ArrayUtility::stripTagsFromValuesRecursive($formDefinition);
+
         $formDefinition = $this->transformMultiValuePropertiesForFormEditor(
             $formDefinition,
             'type',
@@ -478,7 +500,17 @@ class FormEditorController extends ActionController
             'identifier',
             $multiValueFinisherProperties
         );
-        $formDefinition = $this->formDefinitionConversionService->addHmacData($formDefinition);
+
+        $rtePropertyPaths = $this->formDefinitionConversionService->extractRtePropertyPaths($prototypeConfiguration);
+        if ($rtePropertyPaths !== []) {
+            $formDefinition = $this->formDefinitionConversionService->transformRteContentForRichTextEditor(
+                $formDefinition,
+                $rtePropertyPaths
+            );
+        }
+
+        $formDefinition = $this->formDefinitionConversionService->sanitizeHtml($formDefinition, $rtePropertyPaths);
+        $formDefinition = $this->formDefinitionConversionService->addHmacData($formDefinition, $formPersistenceIdentifier);
         return $this->formDefinitionConversionService->migrateFinisherConfiguration($formDefinition);
     }
 

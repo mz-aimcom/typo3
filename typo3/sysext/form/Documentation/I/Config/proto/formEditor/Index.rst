@@ -297,7 +297,7 @@ formEditorFluidConfiguration
 
          formEditor:
            formEditorFluidConfiguration:
-             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.html'
+             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.fluid.html'
              partialRootPaths:
                10: 'EXT:form/Resources/Private/Backend/Partials/FormEditor/'
              layoutRootPaths:
@@ -335,7 +335,7 @@ formEditorFluidConfiguration.templatePathAndFilename
 
          formEditor:
            formEditorFluidConfiguration:
-             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.html'
+             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.fluid.html'
              partialRootPaths:
                10: 'EXT:form/Resources/Private/Backend/Partials/FormEditor/'
              layoutRootPaths:
@@ -372,7 +372,7 @@ formEditorFluidConfiguration.partialRootPaths
 
          formEditor:
            formEditorFluidConfiguration:
-             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.html'
+             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.fluid.html'
              partialRootPaths:
                10: 'EXT:form/Resources/Private/Backend/Partials/FormEditor/'
              layoutRootPaths:
@@ -410,7 +410,7 @@ formEditorFluidConfiguration.layoutRootPaths
 
          formEditor:
            formEditorFluidConfiguration:
-             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.html'
+             templatePathAndFilename: 'EXT:form/Resources/Private/Backend/Templates/FormEditor/InlineTemplates.fluid.html'
              partialRootPaths:
                10: 'EXT:form/Resources/Private/Backend/Partials/FormEditor/'
              layoutRootPaths:
@@ -448,32 +448,6 @@ formEditorPartials
 
          formEditor:
            formEditorPartials:
-             FormElement-_ElementToolbar: Stage/_ElementToolbar
-             FormElement-_UnknownElement: Stage/_UnknownElement
-             FormElement-Page: Stage/Page
-             FormElement-SummaryPage: Stage/SummaryPage
-             FormElement-Fieldset: Stage/Fieldset
-             FormElement-GridRow: Stage/Fieldset
-             FormElement-Text: Stage/SimpleTemplate
-             FormElement-Password: Stage/SimpleTemplate
-             FormElement-AdvancedPassword: Stage/SimpleTemplate
-             FormElement-Textarea: Stage/SimpleTemplate
-             FormElement-Checkbox: Stage/SimpleTemplate
-             FormElement-MultiCheckbox: Stage/SelectTemplate
-             FormElement-MultiSelect: Stage/SelectTemplate
-             FormElement-RadioButton: Stage/SelectTemplate
-             FormElement-SingleSelect: Stage/SelectTemplate
-             FormElement-DatePicker: Stage/SimpleTemplate
-             FormElement-StaticText: Stage/StaticText
-             FormElement-Hidden: Stage/SimpleTemplate
-             FormElement-ContentElement: Stage/ContentElement
-             FormElement-FileUpload: Stage/FileUploadTemplate
-             FormElement-ImageUpload: Stage/FileUploadTemplate
-             FormElement-Email: 'Stage/SimpleTemplate'
-             FormElement-Telephone: 'Stage/SimpleTemplate'
-             FormElement-Url: 'Stage/SimpleTemplate'
-             FormElement-Number: 'Stage/SimpleTemplate'
-             FormElement-Date: 'Stage/SimpleTemplate'
              Modal-InsertElements: Modals/InsertElements
              Modal-InsertPages: Modals/InsertPages
              Modal-ValidationErrors: Modals/ValidationErrors
@@ -546,6 +520,10 @@ formElementPropertyValidatorsDefinition
                errorMessage: formEditor.formElementPropertyValidatorsDefinition.RFC3339FullDate.label
              RegularExpressionPattern:
                errorMessage: formEditor.formElementPropertyValidatorsDefinition.RegularExpressionPattern.label
+             ItemCount:
+               errorMessage: formEditor.formElementPropertyValidatorsDefinition.ItemCount.label
+             IntegerList:
+               errorMessage: formEditor.formElementPropertyValidatorsDefinition.IntegerList.label
 
 :aspect:`Related options`
       - :ref:`"[TextEditor] propertyValidators"<prototypes.prototypeIdentifier.formelementsdefinition.formelementtypeidentifier.formeditor.editors.*.propertyvalidators-texteditor>`
@@ -603,6 +581,10 @@ formElementPropertyValidatorsDefinition.<formElementPropertyValidatorIdentifier>
                errorMessage: formEditor.formElementPropertyValidatorsDefinition.RFC3339FullDate.label
              RegularExpressionPattern:
                errorMessage: formEditor.formElementPropertyValidatorsDefinition.RegularExpressionPattern.label
+             ItemCount:
+               errorMessage: formEditor.formElementPropertyValidatorsDefinition.ItemCount.label
+             IntegerList:
+               errorMessage: formEditor.formElementPropertyValidatorsDefinition.IntegerList.label
 
 :aspect:`Related options`
       - :ref:`"[TextEditor] propertyValidators"<prototypes.prototypeIdentifier.formelementsdefinition.formelementtypeidentifier.formeditor.editors.*.propertyvalidators-texteditor>`
@@ -657,7 +639,6 @@ formElementGroups
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.Checkbox.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.checkbox.formeditor.group>`
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.ContentElement.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.contentelement.formeditor.group>`
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.Date.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.date.formeditor.group>`
-      - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.DatePicker.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.datepicker.formeditor.group>`
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.Email.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.email.formeditor.group>`
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.Fieldset.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.fieldset.formeditor.group>`
       - :ref:`"prototypes.prototypeIdentifier.formElementsDefinition.FileUpload.formEditor.group"<prototypes.prototypeIdentifier.formelementsdefinition.fileupload.formeditor.group>`

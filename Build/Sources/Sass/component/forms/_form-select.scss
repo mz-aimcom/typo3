@@ -9,7 +9,6 @@
     --typo3-form-select-padding-y: var(--typo3-input-padding-y);
     --typo3-form-select-transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
     --typo3-form-select-color: var(--typo3-input-color);
-    --typo3-form-select-placeholder-color: var(--typo3-input-placeholder-color);
     --typo3-form-select-bg: var(--typo3-input-bg);
     --typo3-form-select-icon-size: 16px;
     --typo3-form-select-border-width: var(--typo3-input-border-width);
@@ -36,7 +35,7 @@
     line-height: var(--typo3-form-select-line-height);
     color: var(--typo3-form-select-color);
     background-color: var(--typo3-form-select-bg);
-    background-clip: padding-box;
+    background-clip: border-box;
     background-size: var(--typo3-form-select-icon-size);
     background-repeat: no-repeat;
     background-position: var(--typo3-position-end) var(--typo3-form-select-padding-x) top 50%;
@@ -65,7 +64,7 @@
         z-index: 3 !important;
     }
 
-    &:disabled {
+    &[disabled] {
         --typo3-form-select-color: color-mix(in srgb, var(--typo3-form-select-disabled-color), transparent calc((1 - var(--typo3-form-select-disabled-opacity)) * 100%));
         --typo3-form-select-bg: var(--typo3-form-select-disabled-bg);
         --typo3-form-select-border-color: var(--typo3-form-select-disabled-border-color);

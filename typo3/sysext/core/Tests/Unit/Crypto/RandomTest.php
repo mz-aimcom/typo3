@@ -32,39 +32,41 @@ final class RandomTest extends UnitTestCase
         self::assertEquals(4, strlen($subject->generateRandomBytes(4)));
     }
 
-    /**
-     * Data provider for generateRandomHexStringReturnsExpectedAmountOfChars
-     */
-    public static function generateRandomHexStringReturnsExpectedAmountOfCharsDataProvider(): array
+    public static function lengthDataProvider(): iterable
     {
-        return [
-            [1],
-            [2],
-            [3],
-            [4],
-            [7],
-            [8],
-            [31],
-            [32],
-            [100],
-            [102],
-            [4000],
-            [4095],
-            [4096],
-            [4097],
-            [8000],
-        ];
+        yield [1];
+        yield [2];
+        yield [3];
+        yield [4];
+        yield [7];
+        yield [8];
+        yield [31];
+        yield [32];
+        yield [100];
+        yield [102];
+        yield [4000];
+        yield [4095];
+        yield [4096];
+        yield [4097];
+        yield [8000];
     }
 
-    /**
-     * @param int $numberOfChars Number of Chars to generate
-     */
-    #[DataProvider('generateRandomHexStringReturnsExpectedAmountOfCharsDataProvider')]
     #[Test]
-    public function generateRandomHexStringReturnsExpectedAmountOfChars($numberOfChars): void
+    #[DataProvider('lengthDataProvider')]
+    public function generateRandomHexStringReturnsExpectedAmountOfChars(int $length): void
     {
         $subject = new Random();
-        self::assertEquals($numberOfChars, strlen($subject->generateRandomHexString($numberOfChars)));
+        $result = $subject->generateRandomHexString($length);
+        self::assertMatchesRegularExpression('/^[[:xdigit:]]{' . $length . '}$/', $result);
+    }
+
+    #[Test]
+    #[DataProvider('lengthDataProvider')]
+    public function generateRandomBase64StringReturnsExpectedAmountOfChars(int $length): void
+    {
+        $subject = new Random();
+        $result = $subject->generateRandomBase64String($length);
+        self::assertMatchesRegularExpression('/^[[:alnum:]_-]{' . $length . '}$/', $result);
     }
 
     public static function generateRandomPasswordThrowsInvalidPasswordRulesExceptionDataProvider(): \Generator
@@ -100,7 +102,7 @@ final class RandomTest extends UnitTestCase
         $this->expectException(InvalidPasswordRulesException::class);
         $this->expectExceptionCode($exceptionCode);
 
-        (new Random())->generateRandomPassword($passwordRules);
+        new Random()->generateRandomPassword($passwordRules);
     }
 
     public static function generateRandomPasswordGeneratesRandomWithEncodingDataProvider(): \Generator
@@ -128,7 +130,7 @@ final class RandomTest extends UnitTestCase
         array $passwordRules,
         string $pattern
     ): void {
-        self::assertMatchesRegularExpression($pattern, (new Random())->generateRandomPassword($passwordRules));
+        self::assertMatchesRegularExpression($pattern, new Random()->generateRandomPassword($passwordRules));
     }
 
     public static function generateRandomPasswordGeneratesRandomWithCharacterSetsDataProvider(): \Generator
@@ -165,7 +167,7 @@ final class RandomTest extends UnitTestCase
         array $passwordRules,
         string $pattern
     ): void {
-        self::assertMatchesRegularExpression($pattern, (new Random())->generateRandomPassword($passwordRules));
+        self::assertMatchesRegularExpression($pattern, new Random()->generateRandomPassword($passwordRules));
     }
 
     public static function generateRandomPasswordGeneratesRandomWithLengthDataProvider(): \Generator
@@ -202,7 +204,7 @@ final class RandomTest extends UnitTestCase
         array $passwordRules,
         int $length
     ): void {
-        self::assertEquals($length, strlen((new Random())->generateRandomPassword($passwordRules)));
+        self::assertEquals($length, strlen(new Random()->generateRandomPassword($passwordRules)));
     }
 
     #[Test]

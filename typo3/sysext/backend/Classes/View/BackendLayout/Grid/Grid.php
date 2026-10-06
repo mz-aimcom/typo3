@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
 
+use TYPO3\CMS\Backend\View\PageLayoutContext;
+
 /**
  * Grid
  *
@@ -33,14 +35,23 @@ namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
  *
  * Accessed in Fluid templates.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class Grid extends AbstractGridObject
+class Grid
 {
     /**
      * @var GridRow[]
      */
     protected array $rows = [];
+
+    public function __construct(
+        protected readonly PageLayoutContext $context,
+    ) {}
+
+    public function getContext(): PageLayoutContext
+    {
+        return $this->context;
+    }
 
     public function addRow(GridRow $row): void
     {
@@ -66,7 +77,10 @@ class Grid extends AbstractGridObject
 
     public function getSpan(): int
     {
-        if (!isset($this->rows[0]) || $this->context->getDrawingConfiguration()->isLanguageComparisonMode()) {
+        if (!isset($this->rows[0])
+            || ($this->context->getDrawingConfiguration()->isLanguageComparisonMode()
+                && count($this->context->getDrawingConfiguration()->getSelectedLanguageIds()) > 1)
+        ) {
             return 1;
         }
         $span = 0;

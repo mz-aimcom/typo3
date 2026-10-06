@@ -28,16 +28,6 @@ class UserInternalContentObject extends AbstractContentObject
      */
     public function render($conf = [])
     {
-        $this->cObj->setUserObjectType(ContentObjectRenderer::OBJECTTYPE_USER_INT);
-        $tsfe = $this->getTypoScriptFrontendController();
-        $substKey = 'INT_SCRIPT.' . $tsfe->uniqueHash();
-        $content = '<!--' . $substKey . '-->';
-        $tsfe->config['INTincScript'][$substKey] = [
-            'conf' => $conf,
-            'cObj' => serialize($this->cObj),
-            'type' => 'FUNC',
-        ];
-        $this->cObj->setUserObjectType(false);
-        return $content;
+        return $this->generateNotCachedContentPlaceholder($this->request, (array)$conf);
     }
 }

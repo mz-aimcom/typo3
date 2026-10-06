@@ -13,19 +13,21 @@
 
 import DocumentService from '@typo3/core/document-service';
 import BrowserSession from '@typo3/backend/storage/browser-session';
-import NProgress from 'nprogress';
+import { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
 import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import Severity from '@typo3/backend/severity';
 import SecurityUtility from '@typo3/core/security-utility';
 import ExtensionManagerRepository from './repository';
 import ExtensionManagerUpdate from './update';
 import ExtensionManagerUploadForm from './upload-form';
-import '@typo3/backend/input/clearable';
+import './extension-toggle-button';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import RegularEvent from '@typo3/core/event/regular-event';
 import SortableTable from '@typo3/backend/sortable-table';
+import labels from '~labels/extensionmanager.messages';
+import coreCommonLabels from '~labels/core.common';
 
 const securityUtility = new SecurityUtility();
 
@@ -52,6 +54,7 @@ class ExtensionManager {
   public UploadForm: ExtensionManagerUploadForm;
   public Repository: ExtensionManagerRepository;
   private readonly searchFilterSessionKey: string = 'tx-extensionmanager-local-filter';
+  private progressBar: ProgressBarElement | null = null;
 
   constructor() {
     DocumentService.ready().then((): void => {
@@ -70,19 +73,19 @@ class ExtensionManager {
           e.preventDefault();
 
           Modal.confirm(
-            TYPO3.lang['extensionList.removalConfirmation.title'],
-            TYPO3.lang['extensionList.removalConfirmation.question'],
+            labels.get('extensionList.removalConfirmation.title'),
+            labels.get('extensionList.removalConfirmation.question'),
             Severity.error,
             [
               {
-                text: TYPO3.lang['button.cancel'],
+                text: coreCommonLabels.get('cancel'),
                 active: true,
                 btnClass: 'btn-default',
                 trigger: (): void => {
                   Modal.dismiss();
                 },
               }, {
-                text: TYPO3.lang['button.remove'],
+                text: labels.get('button.remove'),
                 btnClass: 'btn-danger',
                 trigger: (): void => {
                   this.removeExtensionFromDisk(target);
@@ -97,26 +100,28 @@ class ExtensionManager {
           e.preventDefault();
 
           Modal.confirm(
-            TYPO3.lang['extensionList.databaseReload.title'],
-            TYPO3.lang['extensionList.databaseReload.message'],
+            labels.get('extensionList.databaseReload.title'),
+            labels.get('extensionList.databaseReload.message'),
             Severity.warning,
             [
               {
-                text: TYPO3.lang['button.cancel'],
+                text: coreCommonLabels.get('cancel'),
                 active: true,
                 btnClass: 'btn-default',
                 trigger: (): void => {
                   Modal.dismiss();
                 },
               }, {
-                text: TYPO3.lang['button.reimport'],
+                text: labels.get('button.reimport'),
                 btnClass: 'btn-warning',
                 trigger: (): void => {
-                  NProgress.start();
+                  const progressBar = document.createElement('typo3-backend-progress-bar');
+                  document.body.appendChild(progressBar);
+                  progressBar.start();
                   new AjaxRequest(target.href).post({}).then((): void => {
                     location.reload();
                   }).finally((): void => {
-                    NProgress.done();
+                    progressBar.done();
                     Modal.dismiss();
                   });
                 },
@@ -127,30 +132,14 @@ class ExtensionManager {
 
       }
 
-      new RegularEvent('click', (): void => {
-        NProgress.start();
-      }).delegateTo(document, '.onClickMaskExtensionManager');
-
       new RegularEvent('click', (e: Event, target: HTMLAnchorElement): void => {
         e.preventDefault();
 
-        NProgress.start();
-        new AjaxRequest(target.href).get().then(this.updateExtension);
+        this.progressBar = document.createElement('typo3-backend-progress-bar');
+        document.body.appendChild(this.progressBar);
+        this.progressBar.start();
+        new AjaxRequest(target.href).get().then((response: AjaxResponse): Promise<void> => this.updateExtension(response));
       }).delegateTo(document, 'a[data-action=update-extension]');
-
-      new RegularEvent('change', (e: Event, target: HTMLInputElement): void => {
-        const actionButton = document.querySelector('.t3js-dependencies');
-
-        if (target.checked) {
-          actionButton.classList.remove('disabled');
-        } else {
-          actionButton.classList.add('disabled');
-        }
-      }).delegateTo(document, 'input[name=unlockDependencyIgnoreButton]');
-
-      new RegularEvent('click', (): void => {
-        NProgress.start();
-      }).delegateTo(document, '.t3-button-action-installdistribution');
 
       let searchField: HTMLInputElement;
       if ((searchField = document.querySelector(ExtensionManagerIdentifier.searchField)) !== null) {
@@ -169,12 +158,13 @@ class ExtensionManager {
           BrowserSession.set(this.searchFilterSessionKey, target.value);
           this.filterExtensions(target.value);
         }, 100).bindTo(searchField);
-        searchField.clearable({
-          onClear: (): void => {
+
+        new RegularEvent('search', (): void => {
+          if (searchField.value === '') {
             BrowserSession.unset(this.searchFilterSessionKey);
             this.filterExtensions('');
-          },
-        });
+          }
+        }).bindTo(searchField);
       }
 
       this.Repository.initDom();
@@ -202,73 +192,84 @@ class ExtensionManager {
   }
 
   private removeExtensionFromDisk(trigger: HTMLAnchorElement): void {
-    NProgress.start();
+    const progressBar = document.createElement('typo3-backend-progress-bar');
+    document.body.appendChild(progressBar);
+    progressBar.start();
     new AjaxRequest(trigger.href).post({}).then((): void => {
       location.reload();
     }).finally((): void => {
-      NProgress.done();
+      progressBar.done();
     });
   }
 
   private async updateExtension(response: AjaxResponse): Promise<void> {
-    let i = 0;
     const data: UpdateInformation = await response.resolve();
+    const versions = Object.entries(data.updateComments);
+
     const form = document.createElement('form');
-    for (const [version, comment] of Object.entries(data.updateComments)) {
+
+    versions.forEach(([version, comment], index) => {
+      const formCheck = document.createElement('div');
+      formCheck.classList.add('form-check', 'form-check-type-card', 'mb-2');
+
+      const inputId = 'version-' + version.replace(/\./g, '-');
+
       const versionInput = document.createElement('input');
-      versionInput.setAttribute('type', 'radio');
-      versionInput.setAttribute('name', 'version');
+      versionInput.classList.add('form-check-input');
+      versionInput.type = 'radio';
+      versionInput.name = 'version';
+      versionInput.id = inputId;
       versionInput.value = version;
-      if (i === 0) {
-        versionInput.setAttribute('checked', 'checked');
+      if (index === 0) {
+        versionInput.checked = true;
       }
 
-      const versionHeader = document.createElement('h3');
-      versionHeader.innerHTML = securityUtility.encodeHtml(version);
-      versionHeader.prepend(versionInput);
+      const label = document.createElement('label');
+      label.classList.add('form-check-label');
+      label.setAttribute('for', inputId);
 
-      const commentDiv = document.createElement('div');
-      commentDiv.innerHTML = comment
-        .replace(/(\r\n|\n\r|\r|\n)/g, '\n')
-        .split(/\n/).map((line: string): string => {
-          return securityUtility.encodeHtml(line);
-        })
-        .join('<br>');
+      const labelHeader = document.createElement('span');
+      labelHeader.classList.add('form-check-label-header');
+      labelHeader.textContent = version;
+      label.append(labelHeader);
 
-      form.append(versionHeader, commentDiv);
-      i++;
+      if (comment) {
+        const labelBody = document.createElement('span');
+        labelBody.classList.add('form-check-label-body');
+        labelBody.innerHTML = comment
+          .replace(/(\r\n|\n\r|\r|\n)/g, '\n')
+          .split(/\n/).map((line: string): string => {
+            return securityUtility.encodeHtml(line);
+          })
+          .join('<br>');
+        label.append(labelBody);
+      }
+
+      formCheck.append(versionInput, label);
+      form.append(formCheck);
+    });
+
+    if (this.progressBar) {
+      this.progressBar.done();
     }
 
-    const updateConfirmationTitle = document.createElement('h1');
-    updateConfirmationTitle.textContent = TYPO3.lang['extensionList.updateConfirmation.title'];
-
-    const updateConfirmationMessage = document.createElement('h2');
-    updateConfirmationMessage.textContent = TYPO3.lang['extensionList.updateConfirmation.message'];
-
-    const container = document.createElement('div');
-    container.append(
-      updateConfirmationTitle,
-      updateConfirmationMessage,
-      form,
-    );
-
-    NProgress.done();
-
     Modal.confirm(
-      TYPO3.lang['extensionList.updateConfirmation.questionVersionComments'],
-      container,
-      Severity.warning,
+      labels.get('extensionList.updateConfirmation.questionVersionComments'),
+      form,
+      Severity.notice,
       [
         {
-          text: TYPO3.lang['button.cancel'],
+          text: coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           trigger: (e: Event, modal: ModalElement): void => modal.hideModal(),
         }, {
-          text: TYPO3.lang['button.updateExtension'],
+          text: labels.get('button.updateExtension'),
           btnClass: 'btn-warning',
           trigger: (e: Event, modal: ModalElement): void => {
-            NProgress.start();
+            const progressBar = document.createElement('typo3-backend-progress-bar');
+            document.body.appendChild(progressBar);
+            progressBar.start();
             new AjaxRequest(data.url).post({
               version: (modal.querySelector('input[name="version"]:checked') as HTMLInputElement)?.value,
             }).finally((): void => {

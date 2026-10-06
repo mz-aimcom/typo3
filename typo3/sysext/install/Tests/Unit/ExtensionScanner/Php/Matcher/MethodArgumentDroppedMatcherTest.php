@@ -31,7 +31,7 @@ final class MethodArgumentDroppedMatcherTest extends UnitTestCase
     #[Test]
     public function hitsFromFixtureAreFound(): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $fixtureFile = __DIR__ . '/Fixtures/MethodArgumentDroppedMatcherFixture.php';
         $statements = $parser->parse(file_get_contents($fixtureFile));
 
@@ -218,6 +218,20 @@ final class MethodArgumentDroppedMatcherTest extends UnitTestCase
                     ],
                 ],
             ],
+            // Regression test for issue #108413: dynamic method calls must not crash
+            'no match for dynamic method call with method call expression' => [
+                [
+                    'Foo->aMethod' => [
+                        'maximumNumberOfArguments' => 0,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                $someVar->{$this->getMethod()}("arg1");',
+                [], // no match, must not crash
+            ],
         ];
     }
 
@@ -225,7 +239,7 @@ final class MethodArgumentDroppedMatcherTest extends UnitTestCase
     #[Test]
     public function matchesReturnsExpectedRestFiles(array $configuration, string $phpCode, array $expected): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $statements = $parser->parse($phpCode);
 
         $subject = new MethodArgumentDroppedMatcher($configuration);

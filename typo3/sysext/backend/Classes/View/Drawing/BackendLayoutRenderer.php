@@ -43,13 +43,14 @@ use TYPO3\CMS\Core\View\ViewInterface;
  * which renders the Resources/Private/PageLayout/PageLayout template
  * with necessary assigned template variables.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class BackendLayoutRenderer
+readonly class BackendLayoutRenderer
 {
     public function __construct(
-        protected readonly BackendViewFactory $backendViewFactory,
-        protected readonly RecordFactory $recordFactory,
+        protected BackendViewFactory $backendViewFactory,
+        protected RecordFactory $recordFactory,
+        protected FlashMessageService $flashMessageService,
     ) {}
 
     public function getGridForPageLayoutContext(PageLayoutContext $context): Grid
@@ -60,7 +61,7 @@ class BackendLayoutRenderer
         if ($context->getDrawingConfiguration()->isLanguageComparisonMode()) {
             $languageId = $context->getSiteLanguage()->getLanguageId();
         } else {
-            $languageId = $context->getDrawingConfiguration()->getSelectedLanguageId();
+            $languageId = $context->getDrawingConfiguration()->getPrimaryLanguageId();
         }
         $rows = $context->getBackendLayout()->getStructure()['__config']['backend_layout.']['rows.'] ?? [];
         ksort($rows);
@@ -72,14 +73,13 @@ class BackendLayoutRenderer
                 if (isset($column['colPos'])) {
                     $records = $contentFetcher->getContentRecordsPerColumn($context, (int)$column['colPos'], $languageId);
                     foreach ($records as $contentRecord) {
-                        // @todo: ideally we hand in the record object into the GridColumnItem in the future - For now
-                        //        we just call record factory to create the record and store it in the identity map.
                         try {
-                            $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $contentRecord, null, $recordIdentityMap);
+                            // By calling record factory to create the record, it is also stored in the identity map.
+                            $contentRecord = $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $contentRecord, null, $recordIdentityMap);
+                            $columnItem = GeneralUtility::makeInstance(GridColumnItem::class, $context, $columnObject, $contentRecord);
+                            $columnObject->addItem($columnItem);
                         } catch (UndefinedSchemaException) {
                         }
-                        $columnItem = GeneralUtility::makeInstance(GridColumnItem::class, $context, $columnObject, $contentRecord);
-                        $columnObject->addItem($columnItem);
                     }
                 }
             }
@@ -114,20 +114,17 @@ class BackendLayoutRenderer
         } else {
             $context = $pageLayoutContext;
             // Check if we have to use a localized context for grid creation
-            if ($pageLayoutContext->getDrawingConfiguration()->getSelectedLanguageId() > 0) {
+            $primaryLanguageId = $pageLayoutContext->getDrawingConfiguration()->getPrimaryLanguageId();
+            if ($primaryLanguageId > 0) {
                 // In case a localization is selected, clone the context with this language
                 $localizedContext = $pageLayoutContext->cloneForLanguage(
-                    $pageLayoutContext->getSiteLanguage($pageLayoutContext->getDrawingConfiguration()->getSelectedLanguageId())
+                    $pageLayoutContext->getSiteLanguage($primaryLanguageId)
                 );
                 if ($localizedContext->getLocalizedPageRecord()) {
                     // In case the localized context contains the corresponding
                     // localized page record use this context for grid creation.
                     $context = $localizedContext;
                 }
-            } elseif ($pageLayoutContext->getDrawingConfiguration()->getSelectedLanguageId() === -1) {
-                // In case we are not in language comparison mode and all-language is given,
-                // we fall back to the default language to prevent an empty grid.
-                $context->getDrawingConfiguration()->setSelectedLanguageId($context->getSiteLanguage()->getLanguageId());
             }
             $grid = $this->getGridForPageLayoutContext($context);
             $view->assign('grid', $grid);
@@ -150,14 +147,12 @@ class BackendLayoutRenderer
         if (empty($unusedRecords)) {
             return '';
         }
-        $unusedElementsMessage = GeneralUtility::makeInstance(
-            FlashMessage::class,
+        $unusedElementsMessage = new FlashMessage(
             $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarning'),
             $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:staleUnusedElementsWarningTitle'),
             ContextualFeedbackSeverity::WARNING
         );
-        $service = GeneralUtility::makeInstance(FlashMessageService::class);
-        $queue = $service->getMessageQueueByIdentifier();
+        $queue = $this->flashMessageService->getMessageQueueByIdentifier();
         $queue->addMessage($unusedElementsMessage);
 
         $unusedGrid = GeneralUtility::makeInstance(Grid::class, $pageLayoutContext);
@@ -168,6 +163,7 @@ class BackendLayoutRenderer
         $unusedRow->addColumn($unusedColumn);
 
         foreach ($unusedRecords as $unusedRecord) {
+            $unusedRecord = $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $unusedRecord, null, $pageLayoutContext->getRecordIdentityMap());
             $item = GeneralUtility::makeInstance(GridColumnItem::class, $pageLayoutContext, $unusedColumn, $unusedRecord);
             $unusedColumn->addItem($item);
         }
@@ -220,7 +216,8 @@ class BackendLayoutRenderer
                         foreach ($column->getItems() as $item) {
                             // check if translation exists
                             foreach ($translatedRows as $translation) {
-                                if ($translation['l18n_parent'] === $item->getRecord()['uid']) {
+                                if ($translation['l18n_parent'] === $item->getRecord()->getUid()) {
+                                    $translation = $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $translation, null, $context->getRecordIdentityMap());
                                     $translatedItem = GeneralUtility::makeInstance(GridColumnItem::class, $localizedContext, $column, $translation);
                                     $item->addTranslation($localizedLanguageId, $translatedItem);
                                 }

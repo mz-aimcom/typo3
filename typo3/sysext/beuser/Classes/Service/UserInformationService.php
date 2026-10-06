@@ -21,10 +21,10 @@ use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
-use TYPO3\CMS\Core\Imaging\Icon;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Schema\Field\StaticSelectFieldType;
+use TYPO3\CMS\Core\Schema\SchemaLabelResolver;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
@@ -37,10 +37,12 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 final readonly class UserInformationService
 {
     public function __construct(
-        protected IconFactory $iconFactory,
-        protected ModuleProvider $moduleProvider,
-        protected TcaSchemaFactory $tcaSchemaFactory,
-        protected PageDoktypeRegistry $pageDoktypeRegistry,
+        private IconFactory $iconFactory,
+        private ModuleProvider $moduleProvider,
+        private TcaSchemaFactory $tcaSchemaFactory,
+        private PageDoktypeRegistry $pageDoktypeRegistry,
+        private SchemaLabelResolver $schemaLabelResolver,
+        private SiteFinder $siteFinder,
     ) {}
 
     /**
@@ -105,7 +107,7 @@ final readonly class UserInformationService
      * Convert hard readable user & group information into structured
      * data which can be rendered later
      */
-    protected function convert(BackendUserAuthentication $user): array
+    private function convert(BackendUserAuthentication $user): array
     {
         // usergroups
         $data = [
@@ -249,7 +251,7 @@ final readonly class UserInformationService
                 continue;
             }
             [$table, $recordType, $recordTypeValue] = $split;
-            $label = BackendUtility::getLabelFromItemlist(...$split);
+            $label = $this->schemaLabelResolver->getLabelForFieldValue(...$split);
             $data['pageContentTypes'][] = [
                 // If label is empty => the record type value does not exist so we use "empty-empty" as icon instead of falling back to the default record type icon
                 'icon' => $label ? $this->iconFactory->getIconForRecord($table, [$recordType => $recordTypeValue], IconSize::SMALL)->getIdentifier() : 'install-check-extables',
@@ -262,10 +264,10 @@ final readonly class UserInformationService
         return $data;
     }
 
-    protected function getAllSiteLanguages(): array
+    private function getAllSiteLanguages(): array
     {
         $siteLanguages = [];
-        foreach (GeneralUtility::makeInstance(SiteFinder::class)->getAllSites() as $site) {
+        foreach ($this->siteFinder->getAllSites() as $site) {
             foreach ($site->getAllLanguages() as $languageId => $language) {
                 if (isset($siteLanguages[$languageId])) {
                     // Language already provided by another site, check if values differ

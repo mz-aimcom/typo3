@@ -17,9 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Resource;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Exception;
 use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
@@ -30,15 +32,16 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 /**
  * Testcase for the ProcessedFile class of the TYPO3 FAL
  */
+#[AllowMockObjectsWithoutExpectations]
 final class ProcessedFileTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected Folder&MockObject $folderMock;
+    private Folder&Stub $folderStub;
 
-    protected ResourceStorage&MockObject $storageMock;
+    private ResourceStorage&MockObject $storageMock;
 
-    protected array $databaseRow = [];
+    private array $databaseRow = [];
 
     /**
      * @throws Exception
@@ -51,10 +54,10 @@ final class ProcessedFileTest extends UnitTestCase
         $this->storageMock->method('hashFile')->willReturn('');
         $this->storageMock->method('deleteFile')->willReturn(true);
 
-        $this->folderMock = $this->createMock(Folder::class);
-        $this->folderMock->method('getStorage')->willReturn($this->storageMock);
+        $this->folderStub = self::createStub(Folder::class);
+        $this->folderStub->method('getStorage')->willReturn($this->storageMock);
 
-        $this->storageMock->method('getProcessingFolder')->willReturn($this->folderMock);
+        $this->storageMock->method('getProcessingFolder')->willReturn($this->folderStub);
 
         $this->databaseRow = [
             'uid' => '1234567',
@@ -66,12 +69,12 @@ final class ProcessedFileTest extends UnitTestCase
         ];
     }
 
-    protected function getFileFixture(?array $dbRow = null, ?ResourceStorage $storageMock = null): File
+    private function getFileFixture(?array $dbRow = null, ?ResourceStorage $storageMock = null): File
     {
         return new File($dbRow ?: $this->databaseRow, $storageMock ?: $this->storageMock);
     }
 
-    protected function getProcessedFileFixture(?array $dbRow = null, ?File $originalFile = null): ProcessedFile
+    private function getProcessedFileFixture(?array $dbRow = null, ?File $originalFile = null): ProcessedFile
     {
         if ($originalFile === null) {
             $originalFile = $this->getFileFixture();

@@ -1,5 +1,5 @@
 import { html, LitElement, type TemplateResult } from 'lit';
-import { customElement, property, queryAssignedElements } from 'lit/decorators';
+import { customElement, property, queryAssignedElements } from 'lit/decorators.js';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import { prefixAndRebaseCss } from '@typo3/rte-ckeditor/css-prefixer';
@@ -105,7 +105,7 @@ export class CKEditor5Element extends LitElement {
       readOnly,
       debug,
 
-      // options forwarded to CKEditor5
+      // options forwarded to CKEditor 5
       toolbar,
       placeholder,
       htmlSupport,
@@ -116,9 +116,9 @@ export class CKEditor5Element extends LitElement {
     } = this.options;
 
     if ('extraPlugins' in otherOptions) {
-      // Drop CKEditor4 style extraPlugins which we do not support for CKEditor5
+      // Drop CKEditor 4 style extraPlugins which we do not support for CKEditor 5
       // as this string-based list of plugin names works only for bundled plugins.
-      // `config.importModules` is used for CKEditor5 instead
+      // `config.importModules` is used for CKEditor 5 instead
       delete otherOptions.extraPlugins;
     }
     if ('contentsCss' in otherOptions) {
@@ -234,7 +234,7 @@ export class CKEditor5Element extends LitElement {
               exports: moduleDescriptor.exports,
             };
           } catch (e) {
-            console.error(`Failed to load CKEditor5 module ${moduleDescriptor.module}`, e);
+            console.error(`Failed to load CKEditor 5 module ${moduleDescriptor.module}`, e);
             return {
               module: null,
               exports: []
@@ -249,7 +249,7 @@ export class CKEditor5Element extends LitElement {
         if (exportName in module) {
           declaredPlugins.push(module[exportName]);
         } else {
-          console.error(`CKEditor5 plugin export "${exportName}" not available in`, module);
+          console.error(`CKEditor 5 plugin export "${exportName}" not available in`, module);
         }
       }
     });
@@ -285,7 +285,7 @@ export class CKEditor5Element extends LitElement {
       const response = await new AjaxRequest(url).get();
       content = await response.resolve();
     } catch (e) {
-      console.error(`Failed to fetch CSS content for CKEditor5 prefixing: "${url}"`, e);
+      console.error(`Failed to fetch CSS content for CKEditor 5 prefixing: "${url}"`, e);
       throw new Error();
     }
     // see https://ckeditor.com/docs/ckeditor5/latest/installation/advanced/content-styles.html
@@ -360,7 +360,7 @@ type PseudoRegExp = {
 };
 
 function walkObj(data: RecurseMapInput, proc: (value: unknown) => unknown|null): RecurseMapInput {
-  if (typeof data === 'object') {
+  if (data !== null && typeof data === 'object') {
     if (Array.isArray(data)) {
       return data.map((element: RecurseMapInput) => proc(element) ?? walkObj(element, proc));
     }
@@ -375,7 +375,7 @@ function walkObj(data: RecurseMapInput, proc: (value: unknown) => unknown|null):
 
 function convertPseudoRegExp(data: RecurseMapInput): RecurseMapInput {
   return walkObj(data, (entry: PseudoRegExp | unknown): RegExp | null => {
-    if (typeof entry === 'object' && 'pattern' in entry && typeof entry.pattern === 'string') {
+    if (entry !== null && typeof entry === 'object' && 'pattern' in entry && typeof entry.pattern === 'string') {
       const pseudoRegExp = entry as PseudoRegExp;
       return new RegExp(pseudoRegExp.pattern, pseudoRegExp.flags || undefined);
     }

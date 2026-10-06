@@ -25,6 +25,8 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 
 final class FeatureViewHelperTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     public static function renderDataProvider(): array
     {
         return [
@@ -43,6 +45,6 @@ final class FeatureViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource(
             '<f:feature name="viewHelperTestFeature"><f:then>enabled</f:then><f:else>disabled</f:else></f:feature>'
         );
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 }

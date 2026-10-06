@@ -30,7 +30,7 @@ final class InterfaceMethodChangedMatcherTest extends UnitTestCase
     #[Test]
     public function hitsFromFixtureAreFound(): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $fixtureFile = __DIR__ . '/Fixtures/InterfaceMethodChangedMatcherFixture.php';
         $statements = $parser->parse(file_get_contents($fixtureFile));
 
@@ -76,5 +76,39 @@ final class InterfaceMethodChangedMatcherTest extends UnitTestCase
             $actualHitLineNumbers[] = $match['line'];
         }
         self::assertEquals($expectedHitLineNumbers, $actualHitLineNumbers);
+    }
+
+    /**
+     * Regression test for issue #108413: dynamic method calls must not crash
+     */
+    #[Test]
+    public function dynamicMethodCallDoesNotCrash(): void
+    {
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
+        $phpCode = '<?php
+            class TestClass {
+                public function test() {
+                    $this->{$this->getMethod()}("arg1");
+                }
+            }';
+        $statements = $parser->parse($phpCode);
+
+        $traverser = new NodeTraverser();
+        $traverser->addVisitor(new NameResolver());
+
+        $matcherDefinitions = [
+            'someMethod' => [
+                'newNumberOfArguments' => 2,
+                'restFiles' => [
+                    'Foo-1.rst',
+                ],
+            ],
+        ];
+        $subject = new InterfaceMethodChangedMatcher($matcherDefinitions);
+        $traverser->addVisitor($subject);
+        $traverser->traverse($statements);
+
+        // Must not crash and should return no matches for dynamic calls
+        self::assertSame([], $subject->getMatches());
     }
 }

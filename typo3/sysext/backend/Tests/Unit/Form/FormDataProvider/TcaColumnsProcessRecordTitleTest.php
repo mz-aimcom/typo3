@@ -39,7 +39,7 @@ final class TcaColumnsProcessRecordTitleTest extends UnitTestCase
 
         $expected = $input;
         $expected['columnsToProcess'] = ['uid'];
-        self::assertSame($expected, (new TcaColumnsProcessRecordTitle())->addData($input));
+        self::assertSame($expected, new TcaColumnsProcessRecordTitle()->addData($input));
     }
 
     #[Test]
@@ -59,7 +59,33 @@ final class TcaColumnsProcessRecordTitleTest extends UnitTestCase
 
         $expected = $input;
         $expected['columnsToProcess'] = ['uid', 'aField', 'anotherField'];
-        self::assertSame($expected, (new TcaColumnsProcessRecordTitle())->addData($input));
+        self::assertSame($expected, new TcaColumnsProcessRecordTitle()->addData($input));
+    }
+
+    #[Test]
+    public function addDataSkipsAllColumnsForInlineChildWithFormattedLabelUserFunc(): void
+    {
+        $input = [
+            'columnsToProcess' => [],
+            'isInlineChild' => true,
+            'inlineParentConfig' => [
+                'foreign_label' => 'aForeignLabelField',
+            ],
+            'processedTca' => [
+                'ctrl' => [
+                    'label' => 'title',
+                    'label_alt' => 'relation1,relation2',
+                    'formattedLabel_userFunc' => 'MyVendor\\MyExt\\UserFunc->getLabel',
+                ],
+                'columns' => [],
+            ],
+        ];
+
+        $expected = $input;
+        // columnsToProcess must stay empty: formattedLabel_userFunc takes full precedence,
+        // so no expensive label/label_alt field processing should be triggered.
+        $expected['columnsToProcess'] = [];
+        self::assertSame($expected, new TcaColumnsProcessRecordTitle()->addData($input));
     }
 
     #[Test]
@@ -75,7 +101,7 @@ final class TcaColumnsProcessRecordTitleTest extends UnitTestCase
 
         $expected = $input;
         $expected['columnsToProcess'] = [ 'aForeignLabelField' ];
-        self::assertSame($expected, (new TcaColumnsProcessRecordTitle())->addData($input));
+        self::assertSame($expected, new TcaColumnsProcessRecordTitle()->addData($input));
     }
 
     #[Test]
@@ -91,6 +117,6 @@ final class TcaColumnsProcessRecordTitleTest extends UnitTestCase
 
         $expected = $input;
         $expected['columnsToProcess'] = [ 'aSymmetricLabelField' ];
-        self::assertSame($expected, (new TcaColumnsProcessRecordTitle())->addData($input));
+        self::assertSame($expected, new TcaColumnsProcessRecordTitle()->addData($input));
     }
 }

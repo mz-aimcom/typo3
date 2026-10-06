@@ -22,15 +22,18 @@ import Modal from '@typo3/backend/modal';
 import Severity from '@typo3/backend/severity';
 import Utility from './utility';
 import RegularEvent from '@typo3/core/event/regular-event';
+import ThrottleEvent from '@typo3/core/event/throttle-event';
 import DomHelper from '@typo3/backend/utility/dom-helper';
 import { selector } from '@typo3/core/literals';
 import SubmitInterceptor from '@typo3/backend/form/submit-interceptor';
 import { FormEngineReview } from '@typo3/backend/form-engine-review';
 import type FormEngine from '@typo3/backend/form-engine';
 import type { FormEngineFieldElement } from '@typo3/backend/form-engine';
+import coreCoreLabels from '~labels/core.core';
+import listLabels from '~labels/core.mod_web_list';
 
 type CustomEvaluationCallback = (value: string) => string;
-type FormEngineInputParams = { field: string, evalList?: string, is_in?: string };
+type FormEngineInputParams = { field: string, evalList?: string, is_in?: string, scale?: number };
 
 export interface PostValidationEvent {
   field: FormEngineFieldElement,
@@ -74,6 +77,10 @@ export default class FormEngineValidation {
       FormEngineValidation.validateField(target);
       formEngineInstance.markFieldAsChanged(target);
     }).delegateTo(formEngineInstance.formElement, FormEngineValidation.rulesSelector);
+
+    new ThrottleEvent('input', (e: Event, target: FormEngineFieldElement): void => {
+      FormEngineValidation.validateField(target);
+    }, 100).delegateTo(formEngineInstance.formElement, FormEngineValidation.rulesSelector);
 
     FormEngineValidation.registerSubmitCallback();
 
@@ -120,6 +127,8 @@ export default class FormEngineValidation {
 
     // add the attribute so that acceptance tests can know when the field initialization has completed
     humanReadableField.dataset.formengineInputInitialized = 'true';
+    /* @internal `formengine:input:initialized` is an internal event and may vanish at any time, do not rely on it in custom code */
+    humanReadableField.dispatchEvent(new Event('formengine:input:initialized'));
   }
 
   public static registerCustomEvaluation(name: string, handler: CustomEvaluationCallback): void {
@@ -147,6 +156,7 @@ export default class FormEngineValidation {
       case 'datetime':
       case 'time':
       case 'timesec':
+      case 'datetimesec':
         if (value === '') {
           return '';
         }
@@ -452,7 +462,7 @@ export default class FormEngineValidation {
         break;
       case 'decimal':
         if (value !== '') {
-          returnValue = FormEngineValidation.parseDouble(value);
+          returnValue = FormEngineValidation.parseDouble(value, config.scale);
         }
         break;
       case 'trim':
@@ -490,7 +500,7 @@ export default class FormEngineValidation {
    */
   public static validate(section?: Element): void {
     if (typeof section === 'undefined' || section instanceof Document) {
-      formEngineInstance.formElement.querySelectorAll(FormEngineValidation.markerSelector + ', .t3js-tabmenu-item').forEach((tabMenuItem: HTMLElement): void => {
+      formEngineInstance.formElement.querySelectorAll(FormEngineValidation.markerSelector + ', [role="tablist"] > .nav-item').forEach((tabMenuItem: HTMLElement): void => {
         tabMenuItem.classList.remove(FormEngineValidation.validationErrorClass);
       });
     }
@@ -501,17 +511,6 @@ export default class FormEngineValidation {
         FormEngineValidation.validateField(field);
       }
     }
-  }
-
-  /**
-   * Helper function to mark a field as changed.
-   *
-   * @deprecated
-   */
-  public static markFieldAsChanged(field: FormEngineFieldElement): void {
-    console.warn('Calling markFieldAsChanged() from \'@typo3/backend/form-engine-validation\' is deprecated and will be removed in TYPO3 v15. Instead, call the method from \'@typo3/backend/form-engine\'.');
-
-    formEngineInstance.markFieldAsChanged(field);
   }
 
   /**
@@ -533,8 +532,12 @@ export default class FormEngineValidation {
 
   /**
    * Parse value to double
+   *
+   * The value is rounded on its digits and not as a number, since a number can not hold
+   * the precision of values with a high scale: (2.000000001).toFixed(30) would return
+   * "2.000000001000000082740370999090".
    */
-  public static parseDouble(value: number|string|boolean, precision: number = 2): string {
+  public static parseDouble(value: number|string|boolean, scale: number = 2): string {
     let theVal = '' + value;
     theVal = theVal.replace(/[^0-9,.-]/g, '');
     const negative = theVal.startsWith('-');
@@ -544,14 +547,23 @@ export default class FormEngineValidation {
       theVal += '.0';
     }
     const parts = theVal.split('.');
-    const dec = parts.pop();
-    let theNumberVal = Number(parts.join('') + '.' + dec);
-    if (negative) {
-      theNumberVal *= -1;
-    }
-    theVal = theNumberVal.toFixed(precision);
+    let decimalDigits = parts.pop();
+    let integerDigits = parts.join('');
 
-    return theVal;
+    if (decimalDigits.length > scale) {
+      const roundUp = Number(decimalDigits.charAt(scale)) >= 5;
+      decimalDigits = decimalDigits.substring(0, scale);
+      if (roundUp) {
+        const rounded = (BigInt(integerDigits + decimalDigits) + 1n).toString().padStart(integerDigits.length + scale, '0');
+        integerDigits = rounded.substring(0, rounded.length - scale);
+        decimalDigits = rounded.substring(rounded.length - scale);
+      }
+    }
+    decimalDigits = decimalDigits.padEnd(scale, '0');
+    integerDigits = integerDigits.replace(/^0+(?=\d)/, '') || '0';
+    theVal = integerDigits + '.' + decimalDigits;
+
+    return (negative && /[1-9]/.test(theVal) ? '-' : '') + theVal;
   }
 
   /**
@@ -567,8 +579,8 @@ export default class FormEngineValidation {
 
       const id = pane.id;
       formEngineInstance.formElement
-        .querySelector('[data-bs-target="#' + id + '"]')
-        .closest('.t3js-tabmenu-item')
+        .querySelector(selector`[data-typo3-tab="${'#' + id}"]`)
+        .closest('.nav-item')
         .classList.toggle(FormEngineValidation.validationErrorClass, !isValid);
     });
   }
@@ -593,12 +605,12 @@ export default class FormEngineValidation {
 
   public static showErrorModal(): void {
     const modal = Modal.confirm(
-      TYPO3.lang.alert || 'Alert',
-      TYPO3.lang['FormEngine.fieldsMissing'],
+      coreCoreLabels.get('labels.fieldsMissing.title'),
+      coreCoreLabels.get('labels.fieldsMissing'),
       Severity.error,
       [
         {
-          text: TYPO3.lang['button.ok'] || 'OK',
+          text: listLabels.get('button.ok'),
           active: true,
           btnClass: 'btn-default',
           name: 'ok',

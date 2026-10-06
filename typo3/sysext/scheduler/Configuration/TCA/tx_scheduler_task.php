@@ -16,7 +16,7 @@ return [
             'default' => 'mimetypes-x-tx_scheduler_task_group',
         ],
         'type' => 'tasktype',
-        'hideTable' => true, // Disabled for now until sorting and grouping is usable in list module
+        'hideTable' => true, // Disabled for now until sorting and grouping is usable in records module
         'adminOnly' => true, // Only admin users can edit
         'groupName' => 'system',
         'rootLevel' => 1,
@@ -42,31 +42,27 @@ return [
         'task_group' => [
             'label' => 'LLL:EXT:scheduler/Resources/Private/Language/locallang_tca.xlf:tx_scheduler_task.task_group',
             'config' => [
-                'type' => 'group',
-                'allowed' => 'tx_scheduler_task_group',
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'foreign_table' => 'tx_scheduler_task_group',
+                'items' => [
+                    ['label' => '', 'value' => 0],
+                ],
                 'size' => 1,
-                'maxitems' => 1,
                 'default' => 0,
-                'hideSuggest' => true,
-                'fieldWizard' => [
-                    'tableList' => [
-                        'disabled' => true,
-                    ],
-                    'recordsOverview' => [
-                        'disabled' => true,
-                    ],
+            ],
+        ],
+        'priority' => [
+            'label' => 'scheduler.tca:tx_scheduler_task.priority',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'items' => [
+                    ['label' => 'scheduler.tca:tx_scheduler_task.priority.high', 'value' => 150],
+                    ['label' => 'scheduler.tca:tx_scheduler_task.priority.regular', 'value' => 100],
+                    ['label' => 'scheduler.tca:tx_scheduler_task.priority.low', 'value' => 50],
                 ],
-                'fieldControl' => [
-                    'editPopup' => [
-                        'disabled' => true,
-                    ],
-                    'addRecord' => [
-                        'disabled' => false,
-                    ],
-                    'listModule' => [
-                        'disabled' => true,
-                    ],
-                ],
+                'default' => 100,
             ],
         ],
         'description' => [
@@ -79,7 +75,6 @@ return [
             'label' => 'LLL:EXT:scheduler/Resources/Private/Language/locallang_tca.xlf:tx_scheduler_task.parameters',
             'config' => [
                 'type' => 'json',
-                'renderType' => 'schedulerAdditionalFields',
             ],
         ],
         'execution_details' => [
@@ -157,6 +152,7 @@ return [
                 'type' => 'select',
                 'renderType' => 'selectMultipleSideBySide',
                 'size' => 10,
+                'dbFieldLength' => 4000,
                 'minitems' => 1,
                 'maxitems' => 100,
                 'items' => [],
@@ -167,7 +163,7 @@ return [
             'config' => [
                 'type' => 'select',
                 'renderType' => 'selectSingle',
-                'foreign_table' => 'sys_file_storage',
+                'itemsProcFunc' => \TYPO3\CMS\Core\Hooks\TcaItemsProcessorFunctions::class . '->populateFileStorages',
                 'size' => 1,
                 'minitems' => 1,
                 'maxitems' => 1,
@@ -178,24 +174,26 @@ return [
     'types' => [
         '0' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                     tasktype,
                     task_group,
                     description,
-                    parameters;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.settings,
-                --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
-                    execution_details,
-                    nextexecution,
-                    --palette--;;lastexecution,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:timing,
+                    --palette--;;execution,
+                --div--;core.form.tabs:access,
                     disable,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+                --div--;core.form.tabs:extended,
             ',
         ],
     ],
     'palettes' => [
-        'lastexecution' => [
+        'execution' => [
             'showitem' => '
+                execution_details,
+                --linebreak--,
+                nextexecution,
+                priority,
+                --linebreak--,
                 lastexecution_context,
                 lastexecution_time,
                 --linebreak--,

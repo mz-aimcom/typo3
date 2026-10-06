@@ -35,7 +35,7 @@ final class RecordHistoryStoreTest extends FunctionalTestCase
         $this->subject = new RecordHistoryStore();
     }
 
-    protected function getRecordCountByCorrelationId(CorrelationId $correlationId): int
+    private function getRecordCountByCorrelationId(CorrelationId $correlationId): int
     {
         $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_history');
         return (int)$queryBuilder
@@ -89,5 +89,51 @@ final class RecordHistoryStoreTest extends FunctionalTestCase
         self::assertSame(0, $this->getRecordCountByCorrelationId($correlationId));
         $this->subject->moveRecord('foo', 1, [], $correlationId);
         self::assertSame(1, $this->getRecordCountByCorrelationId($correlationId));
+    }
+
+    /**
+     * @return array<int, int> uid => recuid
+     */
+    private function getRecordUidsOfHistoryEntries(): array
+    {
+        $rows = $this->getConnectionPool()
+            ->getConnectionForTable('sys_history')
+            ->executeQuery('SELECT uid, recuid FROM sys_history ORDER BY uid')
+            ->fetchAllAssociative();
+        $recordUids = [];
+        foreach ($rows as $row) {
+            $recordUids[(int)$row['uid']] = (int)$row['recuid'];
+        }
+        return $recordUids;
+    }
+
+    #[Test]
+    public function publishRecordKeepsUnrelatedEntriesWhenThereIsNoVersionedRecord(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/PublishMigrationEntries.csv');
+        $subject = new RecordHistoryStore(RecordHistoryStore::USER_BACKEND, 1, null, 1700000600, 1);
+
+        // A record created in a workspace keeps its uid, so it is published with a versioned uid of 0
+        $subject->publishRecord('tt_content', 50, 0, []);
+
+        // Entry 1 has recuid 0 and must not be bound to the published record
+        self::assertSame(0, $this->getRecordUidsOfHistoryEntries()[1]);
+    }
+
+    #[Test]
+    public function publishRecordOnlyMigratesEntriesOfThePublishedWorkspace(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/PublishMigrationEntries.csv');
+        $subject = new RecordHistoryStore(RecordHistoryStore::USER_BACKEND, 1, null, 1700000600, 1);
+
+        $subject->publishRecord('tt_content', 50, 99, []);
+
+        $recordUids = $this->getRecordUidsOfHistoryEntries();
+        // Entries 2 and 3 belong to the published version of the workspace being published
+        self::assertSame(50, $recordUids[2]);
+        self::assertSame(50, $recordUids[3]);
+        // Entry 4 is a live entry and entry 5 belongs to another table
+        self::assertSame(99, $recordUids[4]);
+        self::assertSame(99, $recordUids[5]);
     }
 }

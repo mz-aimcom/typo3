@@ -25,7 +25,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class OnTheFlyTest extends UnitTestCase
 {
-    protected OnTheFly $subject;
+    private OnTheFly $subject;
 
     protected function setUp(): void
     {
@@ -44,9 +44,9 @@ final class OnTheFlyTest extends UnitTestCase
     #[Test]
     public function compileReturnsIncomingData(): void
     {
-        $formDataProviderMock = $this->createMock(FormDataProviderInterface::class);
+        $formDataProviderMock = self::createStub(FormDataProviderInterface::class);
         GeneralUtility::addInstance(FormDataProviderInterface::class, $formDataProviderMock);
-        $formDataProviderMock->method('addData')->withAnyParameters()->willReturnArgument(0);
+        $formDataProviderMock->method('addData')->willReturnArgument(0);
         $providerList = [
             FormDataProviderInterface::class,
         ];
@@ -70,7 +70,7 @@ final class OnTheFlyTest extends UnitTestCase
         ];
         $this->subject->setProviderList($providerList);
         $providerResult = ['foo'];
-        $formDataProviderMock->expects($this->atLeastOnce())->method('addData')->with(self::anything())
+        $formDataProviderMock->expects($this->atLeastOnce())->method('addData')
             ->willReturn($providerResult);
 
         self::assertEquals($providerResult, $this->subject->compile([]));

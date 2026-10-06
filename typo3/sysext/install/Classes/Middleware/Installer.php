@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Middleware;
 
-use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
@@ -27,18 +26,19 @@ use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Install\Controller\InstallerController;
 use TYPO3\CMS\Install\Service\EnableFileService;
+use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\SessionService;
 
 /**
  * Middleware to walk through the web installation process of TYPO3
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
-class Installer implements MiddlewareInterface
+readonly class Installer implements MiddlewareInterface
 {
     public function __construct(
-        private readonly ContainerInterface $container,
-        private readonly FormProtectionFactory $formProtectionFactory,
-        private readonly SessionService $sessionService
+        private LateBootService $lateBootService,
+        private FormProtectionFactory $formProtectionFactory,
+        private SessionService $sessionService
     ) {}
 
     /**
@@ -51,9 +51,15 @@ class Installer implements MiddlewareInterface
         if (!$this->canHandleRequest()) {
             return $handler->handle($request);
         }
+        // This is required for icon API, that still has no way to pass
+        // a request/ normalizedParams to the icon URL generation
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+
+        $container = $this->lateBootService->getContainer();
+        $backup = $this->lateBootService->makeCurrent($container);
 
         // Lazy load InstallerController, to instantiate the class and the dependencies only if we handle an install request.
-        $controller = $this->container->get(InstallerController::class);
+        $controller = $container->get(InstallerController::class);
         $actionName = $request->getParsedBody()['install']['action'] ?? $request->getQueryParams()['install']['action'] ?? 'init';
         $action = $actionName . 'Action';
 
@@ -64,7 +70,7 @@ class Installer implements MiddlewareInterface
                 'success' => $this->isInstallerAvailable(),
             ]);
         } elseif ($actionName === 'showInstallerNotAvailable') {
-            $response = $controller->showInstallerNotAvailableAction();
+            $response = $controller->showInstallerNotAvailableAction($request);
         } elseif ($actionName === 'checkEnvironmentAndFolders'
             || $actionName === 'showEnvironmentAndFolders'
             || $actionName === 'executeEnvironmentAndFolders'
@@ -74,7 +80,7 @@ class Installer implements MiddlewareInterface
         } else {
             $this->throwIfInstallerIsNotAvailable();
             // With main folder layout available, sessions can be handled
-            $this->sessionService->installSessionHandler();
+            $this->sessionService->installSessionHandler($request);
             $this->sessionService->startSession();
             if ($this->sessionService->isExpired($request)) {
                 $this->sessionService->refreshSession();
@@ -115,6 +121,8 @@ class Installer implements MiddlewareInterface
             }
         }
 
+        $this->lateBootService->makeCurrent(null, $backup);
+
         return $response;
     }
 
@@ -124,7 +132,7 @@ class Installer implements MiddlewareInterface
      */
     protected function canHandleRequest(): bool
     {
-        $localConfigurationFileLocation = (new ConfigurationManager())->getSystemConfigurationFileLocation();
+        $localConfigurationFileLocation = new ConfigurationManager()->getSystemConfigurationFileLocation();
         return !@is_file($localConfigurationFileLocation) || EnableFileService::isFirstInstallAllowed();
     }
 

@@ -135,18 +135,12 @@ final class AbstractFormElementTest extends UnitTestCase
     #[Test]
     public function getUniqueIdentifierExpectedUnique(): void
     {
-        $formDefinition1 = $this->createMock(FormDefinition::class);
-        $formDefinition1
-            ->method('getIdentifier')
-            ->willReturn('c');
+        $formDefinition1 = new FormDefinition('c');
 
         $formElement1 = new TestingFormElement();
         $formElement1->setParentRenderable($formDefinition1);
 
-        $formDefinition2 = $this->createMock(FormDefinition::class);
-        $formDefinition2
-            ->method('getIdentifier')
-            ->willReturn('d');
+        $formDefinition2 = new FormDefinition('d');
 
         $formElement2 = new TestingFormElement();
         $formElement2->setParentRenderable($formDefinition2);
@@ -160,9 +154,9 @@ final class AbstractFormElementTest extends UnitTestCase
     #[Test]
     public function setDefaultValueSetStringValueIfKeyDoesNotExists(): void
     {
-        $formDefinitionMock = $this->getAccessibleMock(FormDefinition::class, null, [], '', false);
+        $formDefinition = new FormDefinition('test-form');
         $formElement = new TestingFormElement();
-        $formElement->setParentRenderable($formDefinitionMock);
+        $formElement->setParentRenderable($formDefinition);
 
         $input = 'foo';
         $expected = 'foo';
@@ -175,9 +169,9 @@ final class AbstractFormElementTest extends UnitTestCase
     #[Test]
     public function setDefaultValueSetArrayValueIfKeyDoesNotExists(): void
     {
-        $formDefinitionMock = $this->getAccessibleMock(FormDefinition::class, null, [], '', false);
+        $formDefinition = new FormDefinition('test-form');
         $formElement = new TestingFormElement();
-        $formElement->setParentRenderable($formDefinitionMock);
+        $formElement->setParentRenderable($formDefinition);
 
         $input = ['foo' => 'bar'];
         $expected = ['foo' => 'bar'];
@@ -190,9 +184,9 @@ final class AbstractFormElementTest extends UnitTestCase
     #[Test]
     public function setDefaultValueUnsetIfValueIsArrayWithSomeNullVales(): void
     {
-        $formDefinitionMock = $this->getAccessibleMock(FormDefinition::class, null, [], '', false);
+        $formDefinition = new FormDefinition('test-form');
         $formElement = new TestingFormElement();
-        $formElement->setParentRenderable($formDefinitionMock);
+        $formElement->setParentRenderable($formDefinition);
 
         $input1 = [
             'foo-1' => [
@@ -228,9 +222,9 @@ final class AbstractFormElementTest extends UnitTestCase
     #[Test]
     public function setDefaultValueAddValueIfValueIsArray(): void
     {
-        $formDefinitionMock = $this->getAccessibleMock(FormDefinition::class, null, [], '', false);
+        $formDefinition = new FormDefinition('test-form');
         $formElement = new TestingFormElement();
-        $formElement->setParentRenderable($formDefinitionMock);
+        $formElement->setParentRenderable($formDefinition);
 
         $input1 = [
             'foo-1' => [

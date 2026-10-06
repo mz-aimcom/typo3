@@ -1,0 +1,491 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:be="http://typo3.org/ns/TYPO3/CMS/Backend/ViewHelpers"
+    xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+    <f:if condition="{errorClasses}">
+        <f:variable name="errorClassesCount" value="{errorClasses -> f:count()}"/>
+        <f:be.infobox
+            title="{f:translate(key:'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.invalidTaskClass.infobox.title', arguments: {0: errorClassesCount})}"
+            state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::ERROR')}"
+        >
+            <f:format.raw><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.invalidTaskClass.infobox.message" /></f:format.raw>
+        </f:be.infobox>
+    </f:if>
+
+    <f:comment><!-- Wrap only groups, ignore "No task group" in draggable list --></f:comment>
+    <div class="t3js-group-draggable-container">
+        <f:for each="{groups}" as="group" key="groupKey">
+            <f:render section="table" arguments="{_all}"/>
+        </f:for>
+    </div>
+
+    <f:if condition="{errorClasses}">
+        <div class="panel panel-default">
+            <div class="panel-heading taskGroup" data-task-group-id="missing">
+                <div class="panel-heading-row">
+                    <button
+                        class="panel-button{f:if(condition: errorClassesCollapsed, then: ' collapsed', else: '')}"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#scheduler-task-group-missing"
+                        aria-expanded="{f:if(condition: errorClassesCollapsed, then: 'false', else: 'true')}"
+                    >
+                        <div class="panel-title">
+                            <strong><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.errorClass"/></strong>
+                        </div>
+                        <span class="caret"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="panel-collapse collapse {f:if(condition: '!{errorClassesCollapsed}', then: 'show')}" id="scheduler-task-group-missing" data-table="task-group-missing" >
+                <div class="table-fit">
+                    <table class="table table-striped table-hover">
+                        <tr class="taskGroup" data-task-group-id="0">
+                            <td><span>{f:translate(key:'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.invalidTaskClass') -> f:format.raw()}</span></td>
+                        </tr>
+                    </table>
+                    <table class="table table-striped table-hover" data-scheduler-table>
+                        <thead>
+                            <tr>
+                                <th><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.id"/></th>
+                                <th><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:task"/></th>
+                                <th><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.errorMessage"/></th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <f:for each="{errorClasses}" as="errorClass">
+                                <tr>
+                                    <td class="align-top">{errorClass.uid}</td>
+                                    <td class="align-top">{errorClass.class}</td>
+                                    <td class="align-top">{errorClass.errorMessage}</td>
+                                    <td class="align-top col-control">
+                                        <div class="btn-group float-end" role="group">
+                                            <form name="tx_scheduler_form_error_class_{errorClass.uid}" id="tx_scheduler_form_error_class_{errorClass.uid}" method="post">
+                                                <input name="action[delete]" type="hidden" value="{errorClass.uid}">
+                                            </form>
+                                            <button
+                                                type="submit"
+                                                class="btn btn-default t3js-modal-trigger"
+                                                data-target-form="tx_scheduler_form_error_class_{errorClass.uid}"
+                                                data-severity="warning"
+                                                data-button-close-text="{f:translate(key: 'cancel', domain:'core.action')}"
+                                                data-button-ok-text="{f:translate(key: 'delete', domain:'core.action')}"
+                                                data-content="{f:translate(key: 'delete_task', domain:'scheduler.messages')}"
+                                                data-title="{f:translate(key: 'delete_task', domain:'scheduler.label')}"
+                                                title="{f:translate(key: 'delete_task', domain:'scheduler.label')}"
+                                            >
+                                                <core:icon identifier="actions-edit-delete"/>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </f:for>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="4">
+                                    <f:translate key="scheduler.messages:task.count" arguments="{count: '{errorClasses -> f:count()}'}" />
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </f:if>
+
+    <f:section name="table">
+        <div
+            class="panel panel-default scheduler-panel"
+            data-multi-record-selection-identifier="task-group-{groupKey}"
+            {f:if(condition: '{group.uid}', then: 'data-task-group-id="{group.uid}"')}
+            {f:if(condition: '{group.color}', then: 'style="border-left: 4px solid {group.color};"')}
+        >
+            <div class="panel-heading multi-record-selection-panel">
+                <div class="panel-heading-row">
+                    <f:if condition="{group.hidden}">
+                        <div class="panel-badge">
+                            <span class="badge badge-secondary"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.group.isDisabled" /></span>
+                        </div>
+                    </f:if>
+                    <div class="panel-title">
+                        <f:if condition="!{group.uid}">
+                            <f:then>
+                                <i>{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.noGroup')}</i>
+                            </f:then>
+                            <f:else>
+                                <be:link.editRecord uid="{group.uid}" table="tx_scheduler_task_group" fields="groupName,color,description" returnUrl="{be:moduleLink(route: 'scheduler')}" class="btn btn-link">
+                                    <strong>{group.groupName}</strong>
+                                </be:link.editRecord>
+                            </f:else>
+                        </f:if>
+                        <f:if condition="{group.description}">
+                            <p class="text-variant mb-0">{group.description}</p>
+                        </f:if>
+                    </div>
+                    <div class="panel-actions">
+                        <form name="tx_scheduler_form_group_toggle_hidden" id="tx_scheduler_form_group_toggle_hidden" method="post">
+                            <input name="action[group][uid]" type="hidden" value="{group.uid}">
+                            <typo3-scheduler-new-task-wizard-button class="btn btn-sm btn-default" url="{f:be.uri(route:'ajax_new_scheduler_task_wizard', parameters:'{returnUrl: returnUrl, defaultValues: {task_group: group.uid}}')}" subject="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}">
+                                <core:icon identifier="actions-plus" />
+                                <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add" />
+                            </typo3-scheduler-new-task-wizard-button>
+                            <f:if condition="{group.uid}">
+                                <f:if condition="{group.hidden}">
+                                    <f:then>
+                                        <button
+                                            type="submit"
+                                            name="action[group][hidden]"
+                                            value="0"
+                                            class="btn btn-sm btn-default"
+                                            title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:enable')}"
+                                        >
+                                            <core:icon identifier="actions-edit-unhide"/>
+                                            <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.group.enable" />
+                                        </button>
+                                    </f:then>
+                                    <f:else>
+                                        <button
+                                            type="submit"
+                                            name="action[group][hidden]"
+                                            value="1"
+                                            class="btn btn-sm btn-default"
+                                            title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:disable')}"
+                                        >
+                                            <core:icon identifier="actions-edit-hide"/>
+                                            <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.group.disable" />
+                                        </button>
+                                    </f:else>
+                                </f:if>
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-default scheduler-sortable-handle t3js-group-draggable-handle"
+                                    title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.move')}"
+                                    disabled
+                                >
+                                    <core:icon identifier="actions-move-move"/>
+                                </button>
+                            </f:if>
+                            <button type="button"
+                                    class="btn btn-sm btn-default t3js-toggle-table"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#scheduler-task-group-{groupKey}"
+                                    aria-expanded="{f:if(condition: group.taskGroupCollapsed, then: 'false', else: 'true')}"
+                            >
+                                <core:icon identifier="{f:if(condition: group.taskGroupCollapsed, then: 'actions-view-list-expand', else: 'actions-view-list-collapse')}" size="small" />
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                <f:render partial="MultiRecordSelectionActions" />
+            </div>
+            <f:for each="{group.tasks}" as="task">
+                <f:if condition="{task.isRunning}">
+                    <f:then>
+                        <form name="tx_scheduler_form_task_stop_{task.uid}" id="tx_scheduler_form_task_stop_{task.uid}" method="post">
+                            <input name="action[stop]" type="hidden" value="{task.uid}">
+                        </form>
+                    </f:then>
+                    <f:else>
+                        <form name="tx_scheduler_form_task_delete_{task.uid}" id="tx_scheduler_form_task_delete_{task.uid}" method="post">
+                            <input name="action[delete]" type="hidden" value="{task.uid}">
+                        </form>
+                    </f:else>
+                </f:if>
+            </f:for>
+            <div class="panel-collapse collapse {f:if(condition: '!{group.taskGroupCollapsed}', then: 'show')}" id="scheduler-task-group-{groupKey}" data-table="task-group-{f:if(condition: '{group.uid}', then: '{group.uid}', else: '{groupKey}')}">
+                <form data-multi-record-selection-form="task-group-{groupKey}" name="tx_scheduler_form_{groupKey}" id="tx_scheduler_form_{groupKey}" method="post">
+                    <div class="table-fit">
+                        <table class="table table-striped table-hover" data-scheduler-table>
+                            <thead>
+                                <tr>
+                                    <th class="col-checkbox" data-sort-method="none">
+                                        <div class="dropdown">
+                                            <button type="button"
+                                                class="dropdown-toggle dropdown-toggle-link t3js-multi-record-selection-check-actions-toggle"
+                                                data-bs-toggle="dropdown"
+                                                data-bs-boundary="window"
+                                                aria-expanded="false"
+                                                aria-label="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.openSelectionOptions')}"
+                                            >
+                                                <core:icon identifier="actions-selection" size="small" />
+                                            </button>
+                                            <ul class="dropdown-menu t3js-multi-record-selection-check-actions">
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item"
+                                                        disabled="disabled"
+                                                        data-multi-record-selection-check-action="check-all"
+                                                        title="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll')}"
+                                                    >
+                                                            <span class="dropdown-item-columns">
+                                                                <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
+                                                                    <core:icon identifier="actions-selection-elements-all" size="small" />
+                                                                </span>
+                                                                <span class="dropdown-item-column dropdown-item-column-title">
+                                                                    <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.checkAll" />
+                                                                </span>
+                                                            </span>
+                                                    </button>
+                                                </li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item"
+                                                        disabled="disabled"
+                                                        data-multi-record-selection-check-action="check-none"
+                                                        title="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll')}"
+                                                    >
+                                                            <span class="dropdown-item-columns">
+                                                                <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
+                                                                    <core:icon identifier="actions-selection-elements-none" size="small" />
+                                                                </span>
+                                                                <span class="dropdown-item-column dropdown-item-column-title">
+                                                                    <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.uncheckAll" />
+                                                                </span>
+                                                            </span>
+                                                    </button>
+                                                </li>
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        class="dropdown-item"
+                                                        data-multi-record-selection-check-action="toggle"
+                                                        title="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.toggleSelection')}"
+                                                    >
+                                                            <span class="dropdown-item-columns">
+                                                                <span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">
+                                                                    <core:icon identifier="actions-selection-elements-invert" size="small" />
+                                                                </span>
+                                                                <span class="dropdown-item-column dropdown-item-column-title">
+                                                                    <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.toggleSelection" />
+                                                                </span>
+                                                            </span>
+                                                    </button>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </th>
+                                    <th><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.id"/></th>
+                                    <th class="col-task"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:task"/></th>
+                                    <th class="col-min"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.status"/></th>
+                                    <th class="col-state"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.type"/></th>
+                                    <th class="col-state"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.frequency"/></th>
+                                    <th class="col-min"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.parallel"/></th>
+                                    <th class="col-min"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.lastExecution"/></th>
+                                    <th class="col-min"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.nextExecution"/></th>
+                                    <th class="col-control" data-sort-method="none"></th>
+                                </tr>
+                            </thead>
+                            <tbody data-multi-record-selection-row-selection="true">
+                            <f:for each="{group.tasks}" as="task">
+                                <tr
+                                    data-task-id="{task.uid}"
+                                    data-task-disabled="{f:if(condition:'{task.disabled}', then: 'true', else: 'false')}"
+                                    data-multi-record-selection-element="true"
+                                >
+                                    <td class="col-checkbox">
+                                        <span class="form-check form-check-type-toggle">
+                                            <input class="form-check-input t3js-multi-record-selection-check" type="checkbox">
+                                        </span>
+                                    </td>
+                                    <td class="align-top">{task.uid}</td>
+                                    <td class="align-top col-task">
+                                        <div class="name">
+                                            <be:link.editRecord
+                                                uid="{task.uid}"
+                                                table="tx_scheduler_task"
+                                                returnUrl="{returnUrl}"
+                                                title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:edit')}"
+                                            >
+                                                <strong>{task.fullTitle}</strong>
+                                                <f:if condition="{task.progress}">
+                                                    <typo3-backend-progress-bar value="{task.progress}" max="100" label="{task.progress}%"></typo3-backend-progress-bar>
+                                                </f:if>
+                                                <f:if condition="{task.additionalInformation}">
+                                                    <div class="additional-information"><f:format.nl2br>{task.additionalInformation}</f:format.nl2br></div>
+                                                </f:if>
+                                            </be:link.editRecord>
+                                        </div>
+                                        <f:if condition="{task.description} != ''">
+                                            <div class="text-variant mt-2"><f:format.nl2br>{task.description}</f:format.nl2br></div>
+                                        </f:if>
+                                    </td>
+                                    <td class="align-top col-min">
+                                        <f:for each="{task.statuses}" as="status">
+                                            <f:variable name="statusTitle"><f:if condition="{status.message}"><f:translate key="{status.message}" arguments="{status.messageArguments}" /></f:if></f:variable>
+                                            <span class="badge badge-default" title="{statusTitle}">
+                                                <typo3-backend-status-indicator state="{status.state}"></typo3-backend-status-indicator>
+                                                <f:translate key="{status.label}" />
+                                            </span>
+                                        </f:for>
+                                        <f:for each="{task.labels}" as="label">
+                                            <span class="badge badge-{label.class}" title="{label.description}">{label.text}</span>
+                                        </f:for>
+                                    </td>
+                                    <td class="align-top col-state">
+                                        <f:if condition="{task.runningType} === 'single'">
+                                            <f:then>
+                                                <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.type.single" />
+                                            </f:then>
+                                            <f:else>
+                                                <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.type.recurring" />
+                                            </f:else>
+                                        </f:if>
+                                    </td>
+                                    <td class="align-top col-state">
+                                        <f:if condition="{task.runningType} === 'single'">
+                                            <f:then>-</f:then>
+                                            <f:else>{task.frequency}</f:else>
+                                        </f:if>
+                                        <div><span class="badge badge-secondary">{f:translate(key: task.priorityLabel, default: task.priorityLabel)}</span></div>
+                                    </td>
+                                    <td class="align-top col-min">
+                                        <f:if condition="{task.multiple}">
+                                            <f:then>
+                                                <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:yes" />
+                                            </f:then>
+                                            <f:else>
+                                                <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:no" />
+                                            </f:else>
+                                        </f:if>
+                                    </td>
+                                    <td class="align-top col-datetime">
+                                        <f:if condition="{task.lastExecutionTime}">
+                                            <f:then>
+                                                <f:format.date format="{dateFormat.day} {dateFormat.time}" date="{task.lastExecutionTime}" /><br>
+                                                <f:if condition="{task.lastExecutionContext} == 'CLI'">
+                                                    <f:then>
+                                                        <span class="text-variant"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.cron" /></span>
+                                                    </f:then>
+                                                    <f:else>
+                                                        <span class="text-variant"><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.manual" /></span>
+                                                    </f:else>
+                                                </f:if>
+                                            </f:then>
+                                            <f:else>-</f:else>
+                                        </f:if>
+                                    </td>
+                                    <td class="align-top col-datetime">
+                                        <f:if condition="{task.isRunning} || {task.disabled} || {group.hidden}">
+                                            <f:then>-</f:then>
+                                            <f:else>
+                                                <f:if condition="{task.nextExecution}">
+                                                    <f:then>
+                                                        <f:format.date format="{dateFormat.day} {dateFormat.time}" date="{task.nextExecution}" />
+                                                    </f:then>
+                                                    <f:else>
+                                                        <f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:none" />
+                                                    </f:else>
+                                                </f:if>
+                                            </f:else>
+                                        </f:if>
+                                    </td>
+                                    <td class="col-control align-top">
+                                        <f:if condition="{task.isRunning}">
+                                            <f:then>
+                                                <div class="btn-group" role="group">
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-default t3js-modal-trigger"
+                                                        data-target-form="tx_scheduler_form_task_stop_{task.uid}"
+                                                        data-severity="warning"
+                                                        data-button-close-text="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:cancel')}"
+                                                        data-content="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.stop')}"
+                                                        data-title="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:stop')}"
+                                                        title="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:stop')}"
+                                                    >
+                                                        <core:icon identifier="actions-close"/>
+                                                    </button>
+                                                </div>
+                                            </f:then>
+                                            <f:else>
+                                                <div class="btn-group" role="group">
+                                                    <be:link.editRecord
+                                                        uid="{task.uid}"
+                                                        table="tx_scheduler_task"
+                                                        class="btn btn-default"
+                                                        returnUrl="{returnUrl}"
+                                                        title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:edit')}"
+                                                    >
+                                                        <core:icon identifier="actions-open" />
+                                                    </be:link.editRecord>
+                                                    <f:if condition="{task.disabled}">
+                                                        <f:then>
+                                                            <button
+                                                                type="submit"
+                                                                name="action[toggleHidden]"
+                                                                value="{task.uid}"
+                                                                class="btn btn-default"
+                                                                title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:enable')}"
+                                                            >
+                                                                <core:icon identifier="actions-edit-unhide"/>
+                                                            </button>
+                                                        </f:then>
+                                                        <f:else>
+                                                            <button
+                                                                type="submit"
+                                                                name="action[toggleHidden]"
+                                                                value="{task.uid}"
+                                                                class="btn btn-default"
+                                                                title="{f:translate(key:'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:disable')}"
+                                                            >
+                                                                <core:icon identifier="actions-edit-hide"/>
+                                                            </button>
+                                                        </f:else>
+                                                    </f:if>
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-default t3js-modal-trigger"
+                                                        data-target-form="tx_scheduler_form_task_delete_{task.uid}"
+                                                        data-severity="warning"
+                                                        data-button-close-text="{f:translate(key: 'cancel', domain:'core.action')}"
+                                                        data-button-ok-text="{f:translate(key: 'delete', domain:'core.action')}"
+                                                        data-content="{f:translate(key: 'delete_task', domain:'scheduler.messages')}"
+                                                        data-title="{f:translate(key: 'delete_task', domain:'scheduler.label')}"
+                                                        title="{f:translate(key: 'delete_task', domain:'scheduler.label')}"
+                                                    >
+                                                        <core:icon identifier="actions-edit-delete"/>
+                                                    </button>
+                                                </div>
+                                                <div class="btn-group" role="group">
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-default"
+                                                        name="action[scheduleCron]"
+                                                        value="{task.uid}"
+                                                        title="{f:translate(key:'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:action.run_task_cron')}"
+                                                    >
+                                                        <core:icon identifier="actions-clock"/>
+                                                    </button>
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-default"
+                                                        name="action[execute]"
+                                                        value="{task.uid}"
+                                                        title="{f:translate(key:'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:action.run_task')}"
+                                                    >
+                                                        <core:icon identifier="actions-play"/>
+                                                    </button>
+                                                </div>
+                                            </f:else>
+                                        </f:if>
+                                    </td>
+                                </tr>
+                            </f:for>
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
+            </div>
+            <div class="panel-footer">
+                <f:translate key="scheduler.messages:task.count" arguments="{count: '{group.tasks -> f:count()}'}" />
+            </div>
+        </div>
+    </f:section>
+</html>

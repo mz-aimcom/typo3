@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -15,57 +17,81 @@
 
 namespace TYPO3\CMS\Backend\Template\Components\Buttons;
 
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+
 /**
- * SplitButton
- *
  * This button type renders a bootstrap split button.
- * It takes multiple button objects as parameters
+ * It takes multiple button objects as parameters.
+ *
+ * The button objects must contain at least one primary
+ * button that is displayed as the main icon, and all other
+ * items will be revealed within a dropdown.
+ *
+ * If a button is of Type "LinkButton" it will not utilize a
+ * HTML `<button>` tag, but instead use `<a>`.
  *
  * Example:
  *
  * ```
- * $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
  *
- * $saveButton = $buttonBar->makeInputButton()
- *      ->setName('save')
- *      ->setValue('1')
- *      ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
- *      ->setTitle('Save');
+ * public function myAction(): ResponseInterface
+ * {
+ *     $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
  *
- * $saveAndCloseButton = $buttonBar->makeInputButton()
- *      ->setName('save_and_close')
- *      ->setValue('1')
- *      ->setTitle('Save and close')
- *      ->setIcon($this->iconFactory->getIcon('actions-document-save-close', IconSize::SMALL));
+ *     $saveButton = $this->componentFactory->createInputButton()
+ *          ->setName('save')
+ *          ->setValue('1')
+ *          ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
+ *          ->setTitle('Save');
  *
- * $saveAndShowPageButton = $buttonBar->makeInputButton()
- *      ->setName('save_and_show')
- *      ->setValue('1')
- *      ->setTitle('Save and show')
- *      ->setIcon($this->iconFactory->getIcon('actions-document-save-view', IconSize::SMALL));
+ *     $saveAndCloseButton = $this->componentFactory->createInputButton()
+ *          ->setName('save_and_close')
+ *          ->setValue('1')
+ *          ->setTitle('Save and close')
+ *          ->setIcon($this->iconFactory->getIcon('actions-document-save-close', IconSize::SMALL));
  *
- * $splitButtonElement = $buttonBar->makeSplitButton()
- *      ->addItem($saveButton, TRUE)
- *      ->addItem($saveAndCloseButton)
- *      ->addItem($saveAndShowPageButton);
+ *     $saveAndShowPageButton = $this->componentFactory->createInputButton()
+ *          ->setName('save_and_show')
+ *          ->setValue('1')
+ *          ->setTitle('Save and show')
+ *          ->setIcon($this->iconFactory->getIcon('actions-document-save-view', IconSize::SMALL));
+ *
+ *     $moduleLink = $this->componentFactory->createLinkButton()
+ *          ->setHref((string)$this->uriBuilder->buildUriFromRoute('file_edit', $parameter))
+ *          ->setDataAttributes(['customAttribute' => 'customValue'])
+ *          ->setShowLabelText(true)
+ *          ->setTitle('Edit file')
+ *          ->setIcon($this->iconFactory->getIcon('file-edit', IconSize::SMALL));
+ *
+ *     $splitButtonElement = $this->componentFactory->createSplitButton()
+ *          ->addItem($saveButton, true)
+ *          ->addItem($saveAndCloseButton)
+ *          ->addItem($moduleLink)
+ *          ->addItem($saveAndShowPageButton);
+ * }
  * ```
  */
 class SplitButton extends AbstractButton
 {
     /**
-     * Internal var that determines whether the split button has received any primary
-     * actions yet
-     *
-     * @var bool
+     * Internal var that determines whether the split button has received any primary actions yet
      */
-    protected $containsPrimaryAction = false;
+    protected bool $containsPrimaryAction = false;
 
     /**
-     * Internal array of items in the split button
-     *
-     * @var array
+     * Primary action button
      */
-    protected $items = [];
+    protected ?AbstractButton $primary = null;
+
+    /**
+     * Array of option buttons for the dropdown
+     *
+     * @var AbstractButton[]
+     */
+    protected array $options = [];
 
     /**
      * Adds an instance of any button to the split button
@@ -74,16 +100,14 @@ class SplitButton extends AbstractButton
      * @param bool $primaryAction Is the button the primary action?
      *
      * @throws \InvalidArgumentException In case a button is not valid
-     *
-     * @return $this
      */
-    public function addItem(AbstractButton $item, $primaryAction = false)
+    public function addItem(AbstractButton $item, bool $primaryAction = false): static
     {
         if (!$item->isValid()) {
             throw new \InvalidArgumentException(
-                'Only valid items may be assigned to a split Button. "' .
-                $item->getType() .
-                '" did not pass validation',
+                'Only valid items may be assigned to a split Button. "'
+                . $item->getType()
+                . '" did not pass validation',
                 1441706330
             );
         }
@@ -92,79 +116,110 @@ class SplitButton extends AbstractButton
         }
         if ($primaryAction) {
             $this->containsPrimaryAction = true;
-            $this->items['primary'] = clone $item;
+            $this->primary = clone $item;
         } else {
-            $this->items['options'][] = clone $item;
+            $this->options[] = clone $item;
         }
         return $this;
     }
 
     /**
-     * Returns the current button
+     * Returns the split button items as a typed DTO.
      *
-     * @return array
+     * If no primary action was explicitly set, the first option button
+     * becomes the primary action.
+     *
+     * @return SplitButtonItems The typed container with primary and option buttons
      */
-    public function getButton()
+    public function getItems(): SplitButtonItems
     {
-        if (!isset($this->items['primary']) && isset($this->items['options'])) {
-            $primaryAction = array_shift($this->items['options']);
-            $this->items['primary'] = $primaryAction;
+        $primary = $this->primary;
+        $options = $this->options;
+
+        // If no primary action was set, use the first option as primary or thrown an exception if no option exists
+        if ($primary === null) {
+            if (count($options) > 0) {
+                $primary = array_shift($options);
+            } else {
+                throw new \RuntimeException('Split button requires at least one button', 1761311538);
+            }
         }
-        return $this->items;
+
+        return new SplitButtonItems(primary: $primary, options: $options);
     }
 
-    /**
-     * Validates the current button
-     *
-     *
-     * @return bool
-     */
-    public function isValid()
+    public function isValid(): bool
     {
-        $subject = $this->getButton();
-        return isset($subject['primary'])
-               && ($subject['primary'] instanceof AbstractButton)
-               && isset($subject['options']);
+        try {
+            return $this->getItems()->isValid();
+        } catch (\RuntimeException) {
+            return false;
+        }
     }
 
     /**
      * Renders the HTML markup of the button
-     *
-     * @return string
      */
-    public function render()
+    public function render(): string
     {
-        $items = $this->getButton();
+        $items = $this->getItems();
+        $primary = $items->primary;
+        $options = $items->options;
+
         $attributes = [
-            'type' => 'submit',
-            'class' => 'btn btn-sm btn-default ' . $items['primary']->getClasses(),
+            'class' => 'btn btn-sm btn-default ' . $primary->getClasses(),
         ];
-        if (method_exists($items['primary'], 'getName')) {
-            $attributes['name'] = $items['primary']->getName();
+        if (method_exists($primary, 'getName')) {
+            $attributes['name'] = $primary->getName();
         }
-        if (method_exists($items['primary'], 'getValue')) {
-            $attributes['value'] = $items['primary']->getValue();
+        if (method_exists($primary, 'getValue')) {
+            $attributes['value'] = $primary->getValue();
         }
-        if (method_exists($items['primary'], 'getForm') && !empty($items['primary']->getForm())) {
-            $attributes['form'] = $items['primary']->getForm();
+        if (method_exists($primary, 'getForm') && !empty($primary->getForm())) {
+            $attributes['form'] = $primary->getForm();
         }
-        $attributesString = '';
-        foreach ($attributes as $key => $value) {
-            $attributesString .= ' ' . htmlspecialchars($key) . '="' . htmlspecialchars($value) . '"';
+        if ($primary->getAttributes() !== []) {
+            foreach ($primary->getAttributes() as $attributeName => $attributeValue) {
+                $attributes[$attributeName] = $attributeValue;
+            }
         }
+        if ($primary->getDataAttributes() !== []) {
+            foreach ($primary->getDataAttributes() as $attributeName => $attributeValue) {
+                $attributes['data-' . $attributeName] = $attributeValue;
+            }
+        }
+
+        if ($primary instanceof LinkButton) {
+            // This is needed because the LinkButton can NOT use its ->render() method,
+            // as we want to stick our icon in the result HTML.
+            $attributes['href'] = $primary->getHref();
+            $attributes['role'] = $primary->getRole();
+            $attributes['title'] = $primary->getTitle();
+        }
+
+        $attributesString = GeneralUtility::implodeAttributes($attributes, true);
+
+        if ($primary instanceof LinkButton) {
+            $primaryButtonHTML = '<a ' . $attributesString . '>
+            ' . ($primary->getIcon()?->render('inline') ?? '') . '
+                ' . htmlspecialchars($primary->getTitle()) . '
+            </a>';
+        } else {
+            $primaryButtonHTML = '<button ' . $attributesString . ' type="submit">
+            ' . ($primary->getIcon()?->render('inline') ?? '') . '
+                ' . htmlspecialchars($primary->getTitle()) . '
+            </button>';
+        }
+
         $content = '
         <div class="btn-group t3js-splitbutton">
-            <button' . $attributesString . '>
-                ' . $items['primary']->getIcon()->render('inline') . '
-                ' . htmlspecialchars($items['primary']->getTitle()) . '
-            </button>
+            ' . $primaryButtonHTML . '
             <button type="button" class="btn btn-sm btn-default dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                 <span class="visually-hidden">Toggle Dropdown</span>
             </button>
             <ul class="dropdown-menu">';
 
-        /** @var AbstractButton $option */
-        foreach ($items['options'] as $option) {
+        foreach ($options as $option) {
             if ($option instanceof InputButton) {
                 // if the option is an InputButton we have to create a custom rendering
                 $optionAttributes = [
@@ -182,20 +237,29 @@ class SplitButton extends AbstractButton
                 foreach ($optionAttributes as $key => $value) {
                     $optionAttributesString .= ' ' . htmlspecialchars($key) . '="' . htmlspecialchars($value) . '"';
                 }
-                $html = '' .
-                    '<a' . $optionAttributesString . '>' .
-                        '<span class="dropdown-item-columns">' .
-                            '<span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">' .
-                                $option->getIcon()->render('inline') .
-                            '</span>' .
-                            '<span class="dropdown-item-column dropdown-item-column-title">' .
-                                htmlspecialchars($option->getTitle()) .
-                            '</span>' .
-                        '</span>' .
-                    '</a>';
+                $html
+                    = '<a' . $optionAttributesString . '>'
+                        . '<span class="dropdown-item-columns">'
+                            . '<span class="dropdown-item-column dropdown-item-column-icon" aria-hidden="true">'
+                                . ($option->getIcon()?->render('inline') ?? '')
+                            . '</span>'
+                            . '<span class="dropdown-item-column dropdown-item-column-title">'
+                                . htmlspecialchars($option->getTitle())
+                            . '</span>'
+                        . '</span>'
+                    . '</a>';
             } else {
                 // for any other kind of button we simply use what comes along (e.g. LinkButton)
                 $html = $option->render();
+
+                if ($option instanceof LinkButton) {
+                    // Links inside a dropdown should not be displayed as a button.
+                    // Unfortunately, the LinkButton has its class-list
+                    // "btn btn-sm btn-default" hard-coded, which makes sense for
+                    // its normal context, but not this context. Since it's hard via
+                    // CSS to reset the "btn" look, we heuristically remove it here.
+                    $html = str_replace('class="btn btn-sm btn-default', 'class="btn-sm btn-default dropdown-item', $html);
+                }
             }
 
             $content .= '
@@ -211,9 +275,6 @@ class SplitButton extends AbstractButton
         return $content;
     }
 
-    /**
-     * Magic method so Fluid can access a button via {button}
-     */
     public function __toString(): string
     {
         return $this->render();

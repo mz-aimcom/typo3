@@ -30,17 +30,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class SelectCheckBoxElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -113,7 +102,7 @@ class SelectCheckBoxElement extends AbstractFormElement
                 // with two key, "title" and "description"
                 // For the sake of backwards compatibility, we test if the help text
                 // is a string and use it as a description (this could happen if items
-                // are modified with an itemProcFunc)
+                // are modified with an itemsProcFunc)
                 $help = '';
                 if (!empty($item['description'])) {
                     if (is_array($item['description'])) {
@@ -187,7 +176,7 @@ class SelectCheckBoxElement extends AbstractFormElement
                 $html[] =   '</div>';
                 $html[] = '</div>';
             }
-            if (!empty($group['items']) && is_array($group['items'])) {
+            if (is_array($group['items'] ?? null)) {
                 $tableRows = [];
 
                 // Render rows
@@ -307,7 +296,7 @@ class SelectCheckBoxElement extends AbstractFormElement
     {
         $lang = $this->getLanguageService();
         return '
-            <div class="btn-group dropdown">
+            <div class="dropdown">
                 <button type="button" class="dropdown-toggle dropdown-toggle-link t3js-multi-record-selection-check-actions-toggle" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false" aria-label="' . htmlspecialchars($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.openSelectionOptions')) . '">
                     ' . $this->iconFactory->getIcon('actions-selection', IconSize::SMALL)->render() . '
                 </button>

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Unit\Mvc\Configuration;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
@@ -27,6 +28,7 @@ use TYPO3\CMS\Form\Mvc\Configuration\YamlSource;
 use TYPO3\CMS\Form\Slot\FilePersistenceSlot;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class YamlSourceTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -39,12 +41,12 @@ final class YamlSourceTest extends UnitTestCase
         $mockYamlSource = $this->getAccessibleMock(
             YamlSource::class,
             null,
-            [new FilePersistenceSlot(new HashService()), new YamlFileLoader($this->createMock(LoggerInterface::class))]
+            [new FilePersistenceSlot(new HashService()), new YamlFileLoader(self::createStub(LoggerInterface::class))]
         );
         $input = [
             'EXT:form/Resources/Forms/_example.yaml',
         ];
-        $mockYamlSource->_call('load', $input);
+        $mockYamlSource->load($input);
     }
 
     #[Test]
@@ -55,12 +57,12 @@ final class YamlSourceTest extends UnitTestCase
         $mockYamlSource = $this->getAccessibleMock(
             YamlSource::class,
             null,
-            [new FilePersistenceSlot(new HashService()), new YamlFileLoader($this->createMock(LoggerInterface::class))]
+            [new FilePersistenceSlot(new HashService()), new YamlFileLoader(self::createStub(LoggerInterface::class))]
         );
         $input = [
             'EXT:form/Tests/Unit/Mvc/Configuration/Fixtures/Invalid.yaml',
         ];
-        $mockYamlSource->_call('load', $input);
+        $mockYamlSource->load($input);
     }
 
     #[Test]
@@ -69,11 +71,11 @@ final class YamlSourceTest extends UnitTestCase
         $mockYamlSource = $this->getAccessibleMock(
             YamlSource::class,
             null,
-            [new FilePersistenceSlot(new HashService()), new YamlFileLoader($this->createMock(LoggerInterface::class))],
+            [new FilePersistenceSlot(new HashService()), new YamlFileLoader(self::createStub(LoggerInterface::class))],
         );
         $input = GeneralUtility::getFileAbsFileName('EXT:form/Tests/Unit/Mvc/Configuration/Fixtures/Header.yaml');
-        $expected =
-'# Header 1
+        $expected
+= '# Header 1
 # Header 2
 ';
         self::assertSame($expected, $mockYamlSource->_call('getHeaderFromFile', $input));
@@ -85,7 +87,7 @@ final class YamlSourceTest extends UnitTestCase
         $mockYamlSource = $this->getAccessibleMock(
             YamlSource::class,
             null,
-            [new FilePersistenceSlot(new HashService()), new YamlFileLoader($this->createMock(LoggerInterface::class))],
+            [new FilePersistenceSlot(new HashService()), new YamlFileLoader(self::createStub(LoggerInterface::class))],
         );
         $input = [
             'EXT:form/Tests/Unit/Mvc/Configuration/Fixtures/OverruleNonArrayValuesOverArrayValues1.yaml',
@@ -97,7 +99,7 @@ final class YamlSourceTest extends UnitTestCase
                 'key03' => 'value2',
             ],
         ];
-        self::assertSame($expected, $mockYamlSource->_call('load', $input));
+        self::assertSame($expected, $mockYamlSource->load($input));
     }
 
     #[Test]
@@ -106,7 +108,7 @@ final class YamlSourceTest extends UnitTestCase
         $mockYamlSource = $this->getAccessibleMock(
             YamlSource::class,
             null,
-            [new FilePersistenceSlot(new HashService()), new YamlFileLoader($this->createMock(LoggerInterface::class))],
+            [new FilePersistenceSlot(new HashService()), new YamlFileLoader(self::createStub(LoggerInterface::class))],
         );
         $input = [
             'EXT:form/Tests/Unit/Mvc/Configuration/Fixtures/ConfigurationWithVendorNamespacePrefix1.yaml',
@@ -125,6 +127,6 @@ final class YamlSourceTest extends UnitTestCase
             'key05' => 'key05_value_override',
             'key08' => 'key08_value_override',
         ];
-        self::assertSame($expected, $mockYamlSource->_call('load', $input));
+        self::assertSame($expected, $mockYamlSource->load($input));
     }
 }

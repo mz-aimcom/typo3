@@ -19,11 +19,14 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
-use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Event\AddCacheTagEvent;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Configuration\Features;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ApplicationType;
@@ -31,7 +34,6 @@ use TYPO3\CMS\Core\Http\FalDumpFileContentsDecoratorStream;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Log\LogManager;
-use TYPO3\CMS\Core\Registry;
 use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
 use TYPO3\CMS\Core\Resource\Driver\StreamableDriverInterface;
 use TYPO3\CMS\Core\Resource\Enum\DuplicationBehavior;
@@ -92,7 +94,6 @@ use TYPO3\CMS\Core\Resource\Search\Result\FileSearchResultInterface;
 use TYPO3\CMS\Core\Resource\Security\FileNameValidator;
 use TYPO3\CMS\Core\Resource\Service\FileProcessingService;
 use TYPO3\CMS\Core\Resource\Service\ResourceConsistencyService;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\Utility\Exception\NotImplementedMethodException;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
@@ -137,6 +138,12 @@ class ResourceStorage implements ResourceStorageInterface
      * Levels numbers used to generate hashed subfolders in the processing folder
      */
     public const PROCESSING_FOLDER_LEVELS = 2;
+
+    /**
+     * Seconds a storage stays offline after markAsTemporaryOffline()
+     */
+    private const TEMPORARY_OFFLINE_LIFETIME = 300;
+
     /**
      * The configuration belonging to this storage (decoded from the configuration field).
      */
@@ -214,7 +221,7 @@ class ResourceStorage implements ResourceStorageInterface
         if (is_array($this->storageRecord['configuration'] ?? null)) {
             $this->configuration = $this->storageRecord['configuration'];
         } elseif (!empty($this->storageRecord['configuration'] ?? '')) {
-            $this->configuration = GeneralUtility::makeInstance(FlexFormService::class)->convertFlexFormContentToArray($this->storageRecord['configuration']);
+            $this->configuration = GeneralUtility::makeInstance(FlexFormTools::class)->convertFlexFormContentToArray($this->storageRecord['configuration']);
         } else {
             $this->configuration = [];
         }
@@ -431,14 +438,7 @@ class ResourceStorage implements ResourceStorageInterface
                     // All files are ALWAYS available in the frontend
                     $this->isOnline = true;
                 } else {
-                    // check if the storage is disabled temporary for now
-                    $registryObject = GeneralUtility::makeInstance(Registry::class);
-                    $offlineUntil = $registryObject->get('core', 'sys_file_storage-' . $this->getUid() . '-offline-until');
-                    if ($offlineUntil && $offlineUntil > time()) {
-                        $this->isOnline = false;
-                    } else {
-                        $this->isOnline = true;
-                    }
+                    $this->isOnline = !$this->getOfflineStateCache()->has($this->getOfflineStateCacheIdentifier());
                 }
             }
         }
@@ -484,10 +484,19 @@ class ResourceStorage implements ResourceStorageInterface
      */
     public function markAsTemporaryOffline(): void
     {
-        $registryObject = GeneralUtility::makeInstance(Registry::class);
-        $registryObject->set('core', 'sys_file_storage-' . $this->getUid() . '-offline-until', time() + 60 * 5);
+        $this->getOfflineStateCache()->set($this->getOfflineStateCacheIdentifier(), true, [], self::TEMPORARY_OFFLINE_LIFETIME);
         $this->storageRecord['is_online'] = 0;
         $this->isOnline = false;
+    }
+
+    private function getOfflineStateCache(): FrontendInterface
+    {
+        return GeneralUtility::makeInstance(CacheManager::class)->getCache('hash');
+    }
+
+    private function getOfflineStateCacheIdentifier(): string
+    {
+        return 'offline-' . $this->getUid();
     }
 
     /*********************************
@@ -540,6 +549,18 @@ class ResourceStorage implements ResourceStorageInterface
     public function getFileMounts(): array
     {
         return $this->fileMounts;
+    }
+
+    public function isFileMountFolder(Folder $folder): bool
+    {
+        foreach ($this->fileMounts as $mount) {
+            $rootLevelFolder = $mount['folder'] ?? null;
+            if ($rootLevelFolder instanceof Folder && $rootLevelFolder->getCombinedIdentifier() === $folder->getCombinedIdentifier()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -635,7 +656,7 @@ class ResourceStorage implements ResourceStorageInterface
      *
      * This method, by design, does not throw exceptions or do logging.
      * Besides the usage from other methods in this class, it is also used by
-     * the Filelist UI to check whether an action is allowed and whether action
+     * the Media module UI to check whether an action is allowed and whether action
      * related UI elements should thus be shown (move icon, edit icon, etc.)
      *
      * @param string $action action, can be read, write, delete, editMeta
@@ -744,7 +765,25 @@ class ResourceStorage implements ResourceStorageInterface
         if ($isWriteCheck && !$folderPermissions['w']) {
             return false;
         }
+
+        // Check 5: File mount check
+        if (!$this->isAllowedActionOnMountFolder($action, $folder)) {
+            return false;
+        }
+
         return true;
+    }
+
+    protected function isAllowedActionOnMountFolder(string $action, FolderInterface $folder): bool
+    {
+        $deniedMountActions = ['move', 'delete', 'rename'];
+
+        // Early return if the given folder is not a mount folder
+        if (!$folder instanceof Folder || !$this->isFileMountFolder($folder)) {
+            return true;
+        }
+
+        return !in_array($action, $deniedMountActions, true);
     }
 
     /**
@@ -767,8 +806,8 @@ class ResourceStorage implements ResourceStorageInterface
     protected function checkValidFileExtension(FileInterface $file): bool
     {
         $fileNameValidator = GeneralUtility::makeInstance(FileNameValidator::class);
-        return $fileNameValidator->isValid($file->getName()) &&
-            $fileNameValidator->isValid(basename($file->getIdentifier()));
+        return $fileNameValidator->isValid($file->getName())
+            && $fileNameValidator->isValid(basename($file->getIdentifier()));
     }
 
     /**
@@ -1163,11 +1202,11 @@ class ResourceStorage implements ResourceStorageInterface
     public function sanitizeFileName(string $fileName, ?Folder $targetFolder = null): string
     {
         $targetFolder = $targetFolder ?: $this->getDefaultFolder();
-        $fileName = $this->driver->sanitizeFileName($fileName);
+        $sanitizedFileName = $this->driver->sanitizeFileName($fileName);
 
         // The file name could be changed by an event listener
         return $this->eventDispatcher->dispatch(
-            new SanitizeFileNameEvent($fileName, $targetFolder, $this, $this->driver)
+            new SanitizeFileNameEvent($sanitizedFileName, $fileName, $targetFolder, $this, $this->driver)
         )->getFileName();
     }
 
@@ -1249,9 +1288,9 @@ class ResourceStorage implements ResourceStorageInterface
     /**
      * Creates a (cryptographic) hash for a file.
      */
-    public function hashFile(FileInterface $fileObject, string $hash): string
+    public function hashFile(FileInterface $fileObject, string $hashAlgorithm): string
     {
-        return $this->hashFileByIdentifier($fileObject->getIdentifier(), $hash);
+        return $this->hashFileByIdentifier($fileObject->getIdentifier(), $hashAlgorithm);
     }
 
     /**
@@ -1259,9 +1298,9 @@ class ResourceStorage implements ResourceStorageInterface
      *
      * @throws InvalidHashException
      */
-    public function hashFileByIdentifier(string $fileIdentifier, string $hash): string
+    public function hashFileByIdentifier(string $fileIdentifier, string $hashAlgorithm): string
     {
-        $hash = $this->driver->hash($fileIdentifier, $hash);
+        $hash = $this->driver->hash($fileIdentifier, $hashAlgorithm);
         if ($hash === '') {
             throw new InvalidHashException('Hash has to be non-empty string.', 1551950301);
         }
@@ -1295,6 +1334,9 @@ class ResourceStorage implements ResourceStorageInterface
         $publicUrl = null;
         if ($this->isOnline()) {
             // Pre-process the public URL by an accordant event
+            // @todo: Both FE and BE have resolve an indirect dependency to Request by registering
+            //        an event listener here dynamically in RequestHandler. This needs a refactoring
+            //        and we may want to extract the entire URL generation to an own service anyway.
             $event = new GeneratePublicUrlForResourceEvent($resourceObject, $this, $this->driver);
             $publicUrl = $this->eventDispatcher->dispatch($event)->getPublicUrl();
             if (
@@ -1311,7 +1353,8 @@ class ResourceStorage implements ResourceStorageInterface
                     $publicUrl = $this->driver->getPublicUrl($resourceObject->getIdentifier());
                 }
 
-                if ($publicUrl === null && $resourceObject instanceof FileInterface) {
+                $request = $GLOBALS['TYPO3_REQUEST'] ?? null;
+                if ($publicUrl === null && $resourceObject instanceof FileInterface && $request instanceof ServerRequestInterface) {
                     $queryParameterArray = ['eID' => 'dumpFile', 't' => ''];
                     if ($resourceObject instanceof File) {
                         $queryParameterArray['f'] = $resourceObject->getUid();
@@ -1322,8 +1365,8 @@ class ResourceStorage implements ResourceStorageInterface
                     }
 
                     $hashService = GeneralUtility::makeInstance(HashService::class);
-                    $queryParameterArray['token'] = $hashService->hmac(implode('|', $queryParameterArray), 'resourceStorageDumpFile');
-                    $publicUrl = GeneralUtility::locationHeaderUrl(PathUtility::getAbsoluteWebPath(Environment::getPublicPath() . '/index.php'));
+                    $queryParameterArray['token'] = $hashService->hmac(implode('|', $queryParameterArray), 'resourceStorageDumpFile', HashAlgo::SHA3_256);
+                    $publicUrl = GeneralUtility::locationHeaderUrl(PathUtility::getAbsoluteWebPath(Environment::getPublicPath() . '/index.php'), $request);
                     $publicUrl .= '?' . http_build_query($queryParameterArray, '', '&', PHP_QUERY_RFC3986);
                 }
             }
@@ -2090,8 +2133,7 @@ class ResourceStorage implements ResourceStorageInterface
      ********************/
     /**
      * Returns an array with all file objects in a folder and its subfolders, with the file identifiers as keys.
-     * @todo check if this is a duplicate
-     * @return File[]
+     * @return array<string, File>
      */
     protected function getAllFileObjectsInFolder(Folder $folder): array
     {
@@ -2560,13 +2602,9 @@ class ResourceStorage implements ResourceStorageInterface
         // This removes _xx if appended to the file
         $theTempFileBody = preg_replace('/_[0-9][0-9]$/', '', $origFileInfo['filename']);
         $theOrigExt = ($origFileInfo['extension'] ?? '') ? '.' . $origFileInfo['extension'] : '';
-        for ($a = 1; $a <= $maxNumber + 1; $a++) {
+        for ($a = 1; $a <= $maxNumber; $a++) {
             // First we try to append numbers
-            if ($a <= $maxNumber) {
-                $insert = '_' . sprintf('%02d', $a);
-            } else {
-                $insert = '_' . substr(md5(StringUtility::getUniqueId()), 0, 6);
-            }
+            $insert = '_' . sprintf('%02d', $a);
             $theTestFile = $theTempFileBody . $insert . $theOrigExt;
             // The destinations file
             $theDestFile = $theTestFile;
@@ -2575,6 +2613,19 @@ class ResourceStorage implements ResourceStorageInterface
                 return $theDestFile;
             }
         }
+
+        $tries = 0;
+        do {
+            $insert = '_' . substr(md5(StringUtility::getUniqueId()), 0, 6);
+            $theDestFile = $theTempFileBody . $insert . $theOrigExt;
+
+            if ($folder->hasFile($theDestFile) || $folder->hasFolder($theDestFile)) {
+                continue;
+            }
+
+            return $theDestFile;
+        } while ($tries++ < 99);
+
         throw new \RuntimeException('Last possible name "' . $theDestFile . '" is already taken.', 1325194291);
     }
 
@@ -2653,30 +2704,41 @@ class ResourceStorage implements ResourceStorageInterface
                         $rootFolder = $storage->getRootLevelFolder(false);
                         $currentEvaluatePermissions = $storage->getEvaluatePermissions();
                         $storage->setEvaluatePermissions(false);
-                        $this->processingFolder = $storage->createFolder(
-                            ltrim($processingFolderIdentifier, '/'),
-                            $rootFolder
-                        );
-                        $storage->setEvaluatePermissions($currentEvaluatePermissions);
+                        try {
+                            $this->processingFolder = $storage->createFolder(
+                                ltrim($processingFolderIdentifier, '/'),
+                                $rootFolder
+                            );
+                        } catch (ExistingTargetFolderException) {
+                            // The folder may have been created meanwhile in a parallel process, which is fine, we take it.
+                            $this->processingFolder = $storage->getFolder($processingFolderIdentifier);
+                        } finally {
+                            $storage->setEvaluatePermissions($currentEvaluatePermissions);
+                        }
                     }
                 } else {
                     if ($this->driver->folderExists($processingFolder) === false) {
                         $rootFolder = $this->getRootLevelFolder(false);
+                        $currentEvaluatePermissions = $this->evaluatePermissions;
+                        $this->evaluatePermissions = false;
                         try {
-                            $currentEvaluatePermissions = $this->evaluatePermissions;
-                            $this->evaluatePermissions = false;
                             $this->processingFolder = $this->createFolder(
                                 $processingFolder,
                                 $rootFolder
                             );
-                            $this->evaluatePermissions = $currentEvaluatePermissions;
-                        } catch (\InvalidArgumentException $e) {
+                        } catch (ExistingTargetFolderException) {
+                            // The folder may have been created meanwhile in a parallel process, which is fine, we take it.
+                            $data = $this->driver->getFolderInfoByIdentifier($processingFolder);
+                            $this->processingFolder = $this->createFolderObject($data['identifier'], $data['name']);
+                        } catch (\InvalidArgumentException) {
                             $this->processingFolder = GeneralUtility::makeInstance(
                                 InaccessibleFolder::class,
                                 $this,
                                 $processingFolder,
                                 $processingFolder
                             );
+                        } finally {
+                            $this->evaluatePermissions = $currentEvaluatePermissions;
                         }
                     } else {
                         $data = $this->driver->getFolderInfoByIdentifier($processingFolder);
@@ -2714,17 +2776,18 @@ class ResourceStorage implements ResourceStorageInterface
             try {
                 $processingFolder = $processingFolder->getSubfolder($folderName);
             } catch (FolderDoesNotExistException) {
-                $currentEvaluatePermissions = $processingFolder->getStorage()->getEvaluatePermissions();
-                $processingFolder->getStorage()->setEvaluatePermissions(false);
+                $storage = $processingFolder->getStorage();
+                $currentEvaluatePermissions = $storage->getEvaluatePermissions();
+                $storage->setEvaluatePermissions(false);
 
                 try {
                     $processingFolder = $processingFolder->createFolder($folderName);
                 } catch (ExistingTargetFolderException) {
                     // The folder may have been created meanwhile in a parallel process, which is fine, we take it.
                     $processingFolder = $processingFolder->getSubfolder($folderName);
+                } finally {
+                    $storage->setEvaluatePermissions($currentEvaluatePermissions);
                 }
-
-                $processingFolder->getStorage()->setEvaluatePermissions($currentEvaluatePermissions);
             }
         }
         return $processingFolder;
@@ -2774,11 +2837,6 @@ class ResourceStorage implements ResourceStorageInterface
     public function getResourceFactoryInstance(): ResourceFactory
     {
         return GeneralUtility::makeInstance(ResourceFactory::class);
-    }
-
-    protected function getBackendUser(): BackendUserAuthentication
-    {
-        return $GLOBALS['BE_USER'];
     }
 
     /**

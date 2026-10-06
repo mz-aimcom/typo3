@@ -42,7 +42,7 @@ final class ThumbnailViewHelperTest extends FunctionalTestCase
         $context->getVariableProvider()->add('imageObject', $file);
         $expected = '<img src="fileadmin/_processed_/3/7/preview_ImageViewHelperFalTest_252565634e.jpg" width="64" height="48" alt="alt text from metadata" />';
 
-        self::assertEquals($expected, (new TemplateView($context))->render());
+        self::assertEquals($expected, new TemplateView($context)->render());
     }
 
     #[Test]
@@ -57,7 +57,41 @@ final class ThumbnailViewHelperTest extends FunctionalTestCase
         $context->getVariableProvider()->add('imageObject', $file);
         $expected = '<img src="fileadmin/_processed_/3/7/preview_ImageViewHelperFalTest_252565634e.jpg" width="64" height="48" alt="alt text from metadata" />';
 
-        self::assertEquals($expected, (new TemplateView($context))->render());
+        self::assertEquals($expected, new TemplateView($context)->render());
+    }
+
+    #[Test]
+    public function pdfFileRendersProcessedThumbnail(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/ThumbnailViewHelper/fal_pdf.csv');
+        $resourceFactory = $this->get(ResourceFactory::class);
+        $file = $resourceFactory->getFileObject(1);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getViewHelperResolver()->addNamespace('be', 'TYPO3\\CMS\\Backend\\ViewHelpers');
+        $context->getTemplatePaths()->setTemplateSource('<be:thumbnail image="{imageObject}" width="64" />');
+        $context->getVariableProvider()->add('imageObject', $file);
+
+        self::assertMatchesRegularExpression(
+            '#^<img src="fileadmin/_processed_/.+\.png" width="64" height="\d+" />$#',
+            new TemplateView($context)->render()
+        );
+    }
+
+    #[Test]
+    public function nonImageFileRendersThePreviewPlaceholder(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/ThumbnailViewHelper/fal_document.csv');
+        $resourceFactory = $this->get(ResourceFactory::class);
+        $file = $resourceFactory->getFileObject(1);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getViewHelperResolver()->addNamespace('be', 'TYPO3\\CMS\\Backend\\ViewHelpers');
+        $context->getTemplatePaths()->setTemplateSource('<be:thumbnail image="{imageObject}" />');
+        $context->getVariableProvider()->add('imageObject', $file);
+
+        self::assertMatchesRegularExpression(
+            '#^<img src="fileadmin/_processed_/.+\.svg" width="\d+" height="\d+" />$#',
+            new TemplateView($context)->render()
+        );
     }
 
     #[Test]
@@ -69,5 +103,26 @@ final class ThumbnailViewHelperTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/Fixtures/ThumbnailViewHelper/fal_image.csv');
         $resourceFactory = $this->get(ResourceFactory::class);
         $file = $resourceFactory->getFileReferenceObject(42);
+    }
+
+    #[Test]
+    public function focusAreaAttributeIsRelativeToProcessedImage(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/ThumbnailViewHelper/fal_image.csv');
+        $resourceFactory = $this->get(ResourceFactory::class);
+        $file = $resourceFactory->getFileObject(1);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getViewHelperResolver()->addNamespace('be', 'TYPO3\\CMS\\Backend\\ViewHelpers');
+        $context->getTemplatePaths()->setTemplateSource('<be:thumbnail image="{imageObject}" crop="{crop}" />');
+        $context->getVariableProvider()->add('imageObject', $file);
+        $context->getVariableProvider()->add('crop', '{"default":{"cropArea":{"x":0.25,"y":0.25,"width":0.5,"height":0.5},"selectedRatio":"NaN","focusArea":{"x":0.5,"y":0.5,"width":0.25,"height":0.5}}}');
+
+        // Source is 400x300, cropped to 200x150 and previewed at 64x48. The focus
+        // area is stored relative to the crop area, so it must be based on the
+        // processed image.
+        self::assertMatchesRegularExpression(
+            '@^<img data-focus-area="\{&quot;x&quot;:32,&quot;y&quot;:24,&quot;width&quot;:16,&quot;height&quot;:24\}" src="fileadmin/_processed_/.*\.jpg" width="64" height="48".*/>$@',
+            new TemplateView($context)->render(),
+        );
     }
 }

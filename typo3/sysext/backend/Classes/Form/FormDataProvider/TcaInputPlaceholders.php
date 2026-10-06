@@ -21,6 +21,7 @@ use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -142,21 +143,21 @@ readonly class TcaInputPlaceholders implements FormDataProviderInterface
 
         if (!empty($possibleUids) && !empty($fieldNameArray)) {
             if (count($possibleUids) > 1
-                && !empty($GLOBALS['TCA'][$foreignTableName]['ctrl']['languageField'])
+                && $result['tcaSchemata']->get($foreignTableName)->isLanguageAware()
                 && isset($result['currentSysLanguage'])
             ) {
-                $possibleUids = $this->getPossibleUidsByCurrentSysLanguage($possibleUids, $foreignTableName, $result['currentSysLanguage']);
+                $possibleUids = $this->getPossibleUidsByCurrentSysLanguage($result, $possibleUids, $foreignTableName, $result['currentSysLanguage']);
             }
             $relatedFormData = $this->getRelatedFormData($result, $foreignTableName, $possibleUids[0], $fieldNameArray[0]);
-            if (!empty($GLOBALS['TCA'][$result['tableName']]['ctrl']['languageField'])
-                && isset($result['databaseRow'][$GLOBALS['TCA'][$result['tableName']]['ctrl']['languageField']])
+            if ($result['tcaSchemata']->get($result['tableName'])->isLanguageAware()
+                && isset($result['databaseRow'][$result['tcaSchemata']->get($result['tableName'])->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()])
             ) {
-                $relatedFormData['currentSysLanguage'] = $result['databaseRow'][$GLOBALS['TCA'][$result['tableName']]['ctrl']['languageField']];
+                $relatedFormData['currentSysLanguage'] = $result['databaseRow'][$result['tcaSchemata']->get($result['tableName'])->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()];
             }
             $value = $this->getPlaceholderValue($fieldNameArray, $relatedFormData, $recursionLevel + 1);
         }
 
-        if ($recursionLevel === 0 && is_array($value)) {
+        if (is_array($value)) {
             $value = implode(', ', $value);
         }
         return (string)$value;
@@ -179,10 +180,13 @@ readonly class TcaInputPlaceholders implements FormDataProviderInterface
             'tableName' => $tableName,
             'inlineCompileExistingChildren' => false,
             'columnsToProcess' => [$columnToProcess],
+            // pass through schemata as they are immutable once they are set
+            'tcaSchemata' => $result['tcaSchemata'],
+            // pass through fullTca as it is immutable once set
+            'fullTca' => $result['fullTca'],
         ];
         $formDataCompiler = GeneralUtility::makeInstance(FormDataCompiler::class);
-        $compilerResult = $formDataCompiler->compile($fakeDataInput, GeneralUtility::makeInstance(TcaInputPlaceholderRecord::class));
-        return $compilerResult;
+        return $formDataCompiler->compile($fakeDataInput, GeneralUtility::makeInstance(TcaInputPlaceholderRecord::class));
     }
 
     /**
@@ -192,7 +196,7 @@ readonly class TcaInputPlaceholders implements FormDataProviderInterface
      * accepted in any case.
      *
      * @param array $fieldConfig TCA "config" section for the group type field.
-     * @param string $value A comma separated list of records
+     * @param array $value Related group field values prepared by TcaGroup data provider
      */
     protected function getRelatedGroupFieldUids(array $fieldConfig, $value): array
     {
@@ -239,14 +243,15 @@ readonly class TcaInputPlaceholders implements FormDataProviderInterface
      * If there is no translation available, return the uid of default language.
      * If there is no value at all, return the "possible uids".
      *
+     * @param array $result
      * @param array $possibleUids
      * @param string $foreignTableName
      * @param int $currentLanguage
      * @return array
      */
-    protected function getPossibleUidsByCurrentSysLanguage(array $possibleUids, $foreignTableName, $currentLanguage)
+    protected function getPossibleUidsByCurrentSysLanguage(array $result, array $possibleUids, $foreignTableName, $currentLanguage)
     {
-        $languageField = $GLOBALS['TCA'][$foreignTableName]['ctrl']['languageField'];
+        $languageField = $result['tcaSchemata']->get($foreignTableName)->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($foreignTableName);
         $possibleRecords = $queryBuilder->select('uid', $languageField)
             ->from($foreignTableName)

@@ -20,8 +20,10 @@ namespace TYPO3\CMS\Backend\Search\LiveSearch;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Search\Event\BeforeSearchInDatabaseRecordProviderEvent;
+use TYPO3\CMS\Backend\Search\Event\ModifyConstraintsForLiveSearchEvent;
 use TYPO3\CMS\Backend\Search\Event\ModifyQueryForLiveSearchEvent;
 use TYPO3\CMS\Backend\Search\LiveSearch\SearchDemand\DemandProperty;
 use TYPO3\CMS\Backend\Search\LiveSearch\SearchDemand\DemandPropertyName;
@@ -33,10 +35,9 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Expression\CompositeExpression;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
-use TYPO3\CMS\Core\Database\Query\Restriction\EndTimeRestriction;
-use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
-use TYPO3\CMS\Core\Database\Query\Restriction\StartTimeRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
+use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -46,6 +47,7 @@ use TYPO3\CMS\Core\Schema\Field\DateTimeFieldType;
 use TYPO3\CMS\Core\Schema\Field\NumberFieldType;
 use TYPO3\CMS\Core\Schema\SearchableSchemaFieldsCollector;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -57,20 +59,22 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  */
 final class DatabaseRecordProvider implements SearchProviderInterface
 {
-    private const RECURSIVE_PAGE_LEVEL = 99;
+    private const int RECURSIVE_PAGE_LEVEL = 99;
 
-    protected LanguageService $languageService;
-    protected string $userPermissions;
-    protected array $pageIdList = [];
+    private LanguageService $languageService;
+    private string $userPermissions;
+    private array $pageIdList = [];
 
     public function __construct(
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly IconFactory $iconFactory,
-        protected readonly LanguageServiceFactory $languageServiceFactory,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly QueryParser $queryParser,
-        protected readonly SearchableSchemaFieldsCollector $searchableSchemaFieldsCollector,
-        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly IconFactory $iconFactory,
+        private readonly LanguageServiceFactory $languageServiceFactory,
+        private readonly SiteFinder $siteFinder,
+        private readonly UriBuilder $uriBuilder,
+        private readonly QueryParser $queryParser,
+        private readonly SearchableSchemaFieldsCollector $searchableSchemaFieldsCollector,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly ConnectionPool $connectionPool,
     ) {
         $this->languageService = $this->languageServiceFactory->createFromUserPreferences($this->getBackendUser());
         $this->userPermissions = $this->getBackendUser()->getPagePermsClause(Permission::PAGE_SHOW);
@@ -159,7 +163,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         return array_merge([], ...$result);
     }
 
-    protected function parseCommand(SearchDemand $searchDemand): array
+    private function parseCommand(SearchDemand $searchDemand): array
     {
         $tableName = null;
         $commandQuery = null;
@@ -189,17 +193,17 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         ];
     }
 
-    protected function getQueryBuilderForTable(SearchDemand $searchDemand, string $tableName): ?QueryBuilder
+    private function getQueryBuilderForTable(SearchDemand $searchDemand, string $tableName): ?QueryBuilder
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getQueryBuilderForTable($tableName);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($tableName);
         $queryBuilder->getRestrictions()
-            ->add(new WorkspaceRestriction($this->getBackendUser()->workspace))
-            ->removeByType(HiddenRestriction::class)
-            ->removeByType(StartTimeRestriction::class)
-            ->removeByType(EndTimeRestriction::class);
+            ->removeAll()
+            ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
+            ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace, true));
 
         $constraints = $this->buildConstraintsForTable($searchDemand->getQuery(), $queryBuilder, $tableName);
+        $event = $this->eventDispatcher->dispatch(new ModifyConstraintsForLiveSearchEvent($constraints, $tableName, $searchDemand));
+        $constraints = $event->getConstraints();
         if ($constraints === []) {
             return null;
         }
@@ -225,7 +229,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         return $event->getQueryBuilder();
     }
 
-    protected function countByTable(SearchDemand $searchDemand, string $tableName): int
+    private function countByTable(SearchDemand $searchDemand, string $tableName): int
     {
         $queryBuilder = $this->getQueryBuilderForTable($searchDemand, $tableName);
         return (int)$queryBuilder?->count('*')->executeQuery()->fetchOne();
@@ -234,7 +238,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
     /**
      * @return ResultItem[]
      */
-    protected function findByTable(SearchDemand $searchDemand, string $tableName, int $limit, int $offset): array
+    private function findByTable(SearchDemand $searchDemand, string $tableName, int $limit, int $offset): array
     {
         $queryBuilder = $this->getQueryBuilderForTable($searchDemand, $tableName);
         if ($queryBuilder === null) {
@@ -261,21 +265,42 @@ final class DatabaseRecordProvider implements SearchProviderInterface
             }
 
             $actions = [];
-            $showLink = $this->getShowLink($row);
-            if ($showLink !== '') {
-                $actions[] = (new ResultItemAction('open_page_details'))
-                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showList'))
-                    ->setIcon($this->iconFactory->getIcon('actions-list', IconSize::SMALL))
-                    ->setUrl($showLink);
+
+            $editActionLink = $this->getEditActionLink($tableName, $row);
+            if ($editActionLink !== '') {
+                $actions[DatabaseRecordActionType::EDIT->value] = new ResultItemAction(DatabaseRecordActionType::EDIT->value)
+                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.edit'))
+                    ->setIcon($this->iconFactory->getIcon('actions-open', IconSize::SMALL))
+                    ->setUrl($editActionLink);
             }
 
-            $editLink = $this->getEditLink($tableName, $row);
-            if ($editLink !== '') {
-                $actions[] = (new ResultItemAction('edit_record'))
-                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:edit'))
-                    ->setIcon($this->iconFactory->getIcon('actions-open', IconSize::SMALL))
-                    ->setUrl($editLink);
+            $layoutActionLink = $this->getLayoutActionLink($tableName, $row);
+            if ($layoutActionLink !== '') {
+                $actions[DatabaseRecordActionType::LAYOUT->value] = new ResultItemAction(DatabaseRecordActionType::LAYOUT->value)
+                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.layout'))
+                    ->setIcon($this->iconFactory->getIcon('actions-viewmode-layout', IconSize::SMALL))
+                    ->setUrl($layoutActionLink);
             }
+
+            $listActionLink = $this->getRecordsActionLink($tableName, $row);
+            if ($listActionLink !== '') {
+                $actions[DatabaseRecordActionType::LIST->value] = new ResultItemAction(DatabaseRecordActionType::LIST->value)
+                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showList'))
+                    ->setIcon($this->iconFactory->getIcon('actions-list', IconSize::SMALL))
+                    ->setUrl($listActionLink);
+            }
+
+            $previewActionLink = $this->getPreviewActionLink($tableName, $row);
+            if ($previewActionLink !== '') {
+                $actions[DatabaseRecordActionType::PREVIEW->value] = new ResultItemAction(DatabaseRecordActionType::PREVIEW->value)
+                    ->setLabel($this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
+                    ->setIcon($this->iconFactory->getIcon('actions-file-view', IconSize::SMALL))
+                    ->setUrl($previewActionLink);
+            }
+
+            // Find the default action
+            $defaultActionIdentifier = DatabaseRecordActionType::fromUserForTable($this->getBackendUser(), $tableName);
+            $defaultAction = $actions[$defaultActionIdentifier->value] ?? null;
 
             $extraData = [
                 'table' => $tableName,
@@ -286,12 +311,23 @@ final class DatabaseRecordProvider implements SearchProviderInterface
                 $extraData['breadcrumb'] = BackendUtility::getRecordPath($row['pid'], 'AND ' . $this->userPermissions, 0);
             }
 
+            $language = null;
+            if ($schema->hasCapability(TcaSchemaCapability::Language)) {
+                $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+                $languageFieldName = $languageCapability->getLanguageField()->getName();
+                $languageId = (int)($row[$languageFieldName] ?? 0);
+                $language = $this->resolveLanguage((int)($row['pid'] ?? 0), $languageId);
+            }
+
             $icon = $this->iconFactory->getIconForRecord($tableName, $row, IconSize::SMALL);
-            $items[] = (new ResultItem(self::class))
-                ->setItemTitle(BackendUtility::getRecordTitle($tableName, $row))
+            $recordTitle = BackendUtility::getRecordTitle($tableName, $row);
+            $items[] = new ResultItem(self::class)
+                ->setItemTitle(BackendUtility::cropToTitleLength($recordTitle))
                 ->setTypeLabel($schema->getTitle($this->languageService->sL(...)) ?: $tableName)
                 ->setIcon($icon)
-                ->setActions(...$actions)
+                ->setActions(...array_values($actions))
+                ->setDefaultAction($defaultAction)
+                ->setLanguage($language)
                 ->setExtraData($extraData)
                 ->setInternalData([
                     'row' => $row,
@@ -302,7 +338,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         return $items;
     }
 
-    protected function canAccessTable(string $tableName): bool
+    private function canAccessTable(string $tableName): bool
     {
         if (!$this->tcaSchemaFactory->has($tableName)) {
             return true;
@@ -319,7 +355,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         return true;
     }
 
-    protected function getAccessibleTables(BeforeSearchInDatabaseRecordProviderEvent $event): array
+    private function getAccessibleTables(BeforeSearchInDatabaseRecordProviderEvent $event): array
     {
         return array_filter($this->tcaSchemaFactory->all()->getNames(), function (string $tableName) use ($event): bool {
             return $this->canAccessTable($tableName) && !$event->isTableIgnored($tableName);
@@ -331,7 +367,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
      *
      * @return int[]
      */
-    protected function getPageIdList(): array
+    private function getPageIdList(): array
     {
         if ($this->getBackendUser()->isAdmin()) {
             return [];
@@ -350,7 +386,7 @@ final class DatabaseRecordProvider implements SearchProviderInterface
     /**
      * @return CompositeExpression[]
      */
-    protected function buildConstraintsForTable(string $queryString, QueryBuilder $queryBuilder, string $tableName): array
+    private function buildConstraintsForTable(string $queryString, QueryBuilder $queryBuilder, string $tableName): array
     {
         $platform = $queryBuilder->getConnection()->getDatabasePlatform();
         $isPostgres = $platform instanceof DoctrinePostgreSQLPlatform;
@@ -445,31 +481,6 @@ final class DatabaseRecordProvider implements SearchProviderInterface
     }
 
     /**
-     * Build a link to the record list based on given record.
-     *
-     * @param array $row Current record row from database.
-     * @return string Link to open an edit window for record.
-     */
-    protected function getShowLink(array $row): string
-    {
-        $backendUser = $this->getBackendUser();
-        $showLink = '';
-        $permissionSet = new Permission($this->getBackendUser()->calcPerms(BackendUtility::getRecord('pages', $row['pid']) ?? []));
-        $pagesSchema = $this->tcaSchemaFactory->get('pages');
-        // "View" link - Only with proper permissions
-        if ($backendUser->isAdmin()
-            || (
-                $permissionSet->showPagePermissionIsGranted()
-                && !$pagesSchema->hasCapability(TcaSchemaCapability::AccessAdminOnly)
-                && $backendUser->check('tables_select', 'pages')
-            )
-        ) {
-            $showLink = (string)$this->uriBuilder->buildUriFromRoute('web_list', ['id' => $row['pid']]);
-        }
-        return $showLink;
-    }
-
-    /**
      * Build a backend edit link based on given record.
      *
      * @param string $tableName Record table name
@@ -477,12 +488,11 @@ final class DatabaseRecordProvider implements SearchProviderInterface
      * @return string Link to open an edit window for record.
      * @see \TYPO3\CMS\Backend\Utility\BackendUtility::readPageAccess()
      */
-    protected function getEditLink(string $tableName, array $row): string
+    private function getEditActionLink(string $tableName, array $row): string
     {
         $backendUser = $this->getBackendUser();
         $editLink = '';
         $permissionSet = new Permission($backendUser->calcPerms(BackendUtility::readPageAccess($row['pid'], $this->userPermissions) ?: []));
-        // "Edit" link - Only with proper edit permissions
         $schema = $this->tcaSchemaFactory->get($tableName);
         if (!$schema->hasCapability(TcaSchemaCapability::AccessReadOnly)
             && (
@@ -491,11 +501,12 @@ final class DatabaseRecordProvider implements SearchProviderInterface
                     $permissionSet->editContentPermissionIsGranted()
                     && !$schema->hasCapability(TcaSchemaCapability::AccessAdminOnly)
                     && $backendUser->check('tables_modify', $tableName)
-                    && $backendUser->recordEditAccessInternals($tableName, $row)
+                    && $backendUser->checkRecordEditAccess($tableName, $row)->isAllowed
                 )
             )
         ) {
-            $returnUrl = (string)$this->uriBuilder->buildUriFromRoute('web_list', ['id' => $row['pid']]);
+            // @todo pass module context to live search and pass module context to edit link and use for return url
+            $returnUrl = (string)$this->uriBuilder->buildUriFromRoute('records', ['id' => $row['pid']]);
             $editLink = (string)$this->uriBuilder->buildUriFromRoute('record_edit', [
                 'edit[' . $tableName . '][' . $row['uid'] . ']' => 'edit',
                 'returnUrl' => $returnUrl,
@@ -504,7 +515,85 @@ final class DatabaseRecordProvider implements SearchProviderInterface
         return $editLink;
     }
 
-    protected function getBackendUser(): BackendUserAuthentication
+    /**
+     * Build a link to the page layout for the given record.
+     *
+     * @param array $row Current record row from database.
+     * @return string Link to open an edit window for record.
+     */
+    private function getLayoutActionLink(string $tableName, array $row): string
+    {
+        $showLink = '';
+        if ($tableName !== 'tt_content') {
+            return $showLink;
+        }
+        if ($this->hasPagesAccess($row)) {
+            $parameter = [
+                'id' => $row['pid'],
+                'languages' => [$row['sys_language_uid']],
+            ];
+            $showLink = ((string)$this->uriBuilder->buildUriFromRoute('web_layout', $parameter)) . '#element-' . $tableName . '-' . $row['uid'];
+        }
+        return $showLink;
+    }
+
+    /**
+     * Build a link to the record list based on given record.
+     *
+     * @param array $row Current record row from database.
+     * @return string Link to open an edit window for record.
+     */
+    private function getRecordsActionLink(string $table, array $row): string
+    {
+        return $this->hasPagesAccess($row) ? (((string)$this->uriBuilder->buildUriFromRoute('records', ['id' => $row['pid']])) . '#t3-table-' . $table) : '';
+    }
+
+    /**
+     * Build a preview link to display the record in the frontend.
+     *
+     * @param array $row Current record row from database.
+     * @return string Link to open an edit window for record.
+     */
+    private function getPreviewActionLink(string $table, array $row): string
+    {
+        $previewLink = '';
+        if ($this->hasPagesAccess($row)) {
+            $previewUriBuilder = PreviewUriBuilder::createForRecordPreview($table, $row, (int)($row['pid'] ?? 0));
+            if ($previewUriBuilder->isPreviewable()) {
+                $previewLink = (string)$previewUriBuilder->buildUri();
+            }
+        }
+        return $previewLink;
+    }
+
+    private function hasPagesAccess(array $row): bool
+    {
+        $backendUser = $this->getBackendUser();
+        $permissionSet = new Permission($backendUser->calcPerms(BackendUtility::getRecord('pages', $row['pid']) ?? []));
+        $pagesSchema = $this->tcaSchemaFactory->get('pages');
+        return $backendUser->isAdmin()
+            || (
+                $permissionSet->showPagePermissionIsGranted()
+                && !$pagesSchema->hasCapability(TcaSchemaCapability::AccessAdminOnly)
+                && $backendUser->check('tables_select', 'pages')
+            );
+    }
+
+    private function resolveLanguage(int $pageUid, int $languageId): ?array
+    {
+        try {
+            $siteLanguage = $this->siteFinder->getSiteByPageId($pageUid)->getLanguageById($languageId);
+            return [
+                'id' => $siteLanguage->getLanguageId(),
+                'title' => $siteLanguage->getTitle(),
+                'iconIdentifier' => $siteLanguage->getFlagIdentifier(),
+            ];
+        } catch (SiteNotFoundException|\InvalidArgumentException) {
+            return null;
+        }
+    }
+
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }

@@ -23,7 +23,6 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -51,13 +50,13 @@ use TYPO3\CMS\Core\TypoScript\Tokenizer\LosslessTokenizer;
  * @internal This class is a specific Backend controller implementation and is not part of the TYPO3's Core API.
  */
 #[AsController]
-final class PageTsConfigActiveController
+final readonly class PageTsConfigActiveController
 {
     public function __construct(
-        private readonly ContainerInterface $container,
-        private readonly UriBuilder $uriBuilder,
-        private readonly ModuleTemplateFactory $moduleTemplateFactory,
-        private readonly TsConfigTreeBuilder $tsConfigTreeBuilder,
+        private ContainerInterface $container,
+        private UriBuilder $uriBuilder,
+        private ModuleTemplateFactory $moduleTemplateFactory,
+        private TsConfigTreeBuilder $tsConfigTreeBuilder,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -107,7 +106,7 @@ final class PageTsConfigActiveController
             }
             $siteSettingsNode = new SiteInclude();
             $siteSettingsNode->setName('Site constants settings of site "' . $site->getIdentifier() . '"');
-            $siteSettingsNode->setLineStream((new LosslessTokenizer())->tokenize($siteConstants));
+            $siteSettingsNode->setLineStream(new LosslessTokenizer()->tokenize($siteConstants));
             $siteSettingsTreeRoot = new RootInclude();
             $siteSettingsTreeRoot->addChild($siteSettingsNode);
             $astBuilderVisitor = $this->container->get(IncludeTreeAstBuilderVisitor::class);
@@ -146,7 +145,7 @@ final class PageTsConfigActiveController
         if (!empty($userTsConfigPageOverrides)) {
             $includeNode = new TsConfigInclude();
             $includeNode->setName('pageTsConfig-overrides-by-userTsConfig');
-            $includeNode->setLineStream((new LosslessTokenizer())->tokenize($userTsConfigPageOverrides));
+            $includeNode->setLineStream(new LosslessTokenizer()->tokenize($userTsConfigPageOverrides));
             $pagesTsConfigTree->addChild($includeNode);
         }
 
@@ -173,8 +172,18 @@ final class PageTsConfigActiveController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($languageService->sL($currentModule->getTitle()), $pageRecord['title'] ?? $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ?? '');
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
+        $shortcutTitle = sprintf(
+            '%s: %s [%d]',
+            $languageService->translate('title', 'backend.modules.pagetsconfig_active'),
+            BackendUtility::getRecordTitle('pages', $pageRecord),
+            $pageUid
+        );
+        $view->getDocHeaderComponent()->setShortcutContext(
+            $currentModuleIdentifier,
+            $shortcutTitle,
+            ['id' => $pageUid]
+        );
         $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         $view->assignMultiple([
             'pageUid' => $pageUid,
@@ -234,23 +243,6 @@ final class PageTsConfigActiveController
             $this->getBackendUser()->pushModuleData($moduleData->getModuleIdentifier(), $moduleData->toArray());
         }
         return $conditions;
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_pagetsconfig.xlf:module.pagetsconfig_active'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
     }
 
     private function getLanguageService(): LanguageService

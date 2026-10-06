@@ -27,6 +27,7 @@ use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderInterface;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderPropertyManager;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaViewType;
 use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -40,7 +41,7 @@ use TYPO3\CMS\Core\View\ViewFactoryInterface;
  */
 final readonly class TotpProvider implements MfaProviderInterface
 {
-    private const MAX_ATTEMPTS = 3;
+    private const int MAX_ATTEMPTS = 3;
 
     public function __construct(
         private Context $context,
@@ -121,7 +122,7 @@ final readonly class TotpProvider implements MfaProviderInterface
 
         $secret = (string)($request->getParsedBody()['secret'] ?? '');
         $checksum = (string)($request->getParsedBody()['checksum'] ?? '');
-        if ($secret === '' || !hash_equals($this->hashService->hmac($secret, 'totp-setup'), $checksum)) {
+        if ($secret === '' || !hash_equals($this->hashService->hmac($secret, 'totp-setup', HashAlgo::SHA3_256), $checksum)) {
             // Return since the request does not contain the initially created secret
             return false;
         }
@@ -206,40 +207,39 @@ final readonly class TotpProvider implements MfaProviderInterface
             request: $request,
         );
         $view = $this->viewFactory->create($viewFactoryData);
-        if ($type === MfaViewType::SETUP) {
-            // Generate a new shared secret, generate the otpauth URL and create a qr-code for improved usability.
-            $userData = $propertyManager->getUser()->user ?? [];
-            $secret = Totp::generateEncodedSecret([(string)($userData['uid'] ?? ''), (string)($userData['username'] ?? '')]);
-            $totpInstance = GeneralUtility::makeInstance(Totp::class, $secret);
-            $totpAuthUrl = $totpInstance->getTotpAuthUrl(
-                (string)($GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ?? 'TYPO3'),
-                (string)($userData['email'] ?? '') ?: (string)($userData['username'] ?? '')
-            );
-            $view->assignMultiple([
-                'secret' => $secret,
-                'totpAuthUrl' => $totpAuthUrl,
-                'qrCode' => $this->getSvgQrCode($totpAuthUrl),
-                // Generate hmac of the secret to prevent it from being changed in the setup from
-                'checksum' => $this->hashService->hmac($secret, 'totp-setup'),
-                'providerIdentifier' => $propertyManager->getIdentifier(),
-            ]);
-            return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Setup'));
-        }
-        if ($type === MfaViewType::EDIT) {
-            $view->assignMultiple([
-                'name' => $propertyManager->getProperty('name'),
-                'lastUsed' => $this->getDateTime($propertyManager->getProperty('lastUsed', 0)),
-                'updated' => $this->getDateTime($propertyManager->getProperty('updated', 0)),
-                'providerIdentifier' => $propertyManager->getIdentifier(),
-            ]);
-            return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Edit'));
-        }
-        if ($type === MfaViewType::AUTH) {
-            $view->assignMultiple([
-                'isLocked' => $this->isLocked($propertyManager),
-                'providerIdentifier' => $propertyManager->getIdentifier(),
-            ]);
-            return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Auth'));
+        switch ($type) {
+            case MfaViewType::SETUP:
+                // Generate a new shared secret, generate the otpauth URL and create a qr-code for improved usability.
+                $userData = $propertyManager->getUser()->user ?? [];
+                $secret = Totp::generateEncodedSecret([(string)($userData['uid'] ?? ''), (string)($userData['username'] ?? '')]);
+                $totpInstance = GeneralUtility::makeInstance(Totp::class, $secret);
+                $totpAuthUrl = $totpInstance->getTotpAuthUrl(
+                    (string)($GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'] ?? 'TYPO3'),
+                    (string)($userData['email'] ?? '') ?: (string)($userData['username'] ?? '')
+                );
+                $view->assignMultiple([
+                    'secret' => $secret,
+                    'totpAuthUrl' => $totpAuthUrl,
+                    'qrCode' => $this->getSvgQrCode($totpAuthUrl),
+                    // Generate hmac of the secret to prevent it from being changed in the setup from
+                    'checksum' => $this->hashService->hmac($secret, 'totp-setup', HashAlgo::SHA3_256),
+                    'providerIdentifier' => $propertyManager->getIdentifier(),
+                ]);
+                return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Setup'));
+            case MfaViewType::EDIT:
+                $view->assignMultiple([
+                    'name' => $propertyManager->getProperty('name'),
+                    'lastUsed' => $this->getDateTime($propertyManager->getProperty('lastUsed', 0)),
+                    'updated' => $this->getDateTime($propertyManager->getProperty('updated', 0)),
+                    'providerIdentifier' => $propertyManager->getIdentifier(),
+                ]);
+                return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Edit'));
+            default: // MfaViewType::AUTH
+                $view->assignMultiple([
+                    'isLocked' => $this->isLocked($propertyManager),
+                    'providerIdentifier' => $propertyManager->getIdentifier(),
+                ]);
+                return new HtmlResponse($view->render('Authentication/MfaProvider/Totp/Auth'));
         }
     }
 
@@ -257,7 +257,7 @@ final readonly class TotpProvider implements MfaProviderInterface
     private function getSvgQrCode(string $content): string
     {
         $qrCodeRenderer = new ImageRenderer(new RendererStyle(225, 4), new SvgImageBackEnd());
-        return (new Writer($qrCodeRenderer))->writeString($content);
+        return new Writer($qrCodeRenderer)->writeString($content);
     }
 
     /**

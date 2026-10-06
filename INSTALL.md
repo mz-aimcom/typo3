@@ -2,7 +2,7 @@ INSTALLING TYPO3
 ================
 
 TYPO3 is an open source PHP based web content management system released
-under the GNU GPL. TYPO3 is copyright © 1999-2025 by Kasper Skaarhoj.
+under the GNU GPL. TYPO3 is copyright © 1999-2026 by Kasper Skaarhoj.
 
 Official Installation and Upgrade Guide
 ---------------------------------------
@@ -29,8 +29,8 @@ your TYPO3 core and the extensions up to date.
 
 * Please refer to official TYPO3 Security Guide for further information
   about security-related topics of TYPO3 CMS and the resources compiled
-  by the Security Team. https://docs.typo3.org/security
-  https://typo3.org/teams/security/resources/
+  by the Security Team. https://docs.typo3.org/permalink/t3coreapi:security
+  https://typo3.org/security
 
 * Please consider also hardening your TYPO3 instance further by
   adjusting permissions on non-changing files/folders.

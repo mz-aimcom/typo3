@@ -17,16 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Type\File;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Imaging\GraphicalFunctions;
-use TYPO3\CMS\Core\Log\Logger;
+use TYPO3\CMS\Core\Imaging\Svg\SvgDocumentFactory;
+use TYPO3\CMS\Core\Resource\Security\SvgSanitizer;
 use TYPO3\CMS\Core\Type\File\ImageInfo;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class ImageInfoTest extends UnitTestCase
 {
     #[Test]
@@ -42,7 +46,7 @@ final class ImageInfoTest extends UnitTestCase
             return true;
         };
 
-        $loggerMock = $this->createMock(Logger::class);
+        $loggerMock = $this->createMock(LoggerInterface::class);
         $loggerMock->expects($this->once())->method('error')->with(self::isString(), self::callback($exceptionIsLogged));
         $loggerMock->expects($this->once())->method('warning')
             ->with('I could not retrieve the image size for file {file}', ['file' => $testFile]);
@@ -101,8 +105,9 @@ final class ImageInfoTest extends UnitTestCase
         ];
 
         $graphicalFunctionsMock = $this->createMock(GraphicalFunctions::class);
-        $graphicalFunctionsMock->method('imageMagickIdentify')->with($testFile)->willReturn(null);
+        $graphicalFunctionsMock->expects($this->atMost(PHP_INT_MAX))->method('imageMagickIdentify')->with($testFile)->willReturn(null);
         GeneralUtility::addInstance(GraphicalFunctions::class, $graphicalFunctionsMock);
+        GeneralUtility::addInstance(SvgDocumentFactory::class, new SvgDocumentFactory(new SvgSanitizer()));
 
         $imageInfo = new ImageInfo($testFile);
         $imageInfo->setLogger(new NullLogger());
@@ -116,7 +121,6 @@ final class ImageInfoTest extends UnitTestCase
     public static function canDetectImageSizesDataProvider(): array
     {
         return [
-            'svg' => ['test.svg', 80, 80],
             'jpg' => ['test.jpg', 600, 388],
             'png' => ['test.png', 600, 388],
         ];

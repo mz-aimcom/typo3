@@ -36,11 +36,11 @@ final class UriViewHelperTest extends FunctionalTestCase
     public function renderRendersTagWithHrefFromRoute(): void
     {
         // Mock Uribuilder in this functional test so we don't have to work with existing routes
-        $formProtectionFactoryMock = $this->createMock(FormProtectionFactory::class);
+        $formProtectionFactoryStub = self::createStub(FormProtectionFactory::class);
         $backendEntryPointResolver = new BackendEntryPointResolver();
         $requestContextFactory = new RequestContextFactory($backendEntryPointResolver);
         $router = new Router($requestContextFactory, $backendEntryPointResolver);
-        $uriBuilderMock = $this->getMockBuilder(UriBuilder::class)->setConstructorArgs([$router, $formProtectionFactoryMock, $requestContextFactory])->getMock();
+        $uriBuilderMock = $this->getMockBuilder(UriBuilder::class)->setConstructorArgs([$router, $formProtectionFactoryStub, $requestContextFactory])->getMock();
         $uriBuilderMock->expects($this->once())->method('buildUriFromRoute')
             ->with('theRouteArgument', ['parameter' => 'to pass'], 'theReferenceTypeArgument')->willReturn('theUri');
         GeneralUtility::setSingletonInstance(UriBuilder::class, $uriBuilderMock);
@@ -49,24 +49,24 @@ final class UriViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource(
             '<f:be.uri route="theRouteArgument" parameters="{parameter: \'to pass\'}" referenceType="theReferenceTypeArgument">foo</f:be.uri>'
         );
-        self::assertEquals('theUri', (new TemplateView($context))->render());
+        self::assertEquals('theUri', new TemplateView($context)->render());
     }
 
     #[Test]
     public function renderPassesEmptyArrayToUriBuilderForNoParameters(): void
     {
         // Mock Uribuilder in this functional test so we don't have to work with existing routes
-        $formProtectionFactoryMock = $this->createMock(FormProtectionFactory::class);
+        $formProtectionFactoryStub = self::createStub(FormProtectionFactory::class);
         $backendEntryPointResolver = new BackendEntryPointResolver();
         $requestContextFactory = new RequestContextFactory($backendEntryPointResolver);
         $router = new Router($requestContextFactory, $backendEntryPointResolver);
-        $uriBuilderMock = $this->getMockBuilder(UriBuilder::class)->setConstructorArgs([$router, $formProtectionFactoryMock, $requestContextFactory])->getMock();
+        $uriBuilderMock = $this->getMockBuilder(UriBuilder::class)->setConstructorArgs([$router, $formProtectionFactoryStub, $requestContextFactory])->getMock();
         $uriBuilderMock->expects($this->once())->method('buildUriFromRoute')
             ->with('theRouteArgument', [], 'theReferenceTypeArgument')->willReturn('theUri');
         GeneralUtility::setSingletonInstance(UriBuilder::class, $uriBuilderMock);
 
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:be.uri route="theRouteArgument" referenceType="theReferenceTypeArgument">foo</f:be.uri>');
-        self::assertEquals('theUri', (new TemplateView($context))->render());
+        self::assertEquals('theUri', new TemplateView($context)->render());
     }
 }

@@ -19,6 +19,7 @@ namespace TYPO3\CMS\IndexedSearch\Tests\Functional;
 
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\IndexedSearch\Dto\IndexingDataAsString;
 use TYPO3\CMS\IndexedSearch\Indexer;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -47,8 +48,8 @@ final class IndexerTest extends FunctionalTestCase
             'index_externals' => false,
             'mtime' => time(),
             'crdate' => time(),
-            'content' =>
-                '<html>
+            'content'
+                => '<html>
                 <head>
                     <title>Lorem Ipsum</title>
                 </head>
@@ -81,8 +82,8 @@ final class IndexerTest extends FunctionalTestCase
             'index_externals' => false,
             'mtime' => time(),
             'crdate' => time(),
-            'content' =>
-                '<html>
+            'content'
+                => '<html>
                 <head>
                     <title>Test</title>
                 </head>
@@ -119,8 +120,8 @@ final class IndexerTest extends FunctionalTestCase
             'index_externals' => false,
             'mtime' => time(),
             'crdate' => time(),
-            'content' =>
-                '<html>
+            'content'
+                => '<html>
                 <head>
                     <title>Test</title>
                 </head>
@@ -141,5 +142,81 @@ final class IndexerTest extends FunctionalTestCase
         $indexer->forceIndexing = true;
         $indexer->indexTypo3PageContent();
         self::assertCSVDataSet(__DIR__ . '/Fixtures/Indexer/indexing_words_twice_second.csv');
+    }
+
+    #[Test]
+    public function bodyDescriptionSubstitutesMultipleSpaceCharactersWithSingleSpace(): void
+    {
+        $indexingDataDto = new IndexingDataAsString(body: "This is a test body with multiple   spaces and\n\nnewlines that should be normalized.");
+        $expected = 'This is a test body with multiple spaces and newlines that should be normalized.';
+        $subject = $this->get(Indexer::class);
+        $subject->conf = ['index_descrLgd' => 200];
+        self::assertSame($expected, $subject->bodyDescription($indexingDataDto));
+    }
+
+    #[Test]
+    public function bodyDescriptionHandlesPregReplaceFailureGracefully(): void
+    {
+        // Have a string with invalid UTF-8 that will trigger PREG_BAD_UTF8_ERROR
+        // using a byte sequences that cause PCRE to fail with /u modifier.
+        $invalidUtf8 = "Valid start \x80\x81\x82 invalid UTF-8 sequence";
+        $indexingDataDto = new IndexingDataAsString(body: $invalidUtf8);
+        $subject = $this->get(Indexer::class);
+        $subject->conf = ['index_descrLgd' => 200];
+        self::assertSame($invalidUtf8, $subject->bodyDescription($indexingDataDto));
+    }
+
+    #[Test]
+    public function indexerComputesFrequencyFromWordCountOfCurrentDocumentOnly(): void
+    {
+        $indexer = $this->get(Indexer::class);
+        $indexer->init($this->buildIndexerConfiguration(1, 'First', str_repeat('lorem ipsum dolor sit amet consectetur adipiscing elit ', 10)));
+        $indexer->indexTypo3PageContent();
+
+        $indexer->init($this->buildIndexerConfiguration(2, 'Second', 'apple banana cherry damson elder fig grape hazel iris jasmine kiwi lemon mango nectarine olive peach quince rose sage thyme'));
+        $indexer->indexTypo3PageContent();
+
+        $phash = (string)$this->getConnectionPool()->getConnectionForTable('index_phash')
+            ->executeQuery('SELECT phash FROM index_phash WHERE data_page_id = 2')->fetchOne();
+        $rows = $this->getConnectionPool()->getConnectionForTable('index_rel')
+            ->executeQuery('SELECT count, freq FROM index_rel WHERE phash = ?', [$phash])->fetchAllAssociative();
+        self::assertNotEmpty($rows);
+        $ownWordCount = array_sum(array_column($rows, 'count'));
+        $expectedFrequency = $indexer->freqMap(1 / $ownWordCount);
+        self::assertSame([$expectedFrequency], array_values(array_unique(array_column($rows, 'freq'))));
+    }
+
+    #[Test]
+    public function indexerStoresWordCountWithinRangeOfIndexRelCountColumn(): void
+    {
+        $indexer = $this->get(Indexer::class);
+        $indexer->init($this->buildIndexerConfiguration(1, 'Repeated', str_repeat('repeated ', 300)));
+        $indexer->indexTypo3PageContent();
+
+        $count = (int)$this->getConnectionPool()->getConnectionForTable('index_rel')
+            ->executeQuery('SELECT MAX(count) FROM index_rel')->fetchOne();
+        self::assertLessThanOrEqual(255, $count);
+    }
+
+    private function buildIndexerConfiguration(int $pageId, string $title, string $body): array
+    {
+        return [
+            'id' => $pageId,
+            'type' => 0,
+            'MP' => '',
+            'staticPageArguments' => null,
+            'sys_language_uid' => 0,
+            'gr_list' => '0,-1',
+            'recordUid' => null,
+            'freeIndexUid' => null,
+            'freeIndexSetId' => null,
+            'index_descrLgd' => 200,
+            'index_metatags' => true,
+            'index_externals' => false,
+            'mtime' => time(),
+            'crdate' => time(),
+            'content' => '<html><head><title>' . $title . '</title></head><body>' . $body . '</body></html>',
+            'indexedDocTitle' => '',
+        ];
     }
 }

@@ -47,7 +47,7 @@ use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Modal rendering detail about a record. Reached by "Display information" on click menu and list module.
+ * Modal rendering detail about a record. Reached by "Display information" on click menu and records module.
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
@@ -72,6 +72,9 @@ class ElementInformationController
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
         protected readonly VisibleSchemaFieldsCollector $visibleSchemaFieldsCollector,
         private readonly SearchableSchemaFieldsCollector $searchableSchemaFieldsCollector,
+        private readonly MetaDataRepository $metaDataRepository,
+        private readonly ConnectionPool $connectionPool,
+        private readonly RendererRegistry $rendererRegistry,
     ) {}
 
     /**
@@ -134,9 +137,9 @@ class ElementInformationController
         // render type by user func
         foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['typo3/show_item.php']['typeRendering'] ?? [] as $className) {
             $typeRenderObj = GeneralUtility::makeInstance($className);
-            if (is_object($typeRenderObj) && method_exists($typeRenderObj, 'isValid') && method_exists($typeRenderObj, 'render')) {
+            if (method_exists($typeRenderObj, 'isValid') && method_exists($typeRenderObj, 'render')) {
                 if ($typeRenderObj->isValid($this->type, $this)) {
-                    $view->assign('hookContent', $typeRenderObj->render($this->type, $this));
+                    $view->assign('hookContent', $typeRenderObj->render($this->type, $this, $view));
                     return $view->renderResponse('ContentElement/ElementInformation');
                 }
             }
@@ -148,7 +151,7 @@ class ElementInformationController
         $view->assignMultiple($this->getPreview($request));
         $view->assignMultiple($this->getPropertiesForTable());
         $view->assignMultiple($this->getReferences($request, $uid));
-        $view->assign('returnUrl', GeneralUtility::sanitizeLocalUrl($request->getQueryParams()['returnUrl'] ?? ''));
+        $view->assign('returnUrl', GeneralUtility::sanitizeLocalUrl($request->getQueryParams()['returnUrl'] ?? '', $request));
         $view->assign('maxTitleLength', $this->getBackendUser()->uc['titleLen'] ?? 20);
 
         return $view->renderResponse('ContentElement/ElementInformation');
@@ -157,7 +160,7 @@ class ElementInformationController
     /**
      * Get page title with icon, table title and record title
      */
-    protected function getPageTitle(): array
+    public function getPageTitle(): array
     {
         $pageTitle = [
             'title' => BackendUtility::getRecordTitle($this->table, $this->row),
@@ -178,6 +181,26 @@ class ElementInformationController
         return $pageTitle;
     }
 
+    public function getTable(): ?string
+    {
+        return $this->table;
+    }
+
+    public function getRow(): array
+    {
+        return $this->row;
+    }
+
+    public function getFileObject(): ?File
+    {
+        return $this->fileObject;
+    }
+
+    public function getFolderObject(): ?Folder
+    {
+        return $this->folderObject;
+    }
+
     /**
      * Get preview for current record
      */
@@ -193,8 +216,7 @@ class ElementInformationController
         if ($this->fileObject->isMissing()) {
             $preview['missingFile'] = $this->fileObject->getName();
         } else {
-            $rendererRegistry = GeneralUtility::makeInstance(RendererRegistry::class);
-            $fileRenderer = $rendererRegistry->getRenderer($this->fileObject);
+            $fileRenderer = $this->rendererRegistry->getRenderer($this->fileObject);
             $preview['url'] = $this->fileObject->getPublicUrl() ?? '';
 
             // Add "edit metadata" button
@@ -262,6 +284,11 @@ class ElementInformationController
                 continue;
             }
 
+            // handled explicitly below with proper byte formatting -> skip
+            if ($this->type === 'file' && $name === 'size') {
+                continue;
+            }
+
             // Field does not exist (e.g. having type=none) -> skip
             if (!array_key_exists($name, $this->row)) {
                 continue;
@@ -308,14 +335,18 @@ class ElementInformationController
                 }
 
                 // file size
+                $fileSizeInBytes = (int)$this->fileObject->getProperty('size');
                 $propertiesForTable['fields']['size'] = [
-                    'fieldValue' => GeneralUtility::formatSize((int)$this->fileObject->getProperty('size'), htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:byteSizeUnits'))),
+                    'fieldValue' => sprintf(
+                        '%s (%s)',
+                        GeneralUtility::formatSize($fileSizeInBytes, htmlspecialchars($this->getLanguageService()->sL('core.common:byteSizeUnits'))),
+                        htmlspecialchars($lang->translate('size_in_bytes', 'core.core', ['numberOfBytes' => GeneralUtility::formatSize($fileSizeInBytes, ' ')])),
+                    ),
                     'fieldLabel' => $lang->sL($schema?->hasField('size') ? $schema->getField('size')->getLabel() : ''),
                 ];
 
                 // show the metadata of a file as well
-                $metaDataRepository = GeneralUtility::makeInstance(MetaDataRepository::class);
-                $metaData = $metaDataRepository->findByFileUid($this->row['uid'] ?? 0);
+                $metaData = $this->metaDataRepository->findByFileUid((int)($this->row['uid'] ?? 0));
 
                 // If there is no metadata record, skip it
                 if ($metaData !== []) {
@@ -324,6 +355,11 @@ class ElementInformationController
 
                     foreach ($metaData as $name => $value) {
                         if (!in_array($name, $allowedFields, true)) {
+                            continue;
+                        }
+                        if ($name === 'crdate') {
+                            // Is of type=passthrough and already part of
+                            // meta information displayed on top of the table
                             continue;
                         }
                         if (!$fileMetadataSchema->hasField($name)) {
@@ -512,7 +548,7 @@ class ElementInformationController
 
         if ($schema->getName() === 'pages') {
             // Recordlist button
-            $actions['webListUrl'] = (string)$this->uriBuilder->buildUriFromRoute('web_list', ['id' => $uid, 'returnUrl' => $request->getAttribute('normalizedParams')->getRequestUri()]);
+            $actions['recordsModuleUrl'] = (string)$this->uriBuilder->buildUriFromRoute('records', ['id' => $uid, 'returnUrl' => $request->getAttribute('normalizedParams')->getRequestUri()]);
 
             // retrieve record to get page language
             $record = BackendUtility::getRecord($schema->getName(), $uid);
@@ -545,7 +581,7 @@ class ElementInformationController
             $selectTable = $table;
             $selectUid = $ref;
         }
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+        $queryBuilder = $this->connectionPool
             ->getQueryBuilderForTable('sys_refindex');
 
         $predicates = [
@@ -639,7 +675,7 @@ class ElementInformationController
         $refFromLines = [];
         $lang = $this->getLanguageService();
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+        $queryBuilder = $this->connectionPool
             ->getQueryBuilderForTable('sys_refindex');
 
         $predicates = [
@@ -714,7 +750,7 @@ class ElementInformationController
      */
     protected function transformFileReferenceToRecordReference(array $referenceRecord): ?array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+        $queryBuilder = $this->connectionPool
             ->getQueryBuilderForTable('sys_file_reference');
         $queryBuilder->getRestrictions()->removeAll();
         $fileReference = $queryBuilder

@@ -26,7 +26,7 @@ class ApplicableConjunction implements Applicable
 
     public static function create(Applicable ...$applicables): self
     {
-        return new static(...$applicables);
+        return new self(...$applicables);
     }
 
     public function __construct(Applicable ...$applicables)
@@ -64,7 +64,7 @@ class ApplicableConjunction implements Applicable
     {
         return sprintf(
             '{%s}',
-            implode(' | ', array_map([$this, 'describeItem'], $this->applicables))
+            implode(' | ', array_map($this->describeItem(...), $this->applicables))
         );
     }
 

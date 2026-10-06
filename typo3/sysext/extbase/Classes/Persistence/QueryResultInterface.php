@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -17,7 +19,7 @@ namespace TYPO3\CMS\Extbase\Persistence;
 
 /**
  * A lazy result list that is returned by Query::execute()
- * @template TKey
+ * @template TKey of int
  * @template TValue of object
  * @extends \Iterator<TKey,TValue>
  * @extends \ArrayAccess<TKey,TValue>
@@ -25,31 +27,28 @@ namespace TYPO3\CMS\Extbase\Persistence;
 interface QueryResultInterface extends \Countable, \Iterator, \ArrayAccess
 {
     /**
-     * @phpstan-param QueryInterface<TValue> $query
+     * @param QueryInterface<TValue> $query
      */
     public function setQuery(QueryInterface $query): void;
 
     /**
      * Returns a clone of the query object
      *
-     * @return \TYPO3\CMS\Extbase\Persistence\QueryInterface
-     * @phpstan-return QueryInterface<TValue>
+     * @return QueryInterface<TValue>
      */
-    public function getQuery();
+    public function getQuery(): QueryInterface;
 
     /**
      * Returns the first object in the result set
      *
-     * @return object|null
-     * @phpstan-return TValue|null
+     * @return TValue|null
      */
-    public function getFirst();
+    public function getFirst(): ?object;
 
     /**
      * Returns an array with the objects in the result set
      *
-     * @return array
-     * @phpstan-return list<TValue>
+     * @return list<TValue>
      */
-    public function toArray();
+    public function toArray(): array;
 }

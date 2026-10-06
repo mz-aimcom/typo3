@@ -20,9 +20,8 @@ namespace TYPO3\CMS\Fluid\ViewHelpers\Form;
 use TYPO3\CMS\Core\Country\Country;
 use TYPO3\CMS\Core\Country\CountryFilter;
 use TYPO3\CMS\Core\Country\CountryProvider;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper which renders a `<select>` tag with all or specific countries as options.
@@ -45,6 +44,12 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
      * @var string
      */
     protected $tagName = 'select';
+
+    public function __construct(
+        private readonly CountryProvider $countryProvider
+    ) {
+        parent::__construct();
+    }
 
     public function initializeArguments(): void
     {
@@ -119,7 +124,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
                     $options[$code] = $name;
                     break;
                 default:
-                    throw new Exception('Argument "optionLabelField" of <f:form.countrySelect> must either be set to "localizedName", "name", "officialName", or "localizedOfficialName".', 1674076708);
+                    throw new InvalidArgumentValueException('Argument "optionLabelField" of <f:form.countrySelect> must either be set to "localizedName", "name", "officialName", or "localizedOfficialName".', 1674076708);
             }
         }
         if ($this->arguments['sortByOptionLabel']) {
@@ -147,7 +152,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
     private function translate(string $label): string
     {
         if ($this->arguments['alternativeLanguage']) {
-            return (string)LocalizationUtility::translate($label, languageKey: $this->arguments['alternativeLanguage']);
+            return (string)LocalizationUtility::translate($label, null, null, $this->arguments['alternativeLanguage']);
         }
         return (string)LocalizationUtility::translate($label);
     }
@@ -179,6 +184,11 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
         if ($isSelected) {
             $output .= ' selected="selected"';
         }
+        if (($this->arguments['prioritizedCountries'] ?? []) !== []
+            && in_array($value, $this->arguments['prioritizedCountries'], true)
+        ) {
+            $output .= ' data-prioritized="1"';
+        }
         $output .= '>' . htmlspecialchars($label) . '</option>';
         return $output;
     }
@@ -191,7 +201,7 @@ final class CountrySelectViewHelper extends AbstractFormFieldViewHelper
         $filter = new CountryFilter();
         $filter->setOnlyCountries($this->arguments['onlyCountries'] ?? [])
             ->setExcludeCountries($this->arguments['excludeCountries'] ?? []);
-        return GeneralUtility::makeInstance(CountryProvider::class)->getFiltered($filter);
+        return $this->countryProvider->getFiltered($filter);
     }
 
     /**

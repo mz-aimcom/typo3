@@ -61,7 +61,7 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
     {
         // Add a tag builder, that does not html encode values, because rendering with encoding happens in AssetRenderer
         $this->setTagBuilder(
-            new class () extends TagBuilder {
+            new class extends TagBuilder {
                 public function addAttribute($attributeName, $attributeValue, $escapeSpecialCharacters = false): void
                 {
                     parent::addAttribute($attributeName, $attributeValue, false);
@@ -74,10 +74,11 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
     public function initializeArguments(): void
     {
         parent::initializeArguments();
+        $this->registerArgument('src', 'string', 'The URI of the script to be loaded. If omitted, the tag children are added as inline JavaScript.');
         $this->registerArgument('async', 'bool', 'Define that the script will be fetched in parallel to parsing and evaluation.');
         $this->registerArgument('defer', 'bool', 'Define that the script is meant to be executed after the document has been parsed.');
         $this->registerArgument('nomodule', 'bool', 'Define that the script should not be executed in browsers that support ES2015 modules.');
-        $this->registerArgument('useNonce', 'bool', 'Whether to use the global nonce value', false, false);
+        $this->registerArgument('csp', 'bool', 'Whether to collect a CSP hash value for this asset (default: true for external files, false for inline)', false, null);
         $this->registerArgument('identifier', 'string', 'Use this identifier within templates to only inject your JS once, even though it is added multiple times.', true);
         $this->registerArgument('priority', 'boolean', 'Define whether the JavaScript should be put in the <head> tag above-the-fold or somewhere in the body part.', false, false);
         $this->registerArgument('inline', 'bool', 'Define whether or not the referenced file should be loaded as inline script (Only to be used if \'src\' is set).', false, false);
@@ -95,11 +96,16 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
             }
         }
 
-        $src = $attributes['src'] ?? null;
+        $src = $this->arguments['src'] ?? $attributes['src'] ?? null;
+        if ($src === '') {
+            $src = null;
+        }
         unset($attributes['src']);
+        $isExternalFile = $src !== null && !($this->arguments['inline'] ?? false);
+        $useCsp = $this->resolveCspOption($isExternalFile);
         $options = [
             'priority' => $this->arguments['priority'],
-            'useNonce' => $this->arguments['useNonce'],
+            'csp' => $useCsp,
         ];
         if ($src !== null) {
             if ($this->arguments['inline'] ?? false) {
@@ -117,5 +123,15 @@ final class ScriptViewHelper extends AbstractTagBasedViewHelper
             }
         }
         return '';
+    }
+
+    private function resolveCspOption(bool $defaultForStatic): bool
+    {
+        $csp = $this->arguments['csp'];
+        if ($csp !== null) {
+            return (bool)$csp;
+        }
+        // Default: true for external files (allows hash collection), false for inline
+        return $defaultForStatic;
     }
 }

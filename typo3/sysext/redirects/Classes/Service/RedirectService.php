@@ -28,6 +28,8 @@ use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
+use TYPO3\CMS\Core\Localization\Locales;
+use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Resource\Exception\InvalidPathException;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
@@ -40,9 +42,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Frontend\Aspect\PreviewAspect;
 use TYPO3\CMS\Frontend\Cache\CacheInstruction;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
+use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Page\PageInformationFactory;
-use TYPO3\CMS\Frontend\Typolink\AbstractTypolinkBuilder;
 use TYPO3\CMS\Frontend\Typolink\TypolinkBuilderInterface;
 use TYPO3\CMS\Frontend\Typolink\UnableToLinkException;
 use TYPO3\CMS\Redirects\Event\BeforeRedirectMatchDomainEvent;
@@ -65,6 +66,8 @@ readonly class RedirectService
         private PhpFrontend $typoScriptCache,
         private LoggerInterface $logger,
         private TypoLinkCodecService $typoLinkCodecService,
+        private Locales $locales,
+        private Context $context,
     ) {}
 
     /**
@@ -190,8 +193,9 @@ readonly class RedirectService
      */
     protected function isRedirectActive(array $redirectRecord): bool
     {
-        return !$redirectRecord['disabled'] && $redirectRecord['starttime'] <= $GLOBALS['SIM_ACCESS_TIME'] &&
-               (!$redirectRecord['endtime'] || $redirectRecord['endtime'] >= $GLOBALS['SIM_ACCESS_TIME']);
+        $accessTime = $this->context->getAspect('date')->getTimestampWithMinutePrecision();
+        return !$redirectRecord['disabled'] && $redirectRecord['starttime'] <= $accessTime
+               && (!$redirectRecord['endtime'] || $redirectRecord['endtime'] >= $accessTime);
     }
 
     /**
@@ -294,7 +298,7 @@ readonly class RedirectService
             return $url;
         }
         $site = $this->resolveSite($linkDetails, $site);
-        // If it's a record or page, then boot up TSFE and use typolink
+        // If it's a record or page, then boot up and use typolink
         return $this->getUriFromCustomLinkDetails(
             $matchedRedirect,
             $site,
@@ -339,7 +343,7 @@ readonly class RedirectService
     }
 
     /**
-     * Called when TypoScript/TSFE is available, so typolink is used to generate the URL
+     * Called when TypoScriptis available, so typolink is used to generate the URL
      */
     protected function getUriFromCustomLinkDetails(array $redirectRecord, ?SiteInterface $site, array $linkDetails, array $queryParams, ServerRequestInterface $originalRequest): ?UriInterface
     {
@@ -350,77 +354,45 @@ readonly class RedirectService
             return null;
         }
         $builderType = $GLOBALS['TYPO3_CONF_VARS']['FE']['typolinkBuilder'][$linkDetails['type']];
-        $controller = $this->bootFrontendController($site, $queryParams, $originalRequest);
-        if ($builderType && is_subclass_of($builderType, TypolinkBuilderInterface::class)) {
-            /** @var TypolinkBuilderInterface $linkBuilder */
-            $linkBuilder = GeneralUtility::makeInstance($builderType);
-            $configuration = [
-                'parameter' => (string)$redirectRecord['target'],
-                'forceAbsoluteUrl' => true,
-                'linkAccessRestrictedPages' => true,
-            ];
-            if ($redirectRecord['force_https']) {
-                $configuration['forceAbsoluteUrl.']['scheme'] = 'https';
-            }
-            if ($redirectRecord['keep_query_parameters']) {
-                $configuration['additionalParams'] = HttpUtility::buildQueryString($queryParams, '&');
-            }
-            $request = $originalRequest->withAttribute('currentContentObject', $controller->cObj);
-            try {
-                $result = $linkBuilder->buildLink($linkDetails, $configuration, $request);
-                $this->cleanupTSFE();
-                return new Uri($result->getUrl());
-            } catch (UnableToLinkException $e) {
-                $this->cleanupTSFE();
-                return null;
-            }
-        } else {
-            // @deprecated since TYPO3 v14.0, will be removed in TYPO3 v15.0 - however this code is kept without
-            // a trigger_error() to not SPAM deprecation logs via redirects.
-            if (!is_subclass_of($builderType, AbstractTypolinkBuilder::class)) {
-                throw new \RuntimeException('Single link builder must extend AbstractTypolinkBuilder', 1646504471);
-            }
-            $linkBuilder = GeneralUtility::makeInstance($builderType);
-            try {
-                $configuration = [
-                    'parameter' => (string)$redirectRecord['target'],
-                    'forceAbsoluteUrl' => true,
-                    'linkAccessRestrictedPages' => true,
-                ];
-                if ($redirectRecord['force_https']) {
-                    $configuration['forceAbsoluteUrl.']['scheme'] = 'https';
-                }
-                if ($redirectRecord['keep_query_parameters']) {
-                    $configuration['additionalParams'] = HttpUtility::buildQueryString($queryParams, '&');
-                }
-                $result = $linkBuilder->_build($linkDetails, '', '', $configuration, $originalRequest, $controller->cObj);
-                $this->cleanupTSFE();
-                return new Uri($result->getUrl());
-            } catch (UnableToLinkException $e) {
-                $this->cleanupTSFE();
-                return null;
-            }
+        $contentObjectRenderer = $this->bootFrontendController($site, $queryParams, $originalRequest);
+        /** @var TypolinkBuilderInterface $linkBuilder */
+        $linkBuilder = GeneralUtility::makeInstance($builderType);
+        if (! $linkBuilder instanceof TypolinkBuilderInterface) {
+            throw new \RuntimeException('Single link builder must implement TypolinkBuilderInterface', 1780062714);
+        }
+        $configuration = [
+            'parameter' => (string)$redirectRecord['target'],
+            'forceAbsoluteUrl' => true,
+            'linkAccessRestrictedPages' => true,
+        ];
+        if ($redirectRecord['force_https']) {
+            $configuration['forceAbsoluteUrl.']['scheme'] = 'https';
+        }
+        if ($redirectRecord['keep_query_parameters']) {
+            $configuration['additionalParams'] = HttpUtility::buildQueryString($queryParams, '&');
+        }
+        $request = $originalRequest->withAttribute('currentContentObject', $contentObjectRenderer);
+        try {
+            $result = $linkBuilder->buildLink($linkDetails, $configuration, $request);
+            $this->cleanupContext();
+            return new Uri($result->getUrl());
+        } catch (UnableToLinkException $e) {
+            $this->cleanupContext();
+            return null;
         }
     }
 
     /**
-     * Finishing booting up TSFE, after that the following properties are available.
+     * Finishing booting up, after that the following properties are available.
      *
      * Instantiating is done by the middleware stack (see Configuration/RequestMiddlewares.php)
-     *
-     * - TSFE->sys_page
-     * - TSFE->config
-     * - TSFE->cObj
-     *
-     * So a link to a page can be generated.
+     * so a link to a page can be generated.
      *
      * @todo: This messes quite a bit with dependencies here. RedirectService is called by an early middleware
-     *        *before* TSFE has been set up at all. The code thus has to hop through various loops later middlewares
-     *        would usually do. The overall scenario of needing a partially set up TSFE for target redirect calculation
-     *        is quite unfortunate here and should be sorted out differently by further refactoring the link building
-     *        and reducing TSFE dependencies.
+     *        *before* state has been set up at all. The code thus has to hop through various loops later middlewares
+     *        would usually do.
      */
-    protected function bootFrontendController(SiteInterface $site, array $queryParams, ServerRequestInterface $originalRequest): TypoScriptFrontendController
+    protected function bootFrontendController(SiteInterface $site, array $queryParams, ServerRequestInterface $originalRequest): ContentObjectRenderer
     {
         $context = GeneralUtility::makeInstance(Context::class);
         $context->setAspect('frontend.preview', new PreviewAspect());
@@ -433,9 +405,15 @@ readonly class RedirectService
         $originalRequest = $originalRequest->withAttribute('routing', $pageArguments);
         $pageInformation = $this->pageInformationFactory->create($originalRequest);
         $originalRequest = $originalRequest->withAttribute('frontend.page.information', $pageInformation);
-        $controller = GeneralUtility::makeInstance(TypoScriptFrontendController::class);
-        $controller->initializePageRenderer($originalRequest);
-        $expressionMatcherVariables = $this->getExpressionMatcherVariables($site, $originalRequest, $controller);
+        $pageRenderer = GeneralUtility::makeInstance(PageRenderer::class);
+        $language = $originalRequest->getAttribute('language') ?? $originalRequest->getAttribute('site')->getDefaultLanguage();
+        if ($language->hasCustomTypo3Language()) {
+            $locale = $this->locales->createLocale($language->getTypo3Language());
+        } else {
+            $locale = $language->getLocale();
+        }
+        $pageRenderer->setLanguage($locale, $originalRequest);
+        $expressionMatcherVariables = $this->getExpressionMatcherVariables($site, $originalRequest);
         $frontendTypoScript = $this->frontendTypoScriptFactory->createSettingsAndSetupConditions(
             $site,
             $pageInformation->getSysTemplateRows(),
@@ -444,7 +422,7 @@ readonly class RedirectService
             $this->typoScriptCache,
         );
         // Note, that we need the full TypoScript setup array, which is required for links created by
-        // DatabaseRecordLinkBuilder. This should be kept in mind when TSFE will be removed in v14.
+        // DatabaseRecordLinkBuilder.
         $frontendTypoScript = $this->frontendTypoScriptFactory->createSetupConfigOrFullSetup(
             true,
             $frontendTypoScript,
@@ -456,14 +434,13 @@ readonly class RedirectService
             null
         );
         $newRequest = $originalRequest->withAttribute('frontend.typoscript', $frontendTypoScript);
-        $controller->newCObj($newRequest);
-        if (!isset($GLOBALS['TSFE']) || !$GLOBALS['TSFE'] instanceof TypoScriptFrontendController) {
-            $GLOBALS['TSFE'] = $controller;
-        }
-        return $controller;
+        $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
+        $contentObjectRenderer->setRequest($newRequest);
+        $contentObjectRenderer->start($newRequest->getAttribute('frontend.page.information')->getPageRecord(), 'pages');
+        return $contentObjectRenderer;
     }
 
-    private function getExpressionMatcherVariables(SiteInterface $site, ServerRequestInterface $request, TypoScriptFrontendController $controller): array
+    private function getExpressionMatcherVariables(SiteInterface $site, ServerRequestInterface $request): array
     {
         $pageInformation = $request->getAttribute('frontend.page.information');
         $topDownRootLine = $pageInformation->getRootLine();
@@ -477,7 +454,6 @@ readonly class RedirectService
             'localRootLine' => $localRootline,
             'site' => $site,
             'siteLanguage' => $request->getAttribute('language'),
-            'tsfe' => $controller,
         ];
     }
 
@@ -524,15 +500,14 @@ readonly class RedirectService
 
     /**
      * @todo: Needs to vanish. The existence of this method is a side-effect of the technical debt that
-     *        a TSFE has to be set up for link generation, see the comment on bootFrontendController()
+     *        a context has to be set up for link generation, see the comment on bootFrontendController()
      *        for more details.
      */
-    private function cleanupTSFE(): void
+    private function cleanupContext(): void
     {
         $context = GeneralUtility::makeInstance(Context::class);
         $context->unsetAspect('language');
         $context->unsetAspect('typoscript');
         $context->unsetAspect('frontend.preview');
-        unset($GLOBALS['TSFE']);
     }
 }

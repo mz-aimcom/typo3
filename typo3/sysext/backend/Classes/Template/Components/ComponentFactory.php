@@ -1,0 +1,290 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+
+namespace TYPO3\CMS\Backend\Template\Components;
+
+use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Http\Message\UriInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Backend\Template\Components\Buttons\Action\ShortcutButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownDivider;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownGeneric;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownHeader;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItem;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownRadio;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownToggle;
+use TYPO3\CMS\Backend\Template\Components\Buttons\DropDownButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\FullyRenderedButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\GenericButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\InputButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\LinkButton;
+use TYPO3\CMS\Backend\Template\Components\Buttons\SplitButton;
+use TYPO3\CMS\Backend\Template\Components\Event\ModifyPreviewUrlForQrCodeEvent;
+use TYPO3\CMS\Backend\Template\Components\Menu\Menu;
+use TYPO3\CMS\Backend\Template\Components\Menu\MenuItem;
+use TYPO3\CMS\Core\Imaging\IconFactory;
+use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+
+/**
+ * Factory for creating backend template components, e.g. buttons.
+ *
+ * This ComponentFactory serves as the central location for all component creation in the backend,
+ * providing both pre-configured components for common patterns and basic component factory methods.
+ *
+ * Currently focused on button creation, but designed to be extensible for other component types
+ * (menus, breadcrumbs, etc.) in the future.
+ *
+ * This reduces boilerplate code and ensures consistent UX across the backend by providing
+ * standardized component configurations for recurring use cases.
+ *
+ * Example - Creating a back button:
+ *
+ * ```
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
+ *
+ * public function myAction(): ResponseInterface
+ * {
+ *     $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
+ *
+ *     // Use pre-configured back button
+ *     $backButton = $this->componentFactory->createBackButton($returnUrl);
+ *     $buttonBar->addButton($backButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ * }
+ * ```
+ */
+#[Autoconfigure(public: true)]
+readonly class ComponentFactory
+{
+    public function __construct(
+        protected IconFactory $iconFactory,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected PageRenderer $pageRenderer,
+    ) {}
+
+    /**
+     * Creates a standardized "back" navigation button.
+     */
+    public function createBackButton(string|UriInterface $returnUrl): LinkButton
+    {
+        return $this->createLinkButton()
+            ->setHref((string)$returnUrl)
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.goBack'))
+            ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
+            ->setShowLabelText(true);
+    }
+
+    /**
+     * Creates a standardized "close" button.
+     *
+     * Similar to back button but uses "actions-close" icon and "Close" label.
+     * Typically used for closing detail views or modal-like overlays.
+     */
+    public function createCloseButton(string|UriInterface $closeUrl): LinkButton
+    {
+        return $this->createLinkButton()
+            ->setHref((string)$closeUrl)
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.close'))
+            ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL))
+            ->setShowLabelText(true);
+    }
+
+    /**
+     * Creates a standardized "reload" button for reloading the current view.
+     *
+     * Uses "actions-refresh" icon without a displayed label.
+     *
+     * Note: As of TYPO3 v14, the reload button is automatically added to all modules
+     * by default. Controllers only need to manually create this button if they need
+     * custom reload behavior. In that case, use DocHeaderComponent::disableAutomaticReloadButton()
+     * to prevent the automatic one from being added.
+     */
+    public function createReloadButton(string|UriInterface $requestUri): LinkButton
+    {
+        return $this->createLinkButton()
+            ->setHref((string)$requestUri)
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
+            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
+    }
+
+    /**
+     * Creates a standardized "save" button for forms.
+     *
+     * Returns an InputButton configured with:
+     * - "actions-document-save" icon
+     * - Translated "Save" label (shown as text)
+     * - name="_savedok" and value="1"
+     * - Associated with the specified form
+     *
+     * @param string $formName The HTML form ID this button belongs to
+     * @return InputButton Fully configured save button
+     */
+    public function createSaveButton(string $formName = ''): InputButton
+    {
+        $button = $this->createInputButton()
+            ->setName('_savedok')
+            ->setValue('1')
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.save') ?: 'Save')
+            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
+            ->setShowLabelText(true);
+
+        if ($formName !== '') {
+            $button->setForm($formName);
+        }
+
+        return $button;
+    }
+
+    public function createViewButton(array $previewDataAttributes = []): LinkButton
+    {
+        return $this->createLinkButton()
+            ->setHref('#')
+            ->setDataAttributes($previewDataAttributes)
+            ->setDisabled(!$previewDataAttributes)
+            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
+            ->setIcon($this->iconFactory->getIcon('actions-view-page', IconSize::SMALL))
+            ->setShowLabelText(true);
+    }
+
+    /**
+     * Creates a standardized QR code button that opens a modal with a QR code for the given URL.
+     *
+     * Uses the typo3-qrcode-modal-button web component which displays a scannable QR code
+     * in a modal dialog. The QR code can be downloaded as PNG or SVG.
+     *
+     * @param string|UriInterface $previewUrl The URL to encode in the QR code
+     * @param bool $showCopyUrl Whether to show the URL field with copy button in the modal
+     */
+    public function createQrCodeButton(string|UriInterface $previewUrl, bool $showCopyUrl = true): GenericButton
+    {
+        $languageService = $this->getLanguageService();
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/element/qrcode-modal-button.js');
+        $attributes = [
+            'content' => (string)$previewUrl,
+            'modal-title' => $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:showPageQrCode.modalTitle'),
+        ];
+        if ($showCopyUrl) {
+            $attributes['show-url'] = '1';
+        }
+        return $this->createGenericButton()
+            ->setTag('typo3-qrcode-modal-button')
+            ->setLabel($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:showPageQrCode'))
+            ->setTitle($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:showPageQrCode'))
+            ->setIcon($this->iconFactory->getIcon('actions-qrcode', IconSize::SMALL))
+            ->setAttributes($attributes);
+    }
+
+    /**
+     * Generates a preview URL suitable for QR codes.
+     *
+     * Dispatches the ModifyPreviewUrlForQrCodeEvent to allow extensions (e.g., workspaces)
+     * to provide alternative URLs. For example, the workspaces extension can provide a URL
+     * with ADMCMD_prev parameter that works without backend authentication.
+     *
+     * @param string|UriInterface|null $fallbackUrl Fallback URL if no listener modifies the URL
+     */
+    public function getPreviewUrlForQrCode(int $pageId, int $languageId, string|UriInterface|null $fallbackUrl = null): ?string
+    {
+        return $this->eventDispatcher->dispatch(
+            new ModifyPreviewUrlForQrCodeEvent($pageId, $languageId, $fallbackUrl !== null ? (string)$fallbackUrl : null)
+        )->getPreviewUrl();
+    }
+
+    public function createGenericButton(): GenericButton
+    {
+        return GeneralUtility::makeInstance(GenericButton::class);
+    }
+
+    public function createInputButton(): InputButton
+    {
+        return GeneralUtility::makeInstance(InputButton::class);
+    }
+
+    public function createSplitButton(): SplitButton
+    {
+        return GeneralUtility::makeInstance(SplitButton::class);
+    }
+
+    public function createDropDownButton(): DropDownButton
+    {
+        return GeneralUtility::makeInstance(DropDownButton::class);
+    }
+
+    public function createDropDownDivider(): DropDownDivider
+    {
+        return GeneralUtility::makeInstance(DropDownDivider::class);
+    }
+
+    public function createDropDownItem(): DropDownItem
+    {
+        return GeneralUtility::makeInstance(DropDownItem::class);
+    }
+
+    public function createDropDownRadio(): DropDownRadio
+    {
+        return GeneralUtility::makeInstance(DropDownRadio::class);
+    }
+
+    public function createDropDownToggle(): DropDownToggle
+    {
+        return GeneralUtility::makeInstance(DropDownToggle::class);
+    }
+
+    public function createDropDownHeader(): DropDownHeader
+    {
+        return GeneralUtility::makeInstance(DropDownHeader::class);
+    }
+
+    public function createDropDownGeneric(): DropDownGeneric
+    {
+        return GeneralUtility::makeInstance(DropDownGeneric::class);
+    }
+
+    public function createLinkButton(): LinkButton
+    {
+        return GeneralUtility::makeInstance(LinkButton::class);
+    }
+
+    public function createFullyRenderedButton(): FullyRenderedButton
+    {
+        return GeneralUtility::makeInstance(FullyRenderedButton::class);
+    }
+
+    public function createShortcutButton(): ShortcutButton
+    {
+        return GeneralUtility::makeInstance(ShortcutButton::class);
+    }
+
+    public function createMenuItem(): MenuItem
+    {
+        return GeneralUtility::makeInstance(MenuItem::class);
+    }
+
+    public function createMenu(): Menu
+    {
+        return GeneralUtility::makeInstance(Menu::class);
+    }
+
+    protected function getLanguageService(): LanguageService
+    {
+        return $GLOBALS['LANG'];
+    }
+}

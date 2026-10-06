@@ -25,7 +25,6 @@ use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\Frontend\Page\PageInformation;
 use TYPO3\CMS\Seo\Canonical\CanonicalGenerator;
 use TYPO3\CMS\Seo\Event\ModifyUrlForCanonicalTagEvent;
@@ -38,7 +37,7 @@ final class CanonicalGeneratorTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -142,7 +141,7 @@ final class CanonicalGeneratorTest extends FunctionalTestCase
     public function generate(string $targetUri, string $expectedCanonicalUrl): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($targetUri))->withInstructions([$this->buildPageTypoScript()])
+            new InternalRequest($targetUri)->withInstructions([$this->buildPageTypoScript()])
         );
         if ($expectedCanonicalUrl) {
             self::assertStringContainsString($expectedCanonicalUrl, (string)$response->getBody());
@@ -170,13 +169,31 @@ final class CanonicalGeneratorTest extends FunctionalTestCase
         $eventListener->addListener(ModifyUrlForCanonicalTagEvent::class, 'modify-url-for-canonical-tag-listener');
 
         $request = new ServerRequest('https://example.com');
-        $request = $request->withAttribute('frontend.controller', $this->createMock(TypoScriptFrontendController::class));
         $pageInformation = new PageInformation();
         $pageInformation->setId(123);
         $pageRecord = [
             'uid' => 123,
+            'pid' => 0,
+            'doktype' => 1,
             'no_index' => 1,
             'canonical_link' => '',
+            'sys_language_uid' => 0,
+            'l10n_parent' => 0,
+            'l10n_source' => 0,
+            't3ver_wsid' => 0,
+            't3ver_oid' => 0,
+            't3ver_state' => 0,
+            't3ver_stage' => 0,
+            'deleted' => 0,
+            'hidden' => 0,
+            'starttime' => 0,
+            'endtime' => 0,
+            'fe_group' => '',
+            'editlock' => 0,
+            'crdate' => 0,
+            'tstamp' => 0,
+            'sorting' => 0,
+            'rowDescription' => '',
         ];
         $pageInformation->setPageRecord($pageRecord);
         $request = $request->withAttribute('frontend.page.information', $pageInformation);
@@ -195,7 +212,7 @@ final class CanonicalGeneratorTest extends FunctionalTestCase
 
     private function buildPageTypoScript(): TypoScriptInstruction
     {
-        return (new TypoScriptInstruction())
+        return new TypoScriptInstruction()
             ->withTypoScript([
                 'page' => 'PAGE',
                 'page.' => [

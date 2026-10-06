@@ -6,11 +6,11 @@ cgl:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.2
-    - Build/Scripts/runTests.sh -s cgl -n -p 8.2
-    - Build/Scripts/runTests.sh -s cglHeader -n -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
+    - Build/Scripts/runTests.sh -s cgl -n -p 8.5
+    - Build/Scripts/runTests.sh -s cglHeader -n -p 8.5
 
-integration various php 8.5:
+integration various php 8.6:
   stage: integrity
   tags:
     - metal2
@@ -18,22 +18,24 @@ integration various php 8.5:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s composerValidate -p 8.5
-    - Build/Scripts/runTests.sh -s composerTestDistribution -p 8.5
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
-    - Build/Scripts/runTests.sh -s checkGitSubmodule -p 8.5
-    - Build/Scripts/runTests.sh -s checkPermissions -p 8.5
-    - Build/Scripts/runTests.sh -s checkRst -p 8.5
-    - Build/Scripts/runTests.sh -s checkFilePathLength -p 8.5
-    - Build/Scripts/runTests.sh -s checkExtensionScannerRst -p 8.5
-    - Build/Scripts/runTests.sh -s checkBom -p 8.5
-    - Build/Scripts/runTests.sh -s checkComposer -p 8.5
-    - Build/Scripts/runTests.sh -s checkIntegrityPhp -p 8.5
-    - Build/Scripts/runTests.sh -s checkIntegritySetLabels -p 8.5
-    - Build/Scripts/runTests.sh -s lintServicesYaml -p 8.5
-    - Build/Scripts/runTests.sh -s lintYaml -p 8.5
-    - Build/Scripts/runTests.sh -s checkFilesAndPathsForSpaces -p 8.5
-    - Build/Scripts/runTests.sh -s checkCharsets -p 8.5
+    - Build/Scripts/runTests.sh -s composerValidate -p 8.6
+    - Build/Scripts/runTests.sh -s composerTestDistribution -p 8.6
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.6
+    - Build/Scripts/runTests.sh -s checkGitSubmodule -p 8.6
+    - Build/Scripts/runTests.sh -s checkPermissions -p 8.6
+    - Build/Scripts/runTests.sh -s checkRst -p 8.6
+    - Build/Scripts/runTests.sh -s checkFilePathLength -p 8.6
+    - Build/Scripts/runTests.sh -s checkExtensionScannerRst -p 8.6
+    - Build/Scripts/runTests.sh -s checkBom -p 8.6
+    - Build/Scripts/runTests.sh -s checkComposer -p 8.6
+    - Build/Scripts/runTests.sh -s checkIntegrityPhp -p 8.6
+    - Build/Scripts/runTests.sh -s checkIntegritySetLabels -p 8.6
+    - Build/Scripts/runTests.sh -s checkIntegrityXliff -p 8.6
+    - Build/Scripts/runTests.sh -s lintServicesYaml -p 8.6
+    - Build/Scripts/runTests.sh -s lintYaml -p 8.6
+    - Build/Scripts/runTests.sh -s checkFilesAndPathsForSpaces -p 8.6
+    - Build/Scripts/runTests.sh -s checkCharsets -p 8.6
+    - Build/Scripts/runTests.sh -s normalizeXliff -n -p 8.6
 
 iso database max:
   stage: integrity
@@ -43,8 +45,8 @@ iso database max:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s composerInstallMax -p 8.2
-    - Build/Scripts/runTests.sh -s checkIsoDatabase -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstallMax -p 8.5
+    - Build/Scripts/runTests.sh -s checkIsoDatabase -p 8.5
 
 lint php:
   stage: integrity
@@ -54,10 +56,8 @@ lint php:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s lintPhp -p 8.2
-    - Build/Scripts/runTests.sh -s lintPhp -p 8.3
-    - Build/Scripts/runTests.sh -s lintPhp -p 8.4
     - Build/Scripts/runTests.sh -s lintPhp -p 8.5
+    - Build/Scripts/runTests.sh -s lintPhp -p 8.6
 
 grunt scss ts html:
   stage: integrity
@@ -86,7 +86,7 @@ documentation:
   script:
     - Build/Scripts/runTests.sh -s checkRstRenderingAll
 
-phpstan php 8.2 locked:
+phpstan php 8.5 locked:
   stage: integrity
   tags:
     - metal2
@@ -94,10 +94,10 @@ phpstan php 8.2 locked:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.2
-    - Build/Scripts/runTests.sh -s phpstan -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
+    - Build/Scripts/runTests.sh -s phpstan -p 8.5 -- --no-progress
 
-phpstan php 8.2 max:
+phpstan php 8.5 max:
   stage: integrity
   tags:
     - metal2
@@ -105,5 +105,5 @@ phpstan php 8.2 max:
   only:
     - schedules
   script:
-    - Build/Scripts/runTests.sh -s composerInstallMax -p 8.2
-    - Build/Scripts/runTests.sh -s phpstan -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstallMax -p 8.5
+    - Build/Scripts/runTests.sh -s phpstan -p 8.5 -- --no-progress

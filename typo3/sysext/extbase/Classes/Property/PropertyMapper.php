@@ -15,7 +15,7 @@
 
 namespace TYPO3\CMS\Extbase\Property;
 
-use TYPO3\CMS\Core\SingletonInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Extbase\Error\Error;
 use TYPO3\CMS\Extbase\Error\Result;
 use TYPO3\CMS\Extbase\Property\Exception\InvalidPropertyMappingConfigurationException;
@@ -26,7 +26,8 @@ use TYPO3\CMS\Extbase\Utility\TypeHandlingUtility;
  * The Property Mapper transforms simple types (arrays, strings, integers, floats, booleans) to objects or other simple types.
  * It is used most prominently to map incoming HTTP arguments to objects.
  */
-class PropertyMapper implements SingletonInterface
+#[Autoconfigure(public: true)]
+class PropertyMapper
 {
     /**
      * A list of property mapping messages (errors, warnings) which have occurred on last mapping.
@@ -46,7 +47,6 @@ class PropertyMapper implements SingletonInterface
      * @param mixed $source the source data to map. MUST be a simple type, NO object allowed!
      * @param string $targetType The type of the target; can be either a class name or a simple type.
      * @param PropertyMappingConfigurationInterface|null $configuration Configuration for the property mapping. If NULL, the PropertyMappingConfigurationBuilder will create a default configuration.
-     * @throws Exception
      * @return mixed an instance of $targetType
      */
     public function convert(mixed $source, string $targetType, ?PropertyMappingConfigurationInterface $configuration = null): mixed
@@ -91,14 +91,6 @@ class PropertyMapper implements SingletonInterface
      * @param PropertyMappingConfigurationInterface $configuration Configuration for the property mapping.
      * @param array $currentPropertyPath The property path currently being mapped; used for knowing the context in case an exception is thrown.
      * @return mixed an instance of $targetType
-     *
-     * @throws Exception\TypeConverterException
-     * @throws Exception\InvalidPropertyMappingConfigurationException
-     * @throws Exception\DuplicateTypeConverterException
-     * @throws Exception\InvalidPropertyMappingConfigurationException
-     * @throws Exception\InvalidSourceException
-     * @throws Exception\InvalidTargetException
-     * @throws Exception\TypeConverterException
      *
      * @internal since TYPO3 v12.0
      */

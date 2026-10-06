@@ -19,8 +19,8 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\ContentObject;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Information\Typo3Information;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\View\Exception\InvalidTemplateResourceException;
@@ -29,11 +29,12 @@ final class PageViewContentObjectTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    private const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en-US'],
         'FR' => ['id' => 1, 'title' => 'French', 'locale' => 'fr-FR'],
     ];
-    protected const ROOT_PAGE_ID = 1;
+    private const int ROOT_PAGE_ID = 1;
+    private const int SPECIAL_PAGE_ID = 3;
 
     protected array $testExtensionsToLoad = [
         'typo3/sysext/frontend/Tests/Functional/Fixtures/Extensions/test_fluidpagerendering',
@@ -53,21 +54,51 @@ final class PageViewContentObjectTest extends FunctionalTestCase
         );
     }
 
+    public static function renderWorksWithPlainRenderingInMultipleLanguagesDataProvider(): array
+    {
+        return [
+            'standard layout on root page' => [
+                self::ROOT_PAGE_ID,
+                0,
+                [
+                    'You are on page Fluid Root Page',
+                    'This is a standard page with no content.',
+                    'page-layout-identifier-Standard',
+                ],
+            ],
+            'standard layout on root page, FR' => [
+                self::ROOT_PAGE_ID,
+                1,
+                [
+                    'Vous êtes à la page Fluid Root Page FR',
+                ],
+            ],
+            'special layout on root page' => [
+                self::SPECIAL_PAGE_ID,
+                0,
+                [
+                    'This is a special page with no content.',
+                    'page-layout-identifier-special_layout',
+                ],
+            ],
+        ];
+    }
+
     #[Test]
-    public function renderWorksWithPlainRenderingInMultipleLanguages(): void
+    #[DataProvider('renderWorksWithPlainRenderingInMultipleLanguagesDataProvider')]
+    public function renderWorksWithPlainRenderingInMultipleLanguages(int $pageUid, int $languageId, array $contentMatches): void
     {
         $this->setUpFrontendRootPage(
-            self::ROOT_PAGE_ID,
+            $pageUid,
             [
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluidpagerendering/Configuration/TypoScript/plain.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
-        self::assertStringContainsString('You are on page Fluid Root Page', (string)$response->getBody());
-        self::assertStringContainsString('This is a standard page with no content.', (string)$response->getBody());
-        self::assertStringContainsString('page-layout-identifier-Standard', (string)$response->getBody());
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID)->withLanguageId(1));
-        self::assertStringContainsString('Vous êtes à la page Fluid Root Page FR', (string)$response->getBody());
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId($pageUid)->withLanguageId($languageId));
+        $body = (string)$response->getBody();
+        foreach ($contentMatches as $match) {
+            self::assertStringContainsString($match, $body);
+        }
     }
 
     #[Test]
@@ -79,9 +110,20 @@ final class PageViewContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluidpagerendering/Configuration/TypoScript/invalidPath.typoscript',
             ]
         );
-        self::expectException(InvalidTemplateResourceException::class);
-        self::expectExceptionMessage(sprintf('PAGEVIEW TypoScript object: Failed to resolve the expected template file "Pages/Standard.html" for layout "Standard". See also: %s. The following paths were checked: EXT:test_fluidpagerendering/Resources/Private/Templates/Pages/Pages/Standard.html', (new Typo3Information())->getDocsLink('t3tsref:cobj-pageview')));
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $this->expectException(InvalidTemplateResourceException::class);
+        self::expectExceptionCode(1742058289);
+        $this->expectExceptionMessage('PAGEVIEW TypoScript object: Failed to resolve a template file for page layout "Standard".');
+        $this->expectExceptionMessage('"' . implode('", "', [
+            // With default controller name "Default"
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Default/Standard.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Default/Standard.html',
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Default/Standard',
+            // Without default controller name
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Standard.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Standard.html',
+            ExtensionManagementUtility::extPath('test_fluidpagerendering') . 'Resources/Private/Templates/Pages/Pages/Standard',
+        ]));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
     }
 
     public static function reservedVariableNameDataProvider(): array
@@ -107,10 +149,10 @@ final class PageViewContentObjectTest extends FunctionalTestCase
                 ),
             ]
         );
-        self::expectException(\InvalidArgumentException::class);
-        self::expectExceptionCode(1711748615);
-        self::expectExceptionMessage(sprintf('Cannot use reserved name "%s" as variable name in PAGEVIEW.', $variableName));
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1711748615);
+        $this->expectExceptionMessage(sprintf('Cannot use reserved name "%s" as variable name in PAGEVIEW.', $variableName));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
     }
 
     #[Test]
@@ -122,7 +164,7 @@ final class PageViewContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluidpagerendering/Configuration/TypoScript/withoutTrailingSlash.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('You are on page Fluid Root Page', (string)$response->getBody());
         self::assertStringContainsString('This is content from the test partial.', (string)$response->getBody());
     }

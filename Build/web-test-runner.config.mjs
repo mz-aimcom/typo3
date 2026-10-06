@@ -69,6 +69,16 @@ const packages = readdirSync('Sources/TypeScript')
     existsSync(`Sources/TypeScript/${dir}/tests`)
   );
 
+const labelProvider = async (ctx, next) => {
+  if (ctx.url.startsWith('/~labels/')) {
+    ctx.status = 200;
+    ctx.set('Content-Type', 'text/javascript');
+    ctx.body = 'export default { get: key => key }';
+    return;
+  }
+  await next();
+}
+
 // https://modern-web.dev/docs/test-runner/cli-and-configuration/
 export default {
   rootDir: '../',
@@ -79,12 +89,17 @@ export default {
   nodeResolve: false,
   preserveSymlinks: true,
   browsers: commandLineBrowsers ?? defaultBrowsers,
+  middleware: [
+    labelProvider,
+  ],
   plugins: [
     esbuildPlugin({ ts: true }),
     importMapsPlugin({
       inject: {
         importMap: {
           imports: {
+            '~labels/': '/~labels/',
+
             '@open-wc/testing': './Build/node_modules/@open-wc/testing/index.js',
             '@open-wc/testing-helpers': './Build/node_modules/@open-wc/testing-helpers/index.js',
             '@open-wc/semantic-dom-diff': './Build/node_modules/@open-wc/semantic-dom-diff/index.js',
@@ -99,14 +114,13 @@ export default {
 
             '@typo3/core/': './typo3/sysext/core/Resources/Public/JavaScript/',
             'autosize': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/autosize.js',
-            'bootstrap': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/bootstrap.js',
+            'bootstrap': './typo3/sysext/backend/Resources/Public/JavaScript/Contrib/bootstrap.js',
             'cropperjs': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/cropperjs.js',
             'css-tree': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/css-tree.js',
             'flatpickr': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/flatpickr.js',
             'flatpickr/': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/flatpickr/',
             'interactjs': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/interact.js',
-            'jquery': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/jquery.js',
-            'jquery/': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/jquery/',
+            'intl-messageformat': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/intl-messageformat.js',
             '@lit/reactive-element': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/@lit/reactive-element/reactive-element.js',
             '@lit/reactive-element/': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/@lit/reactive-element/',
             '@lit/task': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/@lit/task/index.js',
@@ -120,7 +134,6 @@ export default {
             'lit-html': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/lit-html/lit-html.js',
             'lit-html/': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/lit-html/',
             'luxon': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/luxon.js',
-            'nprogress': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/nprogress.js',
             'shortcut-buttons-flatpickr': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/shortcut-buttons-flatpickr.js',
             'sortablejs': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/sortablejs.js',
             'tablesort': './typo3/sysext/core/Resources/Public/JavaScript/Contrib/tablesort.js',
@@ -133,9 +146,9 @@ export default {
             '@typo3/install/': './typo3/sysext/install/Resources/Public/JavaScript/',
             '@typo3/info/': './typo3/sysext/info/Resources/Public/JavaScript/',
             '@typo3/linkvalidator/': './typo3/sysext/linkvalidator/Resources/Public/JavaScript/',
+            '@typo3/reactions/': './typo3/sysext/reactions/Resources/Public/JavaScript/',
             '@typo3/redirects/': './typo3/sysext/redirects/Resources/Public/JavaScript/',
             '@typo3/recycler/': './typo3/sysext/recycler/Resources/Public/JavaScript/',
-            '@typo3/setup/': './typo3/sysext/setup/Resources/Public/JavaScript/',
 
             '@typo3/rte-ckeditor/': './typo3/sysext/rte_ckeditor/Resources/Public/JavaScript/',
             '@typo3/ckeditor5/translations/': './typo3/sysext/rte_ckeditor/Resources/Public/Contrib/translations/',
@@ -176,7 +189,6 @@ export default {
             '@ckeditor/ckeditor5-special-characters': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-special-characters.js',
             '@ckeditor/ckeditor5-style': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-style.js',
             '@ckeditor/ckeditor5-table': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-table.js',
-            '@ckeditor/ckeditor5-theme-lark': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-theme-lark.js',
             '@ckeditor/ckeditor5-typing': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-typing.js',
             '@ckeditor/ckeditor5-ui': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-ui.js',
             '@ckeditor/ckeditor5-undo': './typo3/rte_ckeditor/Resources/Public/Contrib/@ckeditor/ckeditor5-undo.js',

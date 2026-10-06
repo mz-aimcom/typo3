@@ -39,13 +39,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class OnlineMediaController
+readonly class OnlineMediaController
 {
     public function __construct(
-        protected readonly ResourceFactory $resourceFactory,
-        protected readonly DefaultUploadFolderResolver $uploadFolderResolver,
-        protected readonly OnlineMediaHelperRegistry $onlineMediaHelperRegistry,
-        protected readonly FlashMessageService $flashMessageService
+        protected ResourceFactory $resourceFactory,
+        protected DefaultUploadFolderResolver $uploadFolderResolver,
+        protected OnlineMediaHelperRegistry $onlineMediaHelperRegistry,
+        protected FlashMessageService $flashMessageService
     ) {}
 
     /**
@@ -96,16 +96,14 @@ class OnlineMediaController
                 try {
                     $file = $this->addMediaFromUrl($media['url'], $media['target'], $allowed);
                     if ($file !== null) {
-                        $flashMessage = GeneralUtility::makeInstance(
-                            FlashMessage::class,
+                        $flashMessage = new FlashMessage(
                             $file->getName(),
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:online_media.new_media.added'),
                             ContextualFeedbackSeverity::OK,
                             true
                         );
                     } else {
-                        $flashMessage = GeneralUtility::makeInstance(
-                            FlashMessage::class,
+                        $flashMessage = new FlashMessage(
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:online_media.error.invalid_url'),
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:online_media.error.new_media.failed'),
                             ContextualFeedbackSeverity::ERROR,
@@ -113,8 +111,7 @@ class OnlineMediaController
                         );
                     }
                 } catch (OnlineMediaAlreadyExistsException $e) {
-                    $flashMessage = GeneralUtility::makeInstance(
-                        FlashMessage::class,
+                    $flashMessage = new FlashMessage(
                         sprintf(
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:online_media.error.already_exists'),
                             $e->getOnlineMedia()->getName()
@@ -131,7 +128,7 @@ class OnlineMediaController
             }
         }
 
-        $redirect = GeneralUtility::sanitizeLocalUrl($redirect);
+        $redirect = GeneralUtility::sanitizeLocalUrl($redirect, $request);
         if ($redirect) {
             return new RedirectResponse($redirect, 303);
         }

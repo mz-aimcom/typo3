@@ -24,9 +24,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Reflection\ObjectAccess;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to render CObjects (objects containing rendering definitions for records/elements),
@@ -56,6 +55,11 @@ final class CObjectViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly TimeTracker $timeTracker,
+        private readonly ConfigurationManagerInterface $configurationManager,
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('data', 'mixed', 'the data to be used for rendering the cObject. Can be an object, array or string. If this argument is not set, child nodes will be used');
@@ -66,8 +70,6 @@ final class CObjectViewHelper extends AbstractViewHelper
 
     /**
      * Renders the TypoScript object in the given TypoScript setup path.
-     *
-     * @throws Exception
      */
     public function render(): string
     {
@@ -79,11 +81,11 @@ final class CObjectViewHelper extends AbstractViewHelper
             throw new \RuntimeException('Required request not found in RenderingContext', 1724243608);
         }
         $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
-        $contentObjectRenderer = self::getContentObjectRenderer($request);
+        $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
         $contentObjectRenderer->setRequest($request);
-        $tsfeBackup = null;
-        if (!isset($GLOBALS['TSFE']) || !($GLOBALS['TSFE'] instanceof TypoScriptFrontendController)) {
-            $tsfeBackup = self::simulateFrontendEnvironment();
+        $parent = $request->getAttribute('currentContentObject');
+        if ($parent instanceof ContentObjectRenderer) {
+            $contentObjectRenderer->setParent($parent->data, $parent->currentRecord);
         }
         $currentValue = null;
         if (is_object($data)) {
@@ -100,10 +102,11 @@ final class CObjectViewHelper extends AbstractViewHelper
         }
         $pathSegments = GeneralUtility::trimExplode('.', $typoscriptObjectPath);
         $lastSegment = (string)array_pop($pathSegments);
-        $setup = self::getConfigurationManager()->getConfiguration(ConfigurationManagerInterface::CONFIGURATION_TYPE_FULL_TYPOSCRIPT);
+        $setup = $request->getAttribute('frontend.typoscript')?->getSetupArray()
+            ?? $this->configurationManager->getConfiguration(ConfigurationManagerInterface::CONFIGURATION_TYPE_FULL_TYPOSCRIPT);
         foreach ($pathSegments as $segment) {
             if (!array_key_exists($segment . '.', $setup)) {
-                throw new Exception(
+                throw new InvalidArgumentValueException(
                     'TypoScript object path "' . $typoscriptObjectPath . '" does not exist',
                     1253191023
                 );
@@ -111,75 +114,29 @@ final class CObjectViewHelper extends AbstractViewHelper
             $setup = $setup[$segment . '.'];
         }
         if (!isset($setup[$lastSegment])) {
-            throw new Exception(
+            throw new InvalidArgumentValueException(
                 'No Content Object definition found at TypoScript object path "' . $typoscriptObjectPath . '"',
                 1540246570
             );
         }
-        $content = self::renderContentObject($contentObjectRenderer, $setup, $typoscriptObjectPath, $lastSegment);
-        if (!isset($GLOBALS['TSFE']) || !($GLOBALS['TSFE'] instanceof TypoScriptFrontendController)) {
-            self::resetFrontendEnvironment($tsfeBackup);
-        }
-        return $content;
+        return $this->renderContentObject($contentObjectRenderer, $setup, $typoscriptObjectPath, $lastSegment);
     }
 
     /**
      * Renders single content object and increases time tracker stack pointer
      */
-    private static function renderContentObject(ContentObjectRenderer $contentObjectRenderer, array $setup, string $typoscriptObjectPath, string $lastSegment): string
+    private function renderContentObject(ContentObjectRenderer $contentObjectRenderer, array $setup, string $typoscriptObjectPath, string $lastSegment): string
     {
-        $timeTracker = GeneralUtility::makeInstance(TimeTracker::class);
-        if ($timeTracker->LR) {
-            $timeTracker->push('/f:cObject/', '<' . $typoscriptObjectPath);
+        if ($this->timeTracker->LR) {
+            $this->timeTracker->push('/f:cObject/', '<' . $typoscriptObjectPath);
         }
-        $timeTracker->incStackPointer();
+        $this->timeTracker->incStackPointer();
         $content = $contentObjectRenderer->cObjGetSingle($setup[$lastSegment], $setup[$lastSegment . '.'] ?? [], $typoscriptObjectPath);
-        $timeTracker->decStackPointer();
-        if ($timeTracker->LR) {
-            $timeTracker->pull($content);
+        $this->timeTracker->decStackPointer();
+        if ($this->timeTracker->LR) {
+            $this->timeTracker->pull($content);
         }
         return $content;
-    }
-
-    private static function getConfigurationManager(): ConfigurationManagerInterface
-    {
-        // @todo: this should be replaced by DI once Fluid can handle DI properly
-        return GeneralUtility::getContainer()->get(ConfigurationManagerInterface::class);
-    }
-
-    private static function getContentObjectRenderer(ServerRequestInterface $request): ContentObjectRenderer
-    {
-        if (($GLOBALS['TSFE'] ?? null) instanceof TypoScriptFrontendController) {
-            $tsfe = $GLOBALS['TSFE'];
-        } else {
-            $tsfe = GeneralUtility::makeInstance(TypoScriptFrontendController::class);
-            $tsfe->initializePageRenderer($request);
-        }
-        $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class, $tsfe);
-        $parent = $request->getAttribute('currentContentObject');
-        if ($parent instanceof ContentObjectRenderer) {
-            $contentObjectRenderer->setParent($parent->data, $parent->currentRecord);
-        }
-        return $contentObjectRenderer;
-    }
-
-    /**
-     * \TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->cObjGetSingle() relies on $GLOBALS['TSFE']
-     */
-    private static function simulateFrontendEnvironment(): ?TypoScriptFrontendController
-    {
-        $tsfeBackup = $GLOBALS['TSFE'] ?? null;
-        $GLOBALS['TSFE'] = new \stdClass();
-        $GLOBALS['TSFE']->cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
-        return $tsfeBackup;
-    }
-
-    /**
-     * Resets $GLOBALS['TSFE'] if it was previously changed by simulateFrontendEnvironment()
-     */
-    private static function resetFrontendEnvironment(?TypoScriptFrontendController $tsfeBackup): void
-    {
-        $GLOBALS['TSFE'] = $tsfeBackup;
     }
 
     /**

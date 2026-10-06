@@ -28,6 +28,7 @@ use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\OnlineMedia\Helpers\OnlineMediaHelperRegistry;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Filelist\ElementBrowser\CreateFileBrowser;
 use TYPO3\CMS\Filelist\ElementBrowser\CreateFolderBrowser;
 
 /**
@@ -64,18 +65,13 @@ class FileProvider extends AbstractProvider
             'iconIdentifier' => 'actions-edit-rename',
             'callbackAction' => 'renameFile',
         ],
-        'upload' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.upload',
-            'iconIdentifier' => 'actions-edit-upload',
-            'callbackAction' => 'uploadFile',
-        ],
         'new' => [
-            'label' => 'LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.create_folder',
+            'label' => 'LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.new_folder',
             'iconIdentifier' => 'actions-folder-add',
             'callbackAction' => 'createFolder',
         ],
         'newFile' => [
-            'label' => 'LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.create_file',
+            'label' => 'LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.new_file',
             'iconIdentifier' => 'actions-file-add',
             'callbackAction' => 'createFile',
         ],
@@ -142,6 +138,13 @@ class FileProvider extends AbstractProvider
         ],
     ];
 
+    public function __construct(
+        private readonly ResourceFactory $resourceFactory,
+        private readonly UriBuilder $uriBuilder,
+    ) {
+        parent::__construct();
+    }
+
     public function canHandle(): bool
     {
         return $this->table === 'sys_file';
@@ -154,7 +157,7 @@ class FileProvider extends AbstractProvider
     {
         parent::initialize();
         try {
-            $this->record = GeneralUtility::makeInstance(ResourceFactory::class)->retrieveFileOrFolderObject($this->identifier);
+            $this->record = $this->resourceFactory->retrieveFileOrFolderObject($this->identifier);
         } catch (ResourceDoesNotExistException $e) {
             $this->record = null;
         }
@@ -190,7 +193,6 @@ class FileProvider extends AbstractProvider
                 // just for folders
             case 'new':
             case 'newFile':
-            case 'upload':
                 $canRender = $this->canCreateNew();
                 break;
             case 'newFileMount':
@@ -300,7 +302,7 @@ class FileProvider extends AbstractProvider
             return false;
         }
         $selItem = reset($elArr);
-        $fileOrFolderInClipBoard = GeneralUtility::makeInstance(ResourceFactory::class)->retrieveFileOrFolderObject($selItem);
+        $fileOrFolderInClipBoard = $this->resourceFactory->retrieveFileOrFolderObject($selItem);
 
         return $this->isFolder()
             && $this->record->checkActionPermission('write')
@@ -415,7 +417,7 @@ class FileProvider extends AbstractProvider
                     'data-button-ok-text' => $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_alt_doc.xlf:buttons.confirm.delete_file.yes'),
                 ];
             }
-            $recordInfo = GeneralUtility::fixed_lgd_cs($this->record->getName(), (int)($this->backendUser->uc['titleLen'] ?? 0));
+            $recordInfo = BackendUtility::cropToTitleLength($this->record->getName());
             if ($this->isFolder()) {
                 if ($this->backendUser->shallDisplayDebugInformation()) {
                     $recordInfo .= ' [' . $this->record->getIdentifier() . ']';
@@ -448,10 +450,16 @@ class FileProvider extends AbstractProvider
                 'data-mode' => CreateFolderBrowser::IDENTIFIER,
             ];
         }
+        if ($itemName === 'newFile' && $this->isFolder()) {
+            $attributes += [
+                'data-identifier' => $this->record->getCombinedIdentifier(),
+                'data-mode' => CreateFileBrowser::IDENTIFIER,
+            ];
+        }
         if ($itemName === 'pasteInto' && $this->backendUser->jsConfirmation(JsConfirmation::COPY_MOVE_PASTE)) {
             $elArr = $this->clipboard->elFromTable('_FILE');
             $selItem = reset($elArr);
-            $fileOrFolderInClipBoard = GeneralUtility::makeInstance(ResourceFactory::class)->retrieveFileOrFolderObject($selItem);
+            $fileOrFolderInClipBoard = $this->resourceFactory->retrieveFileOrFolderObject($selItem);
 
             $title = $this->languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_paste');
 
@@ -486,25 +494,21 @@ class FileProvider extends AbstractProvider
         $attributes['data-filecontext-meta-uid'] = $this->record instanceof File ? $this->record->getMetaData()->offsetGet('uid') : '';
 
         // Add action url for file operations
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
         switch ($itemName) {
             case 'downloadFolder':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('file_download');
+                $attributes['data-action-url'] = (string)$this->uriBuilder->buildUriFromRoute('file_download');
                 break;
             case 'edit':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('file_edit');
-                break;
-            case 'upload':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('file_upload');
+                $attributes['data-action-url'] = (string)$this->uriBuilder->buildUriFromRoute('file_edit');
                 break;
             case 'new':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('wizard_element_browser');
+                $attributes['data-action-url'] = (string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser');
                 break;
             case 'newFile':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('file_create');
+                $attributes['data-action-url'] = (string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser');
                 break;
             case 'updateOnlineMedia':
-                $attributes['data-action-url'] = (string)$uriBuilder->buildUriFromRoute('file_update_online_media');
+                $attributes['data-action-url'] = (string)$this->uriBuilder->buildUriFromRoute('file_update_online_media');
                 break;
         }
 

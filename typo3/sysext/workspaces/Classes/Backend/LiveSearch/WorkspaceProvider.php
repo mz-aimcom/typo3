@@ -68,9 +68,9 @@ final readonly class WorkspaceProvider implements SearchProviderInterface
 
         foreach ($workspaces as $workspaceId => $workspaceLabel) {
             $actions = [];
-            $actions[] = (new ResultItemAction('open_workspace'))
-                ->setLabel($this->languageService->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:action.switchToWorkspace'))
-                ->setUrl((string)$this->uriBuilder->buildUriFromRoute('workspaces_admin', [
+            $actions[] = new ResultItemAction('open_workspace')
+                ->setLabel($this->languageService->sL('workspaces.messages:action.switchToWorkspace'))
+                ->setUrl((string)$this->uriBuilder->buildUriFromRoute('workspaces_publish', [
                     'workspace' => $workspaceId,
                     'id' => $searchDemand->getPageId(),
                 ]))
@@ -83,16 +83,17 @@ final readonly class WorkspaceProvider implements SearchProviderInterface
                             $workspaceId => 'edit',
                         ],
                     ],
-                    'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('workspaces_admin', ['id' => $searchDemand->getPageId()]),
+                    // @todo attach module context to live search
+                    'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('workspaces_publish', ['id' => $searchDemand->getPageId()]),
                 ]);
 
-                $actions[] = (new ResultItemAction('configure_workspace'))
+                $actions[] = new ResultItemAction('configure_workspace')
                     ->setLabel($this->languageService->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:button.editWorkspaceSettings'))
                     ->setIcon($this->iconFactory->getIcon('actions-cog-alt', IconSize::SMALL))
                     ->setUrl($editWorkspaceRecordUrl);
             }
 
-            $items[] = (new ResultItem(self::class))
+            $items[] = new ResultItem(self::class)
                 ->setItemTitle($workspaceLabel)
                 ->setTypeLabel($typeLabel)
                 ->setIcon($icon)

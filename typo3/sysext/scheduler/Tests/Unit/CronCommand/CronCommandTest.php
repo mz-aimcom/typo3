@@ -27,12 +27,12 @@ final class CronCommandTest extends UnitTestCase
     /**
      * @var int timestamp of 1.1.2010 0:00 (Friday), timezone UTC/GMT
      */
-    private const TIMESTAMP = 1262304000;
+    private const int TIMESTAMP = 1262304000;
 
     /**
-     * @var string Selected timezone backup
+     * Selected timezone backup
      */
-    protected string $timezoneBackup = '';
+    private string $timezoneBackup = '';
 
     /**
      * We're fiddling with hard timestamps in the tests, but time methods in
@@ -71,10 +71,11 @@ final class CronCommandTest extends UnitTestCase
     #[Test]
     public function constructorSetsTimestampToNowPlusOneMinuteRoundedDownToSixtySeconds(): void
     {
+        $before = time();
         $instance = new CronCommand('* * * * *');
-        $currentTime = time();
-        $expectedTime = $currentTime - ($currentTime % 60) + 60;
-        self::assertSame($expectedTime, $instance->getTimestamp());
+        $after = time();
+        self::assertGreaterThanOrEqual($before - ($before % 60) + 60, $instance->getTimestamp());
+        self::assertLessThanOrEqual($after - ($after % 60) + 60, $instance->getTimestamp());
     }
 
     #[Test]
@@ -230,7 +231,7 @@ final class CronCommandTest extends UnitTestCase
      */
     #[DataProvider('expectedTimestampDataProvider')]
     #[Test]
-    public function calculateNextValueDeterminesCorrectNextTimestamp(string $cronCommand, int $startTimestamp, int $expectedTimestamp): void
+    public function calculateNextValueDeterminesCorrectNextTimestamp(string $cronCommand, int $startTimestamp, int $expectedTimestamp, int $_): void
     {
         $instance = new CronCommand($cronCommand, $startTimestamp);
         $instance->calculateNextValue();
@@ -244,7 +245,7 @@ final class CronCommandTest extends UnitTestCase
      */
     #[DataProvider('expectedCalculatedTimestampDataProvider')]
     #[Test]
-    public function calculateNextValueDeterminesCorrectNextCalculatedTimestamp(string $cronCommand, int $startTimestamp, string $expectedTimestamp): void
+    public function calculateNextValueDeterminesCorrectNextCalculatedTimestamp(string $cronCommand, int $startTimestamp, string $expectedTimestamp, string $_): void
     {
         $instance = new CronCommand($cronCommand, $startTimestamp);
         $instance->calculateNextValue();

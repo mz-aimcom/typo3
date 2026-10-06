@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Styleguide\ViewHelpers;
 
-use TYPO3\CMS\Backend\CodeEditor\CodeEditor;
-use TYPO3\CMS\Backend\CodeEditor\Registry\ModeRegistry;
+use TYPO3\CMS\Backend\CodeEditor\CodeEditorConfiguration;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
@@ -46,8 +45,7 @@ final class ExampleViewHelper extends AbstractViewHelper
 
     public function __construct(
         private readonly PageRenderer $pageRenderer,
-        private readonly CodeEditor $codeEditor,
-        private readonly ModeRegistry $modeRegistry,
+        private readonly CodeEditorConfiguration $codeEditorConfiguration,
     ) {}
 
     public function initializeArguments(): void
@@ -57,13 +55,12 @@ final class ExampleViewHelper extends AbstractViewHelper
         $this->registerArgument('customCode', 'string', 'custom code displayed as code preview', false, false);
         $this->registerArgument('decodeEntities', 'bool', 'if true, entities like &lt; and &gt; are decoded', false, false);
         $this->registerArgument('rtlDirection', 'bool', 'if true direction is set to right-to-left', false, false);
+        $this->registerArgument('colorScheme', 'bool', 'if true, show a color scheme switcher (light, dark, auto)', false, false);
     }
 
     public function render(): string
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/code-editor/element/code-mirror-element.js');
-        // Compile and register code editor configuration
-        $this->codeEditor->registerConfiguration();
 
         $content = $this->renderChildren();
 
@@ -91,15 +88,15 @@ final class ExampleViewHelper extends AbstractViewHelper
             }
             $code = implode(chr(10), $codeLines);
 
-            if ($this->arguments['codeLanguage'] && ($this->modeRegistry->isRegistered($this->arguments['codeLanguage']))) {
-                $mode = $this->modeRegistry->getByFormatCode($this->arguments['codeLanguage']);
+            if ($this->arguments['codeLanguage'] && ($this->codeEditorConfiguration->hasMode($this->arguments['codeLanguage']))) {
+                $mode = $this->codeEditorConfiguration->getModeByFormatCode($this->arguments['codeLanguage']);
             } else {
-                $mode = $this->modeRegistry->getDefaultMode();
+                $mode = $this->codeEditorConfiguration->getDefaultMode();
             }
 
             $codeMirrorConfig = [
-                'mode' => GeneralUtility::jsonEncodeForHtmlAttribute($mode->getModule(), false),
-                'readonly' => true,
+                'mode' => GeneralUtility::jsonEncodeForHtmlAttribute($mode->module, false),
+                'readonly' => 'readonly',
             ];
             $attributes = [
                 'wrap' => 'off',
@@ -107,17 +104,37 @@ final class ExampleViewHelper extends AbstractViewHelper
             ];
         }
 
+        $uniqueId = uniqid('code');
+        $exampleId = $uniqueId . '-example';
+        $exampleAttributes = [
+            'id' => $exampleId,
+            'class' => 'example',
+        ];
+
         $directionSetting = '';
         if ($this->arguments['rtlDirection']) {
             $directionSetting = 'dir="rtl"';
         }
 
-        $uniqueId = uniqid('code');
+        $colorScheme = $this->arguments['colorScheme'];
+        $colorSchemeDefault = $GLOBALS['BE_USER']->uc['colorScheme'] ?? 'auto';
+        if ($colorScheme) {
+            $this->pageRenderer->loadJavaScriptModule('@typo3/styleguide/element/theme-switcher-element.js');
+            $exampleAttributes['class'] .= ' t3js-styleguide-example';
+            $exampleAttributes['data-color-scheme'] = $colorSchemeDefault;
+        } else {
+            $exampleAttributes['class'] .= ' example--checkered';
+        }
 
         $markup = [];
         $markup[] = '<div class="styleguide-example">';
         $markup[] =     '<div class="styleguide-example-content" ' . $directionSetting . '>';
-        $markup[] =         str_replace('<UNIQUEID>', $uniqueId, $content);
+        $markup[] =         '<div ' . GeneralUtility::implodeAttributes($exampleAttributes, true) . '>';
+        if ($colorScheme) {
+            $markup[] =         '<typo3-styleguide-theme-switcher activetheme="' . htmlspecialchars($colorSchemeDefault) . '" example="#' . htmlspecialchars($exampleId) . '"></typo3-styleguide-theme-switcher>';
+        }
+        $markup[] =             str_replace('###UNIQUEID###', $uniqueId, $content);
+        $markup[] =         '</div>';
         $markup[] =     '</div>';
         if ($this->arguments['codePreview']) {
             $markup[] = '<div class="styleguide-example-code">';
@@ -125,9 +142,9 @@ final class ExampleViewHelper extends AbstractViewHelper
             $markup[] =         '<typo3-t3editor-codemirror ' . GeneralUtility::implodeAttributes($codeMirrorConfig, true) . '>';
             $markup[] =             '<textarea ' . GeneralUtility::implodeAttributes($attributes, true) . '>';
             if ($this->arguments['decodeEntities']) {
-                $markup[] =             htmlspecialchars_decode(str_replace('<UNIQUEID>', $uniqueId, $code));
+                $markup[] =             htmlspecialchars_decode(str_replace('###UNIQUEID###', $uniqueId, $code));
             } else {
-                $markup[] =             htmlspecialchars(str_replace('<UNIQUEID>', $uniqueId, $code));
+                $markup[] =             htmlspecialchars(str_replace('###UNIQUEID###', $uniqueId, $code));
             }
             $markup[] =             '</textarea>';
             $markup[] =         '</typo3-t3editor-codemirror>';

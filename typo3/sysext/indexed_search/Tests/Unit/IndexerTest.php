@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\IndexedSearch\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\NormalizedParams;
@@ -24,9 +25,11 @@ use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\Utility\StringUtility;
+use TYPO3\CMS\IndexedSearch\Dto\IndexingDataAsArray;
 use TYPO3\CMS\IndexedSearch\Indexer;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class IndexerTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -38,6 +41,12 @@ final class IndexerTest extends UnitTestCase
         $normalizedParams = NormalizedParams::createFromRequest($request);
         $request = $request->withAttribute('normalizedParams', $normalizedParams);
         $GLOBALS['TYPO3_REQUEST'] = $request;
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['TYPO3_REQUEST']);
+        parent::tearDown();
     }
 
     #[Test]
@@ -80,7 +89,7 @@ final class IndexerTest extends UnitTestCase
         $typoScript->setConfigArray([
             'absRefPrefix' => $absRefPrefix,
         ]);
-        $request = (new ServerRequest())->withAttribute('frontend.typoscript', $typoScript);
+        $request = new ServerRequest()->withAttribute('frontend.typoscript', $typoScript);
         $GLOBALS['TYPO3_REQUEST'] = $request;
         $subject = $this->getMockBuilder(Indexer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
         $result = $subject->extractHyperLinks($html);
@@ -194,5 +203,40 @@ EOT;
         $result = $subject->typoSearchTags($body);
         self::assertTrue($result);
         self::assertEquals($expected, $body);
+    }
+
+    #[Test]
+    public function splitHTMLContentFindsTitleAndMetaTagsWithoutBodyTag(): void
+    {
+        $subject = $this->getMockBuilder(Indexer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
+        $subject->conf = ['index_metatags' => true];
+        $result = $subject->splitHTMLContent(
+            '<html><head><title>My title</title>'
+            . '<meta name="keywords" content="alpha,beta">'
+            . '<meta name="description" content="My description"></head></html>'
+        );
+        self::assertSame('My title', $result->title);
+        self::assertStringContainsString('alpha', $result->keywords);
+        self::assertStringContainsString('My description', $result->description);
+    }
+
+    #[Test]
+    public function analyzeBodyKeepsMultiByteWordsShorterThanSixtyCharactersIntact(): void
+    {
+        $word = 'a' . str_repeat('ä', 35);
+        $subject = $this->getMockBuilder(Indexer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
+        $indexArray = [];
+        $subject->analyzeBody($indexArray, new IndexingDataAsArray(body: [$word]));
+        self::assertSame([$word], array_keys($indexArray));
+        self::assertSame(md5($word), $indexArray[$word]['hash']);
+    }
+
+    #[Test]
+    public function wordcountOnlyCoversTheLastAnalyzedDocument(): void
+    {
+        $subject = $this->getMockBuilder(Indexer::class)->disableOriginalConstructor()->onlyMethods([])->getMock();
+        $subject->indexAnalyze(new IndexingDataAsArray(body: ['one', 'two', 'three', 'four']));
+        $subject->indexAnalyze(new IndexingDataAsArray(body: ['five', 'six']));
+        self::assertSame(2, $subject->wordcount);
     }
 }

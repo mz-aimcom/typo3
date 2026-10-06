@@ -21,13 +21,11 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use TYPO3\CMS\Backend\Routing\Exception\MethodNotAllowedException;
 use TYPO3\CMS\Backend\Routing\Exception\ResourceNotFoundException;
 use TYPO3\CMS\Backend\Routing\Router;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Core\Core\Bootstrap;
+use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
 use TYPO3\CMS\Core\Http\RedirectResponse;
-use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Routing\RequestContextFactory;
 
 /**
@@ -46,12 +44,12 @@ use TYPO3\CMS\Core\Routing\RequestContextFactory;
  *
  * @internal
  */
-class BackendRouteInitialization implements MiddlewareInterface
+readonly class BackendRouteInitialization implements MiddlewareInterface
 {
     public function __construct(
-        protected readonly Router $router,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly RequestContextFactory $requestContextFactory,
+        protected Router $router,
+        protected UriBuilder $uriBuilder,
+        protected RequestContextFactory $requestContextFactory,
     ) {}
 
     /**
@@ -59,8 +57,6 @@ class BackendRouteInitialization implements MiddlewareInterface
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        // @todo Find another place for this call, since it's not related to this middleware anymore
-        Bootstrap::loadExtTables();
         $this->uriBuilder->setRequestContext($this->requestContextFactory->fromBackendRequest($request));
 
         try {
@@ -68,7 +64,7 @@ class BackendRouteInitialization implements MiddlewareInterface
             $request = $request->withAttribute('routing', $routeResult);
             $request = $request->withAttribute('route', $routeResult->getRoute());
         } catch (MethodNotAllowedException $e) {
-            return new Response(null, 405);
+            return $e->createResponse();
         } catch (ResourceNotFoundException $e) {
             // Route not found in system
             $uri = $this->uriBuilder->buildUriFromRoute('login');

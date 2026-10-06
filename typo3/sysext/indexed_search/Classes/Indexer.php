@@ -17,13 +17,17 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\IndexedSearch;
 
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
+use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Html\HtmlParser;
 use TYPO3\CMS\Core\Http\RequestFactory;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -108,6 +112,8 @@ class Indexer
         private readonly Lexer $lexer,
         private readonly RequestFactory $requestFactory,
         private readonly ConnectionPool $connectionPool,
+        private readonly ResourceFactory $resourceFactory,
+        private readonly HashService $hashService,
         ExtensionConfiguration $extensionConfiguration,
     ) {
         // Indexer configuration from Extension Manager interface
@@ -181,7 +187,7 @@ class Indexer
             // If the contentHash is the same, then we can rest assured that this page is already indexed and regardless of mtime and origContent we don't need to do anything more.
             // This will also prevent pages from being indexed if a fe_users has logged in, and it turns out that the page content is not changed anyway. fe_users logged in should always search with hash_gr_list = "0,-1" OR "[their_group_list]". This situation will be prevented only if the page has been indexed with no user login on before hand. Else the page will be indexed by users until that event. However that does not present a serious problem.
             $checkCHash = $this->checkContentHash();
-            if (!is_array($checkCHash) || $reindexingRequired) {
+            if (!is_array($checkCHash)) {
                 $Pstart = $this->milliseconds();
                 $this->timeTracker->push('Converting entities of content');
                 $this->charsetEntity2utf8($this->indexingDataStringDto);
@@ -244,7 +250,8 @@ class Indexer
     {
         $indexingDataDto = IndexingDataAsString::fromArray($this->defaultIndexingDataPayload);
         $indexingDataDto->body = stristr($content, '<body') ?: '';
-        $headPart = substr($content, 0, -strlen($indexingDataDto->body));
+        // Without a body tag the whole content is the head, as substr() with a length of "-0" would return an empty string
+        $headPart = $indexingDataDto->body === '' ? $content : substr($content, 0, -strlen($indexingDataDto->body));
         // get title
         $this->embracingTags($headPart, 'TITLE', $indexingDataDto->title, $dummy2, $dummy);
         $titleParts = explode(':', $indexingDataDto->title, 2);
@@ -409,11 +416,17 @@ class Indexer
                     $this->indexExternalUrl($linkSource);
                 }
             } elseif (!($qParts['query'] ?? false)) {
-                $linkSource = urldecode($linkSource);
-                if (GeneralUtility::isAllowedAbsPath($linkSource)) {
+                if ($linkInfo['localPath']) {
+                    // Already resolved to an absolute path by createLocalPath(), which may point
+                    // outside the public web path in case of a storage which is not public.
                     $localFile = $linkSource;
                 } else {
-                    $localFile = GeneralUtility::getFileAbsFileName(Environment::getPublicPath() . '/' . $linkSource);
+                    $linkSource = urldecode($linkSource);
+                    if (GeneralUtility::isAllowedAbsPath($linkSource)) {
+                        $localFile = $linkSource;
+                    } else {
+                        $localFile = GeneralUtility::getFileAbsFileName(Environment::getPublicPath() . '/' . $linkSource);
+                    }
                 }
                 if ($localFile && @is_file($localFile)) {
                     // Index local file:
@@ -537,6 +550,10 @@ class Indexer
      */
     protected function createLocalPath(string $sourcePath): string
     {
+        $localPath = $this->createLocalPathFromFileDumpUrl($sourcePath);
+        if ($localPath !== '') {
+            return $localPath;
+        }
         $localPath = $this->createLocalPathUsingAbsRefPrefix($sourcePath);
         if ($localPath !== '') {
             return $localPath;
@@ -550,6 +567,72 @@ class Indexer
             return $localPath;
         }
         return $this->createLocalPathFromRelativeURL($sourcePath);
+    }
+
+    /**
+     * Files of storages which are not publicly accessible are not linked directly, but delivered
+     * by the file dump eID script. Such a URL is resolved back into the FAL object it points to,
+     * which is then made available locally for the external file parsers.
+     */
+    protected function createLocalPathFromFileDumpUrl(string $sourcePath): string
+    {
+        // Not using parse_url() here, since the URL may be relative or not well-formed at all
+        $queryString = strstr($sourcePath, '?');
+        if ($queryString === false) {
+            return '';
+        }
+        // Strip the leading "?" as well as a possibly appended fragment
+        parse_str(explode('#', substr($queryString, 1))[0], $queryParameters);
+        if (($queryParameters['eID'] ?? '') !== 'dumpFile') {
+            return '';
+        }
+        $parameters = $this->buildFileDumpParameters($queryParameters);
+        $token = $queryParameters['token'] ?? '';
+        // Only URLs generated by TYPO3 itself are indexed, links pointing to arbitrary
+        // files must not expose content of a storage which is not publicly available.
+        $isTokenValid = is_string($token) && hash_equals(
+            $this->hashService->hmac(implode('|', $parameters), 'resourceStorageDumpFile', HashAlgo::SHA3_256),
+            $token
+        );
+        if (!$isTokenValid) {
+            return '';
+        }
+        try {
+            if (isset($parameters['f'])) {
+                $file = $this->resourceFactory->getFileObject($parameters['f']);
+                if ($file->isDeleted() || $file->isMissing()) {
+                    return '';
+                }
+            } elseif (isset($parameters['r'])) {
+                $file = $this->resourceFactory->getFileReferenceObject($parameters['r']);
+                if ($file->isMissing()) {
+                    return '';
+                }
+            } else {
+                return '';
+            }
+            return $file->getForLocalProcessing(false);
+        } catch (\Exception) {
+            return '';
+        }
+    }
+
+    /**
+     * Rebuilds the parameters the file dump token has been calculated with.
+     *
+     * @see \TYPO3\CMS\Core\Controller\FileDumpController
+     */
+    protected function buildFileDumpParameters(array $queryParameters): array
+    {
+        $parameters = ['eID' => 'dumpFile'];
+        foreach (['t' => 'string', 'f' => 'int', 'r' => 'int', 'p' => 'int', 's' => 'string', 'cv' => 'string', 'dl' => 'int', 'fn' => 'string'] as $name => $type) {
+            $value = $queryParameters[$name] ?? '';
+            if (!is_scalar($value) || (string)$value === '') {
+                continue;
+            }
+            $parameters[$name] = $type === 'int' ? (int)$value : (string)$value;
+        }
+        return $parameters;
     }
 
     /**
@@ -861,9 +944,13 @@ class Indexer
         $maxL = MathUtility::forceIntegerInRange($this->conf['index_descrLgd'], 0, 255, 200);
         if ($maxL) {
             $bodyDescription = preg_replace('/\s+/u', ' ', $indexingDataDto->body);
+            // Handle preg_replace failures (returns null on PCRE errors like PREG_BAD_UTF8_ERROR)
+            if ($bodyDescription === null) {
+                $bodyDescription = $indexingDataDto->body;
+            }
             // Shorten the string. If the database has the wrong character set,
             // the string is probably truncated again.
-            $bodyDescription = \mb_strcut($bodyDescription, 0, $maxL, 'utf-8');
+            $bodyDescription = mb_strcut($bodyDescription, 0, $maxL, 'utf-8');
         }
         return $bodyDescription;
     }
@@ -875,6 +962,8 @@ class Indexer
      */
     public function indexAnalyze(IndexingDataAsArray $indexingDataDto): array
     {
+        // The frequency of a word is relative to the words of the analyzed document only
+        $this->wordcount = 0;
         $indexArr = [];
         $this->analyzeHeaderinfo($indexArr, $indexingDataDto->title, 7);
         $this->analyzeHeaderinfo($indexArr, $indexingDataDto->keywords, 6);
@@ -919,7 +1008,7 @@ class Indexer
     public function analyzeBody(array &$retArr, IndexingDataAsArray $indexingDataDto): void
     {
         foreach ($indexingDataDto->body as $key => $val) {
-            $val = substr($val, 0, 60);
+            $val = mb_substr($val, 0, 60);
             // Cut after 60 chars because the index_words.baseword varchar field has this length. This MUST be the same.
             if (!isset($retArr[$val])) {
                 // First occurrence (used for ranking results)
@@ -1440,14 +1529,18 @@ class Indexer
             foreach ($wordListArray as $key => $val) {
                 // A duplicate-key error will occur here if a word is NOT unset in the unset() line. However as
                 // long as the words in $wl are NO longer as 60 chars (the baseword varchar is 60 characters...)
-                // this is not a problem.
-                $connection->insert(
-                    'index_words',
-                    [
-                        'wid' => $val['hash'],
-                        'baseword' => $key,
-                    ]
-                );
+                // this is not a problem, however we catch this exception, otherwise we will get into trouble.
+                try {
+                    $connection->insert(
+                        'index_words',
+                        [
+                            'wid' => $val['hash'],
+                            'baseword' => $key,
+                        ]
+                    );
+                } catch (UniqueConstraintViolationException) {
+                    $this->log_setTSlogMessage('Error while inserting words for wid ' . $val['hash'] . ' / baseword ' . $key, LogLevel::CRITICAL);
+                }
             }
         }
     }
@@ -1485,7 +1578,8 @@ class Indexer
             $rows[] = [
                 $phash,
                 $val['hash'],
-                (int)$val['count'],
+                // index_rel.count is an unsigned tinyint
+                min(255, (int)$val['count']),
                 (int)($val['first'] ?? 0),
                 $this->freqMap($val['count'] / $this->wordcount),
                 ($val['cmp'] ?? 0) & $this->flagBitMask,
@@ -1493,7 +1587,11 @@ class Indexer
         }
 
         if (!empty($rows)) {
-            $this->connectionPool->getConnectionForTable('index_rel')->bulkInsert('index_rel', $rows, $fields);
+            try {
+                $this->connectionPool->getConnectionForTable('index_rel')->bulkInsert('index_rel', $rows, $fields);
+            } catch (UniqueConstraintViolationException) {
+                $this->log_setTSlogMessage('Error while inserting words into index_rel due to duplicates.', LogLevel::CRITICAL);
+            }
         }
     }
 

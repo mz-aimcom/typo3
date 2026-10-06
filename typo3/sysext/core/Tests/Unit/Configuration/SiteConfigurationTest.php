@@ -33,40 +33,42 @@ use TYPO3\CMS\Core\Settings\SettingsTypeRegistry;
 use TYPO3\CMS\Core\Site\Set\SetRegistry;
 use TYPO3\CMS\Core\Site\SiteSettingsFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class SiteConfigurationTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected ?SiteConfiguration $siteConfiguration;
+    private SiteConfiguration $siteConfiguration;
 
     /**
      * store temporarily used files here
      * will be removed after each test
      */
-    protected ?string $fixturePath;
+    private string $fixturePath;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $basePath = Environment::getVarPath() . '/tests/unit';
+        // The unique sub directory keeps the files of other test cases, which use
+        // the same root, out of the cleanup below.
+        $basePath = Environment::getVarPath() . '/tests/unit/' . StringUtility::getUniqueId('siteConfiguration_');
         $this->fixturePath = $basePath . '/fixture/config/sites';
         if (!file_exists($this->fixturePath)) {
             GeneralUtility::mkdir_deep($this->fixturePath);
         }
         $this->testFilesToDelete[] = $basePath;
-        $setRegistry = $this->createMock(SetRegistry::class);
-        $packageDependentCacheIdentifier = $this->createMock(PackageDependentCacheIdentifier::class);
-        $settingsTypeRegistry = new SettingsTypeRegistry($this->createMock(ServiceLocator::class));
+        $setRegistry = self::createStub(SetRegistry::class);
+        $settingsTypeRegistry = new SettingsTypeRegistry(self::createStub(ServiceLocator::class));
         $settingsFactory = new SettingsFactory($settingsTypeRegistry);
         $this->siteConfiguration = new SiteConfiguration(
             $this->fixturePath,
-            new SiteSettingsFactory($this->fixturePath, $setRegistry, $settingsTypeRegistry, $settingsFactory, $this->createMock(YamlFileLoader::class), new NullFrontend('test'), $packageDependentCacheIdentifier),
+            new SiteSettingsFactory($this->fixturePath, $setRegistry, $settingsTypeRegistry, $settingsFactory, self::createStub(YamlFileLoader::class), new NullFrontend('test'), self::createStub(PackageDependentCacheIdentifier::class)),
             $setRegistry,
             new NoopEventDispatcher(),
             new NullFrontend('test'),
-            new YamlFileLoader($this->createMock(LoggerInterface::class)),
+            new YamlFileLoader(self::createStub(LoggerInterface::class)),
             new NullFrontend('test')
         );
     }
@@ -92,5 +94,37 @@ final class SiteConfigurationTest extends UnitTestCase
         $currentSite = current($sites);
         self::assertSame(42, $currentSite->getRootPageId());
         self::assertEquals(new Uri('https://example.com'), $currentSite->getBase());
+    }
+
+    #[Test]
+    public function resolveAllExistingSitesReadsConfigurationWithNumericIdentifier(): void
+    {
+        $configuration = [
+            'rootPageId' => 42,
+            'base' => 'https://example.com',
+        ];
+        $yamlFileContents = Yaml::dump($configuration, 99, 2);
+        GeneralUtility::mkdir($this->fixturePath . '/123');
+        GeneralUtility::writeFile($this->fixturePath . '/123/config.yaml', $yamlFileContents, true);
+        $sites = $this->siteConfiguration->resolveAllExistingSites();
+        self::assertCount(1, $sites);
+        $currentSite = current($sites);
+        self::assertSame('123', $currentSite->getIdentifier());
+    }
+
+    #[Test]
+    public function resolveAllExistingSitesRawReadsConfigurationWithNumericIdentifier(): void
+    {
+        $configuration = [
+            'rootPageId' => 42,
+            'base' => 'https://example.com',
+        ];
+        $yamlFileContents = Yaml::dump($configuration, 99, 2);
+        GeneralUtility::mkdir($this->fixturePath . '/123');
+        GeneralUtility::writeFile($this->fixturePath . '/123/config.yaml', $yamlFileContents, true);
+        $sites = $this->siteConfiguration->resolveAllExistingSitesRaw();
+        self::assertCount(1, $sites);
+        $currentSite = current($sites);
+        self::assertSame('123', $currentSite->getIdentifier());
     }
 }

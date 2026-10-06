@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Resource\Index;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileType;
@@ -26,27 +27,28 @@ use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\Service\ExtractorService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class IndexerTest extends UnitTestCase
 {
     #[Test]
     public function extractMetaDataCallsSubsequentMethodsWithCorrectArguments(): void
     {
-        $mockStorage = $this->createMock(ResourceStorage::class);
+        $storageStub = self::createStub(ResourceStorage::class);
 
         $subject = $this->getMockBuilder(Indexer::class)
-            ->setConstructorArgs([$mockStorage])
+            ->setConstructorArgs([$storageStub])
             ->onlyMethods(['getFileIndexRepository', 'extractRequiredMetaData', 'getExtractorService'])
             ->getMock();
 
         $indexFileRepositoryMock = $this->createMock(FileIndexRepository::class);
         $subject->method('getFileIndexRepository')->willReturn($indexFileRepositoryMock);
 
-        $fileMock = $this->createMock(File::class);
+        $fileMock = self::createStub(File::class);
         $fileMock->method('getUid')->willReturn(42);
         $fileMock->method('getType')->willReturn(FileType::TEXT->value);
-        $fileMock->method('getStorage')->willReturn($mockStorage);
+        $fileMock->method('getStorage')->willReturn($storageStub);
 
-        $extractorServiceMock = $this->getMockBuilder(ExtractorService::class)->getMock();
+        $extractorServiceMock = $this->createMock(ExtractorService::class);
         $extractorServiceMock->expects($this->once())->method('extractMetaData')->with($fileMock);
         $subject->method('getExtractorService')->willReturn($extractorServiceMock);
 

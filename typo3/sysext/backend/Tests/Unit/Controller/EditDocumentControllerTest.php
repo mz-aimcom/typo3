@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\EditDocumentController;
@@ -24,21 +26,24 @@ use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class EditDocumentControllerTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
     #[DataProvider('slugDependentFieldsAreAddedToColumnsOnlyDataProvider')]
     #[Test]
-    public function slugDependentFieldsAreAddedToColumnsOnly(array $result, array $selectedFields, string $tableName, array $configuration): void
+    public function slugDependentFieldsAreAddedToColumnsOnly(array $expectedResult, array $selectedFields, string $tableName, array $configuration): void
     {
         $GLOBALS['TCA'][$tableName]['columns'] = $configuration;
 
         $editDocumentControllerMock = $this->getAccessibleMock(EditDocumentController::class, null, [], '', false);
-        $editDocumentControllerMock->_set('columnsOnly', [$tableName => $selectedFields]);
+        $incomingColumnsOnly = [$tableName => $selectedFields];
         $queryParams = [
             'edit' => [
                 $tableName => [
@@ -50,10 +55,10 @@ final class EditDocumentControllerTest extends UnitTestCase
         $tcaSchemaFactory = $this->getTcaSchemaFactory();
         $tcaSchemaFactory->rebuild($GLOBALS['TCA']);
         $editDocumentControllerMock->_set('tcaSchemaFactory', $tcaSchemaFactory);
-        $editDocumentControllerMock->_call('addSlugFieldsToColumnsOnly', $queryParams);
+        $result = $editDocumentControllerMock->_call('addSlugFieldsToColumnsOnly', $incomingColumnsOnly, array_keys($queryParams['edit']));
 
-        self::assertEquals($selectedFields, array_values($editDocumentControllerMock->_get('columnsOnly')[$tableName] ?? []));
-        self::assertEquals($result, array_values($editDocumentControllerMock->_get('columnsOnly')['__hiddenGeneratorFields'][$tableName] ?? []));
+        self::assertEquals($selectedFields, array_values($result[$tableName] ?? []));
+        self::assertEquals($expectedResult, array_values($result['__hiddenGeneratorFields'][$tableName] ?? []));
     }
 
     public static function slugDependentFieldsAreAddedToColumnsOnlyDataProvider(): array
@@ -162,10 +167,10 @@ final class EditDocumentControllerTest extends UnitTestCase
         ];
 
         $editDocumentControllerMock = $this->getAccessibleMock(EditDocumentController::class, null, [], '', false);
-        $editDocumentControllerMock->_set('columnsOnly', [
+        $incomingColumnsOnly = [
             'aTable' => ['aField'],
             'bTable' => ['bField'],
-        ]);
+        ];
         $queryParams = [
             'edit' => [
                 'aTable' => [
@@ -182,24 +187,25 @@ final class EditDocumentControllerTest extends UnitTestCase
 
         $editDocumentControllerMock->_set('tcaSchemaFactory', $tcaSchemaFactory);
 
-        $editDocumentControllerMock->_call('addSlugFieldsToColumnsOnly', $queryParams);
+        $result = $editDocumentControllerMock->_call('addSlugFieldsToColumnsOnly', $incomingColumnsOnly, array_keys($queryParams['edit']));
 
-        self::assertEquals(['aField'], array_values($editDocumentControllerMock->_get('columnsOnly')['aTable']));
-        self::assertEquals(['aTitle'], array_values($editDocumentControllerMock->_get('columnsOnly')['__hiddenGeneratorFields']['aTable']));
-        self::assertEquals(['bField'], array_values($editDocumentControllerMock->_get('columnsOnly')['bTable']));
-        self::assertEquals(['bTitle'], array_values($editDocumentControllerMock->_get('columnsOnly')['__hiddenGeneratorFields']['bTable']));
+        self::assertEquals(['aField'], array_values($result['aTable']));
+        self::assertEquals(['aTitle'], array_values($result['__hiddenGeneratorFields']['aTable']));
+        self::assertEquals(['bField'], array_values($result['bTable']));
+        self::assertEquals(['bTitle'], array_values($result['__hiddenGeneratorFields']['bTable']));
     }
 
     private function getTcaSchemaFactory(): TcaSchemaFactory
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
-        $tcaSchemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+        $cacheMock->expects($this->atMost(PHP_INT_MAX))->method('has')->with(self::isString())->willReturn(false);
+        return new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
-        return $tcaSchemaFactory;
     }
 }

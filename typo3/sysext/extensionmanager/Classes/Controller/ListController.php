@@ -18,26 +18,23 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extensionmanager\Controller;
 
 use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Page\PageRenderer;
-use TYPO3\CMS\Core\Pagination\ArrayPaginator;
 use TYPO3\CMS\Core\Pagination\SimplePagination;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
-use TYPO3\CMS\Extbase\Pagination\QueryResultPaginator;
-use TYPO3\CMS\Extbase\Persistence\QueryResultInterface;
 use TYPO3\CMS\Extbase\Utility\LocalizationUtility;
-use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
-use TYPO3\CMS\Extensionmanager\Domain\Repository\ExtensionRepository;
+use TYPO3\CMS\Extensionmanager\Domain\ExtensionCatalogueInterface;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
+use TYPO3\CMS\Extensionmanager\Pagination\ExtensionListPaginator;
 use TYPO3\CMS\Extensionmanager\Remote\RemoteRegistry;
-use TYPO3\CMS\Extensionmanager\Utility\DependencyUtility;
 use TYPO3\CMS\Extensionmanager\Utility\ListUtility;
 
 /**
@@ -48,16 +45,14 @@ use TYPO3\CMS\Extensionmanager\Utility\ListUtility;
  */
 class ListController extends AbstractController
 {
-    use AllowedMethodsTrait;
-
     public function __construct(
         protected readonly PageRenderer $pageRenderer,
-        protected readonly ExtensionRepository $extensionRepository,
+        protected readonly ExtensionCatalogueInterface $extensionCatalogue,
         protected readonly ListUtility $listUtility,
-        protected readonly DependencyUtility $dependencyUtility,
         protected readonly IconFactory $iconFactory,
         protected readonly RemoteRegistry $remoteRegistry,
         protected readonly ExtensionConfiguration $extensionConfiguration,
+        protected readonly PackageManager $packageManager,
     ) {}
 
     /**
@@ -65,7 +60,6 @@ class ListController extends AbstractController
      */
     protected function initializeAction(): void
     {
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:extensionmanager/Resources/Private/Language/locallang.xlf');
         $this->settings['offlineMode'] = (bool)$this->extensionConfiguration->get('extensionmanager', 'offlineMode');
     }
 
@@ -101,36 +95,7 @@ class ListController extends AbstractController
             // mode and only takes effect if at least one extension can be updated.
             'sortByUpdate' => $this->extensionsWithUpdate($availableAndInstalledExtensions) !== [] && !$isComposerMode,
         ]);
-        $this->handleTriggerArguments($view);
         return $view->renderResponse('List/Index');
-    }
-
-    /**
-     * List unresolved dependency errors with the possibility to bypass the dependency check.
-     */
-    protected function unresolvedDependenciesAction(string $extensionKey, array $returnAction): ResponseInterface
-    {
-        $this->assertAllowedHttpMethod($this->request, 'POST');
-
-        $availableExtensions = $this->listUtility->getAvailableExtensions();
-        if (isset($availableExtensions[$extensionKey])) {
-            $extensionArray = $this->listUtility->enrichExtensionsWithEmConfAndTerInformation(
-                [
-                    $extensionKey => $availableExtensions[$extensionKey],
-                ]
-            );
-            $extension = Extension::createFromExtensionArray($extensionArray[$extensionKey]);
-        } else {
-            throw new ExtensionManagerException('Extension ' . $extensionKey . ' is not available', 1402421007);
-        }
-        $this->dependencyUtility->checkDependencies($extension);
-        $view = $this->initializeModuleTemplate($this->request);
-        $view->assignMultiple([
-            'extension' => $extension,
-            'returnAction' => $returnAction,
-            'unresolvedDependencies' => $this->dependencyUtility->getDependencyErrors(),
-        ]);
-        return $view->renderResponse('List/UnresolvedDependencies');
     }
 
     /**
@@ -141,13 +106,18 @@ class ListController extends AbstractController
         $this->addComposerModeNotification();
         $search = trim($search);
         if (!empty($search)) {
-            $extensions = $this->extensionRepository->findByTitleOrAuthorNameOrExtensionKey($search);
-            $paginator = new ArrayPaginator($extensions, $currentPage);
+            $paginator = new ExtensionListPaginator(
+                fn(int $offset, int $limit): array => $this->extensionCatalogue->findByTitleOrAuthorNameOrExtensionKey($search, $offset, $limit),
+                $this->extensionCatalogue->countByTitleOrAuthorNameOrExtensionKey($search),
+                $currentPage
+            );
             $tableId = 'terSearchTable';
         } else {
-            /** @var QueryResultInterface $extensions */
-            $extensions = $this->extensionRepository->findAll();
-            $paginator = new QueryResultPaginator($extensions, $currentPage);
+            $paginator = new ExtensionListPaginator(
+                fn(int $offset, int $limit): array => $this->extensionCatalogue->findAll($offset, $limit),
+                $this->extensionCatalogue->countAll(),
+                $currentPage
+            );
             $tableId = 'terTable';
         }
         $pagination = new SimplePagination($paginator);
@@ -155,7 +125,7 @@ class ListController extends AbstractController
         $view = $this->initializeModuleTemplate($this->request);
         $view = $this->registerDocHeaderButtons($view);
         $view->assignMultiple([
-            'extensions' => $extensions,
+            'extensions' => $paginator->getPaginatedItems(),
             'paginator' => $paginator,
             'pagination' => $pagination,
             'search' => $search,
@@ -175,21 +145,34 @@ class ListController extends AbstractController
         $this->addComposerModeNotification();
         $importExportInstalled = ExtensionManagementUtility::isLoaded('impexp');
         $view = $this->initializeModuleTemplate($this->request);
+        $view->setLayout(ModuleLayout::NORMAL);
         if ($importExportInstalled) {
             try {
                 foreach ($this->remoteRegistry->getListableRemotes() as $remote) {
                     $remote->getAvailablePackages();
                 }
             } catch (ExtensionManagerException $e) {
-                $this->addFlashMessage($e->getMessage(), $e->getCode(), ContextualFeedbackSeverity::ERROR);
+                $this->addFlashMessage($e->getMessage(), (string)$e->getCode(), ContextualFeedbackSeverity::ERROR);
             }
-            $officialDistributions = $this->extensionRepository->findAllOfficialDistributions($showUnsuitableDistributions);
-            $communityDistributions = $this->extensionRepository->findAllCommunityDistributions($showUnsuitableDistributions);
+            $officialDistributions = $this->extensionCatalogue->findAllOfficialDistributions($showUnsuitableDistributions);
+            $communityDistributions = $this->extensionCatalogue->findAllCommunityDistributions($showUnsuitableDistributions);
             $view->assign('officialDistributions', $officialDistributions);
             $view->assign('communityDistributions', $communityDistributions);
         }
         $view->assign('enableDistributionsView', $importExportInstalled);
         $view->assign('showUnsuitableDistributions', $showUnsuitableDistributions);
+        if (!$importExportInstalled) {
+            $view->assign('impexpCheckUrl', $this->uriBuilder->reset()->setFormat('json')->uriFor(
+                'checkExtensionDependencies',
+                ['extensionKey' => 'impexp'],
+                'Action'
+            ));
+            $view->assign('impexpToggleUrl', $this->uriBuilder->reset()->setFormat('json')->uriFor(
+                'toggleExtensionInstallationState',
+                ['extensionKey' => 'impexp'],
+                'Action'
+            ));
+        }
         return $view->renderResponse('List/Distributions');
     }
 
@@ -198,8 +181,8 @@ class ListController extends AbstractController
      */
     protected function showAllVersionsAction(string $extensionKey): ResponseInterface
     {
-        $currentVersion = $this->extensionRepository->findOneByCurrentVersionByExtensionKey($extensionKey);
-        $extensions = $this->extensionRepository->findByExtensionKeyOrderedByVersion($extensionKey);
+        $currentVersion = $this->extensionCatalogue->findOneByCurrentVersionByExtensionKey($extensionKey);
+        $extensions = $this->extensionCatalogue->findByExtensionKeyOrderedByVersion($extensionKey);
         $view = $this->initializeModuleTemplate($this->request);
         $view = $this->registerDocHeaderButtons($view);
         $view->assignMultiple([
@@ -218,7 +201,6 @@ class ListController extends AbstractController
         if (Environment::isComposerMode()) {
             return $view;
         }
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
         if ($this->actionMethodName === 'showAllVersionsAction') {
             $action = $this->request->hasArgument('returnTo') ? $this->request->getArgument('returnTo') : 'ter';
             $uri = $this->uriBuilder->reset()->uriFor(in_array($action, ['index', 'ter'], true) ? $action : 'ter', [], 'List');
@@ -231,13 +213,13 @@ class ListController extends AbstractController
             $icon = $this->iconFactory->getIcon('actions-edit-upload', IconSize::SMALL);
             $classes = 't3js-upload';
         }
-        $button = $buttonBar->makeLinkButton()
+        $button = $this->componentFactory->createLinkButton()
             ->setHref($uri)
             ->setTitle($title)
             ->setShowLabelText(true)
             ->setClasses($classes)
             ->setIcon($icon);
-        $buttonBar->addButton($button);
+        $view->addButtonToButtonBar($button);
         return $view;
     }
 
@@ -265,10 +247,25 @@ class ListController extends AbstractController
     {
         $isOfflineMode = (bool)($this->settings['offlineMode'] ?? false);
         foreach ($availableAndInstalledExtensions as &$extension) {
-            $extension['updateIsBlocked'] = $isComposerMode || $isOfflineMode || ($extension['state'] ?? '') === 'excludeFromUpdates';
+            $extension['updateIsBlocked'] = $isComposerMode || $isOfflineMode || ($extension['excludeFromUpdates'] ?? false);
             $extension['sortUpdate'] = 2;
             if ($extension['updateAvailable'] ?? false) {
                 $extension['sortUpdate'] = (int)$extension['updateIsBlocked'];
+            }
+            if (!$isComposerMode && !$this->packageManager->getPackage($extension['key'])->isProtected()) {
+                $extension['checkUrl'] = $this->uriBuilder->reset()->setFormat('json')->uriFor(
+                    'checkExtensionDependencies',
+                    ['extensionKey' => $extension['key']],
+                    'Action'
+                );
+                $extension['toggleUrl'] = $this->uriBuilder->reset()->setFormat('json')->uriFor(
+                    'toggleExtensionInstallationState',
+                    ['extensionKey' => $extension['key']],
+                    'Action'
+                );
+                $extension['toggleLabel'] = $this->translate(
+                    'extensionList.' . (($extension['installed'] ?? false) ? 'deactivate' : 'activate')
+                );
             }
         }
         return $availableAndInstalledExtensions;

@@ -85,10 +85,8 @@ class ExtendedFileUtility extends BasicFileUtility
      * This array is self-explaining (look in the class below).
      * It grants access to the functions. This could be set from outside in order to enabled functions to users.
      * See also the function setActionPermissions() which takes input directly from the user-record
-     *
-     * @var array
      */
-    public $actionPerms = [
+    public array $actionPerms = [
         // File permissions
         'addFile' => false,
         'readFile' => false,
@@ -110,21 +108,16 @@ class ExtendedFileUtility extends BasicFileUtility
 
     /**
      * Will contain map between upload ID and the final filename
-     *
-     * @var array
      */
-    public $internalUploadMap = [];
+    public array $internalUploadMap = [];
 
     /**
      * Container for FlashMessages so they can be localized
      *
-     * @var array
+     * @var FlashMessage[]
      */
-    protected $flashMessages = [];
+    protected array $flashMessages = [];
 
-    /**
-     * @var array
-     */
     protected array $fileCmdMap = [];
 
     /**
@@ -132,12 +125,7 @@ class ExtendedFileUtility extends BasicFileUtility
      */
     protected array $uploadedFiles = [];
 
-    /**
-     * The File Factory
-     *
-     * @var \TYPO3\CMS\Core\Resource\ResourceFactory
-     */
-    protected $fileFactory;
+    protected ResourceFactory $fileFactory;
 
     /**
      * Get existingFilesConflictMode
@@ -192,7 +180,7 @@ class ExtendedFileUtility extends BasicFileUtility
     public function processData()
     {
         $result = [];
-        if (is_array($this->fileCmdMap)) {
+        if ($this->fileCmdMap !== []) {
             // Check if there were uploads expected, but no one made
             if ($this->fileCmdMap['upload'] ?? false) {
                 $uploads = $this->fileCmdMap['upload'];
@@ -216,7 +204,7 @@ class ExtendedFileUtility extends BasicFileUtility
                     }
                 }
                 if (empty($this->fileCmdMap['newfolder'])) {
-                    $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'No name for new folder given');
+                    $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'No name was provided for the new folder');
                     $this->addMessageToFlashMessageQueue('FileUtility.NoNameForNewFolderGiven');
                 }
             }
@@ -280,9 +268,6 @@ class ExtendedFileUtility extends BasicFileUtility
      */
     protected function writeLog(int $action, int $severity, string $message, array $context = []): void
     {
-        if (!is_object($this->getBackendUser())) {
-            return;
-        }
         $this->getBackendUser()->writelog(SystemLogType::FILE, $action, $severity, null, $message, $context);
     }
 
@@ -298,8 +283,7 @@ class ExtendedFileUtility extends BasicFileUtility
         if ($this->isBackendScope()) {
             $label = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/fileMessages.xlf:' . $localizationKey);
             $message = vsprintf($label, $replaceMarkers);
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $message,
                 '',
                 $severity,
@@ -318,8 +302,7 @@ class ExtendedFileUtility extends BasicFileUtility
         }
         foreach ($exception->messages as $messageItem) {
             $message = $messageItem->labelBag?->compile($this->getLanguageService()) ?? $messageItem->message;
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $message,
                 '',
                 $severity,
@@ -348,8 +331,7 @@ class ExtendedFileUtility extends BasicFileUtility
         try {
             $fileObject = $this->getFileObject($cmds['data']);
         } catch (ResourceDoesNotExistException $e) {
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 sprintf(
                     $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.fileNotFound'),
                     $cmds['data']
@@ -394,6 +376,10 @@ class ExtendedFileUtility extends BasicFileUtility
                 foreach ($refIndexRecords as $fileReferenceRow) {
                     if ($fileReferenceRow['tablename'] === 'sys_file_reference') {
                         $row = $this->transformFileReferenceToRecordReference($fileReferenceRow);
+                        if ($row === null) {
+                            $brokenReferences[] = $fileReferenceRow['ref_uid'];
+                            continue;
+                        }
                         $shortcutRecord = BackendUtility::getRecord($row['tablename'], $row['recuid']);
 
                         if ($shortcutRecord) {
@@ -407,8 +393,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 }
                 if (!empty($brokenReferences)) {
                     // render a message that the file has broken references
-                    $flashMessage = GeneralUtility::makeInstance(
-                        FlashMessage::class,
+                    $flashMessage = new FlashMessage(
                         sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.fileHasBrokenReferences'), count($brokenReferences)),
                         $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.header.fileHasBrokenReferences'),
                         ContextualFeedbackSeverity::INFO,
@@ -418,8 +403,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 }
                 if (!empty($shortcutContent)) {
                     // render a message that the file could not be deleted
-                    $flashMessage = GeneralUtility::makeInstance(
-                        FlashMessage::class,
+                    $flashMessage = new FlashMessage(
                         sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.fileNotDeletedHasReferences'), $fileObject->getName()) . ' ' . implode(', ', $shortcutContent),
                         $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.header.fileNotDeletedHasReferences'),
                         ContextualFeedbackSeverity::WARNING,
@@ -435,8 +419,7 @@ class ExtendedFileUtility extends BasicFileUtility
                     $result = $fileObject->delete();
 
                     // show the user that the file was deleted
-                    $flashMessage = GeneralUtility::makeInstance(
-                        FlashMessage::class,
+                    $flashMessage = new FlashMessage(
                         sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.fileDeleted'), $fileObject->getName()),
                         $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.header.fileDeleted'),
                         ContextualFeedbackSeverity::OK,
@@ -446,25 +429,23 @@ class ExtendedFileUtility extends BasicFileUtility
                     // Log success
                     $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::MESSAGE, 'File "{identifier}" deleted', ['identifier' => $fileObject->getIdentifier()]);
                 } catch (InsufficientFileAccessPermissionsException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to access the file "{identifier}"', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Access denied for file "{identifier}" due to insufficient permissions', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToAccessTheFile', [$fileObject->getIdentifier()]);
                 } catch (NotInMountPointException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Target "{identifier}" was not within your mountpoints"', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'The file or folder {destination} was not accessible within permitted mountpoints', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.TargetWasNotWithinYourMountpoints', [$fileObject->getIdentifier()]);
                 } catch (\RuntimeException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Could not delete file "{identifier}". Write-permission problem?', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Delete failed for file "{identifier}": insufficient write permissions', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.CouldNotDeleteFile', [$fileObject->getIdentifier()]);
                 }
             }
         } else {
-            /** @var Folder $fileObject */
-            if (!$this->folderHasFilesInUse($fileObject)) {
+            if ($fileObject instanceof Folder && !$this->folderHasFilesInUse($fileObject)) {
                 try {
                     $result = $fileObject->delete(true);
                     if ($result) {
                         // notify the user that the folder was deleted
-                        $flashMessage = GeneralUtility::makeInstance(
-                            FlashMessage::class,
+                        $flashMessage = new FlashMessage(
                             sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.folderDeleted'), $fileObject->getName()),
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.header.folderDeleted'),
                             ContextualFeedbackSeverity::OK,
@@ -475,16 +456,16 @@ class ExtendedFileUtility extends BasicFileUtility
                         $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::MESSAGE, 'Directory "{identifier}" deleted', ['identifier' => $fileObject->getIdentifier()]);
                     }
                 } catch (InsufficientUserPermissionsException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Could not delete directory. Is directory "{identifier}" empty? (You are not allowed to delete directories recursively)', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Delete failed for directory "{identifier}": recursive deletion is not supported', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.CouldNotDeleteDirectory', [$fileObject->getIdentifier()]);
                 } catch (InsufficientFolderAccessPermissionsException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to access the directory "{identifier}"', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Access denied for directory "{identifier}" due to insufficient permissions', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToAccessTheDirectory', [$fileObject->getIdentifier()]);
                 } catch (NotInMountPointException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Target "{identifier}" was not within your mountpoints', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'The file or folder {destination} was not accessible within permitted mountpoints', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.TargetWasNotWithinYourMountpoints', [$fileObject->getIdentifier()]);
                 } catch (FileOperationErrorException $e) {
-                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Could not delete directory "{identifier}". Write-permission problem?', ['identifier' => $fileObject->getIdentifier()]);
+                    $this->writeLog(SystemLogFileAction::DELETE, SystemLogErrorClassification::USER_ERROR, 'Delete failed for directory "{identifier}": insufficient write permissions', ['identifier' => $fileObject->getIdentifier()]);
                     $this->addMessageToFlashMessageQueue('FileUtility.CouldNotDeleteDirectory', [$fileObject->getIdentifier()]);
                 }
             }
@@ -535,8 +516,7 @@ class ExtendedFileUtility extends BasicFileUtility
 
         $hasReferences = $numberOfReferences > 0;
         if ($hasReferences) {
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.description.folderNotDeletedHasFilesWithReferences'),
                 $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:message.header.folderNotDeletedHasFilesWithReferences'),
                 ContextualFeedbackSeverity::WARNING,
@@ -551,10 +531,8 @@ class ExtendedFileUtility extends BasicFileUtility
     /**
      * Maps results from the fal file reference table on the
      * structure of  the normal reference index table.
-     *
-     * @return array
      */
-    protected function transformFileReferenceToRecordReference(array $referenceRecord)
+    protected function transformFileReferenceToRecordReference(array $referenceRecord): ?array
     {
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_refindex');
         $queryBuilder->getRestrictions()->removeAll();
@@ -569,6 +547,10 @@ class ExtendedFileUtility extends BasicFileUtility
             )
             ->executeQuery()
             ->fetchAssociative();
+
+        if ($fileReference === false) {
+            return null;
+        }
 
         return [
             'recuid' => $fileReference['uid_foreign'],
@@ -611,7 +593,6 @@ class ExtendedFileUtility extends BasicFileUtility
     protected function func_copy($cmds)
     {
         $sourceFileObject = $this->getFileObject($cmds['data']);
-        /** @var Folder $targetFolderObject */
         $targetFolderObject = $this->getFileObject($cmds['target']);
         // Basic check
         if (!$targetFolderObject instanceof Folder) {
@@ -628,22 +609,22 @@ class ExtendedFileUtility extends BasicFileUtility
             try {
                 $resultObject = $sourceFileObject->copyTo($targetFolderObject, null, $conflictMode);
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to copy files');
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'File copy denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToCopyFiles');
             } catch (InsufficientFileAccessPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Could not access all necessary resources. Source file "{identifier}" or destination "{destination}" was not within your mountpoints maybe', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Resource access failed: source "{identifier}" or destination {"destination}" file is outside the configured mountpoints', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CouldNotAccessAllNecessaryResources', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (IllegalFileExtensionException $e) {
                 $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (ExistingTargetFileNameException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" already exists in folder "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" already exists in directory "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileAlreadyExistsInFolder', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (NotImplementedMethodException $e) {
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'The function to copy a file between storages is not yet implemented');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheFunctionToCopyAFileBetweenStoragesIsNotYetImplemented');
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::SYSTEM_ERROR, 'File "{identifier}" was not copied to "{destination}" - Write-permission problem?', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::SYSTEM_ERROR, 'Copy failed for file "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotCopiedTo', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             }
             if ($resultObject) {
@@ -656,16 +637,16 @@ class ExtendedFileUtility extends BasicFileUtility
             try {
                 $resultObject = $sourceFolderObject->copyTo($targetFolderObject, null, $conflictMode);
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to copy directories');
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Directory copy denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToCopyDirectories');
             } catch (InsufficientFileAccessPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Could not access all necessary resources. Maybe source file "{identifier}" or destination "{destination}" was not within your mountpoints', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Resource access failed: source "{identifier}" or destination {"destination}" file is outside the configured mountpoints', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CouldNotAccessAllNecessaryResources', [$sourceFolderObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (InsufficientFolderAccessPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'You don\'t have full access to the destination directory "{destination}"', ['destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Access denied: insufficient permissions for destination directory "{destination}"', ['destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.YouDontHaveFullAccessToTheDestinationDirectory', [$targetFolderObject->getIdentifier()]);
             } catch (InvalidTargetFolderException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Cannot copy folder "{name}" into target folder "{destination}", because there is already a folder or file with that name in the target folder', ['name' => $sourceFolderObject->getName(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Copy failed: destination "{destination}" already contains a file or directory with the same name "{name}"', ['name' => $sourceFolderObject->getName(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CannotCopyFolderIntoTargetFolderBecauseTheTargetFolderIsAlreadyWithinTheFolderToBeCopied', [$sourceFolderObject->getName(), $targetFolderObject->getIdentifier()]);
             } catch (ExistingTargetFolderException $e) {
                 $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::USER_ERROR, 'Target "{destination}" already exists', ['destination' => $targetFolderObject->getIdentifier()]);
@@ -674,7 +655,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'The function to copy a folder between storages is not yet implemented');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheFunctionToCopyAFolderBetweenStoragesIsNotYetImplemented');
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::SYSTEM_ERROR, 'Directory "{identifier}" was not copied to "{destination}". Write-permission problem?', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::COPY, SystemLogErrorClassification::SYSTEM_ERROR, 'Copy failed for directory "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DirectoryWasNotCopiedTo', [$sourceFolderObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             }
             if ($resultObject) {
@@ -724,22 +705,22 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::MESSAGE, 'File "{identifier}" moved to "{destination}"', ['identifier' => $sourcePath, 'destination' => $resultObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileMovedTo', [$sourcePath, $resultObject->getIdentifier()], ContextualFeedbackSeverity::OK);
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to move files');
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'File moving denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToMoveFiles');
             } catch (InsufficientFileAccessPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Could not access all necessary resources. Maybe source file "{identifier}" or destination "{destination}" was not within your mountpoints', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Resource access failed: source "{identifier}" or destination {"destination}" file is outside the configured mountpoints', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CouldNotAccessAllNecessaryResources', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (IllegalFileExtensionException $e) {
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameIsNotAllowedIn', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (ExistingTargetFileNameException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" already exists in folder "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" already exists in directory "{destination}"', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileAlreadyExistsInFolder', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (NotImplementedMethodException $e) {
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'The function to move a file between storages is not yet implemented');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheFunctionToMoveAFileBetweenStoragesIsNotYetImplemented');
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::SYSTEM_ERROR, 'File "{identifier}" was not copied to "{destination}". Write-permission problem?', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::SYSTEM_ERROR, 'Copy failed for file "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFileObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotCopiedTo', [$sourceFileObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             }
         } else {
@@ -756,16 +737,16 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::MESSAGE, 'Directory "{identifier}" moved to "{destination}"', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DirectoryMovedTo', [$sourceFolderObject->getIdentifier(), $targetFolderObject->getIdentifier()], ContextualFeedbackSeverity::OK);
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to move directories');
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Directory moving denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToMoveDirectories');
             } catch (InsufficientFileAccessPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Could not access all necessary resources. Maybe source folder "{identifier}" or destination "{destination}" was not within your mountpoints', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Resource access failed: source folder "{identifier}" or destination {"destination}" directory is outside the configured mountpoints', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CouldNotAccessAllNecessaryResources', [$sourceFolderObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             } catch (InsufficientFolderAccessPermissionsException $e) {
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'You don\'t have full access to the destination directory "{destination}"', ['destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.YouDontHaveFullAccessToTheDestinationDirectory', [$targetFolderObject->getIdentifier()]);
             } catch (InvalidTargetFolderException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Cannot move folder "{identifier}" into target folder "{destination}", because the target folder is already within the folder to be moved', ['identifier' => $sourceFolderObject->getName(), 'destination' => $targetFolderObject->getName()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Move failed: destination "{destination}" is located within the source directory "{identifier}"', ['identifier' => $sourceFolderObject->getName(), 'destination' => $targetFolderObject->getName()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.CannotMoveFolderIntoTargetFolderBecauseTheTargetFolderIsAlreadyWithinTheFolderToBeMoved', [$sourceFolderObject->getName(), $targetFolderObject->getName()]);
             } catch (ExistingTargetFolderException $e) {
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'Target "{destination}" already exists', ['destination' => $targetFolderObject->getIdentifier()]);
@@ -774,7 +755,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::USER_ERROR, 'The function to move a folder between storages is not yet implemented');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheFunctionToMoveAFolderBetweenStoragesIsNotYetImplemented');
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::SYSTEM_ERROR, 'Directory "{identifier}" was not moved to "{destination}". Write-permission problem?', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::MOVE, SystemLogErrorClassification::SYSTEM_ERROR, 'Move failed for directory "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFolderObject->getIdentifier(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DirectoryWasNotMovedTo', [$sourceFolderObject->getIdentifier(), $targetFolderObject->getIdentifier()]);
             }
         }
@@ -803,7 +784,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 // Try to rename the File
                 $resultObject = $sourceFileObject->rename($targetFile, $this->existingFilesConflictMode);
                 if ($resultObject->getName() !== $targetFile) {
-                    $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File renamed from "{identifier}" to "{destination}". Filename had to be sanitized', ['identifier' => $sourceFile, 'destination' => $targetFile]);
+                    $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File renamed from "{identifier}" to "{destination}": unsupported characters were replaced', ['identifier' => $sourceFile, 'destination' => $targetFile]);
                     $this->addMessageToFlashMessageQueue('FileUtility.FileNameSanitized', [$targetFile, $resultObject->getName()], ContextualFeedbackSeverity::WARNING);
                 } else {
                     $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::MESSAGE, 'File renamed from "{identifier}" to "{destination}"', ['identifier' => $sourceFile, 'destination' => $targetFile]);
@@ -814,22 +795,22 @@ class ExtendedFileUtility extends BasicFileUtility
                     $this->addMessageToFlashMessageQueue('FileUtility.FileRenamedFromTo', [$sourceFile, $resultObject->getName()], ContextualFeedbackSeverity::OK);
                 }
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to rename files');
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File renaming denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToRenameFiles');
             } catch (IllegalFileExtensionException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" or "{destination}" was not allowed', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Operation failed due to illegal file extension on "{identifier}" or "{destination}"', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileNameOrWasNotAllowed', [$sourceFileObject->getName(), $targetFile]);
             } catch (ExistingTargetFileNameException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination "{destination}" existed already', ['destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Rename failed because the destination file "{destination}" already exists', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationExistedAlready', [$targetFile]);
             } catch (NotInMountPointException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFile]);
             } catch (ResultException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File {identifier} was not renamed to {destination}', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" was not renamed. Write-permission problem in "{destination}"?', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Rename failed for file "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotRenamed', [$sourceFileObject->getName(), $targetFile]);
             }
         } else {
@@ -849,19 +830,19 @@ class ExtendedFileUtility extends BasicFileUtility
                     }
                 }
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to rename directories');
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Directory renaming denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToRenameDirectories');
             } catch (ExistingTargetFileNameException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination "{destination}" existed already', ['destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Rename failed because the destination folder "{destination}" already exists', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationExistedAlready', [$targetFile]);
             } catch (NotInMountPointException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFile]);
             } catch (ResultException $e) {
                 $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'File {identifier} was not renamed to {destination}', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Directory "{identifier}" was not renamed. Write-permission problem in "{destination}"?', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
+                $this->writeLog(SystemLogFileAction::RENAME, SystemLogErrorClassification::USER_ERROR, 'Rename failed for directory "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $sourceFileObject->getName(), 'destination' => $targetFile]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DirectoryWasNotRenamed', [$sourceFileObject->getName(), $targetFile]);
             }
         }
@@ -894,18 +875,18 @@ class ExtendedFileUtility extends BasicFileUtility
             $this->addMessageToFlashMessageQueue('FileUtility.DirectoryCreatedIn', [$folderName, $targetFolderObject->getIdentifier()], ContextualFeedbackSeverity::OK);
         } catch (InvalidFileNameException $e) {
             $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Invalid folder name "{identifier}"', ['identifier' => $folderName]);
-            $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToCreateDirectories', [$folderName]);
+            $this->addMessageToFlashMessageQueue('FileUtility.InvalidFolderName', [$folderName]);
         } catch (InsufficientFolderWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to create directories');
+            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Directory creation denied due to insufficient permissions');
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToCreateDirectories');
         } catch (NotInMountPointException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFolderObject->getIdentifier()]);
         } catch (ExistingTargetFolderException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'File or directory "{identifier}" existed already', ['identifier' => $folderName]);
+            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'File or directory "{identifier}" already exists', ['identifier' => $folderName]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileOrDirectoryExistedAlready', [$folderName]);
         } catch (\RuntimeException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Directory "{identifier}" not created. Write-permission problem in "{destination}"?', ['identifier' => $folderName, 'destination' => $targetFolderObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::NEW_FOLDER, SystemLogErrorClassification::USER_ERROR, 'Creation failed for directory "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $folderName, 'destination' => $targetFolderObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.DirectoryNotCreated', [$folderName, $targetFolderObject->getIdentifier()]);
         }
         return $resultObject;
@@ -940,10 +921,10 @@ class ExtendedFileUtility extends BasicFileUtility
             $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'Extension of file "{identifier}" was not allowed', ['identifier' => $fileName]);
             $this->addMessageToFlashMessageQueue('FileUtility.ExtensionOfFileWasNotAllowed', [$fileName]);
         } catch (InsufficientFolderWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to create files');
+            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'File creation denied due to insufficient permissions');
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToCreateFiles');
         } catch (NotInMountPointException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFolderObject->getIdentifier()]);
         } catch (ExistingTargetFileNameException $e) {
             $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'File existed already in "{destination}"', ['destination' => $targetFolderObject->getIdentifier()]);
@@ -952,7 +933,7 @@ class ExtendedFileUtility extends BasicFileUtility
             $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'File name "{identifier}" was not allowed', ['identifier' => $fileName]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileNameWasNotAllowed', [$fileName]);
         } catch (\RuntimeException $e) {
-            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" was not created. Write-permission problem in "{destination}"?', ['identifier' => $fileName, 'destination' => $targetFolderObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::NEW_FILE, SystemLogErrorClassification::USER_ERROR, 'Creation failed for file "{identifier}" in "{destination}": insufficient write permissions', ['identifier' => $fileName, 'destination' => $targetFolderObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotCreated', [$fileName, $targetFolderObject->getIdentifier()]);
         }
         return $resultObject;
@@ -977,7 +958,7 @@ class ExtendedFileUtility extends BasicFileUtility
         }
         if (!$fileObject->isTextFile()) {
             $extList = $GLOBALS['TYPO3_CONF_VARS']['SYS']['textfile_ext'];
-            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'File extension "{extension}" is not a textfile format ({allowedExtensions})', ['extension' => $fileObject->getExtension(), 'allowedExtensions' => $extList]);
+            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'Unsupported text file extension "{extension}" (allowed: {allowedExtensions})', ['extension' => $fileObject->getExtension(), 'allowedExtensions' => $extList]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileExtensionIsNotATextfileFormat', [$fileObject->getExtension(), $extList]);
             return false;
         }
@@ -990,15 +971,15 @@ class ExtendedFileUtility extends BasicFileUtility
             $this->addMessageToFlashMessageQueue('FileUtility.FileSavedTo', [$fileObject->getIdentifier()], ContextualFeedbackSeverity::OK);
             return true;
         } catch (InsufficientUserPermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to edit files');
+            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'File editing denied due to insufficient permissions');
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToEditFiles');
             return false;
         } catch (InsufficientFileWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" was not saved. Write-permission problem?', ['identifier' => $fileObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'Save failed for file "{identifier}": insufficient write permissions', ['identifier' => $fileObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotSaved', [$fileObject->getIdentifier()]);
             return false;
         } catch (IllegalFileExtensionException|\RuntimeException $e) {
-            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'File "{identifier}" was not saved. File extension rejected', ['identifier' => $fileObject->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::EDIT, SystemLogErrorClassification::USER_ERROR, 'Save failed for file "{identifier}": file extension rejected', ['identifier' => $fileObject->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.FileWasNotSaved', [$fileObject->getIdentifier()]);
             return false;
         }
@@ -1041,22 +1022,22 @@ class ExtendedFileUtility extends BasicFileUtility
                 if ($fileObject->getName() !== $uploadedFile->getClientFilename()) {
                     $this->addMessageToFlashMessageQueue('FileUtility.FileNameSanitized', [$uploadedFile->getClientFilename(), $fileObject->getName()], ContextualFeedbackSeverity::WARNING);
                 }
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Uploading file "{identifier}" to "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'File "{identifier}" uploaded to "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.UploadingFileTo', [$uploadedFile->getClientFilename(), $targetFolderObject->getIdentifier()], ContextualFeedbackSeverity::OK);
             } catch (InsufficientFileWritePermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override {identifier}', ['identifier' => $uploadedFile->getClientFilename()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Overwrite denied for "{identifier}" due to insufficient permissions', ['identifier' => $uploadedFile->getClientFilename()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$uploadedFile->getClientFilename()]);
             } catch (UploadException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'The upload has failed, no uploaded file found');
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'Upload failed because no file was provided');
                 $this->addMessageToFlashMessageQueue('FileUtility.TheUploadHasFailedNoUploadedFileFound');
             } catch (InsufficientUserPermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to upload files');
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'File uploading denied due to insufficient permissions');
                 $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToUploadFiles');
             } catch (UploadSizeException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $uploadedFile->getClientFilename()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Upload failed: file "{identifier}" exceeds the configured size limit', ['identifier' => $uploadedFile->getClientFilename()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$uploadedFile->getClientFilename()]);
             } catch (InsufficientFolderWritePermissionsException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $targetFolderObject->getIdentifier()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$targetFolderObject->getIdentifier()]);
             } catch (IllegalFileExtensionException $e) {
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
@@ -1068,7 +1049,7 @@ class ExtendedFileUtility extends BasicFileUtility
                 $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Uploading file "{identifier}" to "{destination}" failed', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $targetFolderObject->getIdentifier()]);
                 $this->addEvaluationResultHintsToFlashMessageQueue($e);
             } catch (\RuntimeException $e) {
-                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Uploaded file could not be moved. Write-permission problem in "{destination}"? Error: {error}', ['destination' => $targetFolderObject->getIdentifier(), 'error' => $e->getMessage()]);
+                $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Move failed for the uploaded file in "{destination}": insufficient write permissions. Error: {error}', ['destination' => $targetFolderObject->getIdentifier(), 'error' => $e->getMessage()]);
                 $this->addMessageToFlashMessageQueue('FileUtility.UploadedFileCouldNotBeMoved', [$targetFolderObject->getIdentifier()]);
             }
         }
@@ -1091,7 +1072,7 @@ class ExtendedFileUtility extends BasicFileUtility
         $uploadPosition = $cmdArr['data'];
         $uploadedFile = $this->uploadedFiles['replace_' . $uploadPosition];
         if (empty($uploadedFile->getClientFilename())) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'No file was uploaded for replacing');
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'No file was uploaded for replacement');
             $this->addMessageToFlashMessageQueue('FileUtility.NoFileWasUploadedForReplacing');
             return false;
         }
@@ -1119,22 +1100,22 @@ class ExtendedFileUtility extends BasicFileUtility
             $resultObjects[] = $fileObject;
             $this->internalUploadMap[$uploadPosition] = $fileObject->getCombinedIdentifier();
 
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'Replacing file "{identifier}" to "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::MESSAGE, 'File "{identifier}" replaced with "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.ReplacingFileTo', [$uploadedFile->getClientFilename(), $fileObjectToReplace->getIdentifier()], ContextualFeedbackSeverity::OK);
         } catch (InsufficientFileWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to override "{destination}"', ['destination' => $uploadedFile->getClientFilename()]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Overwrite denied for "{destination}" due to insufficient permissions', ['destination' => $uploadedFile->getClientFilename()]);
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToOverride', [$uploadedFile->getClientFilename()]);
         } catch (UploadException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'The upload has failed, no uploaded file found');
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::SYSTEM_ERROR, 'Upload failed because no file was provided');
             $this->addMessageToFlashMessageQueue('FileUtility.TheUploadHasFailedNoUploadedFileFound');
         } catch (InsufficientUserPermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'You are not allowed to upload files');
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'File uploading denied due to insufficient permissions');
             $this->addMessageToFlashMessageQueue('FileUtility.YouAreNotAllowedToUploadFiles');
         } catch (UploadSizeException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'The uploaded file "{identifier}" exceeds the size-limit', ['identifier' => $uploadedFile->getClientFilename()]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Upload failed: file "{identifier}" exceeds the configured size limit', ['identifier' => $uploadedFile->getClientFilename()]);
             $this->addMessageToFlashMessageQueue('FileUtility.TheUploadedFileExceedsTheSize-limit', [$uploadedFile->getClientFilename()]);
         } catch (InsufficientFolderWritePermissionsException $e) {
-            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" was not within your mountpoints', ['destination' => $fileObjectToReplace->getIdentifier()]);
+            $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Destination path "{destination}" is outside the configured mountpoints', ['destination' => $fileObjectToReplace->getIdentifier()]);
             $this->addMessageToFlashMessageQueue('FileUtility.DestinationPathWasNotWithinYourMountpoints', [$fileObjectToReplace->getIdentifier()]);
         } catch (IllegalFileExtensionException $e) {
             $this->writeLog(SystemLogFileAction::UPLOAD, SystemLogErrorClassification::USER_ERROR, 'Extension of file name "{identifier}" is not allowed in "{destination}"', ['identifier' => $uploadedFile->getClientFilename(), 'destination' => $fileObjectToReplace->getIdentifier()]);
@@ -1168,7 +1149,7 @@ class ExtendedFileUtility extends BasicFileUtility
             && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isBackend();
     }
 
-    protected function uploadedFileHasClientName(null|array|UploadedFileInterface $file): bool
+    protected function uploadedFileHasClientName(array|UploadedFileInterface|null $file): bool
     {
         if ($file instanceof UploadedFileInterface) {
             return !empty($file->getClientFilename());

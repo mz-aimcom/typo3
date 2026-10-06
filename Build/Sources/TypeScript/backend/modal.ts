@@ -11,13 +11,12 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { Modal as BootstrapModal } from 'bootstrap';
 import { html, nothing, LitElement, type TemplateResult, type PropertyValues } from 'lit';
-import { customElement, property, state } from 'lit/decorators';
-import { unsafeHTML } from 'lit/directives/unsafe-html';
-import { classMap, type ClassInfo } from 'lit/directives/class-map';
-import { styleMap, type StyleInfo } from 'lit/directives/style-map';
-import { ifDefined } from 'lit/directives/if-defined';
+import { customElement, property, state, query } from 'lit/decorators.js';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { classMap, type ClassInfo } from 'lit/directives/class-map.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import { styleMap, type StyleInfo } from 'lit/directives/style-map.js';
 import { classesArrayToClassInfo } from '@typo3/core/lit-helper';
 import RegularEvent from '@typo3/core/event/regular-event';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
@@ -25,13 +24,16 @@ import type { AbstractAction } from './action-button/abstract-action';
 import type { ModalResponseEvent } from '@typo3/backend/modal-interface';
 import { SeverityEnum } from './enum/severity';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
+import Persistent from '@typo3/backend/storage/persistent';
 import Severity from './severity';
 import '@typo3/backend/element/icon-element';
 import '@typo3/backend/element/spinner-element';
+import coreLabels from '~labels/core.core';
+import listLabels from '~labels/core.mod_web_list';
 
-enum Identifiers {
+export enum Identifiers {
   modal = '.t3js-modal',
-  content = '.t3js-modal-content',
+  header = '.t3js-modal-header',
   close = '.t3js-modal-close',
   body = '.t3js-modal-body',
   footer = '.t3js-modal-footer',
@@ -43,6 +45,40 @@ export enum Sizes {
   medium = 'medium',
   large = 'large',
   full = 'full',
+  expand = 'expand',
+}
+
+export enum Size {
+  small = 'small',
+  default = 'default',
+  medium = 'medium',
+  large = 'large',
+  full = 'full',
+}
+
+export type SizeConfig = { width?: Size; height?: Size };
+
+const isValidSize = (value: unknown): value is Sizes | SizeConfig => {
+  if (typeof value === 'string') {
+    return value in Sizes;
+  }
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const config = value as SizeConfig;
+  return Object.keys(value).length > 0
+    && Object.keys(value).every(key => key === 'width' || key === 'height')
+    && (config.width === undefined || config.width in Size)
+    && (config.height === undefined || config.height in Size);
+};
+
+export enum Positions {
+  center = 'center',
+  top = 'top',
+  end = 'end',
+  bottom = 'bottom',
+  start = 'start',
+  sheet = 'sheet',
 }
 
 export enum Styles {
@@ -74,65 +110,155 @@ export interface Button {
 export interface Configuration {
   type: Types;
   title: string;
-  // @todo remove support for JQuery based content
-  content: TemplateResult | string | JQuery | Element | DocumentFragment;
+  content: TemplateResult | string | Element | DocumentFragment;
   severity: SeverityEnum;
   buttons: Array<Button>;
   style: Styles;
-  size: Sizes;
+  size: Sizes | SizeConfig;
+  position: Positions;
   additionalCssClasses: Array<string>;
   callback: ModalCallbackFunction | null;
   ajaxCallback: ModalCallbackFunction | null;
   staticBackdrop: boolean;
   hideCloseButton: boolean;
+  hideHeader: boolean;
+  resizeIdentifier: string;
 }
 
 type PartialConfiguration = Partial<Omit<Configuration, 'buttons'> & { buttons: Array<Partial<Button>> }>;
 
+let uniqueIdCounter = 0;
+
 @customElement('typo3-backend-modal')
 export class ModalElement extends LitElement {
+  private static readonly RESIZE_MIN_WIDTH = 400;
+
   @property({ type: String, reflect: true }) modalTitle: string = '';
   @property({ type: String, reflect: true }) content: string = '';
   @property({ type: String, reflect: true }) type: Types = Types.default;
   @property({ type: String, reflect: true }) severity: SeverityEnum = SeverityEnum.notice;
   @property({ type: String, reflect: true }) variant: Styles = Styles.default;
-  @property({ type: String, reflect: true }) size: Sizes = Sizes.default;
-  @property({ type: Number, reflect: true }) zindex: number = 5000;
+  @property({ type: String, reflect: true }) position: Positions = Positions.center;
   @property({ type: Boolean }) staticBackdrop: boolean = false;
   @property({ type: Boolean }) hideCloseButton: boolean = false;
+  @property({ type: Boolean }) hideHeader: boolean = false;
   @property({ type: Array }) additionalCssClasses: Array<string> = [];
   @property({ type: Array, attribute: false }) buttons: Array<Button> = [];
+  @property({ type: String, attribute: 'resize-identifier' }) resizeIdentifier: string = '';
 
-  @state() templateResultContent: TemplateResult | JQuery | Element | DocumentFragment = null;
+  @state() templateResultContent: TemplateResult | Element | DocumentFragment = null;
   @state() activeButton: Button = null;
+  @query('dialog', true) dialog: HTMLDialogElement;
+  @state() private modalWidth?: number;
+  @state() private resizing: boolean = false;
 
-  public bootstrapModal: BootstrapModal = null;
   public callback: ModalCallbackFunction = null;
   public ajaxCallback: ModalCallbackFunction = null;
 
   public userData: { [key: string]: any } = {};
 
-  private keydownEventHandler: RegularEvent = null;
+  private readonly uniqueId: number;
+  private resizeReferencePosition: number = 0;
+  #size: Sizes | SizeConfig = Sizes.default;
 
-  public setContent(content: TemplateResult | JQuery | Element | DocumentFragment): void {
+  constructor() {
+    super();
+
+    this.uniqueId = ++uniqueIdCounter;
+  }
+
+  @property({
+    reflect: true,
+    converter: {
+      toAttribute: (value: Sizes | SizeConfig): string =>
+        typeof value === 'string' ? value : JSON.stringify(value),
+      fromAttribute: (value: string | null): unknown => {
+        if (value === null) {
+          return Sizes.default;
+        }
+        if (isValidSize(value)) {
+          return value;
+        }
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+      },
+    },
+  })
+  get size(): Sizes | SizeConfig {
+    return this.#size;
+  }
+  set size(value: unknown) {
+    const valid = isValidSize(value);
+    this.#size = valid ? value : Sizes.default;
+    if (!valid && this.isConnected) {
+      // Input was invalid and got sanitized: force the attribute to match,
+      // because Lit suppresses attribute reflection on the attribute → property
+      // path, which would otherwise leave the invalid string in the DOM.
+      const expected = typeof this.#size === 'string' ? this.#size : JSON.stringify(this.#size);
+      if (this.getAttribute('size') !== expected) {
+        this.setAttribute('size', expected);
+      }
+    }
+  }
+
+  public override connectedCallback(): void {
+    super.connectedCallback();
+    if (this.isResizable()) {
+      this.loadPersistedWidth();
+    }
+  }
+
+  public setContent(content: TemplateResult | Element | DocumentFragment): void {
     this.templateResultContent = content;
   }
 
   public hideModal(): void {
-    if (this.bootstrapModal) {
-      this.bootstrapModal.hide();
-      this.keydownEventHandler?.release();
+    this.doHideModal();
+  }
+
+  protected async doHideModal(): Promise<void> {
+    const event = this.trigger('typo3-modal-hide', true);
+    if (event.defaultPrevented) {
+      return;
     }
+
+    // Add closing class to trigger animation
+    this.dialog.classList.add('modal-closing');
+
+    const transitionend = new Promise(resolve => this.dialog.addEventListener('transitionend', resolve, { once: true }));
+    // Fallback delay if transitionend is not invoked. Animation duration is 300ms (.3s in CSS) + 5ms gap
+    const timeout = new Promise(resolve => setTimeout(resolve, 305));
+    await Promise.race([transitionend, timeout]);
+
+    this.dialog.classList.remove('modal-closing');
+    this.dialog.close();
   }
 
   protected override createRenderRoot(): HTMLElement | ShadowRoot {
-    // Avoid shadow DOM for Bootstrap CSS to be applied
     return this;
   }
 
+  protected async showModal(): Promise<void> {
+    // Wait a frame to avoid a visual bug where top layer
+    // elements interfere with each other during promotion
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    this.trigger('typo3-modal-show');
+    this.dialog.showModal();
+
+    const transitionend = new Promise(resolve => this.dialog.addEventListener('transitionend', resolve, { once: true }));
+    // Fallback delay if transitionend is not invoked. Animation duration is 300ms (.3s in CSS) + 5ms gap
+    const timeout = new Promise(resolve => setTimeout(resolve, 305));
+    await Promise.race([transitionend, timeout]);
+
+    this.trigger('typo3-modal-shown');
+  }
+
   protected override firstUpdated(): void {
-    this.bootstrapModal = new BootstrapModal(this.renderRoot.querySelector(Identifiers.modal), {});
-    this.bootstrapModal.show();
+    this.showModal();
     if (this.callback) {
       this.callback(this);
     }
@@ -145,55 +271,108 @@ export class ModalElement extends LitElement {
   }
 
   protected override render(): TemplateResult {
-    const styles: StyleInfo = {
-      zIndex: this.zindex.toString()
-    };
+    const resizable = this.isResizable();
     const classes: ClassInfo = classesArrayToClassInfo([
+      'modal',
+      't3js-modal',
       `modal-type-${this.type}`,
-      `modal-severity-${Severity.getCssClass(this.severity)}`,
       `modal-style-${this.variant}`,
-      `modal-size-${this.size}`,
+      `modal-severity-${Severity.getCssClass(this.severity)}`,
+      ...this.getSizeClasses(),
+      `modal-position-${this.position}`,
+      ...(resizable ? ['modal-resizable'] : []),
+      ...(this.resizing ? ['modal-resizing'] : []),
       ...this.additionalCssClasses,
     ]);
+    const dialogStyles: StyleInfo = {};
+    if (resizable && this.modalWidth) {
+      dialogStyles['--typo3-modal-width'] = `${this.modalWidth}px`;
+    }
     return html`
-      <div
-          tabindex="-1"
-          class="modal fade t3js-modal ${classMap(classes)}"
-          style=${styleMap(styles)}
-          data-bs-backdrop="${ifDefined(this.staticBackdrop) ? 'static' : true}"
-          @show.bs.modal=${() => this.trigger('typo3-modal-show')}
-          @shown.bs.modal=${() => this.trigger('typo3-modal-shown')}
-          @hide.bs.modal=${() => this.trigger('typo3-modal-hide')}
-          @hidden.bs.modal=${() => this.trigger('typo3-modal-hidden')}
+      <dialog
+          class=${classMap(classes)}
+          style=${styleMap(dialogStyles)}
+          aria-labelledby=${ifDefined(this.hideHeader ? undefined : `t3-modal-header-${this.uniqueId}`)}
+          aria-label=${ifDefined(this.hideHeader ? this.modalTitle : undefined)}
+          closedby=${this.hideCloseButton ? 'none' : 'closerequest'}
+          @close=${this.handleDialogClose}
+          @cancel=${this.handleDialogCancel}
+          @click=${this.handleDialogClick}
       >
-          <div class="modal-dialog">
-              <div class="t3js-modal-content modal-content">
-                  <div class="modal-header">
-                      <h1 class="h4 t3js-modal-title modal-title">${this.modalTitle}</h1>
-                      ${this.hideCloseButton ? nothing : html`
-                          <button class="t3js-modal-close close" @click=${() => this.bootstrapModal.hide()}>
-                              <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon>
-                              <span class="visually-hidden">${TYPO3?.lang?.['button.close'] || 'Close'}</span>
-                          </button>
-                      `}
-                  </div>
-                  <div class="t3js-modal-body modal-body">${this.renderModalBody()}</div>
-                  ${this.buttons.length === 0 ? nothing : html`
-                    <div class="t3js-modal-footer modal-footer">
-                      ${this.buttons.map(button => this.renderModalButton(button))}
-                    </div>
-                  `}
-              </div>
+        ${resizable ? html`<div class="modal-resize-handle" @pointerdown=${this.startResize}></div>` : nothing}
+        ${this.hideHeader ? nothing : html`
+          <div class="modal-header t3js-modal-header">
+            <div class="modal-header-title t3js-modal-title" id="t3-modal-header-${this.uniqueId}">${this.modalTitle}</div>
+            ${this.hideCloseButton ? nothing : html`
+              <button class="modal-header-close t3js-modal-close" @click=${() => this.hideModal()}>
+                <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon>
+                <span class="visually-hidden">${(listLabels.get('button.close')) + ' ' + this.modalTitle}</span>
+              </button>
+            `}
           </div>
-      </div>
+        `}
+        <div class="modal-body t3js-modal-body">${this.renderModalBody()}</div>
+        ${this.buttons.length === 0 ? nothing : html`
+          <div class="modal-footer t3js-modal-footer">
+            ${this.buttons.map(button => this.renderModalButton(button))}
+          </div>
+        `}
+        <div class="alert-container"></div>
+      </dialog>
     `;
+  }
+
+  private getSizeClasses(): string[] {
+    if (typeof this.size === 'string') {
+      return [`modal-size-${this.size}`];
+    }
+    const classes: string[] = [];
+    if (this.size.width !== undefined) {
+      classes.push(`modal-width-${this.size.width}`);
+    }
+    if (this.size.height !== undefined) {
+      classes.push(`modal-height-${this.size.height}`);
+    }
+    return classes;
+  }
+
+  private handleDialogClose(): void {
+    this.trigger('typo3-modal-hidden');
+  }
+
+  /**
+   * Handle Escape key (implicit cancel) or explicit cancel events via `dialog.requestClose()`
+   */
+  private handleDialogCancel(e: Event): void {
+    if (this.hideCloseButton) {
+      e.preventDefault();
+    }
+    if (e.defaultPrevented) {
+      // Show shake animation if we (or another event listener component)
+      // prevented the default behavior (=close) of the cancel event
+      this.shake();
+    } else {
+      // Intercept the cancel event to show animation
+      e.preventDefault();
+      this.hideModal();
+    }
+  }
+
+  private handleDialogClick(e: Event): void {
+    if (e.target === this.dialog) {
+      if (this.staticBackdrop) {
+        this.shake();
+      } else {
+        this.requestClose();
+      }
+    }
   }
 
   private _buttonClick(event: Event, button: Button): void {
     const buttonElement = event.currentTarget as HTMLButtonElement;
     if (button.action) {
       this.activeButton = button;
-      button.action.execute(buttonElement).then((): void => this.bootstrapModal.hide());
+      button.action.execute(buttonElement).then((): void => this.hideModal());
     } else if (button.trigger) {
       button.trigger(event, this);
     }
@@ -210,6 +389,8 @@ export class ModalElement extends LitElement {
             if (this.ajaxCallback) {
               this.ajaxCallback(this);
             }
+            // Native autofocus only covers content present when the dialog opens
+            this.querySelector<HTMLElement>(`${Identifiers.body} [autofocus]`)?.focus();
             this.dispatchEvent(new CustomEvent('modal-loaded'));
           });
         })
@@ -227,17 +408,14 @@ export class ModalElement extends LitElement {
     return this.templateResultContent as TemplateResult;
   }
 
-  private renderModalBody(): TemplateResult | JQuery | Element | DocumentFragment {
-    this.keydownEventHandler = new RegularEvent('keydown', this.handleKeydown);
-    this.keydownEventHandler.bindTo(document);
-
+  private renderModalBody(): TemplateResult | Element | DocumentFragment {
     if (this.type === Types.iframe) {
       const loadCallback = (e: Event) => {
         const iframe = e.currentTarget as HTMLIFrameElement;
         if (iframe.contentDocument.title) {
           this.modalTitle = iframe.contentDocument.title;
         }
-        new RegularEvent('keydown', this.handleKeydown).bindTo(iframe.contentDocument);
+        iframe.contentDocument.addEventListener('keydown', this.handleIframeKeydown);
       };
       return html`
         <iframe src="${this.content}" name="modal_frame" class="modal-iframe t3js-modal-iframe" @load=${loadCallback}></iframe>
@@ -274,15 +452,154 @@ export class ModalElement extends LitElement {
     `;
   }
 
-  private trigger(event: string): void {
-    this.dispatchEvent(new CustomEvent(event, { bubbles: true, composed: true }));
+  private trigger(event: string, cancelable: boolean = false): CustomEvent {
+    const customEvent = new CustomEvent(event, { bubbles: true, composed: true, cancelable });
+    this.dispatchEvent(customEvent);
+    return customEvent;
   }
 
-  private handleKeydown(e: KeyboardEvent): void {
-    if (e.key === 'Escape' && parent?.top?.TYPO3?.Modal) {
-      parent.top.TYPO3.Modal.dismiss();
+  /**
+   * Compatibility wrapper for dialog.requestClose which is (by the time of writing)
+   * baseline "newly available" [1] and not available in our CI chrome version.
+   * @todo remove this wrapper once `dialog.requestClose()` becomes widely available,
+   *       all logic is already implemented in the `cancel` event handler and duplicated
+   *       here for the sake of browser compatibility
+   * [1] https://developer.mozilla.org/en-US/docs/Web/API/HTMLDialogElement/requestClose
+   */
+  private requestClose(): void {
+    if ('requestClose' in this.dialog) {
+      this.dialog.requestClose();
+    } else if (this.hideCloseButton) {
+      this.hideModal();
+    } else {
+      this.shake();
     }
   }
+
+  private readonly handleIframeKeydown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      if (e.target instanceof e.view.window.HTMLInputElement && e.target.type === 'search') {
+        if (e.target.value === '') {
+          this.requestClose();
+        }
+        return;
+      }
+
+      // Don't close modal if default behavior (default behavior = close)
+      // was prevented by another component
+      if (e.defaultPrevented) {
+        return;
+      }
+
+      this.requestClose();
+    }
+  };
+
+  private shake(): void {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return;
+    }
+    this.dialog.animate([
+      { transform: 'translateX(0px)' },
+      { transform: 'translateX(-2px)' },
+      { transform: 'translateX(0px)' },
+      { transform: 'translateX(2px)' },
+      { transform: 'translateX(0px)' },
+    ], 150);
+  }
+
+  /**
+   * Currently only "sheet" positioned modals (drawers docked to the viewport edge)
+   * support resizing, as it is the only position with a single free-floating edge.
+   */
+  private isResizable(): boolean {
+    return this.position === Positions.sheet;
+  }
+
+  private getResizePersistenceKey(): string | null {
+    if (!this.resizeIdentifier) {
+      return null;
+    }
+    return `resize.${this.resizeIdentifier}.modal`;
+  }
+
+  private loadPersistedWidth(): void {
+    const key = this.getResizePersistenceKey();
+    if (!key) {
+      return;
+    }
+    const stored = Persistent.get(key);
+    if (stored) {
+      const width = parseInt(stored, 10);
+      if (!isNaN(width) && width > 0) {
+        this.modalWidth = width;
+      }
+    }
+  }
+
+  private persistWidth(): void {
+    const key = this.getResizePersistenceKey();
+    if (key && this.modalWidth) {
+      Persistent.set(key, String(this.modalWidth));
+    }
+  }
+
+  private getMaxWidth(): number {
+    const computedMaxWidth = parseFloat(getComputedStyle(this.dialog).maxWidth);
+    return Number.isNaN(computedMaxWidth) ? window.innerWidth : computedMaxWidth;
+  }
+
+  private isRtl(): boolean {
+    return getComputedStyle(this).direction === 'rtl';
+  }
+
+  /**
+   * A "sheet" is docked to the inline-end edge (via margin-inline-end: 0), so its
+   * free edge to grab and drag is always the inline-start edge, in both directions.
+   */
+  private readonly startResize = (event: PointerEvent) => {
+    if (event.button !== 0) {
+      return;
+    }
+    event.stopPropagation();
+    event.preventDefault();
+
+    const rect = this.dialog.getBoundingClientRect();
+    this.resizeReferencePosition = this.isRtl() ? rect.left : rect.right;
+
+    this.resizing = true;
+    const target = event.target as HTMLElement;
+    target.setPointerCapture(event.pointerId);
+    target.addEventListener('pointermove', this.handlePointerMove);
+    target.addEventListener('pointerup', this.handlePointerUp);
+    target.addEventListener('pointercancel', this.handlePointerUp);
+    target.addEventListener('lostpointercapture', this.handlePointerUp);
+  };
+
+  private readonly handlePointerMove = (event: PointerEvent) => {
+    if (!this.resizing) {
+      return;
+    }
+
+    const maxWidth = this.getMaxWidth();
+    let width = this.isRtl()
+      ? Math.round(event.clientX - this.resizeReferencePosition)
+      : Math.round(this.resizeReferencePosition - event.clientX);
+
+    width = Math.max(ModalElement.RESIZE_MIN_WIDTH, Math.min(width, maxWidth));
+    this.modalWidth = width;
+    this.dialog.style.setProperty('--typo3-modal-width', `${width}px`);
+  };
+
+  private readonly handlePointerUp = (event: PointerEvent) => {
+    const target = event.currentTarget as HTMLElement;
+    target.removeEventListener('pointermove', this.handlePointerMove);
+    target.removeEventListener('pointerup', this.handlePointerUp);
+    target.removeEventListener('pointercancel', this.handlePointerUp);
+    target.removeEventListener('lostpointercapture', this.handlePointerUp);
+    this.resizing = false;
+    this.persistWidth();
+  };
 }
 
 declare global {
@@ -293,13 +610,14 @@ declare global {
 
 /**
  * Module: @typo3/backend/modal
- * API for modal windows powered by Twitter Bootstrap.
+ * API for modal windows
  */
 class Modal {
   // @todo: drop? available as named exports
   public readonly sizes: typeof Sizes = Sizes;
   public readonly styles: typeof Styles = Styles;
   public readonly types: typeof Types = Types;
+  public readonly positions: typeof Positions = Positions;
 
   // @todo: currentModal could be a getter method for the last element in this.instances
   public currentModal: ModalElement = null;
@@ -313,11 +631,14 @@ class Modal {
     buttons: [],
     style: Styles.default,
     size: Sizes.default,
+    position: Positions.center,
     additionalCssClasses: [],
     callback: null,
     ajaxCallback: null,
     staticBackdrop: false,
-    hideCloseButton: false
+    hideCloseButton: false,
+    hideHeader: false,
+    resizeIdentifier: '',
   };
 
   constructor() {
@@ -352,7 +673,7 @@ class Modal {
    * - confirm.button.ok
    *
    * @param {string} title The title for the confirm modal
-   * @param {TemplateResult | string | JQuery | Element | DocumentFragment} content The content for the conform modal, e.g. the main question
+   * @param {TemplateResult | string | Element | DocumentFragment} content The content for the conform modal, e.g. the main question
    * @param {SeverityEnum} severity Default SeverityEnum.warning
    * @param {Array<Button>} buttons An array with buttons, default no buttons
    * @param {Array<string>} additionalCssClasses Additional css classes to add to the modal
@@ -360,7 +681,7 @@ class Modal {
    */
   public confirm(
     title: string,
-    content: TemplateResult | string | JQuery | Element | DocumentFragment,
+    content: TemplateResult | string | Element | DocumentFragment,
     severity: SeverityEnum = SeverityEnum.warning,
     buttons: Array<Button> = [],
     additionalCssClasses?: Array<string>,
@@ -368,13 +689,13 @@ class Modal {
     if (buttons.length === 0) {
       buttons.push(
         {
-          text: TYPO3?.lang?.['button.cancel'] || 'Cancel',
+          text: listLabels.get('button.cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: TYPO3?.lang?.['button.ok'] || 'OK',
+          text: listLabels.get('button.ok'),
           btnClass: 'btn-' + Severity.getCssClass(severity),
           name: 'ok',
         },
@@ -410,7 +731,6 @@ class Modal {
    * @param {Array<Button>} buttons
    * @param {string} url
    * @param {ModalCallbackFunction} callback
-   * @param {string} target
    * @returns {ModalElement}
    */
   public loadUrl(
@@ -434,7 +754,7 @@ class Modal {
    * Shows a dialog
    *
    * @param {string} title
-   * @param {string | JQuery | Element | DocumentFragment} content
+   * @param {string | Element | DocumentFragment} content
    * @param {number} severity
    * @param {Array<Button>} buttons
    * @param {Array<string>} additionalCssClasses
@@ -442,7 +762,7 @@ class Modal {
    */
   public show(
     title: string,
-    content: string | JQuery | Element | DocumentFragment,
+    content: string | Element | DocumentFragment,
     severity: SeverityEnum = SeverityEnum.info,
     buttons?: Array<Button>,
     additionalCssClasses?: Array<string>,
@@ -475,19 +795,26 @@ class Modal {
       ? configuration.severity
       : this.defaultConfiguration.severity;
     configuration.buttons = <Array<Button>>configuration.buttons || this.defaultConfiguration.buttons;
-    configuration.size = typeof configuration.size === 'string' && configuration.size in Sizes
+    configuration.size = isValidSize(configuration.size)
       ? configuration.size
       : this.defaultConfiguration.size;
     configuration.style = typeof configuration.style === 'string' && configuration.style in Styles
       ? configuration.style
       : this.defaultConfiguration.style;
+    configuration.position = typeof configuration.position === 'string' && configuration.position in Positions
+      ? configuration.position
+      : this.defaultConfiguration.position;
     configuration.additionalCssClasses = configuration.additionalCssClasses || this.defaultConfiguration.additionalCssClasses;
     configuration.callback = typeof configuration.callback === 'function' ? configuration.callback : this.defaultConfiguration.callback;
     configuration.ajaxCallback = typeof configuration.ajaxCallback === 'function'
       ? configuration.ajaxCallback
       : this.defaultConfiguration.ajaxCallback;
-    configuration.staticBackdrop = configuration.staticBackdrop || this.defaultConfiguration.staticBackdrop;
     configuration.hideCloseButton = configuration.hideCloseButton || this.defaultConfiguration.hideCloseButton;
+    configuration.staticBackdrop = configuration.staticBackdrop || this.defaultConfiguration.staticBackdrop;
+    configuration.hideHeader = configuration.hideHeader || this.defaultConfiguration.hideHeader;
+    configuration.resizeIdentifier = typeof configuration.resizeIdentifier === 'string'
+      ? configuration.resizeIdentifier
+      : this.defaultConfiguration.resizeIdentifier;
 
     return this.generate(configuration);
   }
@@ -506,7 +833,10 @@ class Modal {
   public initializeMarkupTrigger(theDocument: Document): void {
     const modalTrigger = (evt: Event, triggerElement: HTMLElement): void => {
       evt.preventDefault();
-      const content = triggerElement.dataset.bsContent || triggerElement.dataset.content || TYPO3?.lang?.['message.confirmation'] || 'Are you sure?';
+      if ('bsContent' in triggerElement.dataset && !('content' in triggerElement.dataset)) {
+        console.error('TYPO3 v14 modal trigger dropped support for the legacy `data-bs-content` attribute. Use `data-content` instead. Affected element:', triggerElement);
+      }
+      const content = triggerElement.dataset.content || coreLabels.get('message.confirmation');
       let severity = SeverityEnum.notice;
       if (triggerElement.dataset.severity in SeverityEnum) {
         const severityKey = triggerElement.dataset.severity as keyof typeof SeverityEnum;
@@ -517,6 +847,13 @@ class Modal {
         const sizeKey = triggerElement.dataset.size as keyof typeof Sizes;
         size = Sizes[sizeKey];
       }
+      let position = Positions.center;
+      if (triggerElement.dataset.position in Positions) {
+        const positionKey = triggerElement.dataset.position as keyof typeof Positions;
+        position = Positions[positionKey];
+      }
+      const hideHeader = triggerElement.dataset.hideHeader !== undefined;
+      const staticBackdrop = triggerElement.dataset.staticBackdrop !== undefined;
       let url = triggerElement.dataset.url || null;
       if (url !== null) {
         const separator = url.includes('?') ? '&' : '?';
@@ -529,10 +866,12 @@ class Modal {
         content: url !== null ? url : content,
         size,
         severity,
-        staticBackdrop: triggerElement.dataset.staticBackdrop !== undefined,
+        position,
+        hideHeader,
+        staticBackdrop,
         buttons: [
           {
-            text: triggerElement.dataset.buttonCloseText || TYPO3?.lang?.['button.close'] || 'Close',
+            text: triggerElement.dataset.buttonCloseText || listLabels.get('button.close'),
             active: true,
             btnClass: 'btn-default',
             trigger: (e: Event, modal: ModalElement): void => {
@@ -544,7 +883,7 @@ class Modal {
             },
           },
           {
-            text: triggerElement.dataset.buttonOkText || TYPO3?.lang?.['button.ok'] || 'OK',
+            text: triggerElement.dataset.buttonOkText || listLabels.get('button.ok'),
             btnClass: 'btn-' + Severity.getCssClass(severity),
             trigger: (e: Event, modal: ModalElement): void => {
               modal.hideModal();
@@ -591,11 +930,14 @@ class Modal {
     currentModal.severity = configuration.severity;
     currentModal.variant = configuration.style;
     currentModal.size = configuration.size;
+    currentModal.position = configuration.position;
     currentModal.modalTitle = configuration.title;
     currentModal.additionalCssClasses = configuration.additionalCssClasses;
     currentModal.buttons = <Array<Button>>configuration.buttons;
-    currentModal.staticBackdrop = configuration.staticBackdrop;
     currentModal.hideCloseButton = configuration.hideCloseButton;
+    currentModal.staticBackdrop = configuration.staticBackdrop;
+    currentModal.hideHeader = configuration.hideHeader;
+    currentModal.resizeIdentifier = configuration.resizeIdentifier;
     if (configuration.callback) {
       currentModal.callback = configuration.callback;
     }
@@ -604,24 +946,10 @@ class Modal {
     }
 
     currentModal.addEventListener('typo3-modal-shown', (): void => {
-      const backdrop = currentModal.nextElementSibling as HTMLElement;
-
-      // Stack backdrop zIndexes to overlay existing (opened) modals
-      // We use 1000 as the overall base to circumvent a stuttering UI as Bootstrap uses a z-index of 1050 for backdrops
-      // on initial rendering - this will clash again when at least five modals are open, which is fine and should never happen
-      const baseZIndex = 1000 + (10 * this.instances.length);
-      currentModal.zindex = baseZIndex;
-      const backdropZIndex = baseZIndex - 5;
-      backdrop.style.zIndex = backdropZIndex.toString();
-
-      // focus the button which was configured as active button
-      const activeButton = currentModal.querySelector(`${Identifiers.footer} .t3js-active`) as HTMLInputElement | null;
-      if (activeButton !== null) {
-        activeButton.focus();
-      } else {
-        // @todo can be removed once we switch to a native <dialog> tag
-        (currentModal.querySelector('[autofocus]') as HTMLInputElement)?.focus();
-      }
+      // Prefer an autofocus field over the active button
+      const focusTarget = currentModal.querySelector<HTMLElement>(`${Identifiers.body} [autofocus]`)
+        ?? currentModal.querySelector<HTMLElement>(`${Identifiers.footer} .t3js-active`);
+      focusTarget?.focus();
     });
 
     // Remove modal from Modal.instances when hidden
@@ -630,15 +958,12 @@ class Modal {
         const lastIndex = this.instances.length - 1;
         this.instances.splice(lastIndex, 1);
         this.currentModal = this.instances[lastIndex - 1];
+        remountAlertContainer(this.currentModal);
       }
     });
 
     currentModal.addEventListener('typo3-modal-hidden', (): void => {
       currentModal.remove();
-      // Keep class modal-open on body tag as long as open modals exist
-      if (this.instances.length > 0) {
-        document.body.classList.add('modal-open');
-      }
     });
 
     // When modal is opened/shown add it to Modal.instances and make it Modal.currentModal
@@ -647,11 +972,37 @@ class Modal {
       this.instances.push(currentModal);
     });
 
+    currentModal.addEventListener('typo3-modal-shown', (): void => {
+      remountAlertContainer(currentModal);
+    });
+
     document.body.appendChild(currentModal);
 
     return currentModal;
   }
 }
+
+const remountAlertContainer = (modal: ModalElement | undefined) => {
+  const alertContainer = document.querySelector<HTMLDivElement>('#alert-container');
+  if (alertContainer) {
+    const isOpen = alertContainer.matches(':popover-open');
+    let target: HTMLElement = document.body;
+    if (modal) {
+      target = modal.querySelector('.alert-container') ?? target;
+    }
+
+    if ('moveBefore' in target) {
+      target.moveBefore(alertContainer, null);
+    } else {
+      (target as HTMLElement).appendChild(alertContainer);
+    }
+
+    if (isOpen) {
+      alertContainer.hidePopover();
+      alertContainer.showPopover();
+    }
+  }
+};
 
 let modalObject: Modal = null;
 try {

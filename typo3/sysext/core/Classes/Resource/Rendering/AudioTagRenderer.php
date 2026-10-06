@@ -15,10 +15,12 @@
 
 namespace TYPO3\CMS\Core\Resource\Rendering;
 
+use TYPO3\CMS\Core\Attribute\AsFileRenderer;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+#[AsFileRenderer]
 class AudioTagRenderer implements FileRendererInterface
 {
     /**
@@ -29,28 +31,14 @@ class AudioTagRenderer implements FileRendererInterface
     protected $possibleMimeTypes = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/ogg'];
 
     /**
-     * Returns the priority of the renderer
-     * This way it is possible to define/overrule a renderer
-     * for a specific file type/context.
-     * For example create a video renderer for a certain storage/driver type.
-     * Should be between 1 and 100, 100 is more important than 1
-     *
-     * @return int
-     */
-    public function getPriority()
-    {
-        return 1;
-    }
-
-    /**
      * Check if given File(Reference) can be rendered
      *
      * @param FileInterface $file File or FileReference to render
-     * @return bool
      */
-    public function canRender(FileInterface $file)
+    public function canRender(FileInterface $file): bool
     {
-        return in_array($file->getMimeType(), $this->possibleMimeTypes, true);
+        $mimeType = strtolower(trim(explode(';', $file->getMimeType(), 2)[0]));
+        return in_array($mimeType, $this->possibleMimeTypes, true);
     }
 
     /**
@@ -59,9 +47,8 @@ class AudioTagRenderer implements FileRendererInterface
      * @param int|string $width TYPO3 known format; examples: 220, 200m or 200c
      * @param int|string $height TYPO3 known format; examples: 220, 200m or 200c
      * @param array $options controls = TRUE/FALSE (default TRUE), autoplay = TRUE/FALSE (default FALSE), loop = TRUE/FALSE (default FALSE)
-     * @return string
      */
-    public function render(FileInterface $file, $width, $height, array $options = [])
+    public function render(FileInterface $file, int|string $width, int|string $height, array $options = []): string
     {
         // If autoplay isn't set manually check if $file is a FileReference take autoplay from there
         if (!isset($options['autoplay']) && $file instanceof FileReference) {
@@ -71,37 +58,38 @@ class AudioTagRenderer implements FileRendererInterface
             }
         }
 
-        $additionalAttributes = [];
+        $attributes = [];
         if (isset($options['additionalAttributes']) && is_array($options['additionalAttributes'])) {
-            $additionalAttributes[] = GeneralUtility::implodeAttributes($options['additionalAttributes'], true, true);
+            $attributes = $options['additionalAttributes'];
         }
         if (isset($options['data']) && is_array($options['data'])) {
-            array_walk($options['data'], static function (string &$value, string $key): void {
-                $value = 'data-' . htmlspecialchars($key) . '="' . htmlspecialchars($value) . '"';
-            });
-            $additionalAttributes[] = implode(' ', $options['data']);
+            foreach ($options['data'] as $key => $value) {
+                $attributes['data-' . $key] ??= $value;
+            }
         }
         if (!isset($options['controls']) || !empty($options['controls'])) {
-            $additionalAttributes[] = 'controls';
+            $attributes['controls'] ??= true;
         }
         if (!empty($options['autoplay'])) {
-            $additionalAttributes[] = 'autoplay';
+            $attributes['autoplay'] ??= true;
         }
         if (!empty($options['muted'])) {
-            $additionalAttributes[] = 'muted';
+            $attributes['muted'] ??= true;
         }
         if (!empty($options['loop'])) {
-            $additionalAttributes[] = 'loop';
+            $attributes['loop'] ??= true;
         }
         foreach (['class', 'dir', 'id', 'lang', 'style', 'title', 'accesskey', 'tabindex', 'onclick', 'preload', 'controlsList'] as $key) {
             if (!empty($options[$key])) {
-                $additionalAttributes[] = $key . '="' . htmlspecialchars($options[$key]) . '"';
+                $attributes[$key] ??= $options[$key];
             }
         }
 
+        $attributesString = GeneralUtility::implodeAttributes($attributes, false, true, true);
+
         return sprintf(
             '<audio%s><source src="%s" type="%s"></audio>',
-            empty($additionalAttributes) ? '' : ' ' . implode(' ', $additionalAttributes),
+            $attributesString === '' ? '' : ' ' . $attributesString,
             htmlspecialchars((string)$file->getPublicUrl()),
             $file->getMimeType()
         );

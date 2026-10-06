@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\TypoScript\IncludeTree\Visitor;
 
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\ExpressionLanguage\SyntaxError;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -44,16 +43,15 @@ use TYPO3\CMS\Core\TypoScript\IncludeTree\IncludeNode\IncludeInterface;
 
 // This visitor creates state and should not be re-used
 #[Autoconfigure(public: true, shared: false)]
-final class IncludeTreeConditionMatcherVisitor implements IncludeTreeVisitorInterface, LoggerAwareInterface
+final class IncludeTreeConditionMatcherVisitor implements IncludeTreeVisitorInterface
 {
-    use LoggerAwareTrait;
-
     private Resolver $resolver;
     private array $conditionList = [];
 
     public function __construct(
         private readonly Context $context,
         private readonly PageLayoutResolver $pageLayoutResolver,
+        private readonly LoggerInterface $logger,
     ) {}
 
     /**
@@ -112,14 +110,19 @@ final class IncludeTreeConditionMatcherVisitor implements IncludeTreeVisitorInte
             $fullRootLine = BackendUtility::BEgetRootLine($pageId, '', true);
             ksort($fullRootLine);
         }
-        $localRootLine = $variables['localRootLine'] ?? $fullRootLine;
-        if (!empty($localRootLine)) {
-            $tree = new \stdClass();
-            $tree->level = count($localRootLine) - 1;
-            $tree->rootLine = $localRootLine;
-            $tree->fullRootLine = $fullRootLine;
-            $tree->rootLineIds = array_column($localRootLine, 'uid');
-            $tree->rootLineParentIds = array_slice(array_column($localRootLine, 'pid'), 1);
+        // 'tree' is always exposed to the expression language, even when no rootline could be
+        // determined (e.g. DataHandler CLI operations on orphaned records with a pid pointing to
+        // a non-existing page). Conditions like '[123 in tree.rootLineIds]' must then evaluate
+        // to false instead of raising a SyntaxError for an unknown 'tree' variable.
+        $localRootLine = $variables['localRootLine'] ?? $fullRootLine ?? [];
+        $tree = new \stdClass();
+        $tree->level = count($localRootLine) - 1;
+        $tree->rootLine = $localRootLine;
+        $tree->fullRootLine = $fullRootLine ?? [];
+        $tree->rootLineIds = array_column($localRootLine, 'uid');
+        $tree->rootLineParentIds = array_slice(array_column($localRootLine, 'pid'), 1);
+        $tree->pagelayout = null;
+        if ($localRootLine !== []) {
             // We're feeding the "full" RootLine here, not the "local" one that stops at sys_template record having 'root' set.
             // This is to be in-line with backend here: A 'backend_layout_next_level' on a page above sys_template 'root' page should
             // still be considered. Normally, $fullRootLine is "deepest page first, then up". This is needed for getLayoutForPage() to find
@@ -127,8 +130,8 @@ final class IncludeTreeConditionMatcherVisitor implements IncludeTreeVisitorInte
             // again reversed at this point.
             $bottomUpFullRootLine = array_reverse($fullRootLine);
             $tree->pagelayout = $this->pageLayoutResolver->getLayoutIdentifierForPage($variables['page'], $bottomUpFullRootLine);
-            $enrichedVariables['tree'] = $tree;
         }
+        $enrichedVariables['tree'] = $tree;
 
         // If a request is given, make sure it is an instance of RequestWrapper,
         // if not, create an instance from ServerRequestInterface and set it.

@@ -20,9 +20,9 @@ namespace TYPO3\CMS\Frontend\Typolink;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UriInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\CacheTag;
-use TYPO3\CMS\Core\Cache\Event\AddCacheTagEvent;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Context\Context;
@@ -31,13 +31,22 @@ use TYPO3\CMS\Core\Context\LanguageAspectFactory;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Domain\Access\RecordAccessVoter;
 use TYPO3\CMS\Core\Domain\Page;
+use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\Error\Http\LinkedPageNotResolvableException;
+use TYPO3\CMS\Core\Error\Http\PageNotFoundException;
+use TYPO3\CMS\Core\Error\Http\ShortcutTargetPageNotFoundException;
+use TYPO3\CMS\Core\Exception\Page\CircularPageReferenceChainException;
+use TYPO3\CMS\Core\Exception\Page\PageReferenceResolvingReachedIterationLimitException;
 use TYPO3\CMS\Core\Exception\Page\RootLineException;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\LinkHandling\PageTypeLinkResolver;
+use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
 use TYPO3\CMS\Core\Routing\PageArguments;
 use TYPO3\CMS\Core\Routing\RouterInterface;
@@ -56,6 +65,7 @@ use TYPO3\CMS\Core\Utility\RootlineUtility;
 use TYPO3\CMS\Frontend\Cache\CacheLifetimeCalculator;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Event\ModifyPageLinkConfigurationEvent;
+use TYPO3\CMS\Frontend\Page\PageInformation;
 
 /**
  * Builds a TypoLink to a certain page
@@ -74,6 +84,13 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         #[Autowire(service: 'cache.runtime')]
         protected readonly FrontendInterface $runtimeCache,
         protected readonly LinkVarsCalculator $linkVarsCalculator,
+        protected readonly LinkService $linkService,
+        protected readonly TypoLinkCodecService $linkCodecService,
+        protected readonly PageTypeLinkResolver $pageTypeLinkResolver,
+        protected readonly LoggerInterface $logger,
+        protected readonly PageDoktypeRegistry $pageDoktypeRegistry,
+        protected readonly RecordFactory $recordFactory,
+        protected readonly PageRepository $pageRepository,
     ) {}
 
     public function buildLink(array $linkDetails, array $configuration, ServerRequestInterface $request, string $linkText = ''): LinkResultInterface
@@ -85,8 +102,12 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         }
         $this->contentObjectRenderer = $contentObjectRenderer;
         $target = $linkDetails['target'] ?? '';
-        $linkResultType = LinkService::TYPE_PAGE;
         $configuration['additionalParams'] = $configuration['additionalParams'] ?? '';
+        $configuration['queryParameters'] = (array)($configuration['queryParameters'] ?? []);
+        $treatAsExternalLink = false;
+        $url = null;
+        $linkResultType = LinkService::TYPE_PAGE;
+
         if (empty($linkDetails['pageuid']) || $linkDetails['pageuid'] === 'current') {
             // If no id is given try to fetch it from PageInformation attribute, else fetch it from site.
             $pageId = $request->getAttribute('frontend.page.information')?->getId();
@@ -113,31 +134,32 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $disableGroupAccessCheck = (bool)($frontendTypoScriptConfigArray['typolinkLinkAccessRestrictedPages'] ?? false);
         }
 
-        // Looking up the page record to verify its existence:
-        $page = $this->resolvePage($linkDetails, $configuration, $disableGroupAccessCheck);
+        // Looking up the page record to verify its existence, resolving shortcuts and links to pages
+        $originalPage = $this->resolvePage($linkDetails, $configuration, $disableGroupAccessCheck, false);
+        $resolvedPage = $this->resolvePage($linkDetails, $configuration, $disableGroupAccessCheck);
 
-        if (empty($page)) {
+        if (empty($resolvedPage)) {
             throw new UnableToLinkException('Page id "' . $linkDetails['pageuid'] . '" was not found, so "' . $linkText . '" was not linked.', 1490987336, null, $linkText);
         }
 
         $fragment = $this->calculateUrlFragment($configuration, $linkDetails);
         $queryParameters = $this->calculateQueryParameters($configuration, $linkDetails);
         // Add MP parameter
-        $mountPointParameter = $this->calculateMountPointParameters($page, $disableGroupAccessCheck, $linkText);
+        $mountPointParameter = $this->calculateMountPointParameters($resolvedPage, $disableGroupAccessCheck, $linkText);
         if ($mountPointParameter !== null) {
             $queryParameters['MP'] = $mountPointParameter;
         }
 
-        $event = new ModifyPageLinkConfigurationEvent($configuration, $linkDetails, $page, $queryParameters, $fragment);
+        $event = new ModifyPageLinkConfigurationEvent($configuration, $linkDetails, $resolvedPage, $queryParameters, $fragment, $request);
         $event = $this->eventDispatcher->dispatch($event);
         $configuration = $event->getConfiguration();
-        $page = $event->getPage();
+        $resolvedPage = $event->getPage();
         $queryParameters = $event->getQueryParameters();
         $fragment = $event->getFragment();
 
         // Check if the target page has a site configuration
         try {
-            $siteOfTargetPage = $this->siteFinder->getSiteByPageId((int)$page['uid'], null, $queryParameters['MP'] ?? '');
+            $siteOfTargetPage = $this->siteFinder->getSiteByPageId((int)$resolvedPage['uid'], null, $queryParameters['MP'] ?? '');
             $currentSite = $this->getCurrentSite();
         } catch (SiteNotFoundException $e) {
             // Usually happens in tests, as sites with configuration should be available everywhere.
@@ -145,7 +167,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $currentSite = null;
         }
         if ($siteOfTargetPage === null) {
-            throw new UnableToLinkException('Could not link to page with ID: ' . $page['uid'], 1546887172, null, $linkText);
+            throw new UnableToLinkException('Could not link to page with ID: ' . $resolvedPage['uid'], 1546887172, null, $linkText);
         }
 
         try {
@@ -160,7 +182,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         if ($siteLanguageOfTargetPage->getLanguageId() > 0) {
             $pageObject = $configuration['page'] ?? null;
             if ($pageObject instanceof Page
-                && $pageObject->getPageId() === (int)$page['uid'] // No MP/Shortcut changes
+                && $pageObject->getPageId() === (int)$resolvedPage['uid'] // No MP/Shortcut changes
                 && !$event->pageWasModified()
                 && (
                     $pageObject->getLanguageId() === $languageAspect->getId()
@@ -168,57 +190,97 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
                     || $pageObject->getLanguageId() === 0 // No translation found
                 )
             ) {
-                $page = $pageObject->toArray(true);
+                $resolvedPage = $pageObject->toArray(true);
             } else {
-                $page = $pageRepository->getLanguageOverlay('pages', $page);
+                $resolvedPage = $pageRepository->getLanguageOverlay('pages', $resolvedPage);
             }
 
             // Check if the translated page is a shortcut, but the default page wasn't a shortcut, so this is
             // resolved as well, see ScenarioDTest in functional tests.
             // Currently not supported: When this is the case (only a translated page is a shortcut),
             //                          but the page links to a different site.
-            $shortcutPage = $this->resolveShortcutPage($page, $pageRepository, $disableGroupAccessCheck);
+            $shortcutPage = $this->resolveShortcutPage($resolvedPage, $pageRepository, $disableGroupAccessCheck);
             if (!empty($shortcutPage)) {
-                $page = $shortcutPage;
+                $resolvedPage = $shortcutPage;
+            }
+
+            if ((int)($originalPage['doktype'] ?? 0) === PageRepository::DOKTYPE_LINK) {
+                $originalPage = $pageRepository->getLanguageOverlay('pages', $originalPage);
             }
         }
         // Check if the target page can be access depending on l18n_cfg
-        if (!$pageRepository->isPageSuitableForLanguage($page, $languageAspect)) {
-            $pageTranslationVisibility = new PageTranslationVisibility((int)($page['l18n_cfg'] ?? 0));
+        if (!$pageRepository->isPageSuitableForLanguage($resolvedPage, $languageAspect)) {
+            $pageTranslationVisibility = new PageTranslationVisibility((int)($resolvedPage['l18n_cfg'] ?? 0));
             if ($siteLanguageOfTargetPage->getLanguageId() === 0 && $pageTranslationVisibility->shouldBeHiddenInDefaultLanguage()) {
                 throw new UnableToLinkException('Default language of page  "' . ($linkDetails['typoLinkParameter'] ?? 'unknown') . '" is hidden, so "' . $linkText . '" was not linked.', 1551621985, null, $linkText);
             }
             // If the requested language is not the default language and the page has no overlay for this language
             // generating a link would cause a 404 error when using this like if one of those conditions apply:
-            //  - The page is set to be hidden if it is not translated (evaluated in TSFE)
+            //  - The page is set to be hidden if it is not translated
             //  - The site configuration has a "strict" fallback set (evaluated in the Router - very early)
-            if ($siteLanguageOfTargetPage->getLanguageId() > 0 && !isset($page['_LOCALIZED_UID']) && ($pageTranslationVisibility->shouldHideTranslationIfNoTranslatedRecordExists() || $siteLanguageOfTargetPage->getFallbackType() === 'strict')) {
+            if ($siteLanguageOfTargetPage->getLanguageId() > 0 && !isset($resolvedPage['_LOCALIZED_UID']) && ($pageTranslationVisibility->shouldHideTranslationIfNoTranslatedRecordExists() || $siteLanguageOfTargetPage->getFallbackType() === 'strict')) {
                 throw new UnableToLinkException('Fallback to default language of page "' . ($linkDetails['typoLinkParameter'] ?? 'unknown') . '" is disabled, so "' . $linkText . '" was not linked.', 1551621996, null, $linkText);
             }
         }
 
-        $treatAsExternalLink = true;
-        // External links are resolved via calling Typolink again (could be anything, really)
-        if ((int)$page['doktype'] === PageRepository::DOKTYPE_LINK) {
-            $configuration['parameter'] = $page['url'];
-            unset($configuration['parameter.']);
-            // Use "pages.target" as this is the requested field for external links as well
-            if (!isset($configuration['extTarget'])) {
-                $configuration['extTarget'] = (isset($page['target']) && trim($page['target'])) ? $page['target'] : $target;
+        // Links are resolved via calling Typolink again (could be anything, really)
+        if ((int)$originalPage['doktype'] === PageRepository::DOKTYPE_LINK) {
+            $typolinkParts = $this->linkCodecService->decode($originalPage['link'] ?? '');
+            $typolinkTargetLinkParts = $this->linkService->resolve($typolinkParts['url']);
+            if ($typolinkTargetLinkParts['type'] === 'page') {
+                $treatAsExternalLink = false;
+                $configuration['additionalParams'] = $typolinkParts['additionalParams'];
+                $queryParameters = $this->calculateQueryParameters($configuration, $typolinkParts);
+                $target = $typolinkParts['target'];
+                if (MathUtility::canBeInterpretedAsInteger($typolinkTargetLinkParts['fragment'] ?? false)) {
+                    $fragment = 'c' . $typolinkTargetLinkParts['fragment'];
+                } else {
+                    $fragment = $typolinkTargetLinkParts['fragment'] ?? '';
+                }
+                if ($typolinkTargetLinkParts['pageuid'] === 'current') {
+                    // "current" is always resolved from the immutable frontend.page.information
+                    // request attribute (see the top of this method), so if the page whose link we
+                    // are processing IS the page currently being rendered, resolving "current" is
+                    // guaranteed to reproduce this exact same state forever - fail immediately
+                    // instead of recursing at all.
+                    $currentlyRenderedPageId = $request->getAttribute('frontend.page.information')?->getId();
+                    if ((int)$originalPage['uid'] === $currentlyRenderedPageId) {
+                        throw new UnableToLinkException(
+                            'Page "' . $originalPage['uid'] . '" of type "Link" links to itself ("current page"), so "' . $linkText . '" was not linked.',
+                            1784639469,
+                            null,
+                            $linkText
+                        );
+                    }
+                    $configuration['parameter'] = $originalPage['link'] ?? '';
+                    unset($configuration['parameter.']);
+                    $linkResult = $this->contentObjectRenderer->createLink($linkText, $configuration);
+                    $target = $linkResult->getTarget();
+                    $url = $linkResult->getUrl();
+                }
+                // Valid references have been resolved by th
+            } else {
+                $configuration['parameter'] = $originalPage['link'] ?? '';
+                unset($configuration['parameter.']);
+                if (!isset($configuration['extTarget'])) {
+                    $configuration['extTarget'] = (isset($originalPage['target']) && trim($originalPage['target'])) ? $originalPage['target'] : $target;
+                }
+                $linkResult = $this->contentObjectRenderer->createLink($linkText, $configuration);
+                $target = $linkResult->getTarget();
+                $url = $linkResult->getUrl();
+                if (empty($url)) {
+                    throw new UnableToLinkException('Link on page "' . $originalPage['uid'] . '" does not have a proper target link, so "' . $linkText . '" was not linked.', 1551621999, null, $linkText);
+                }
+                // If the page external URL is resolved into a URL or email, this should be taken into account when compiling the final link result object
+                $linkResultType = $linkResult->getType();
+                $treatAsExternalLink = true;
             }
-            $linkResultFromExternalUrl = $this->contentObjectRenderer->createLink($linkText, $configuration);
-            $target = $linkResultFromExternalUrl->getTarget();
-            $url = $linkResultFromExternalUrl->getUrl();
-            // If the page external URL is resolved into a URL or email, this should be taken into account when compiling the final link result object
-            $linkResultType = $linkResultFromExternalUrl->getType();
-            if (empty($url)) {
-                throw new UnableToLinkException('Link to external page "' . $page['uid'] . '" does not have a proper target URL, so "' . $linkText . '" was not linked.', 1551621999, null, $linkText);
-            }
-        } elseif ((int)$page['doktype'] === PageRepository::DOKTYPE_SYSFOLDER || (int)$page['doktype'] === PageRepository::DOKTYPE_SPACER) {
-            throw new UnableToLinkException('Link to page of type ' . $page['doktype'] . ' is not possible.', 1742757285, null, $linkText);
-        } else {
+        } elseif (!$this->pageDoktypeRegistry->isPageTypeViewable((int)$resolvedPage['doktype'])) {
+            throw new UnableToLinkException('Link to page of type ' . $resolvedPage['doktype'] . ' is not possible.', 1742757285, null, $linkText);
+        }
+        if ($url === null) {
             // Generate the URL
-            $url = $this->generateUrlForPageWithSiteConfiguration($page, $siteOfTargetPage, $queryParameters, $fragment, $configuration, $request);
+            $url = $this->generateUrlForPageWithSiteConfiguration($resolvedPage, $siteOfTargetPage, $queryParameters, $fragment, $configuration, $request);
             // no scheme => always not external
             if (!$url->getScheme() || !$url->getHost()) {
                 $treatAsExternalLink = false;
@@ -234,12 +296,12 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $url = (string)$url;
         }
 
-        $target = $this->calculateTargetAttribute($page, $configuration, $treatAsExternalLink, $target);
+        $target = $this->calculateTargetAttribute($resolvedPage, $configuration, $treatAsExternalLink, $target);
 
         // If link is to an access-restricted page which should be redirected, then find new URL
         $result = new LinkResult($linkResultType, $url);
-        if ($this->shouldModifyUrlForAccessRestrictedPage($configuration, $page, $request)) {
-            $url = $this->modifyUrlForAccessRestrictedPage($url, $page, $linkDetails['pagetype'] ?? '', $request);
+        if ($this->shouldModifyUrlForAccessRestrictedPage($configuration, $resolvedPage, $request)) {
+            $url = $this->modifyUrlForAccessRestrictedPage($url, $resolvedPage, $linkDetails['pagetype'] ?? '', $request);
             $result = new LinkResult($linkResultType, $url);
             $additionalAttributes = (string)($frontendTypoScriptConfigArray['typolinkLinkAccessRestrictedPages.']['ATagParams'] ?? '');
             if ($additionalAttributes !== '') {
@@ -248,10 +310,10 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             }
         }
 
-        $this->sendCacheTagEvent($page);
+        $this->addPageCacheTag($request, $resolvedPage);
 
         // Setting title if blank value to link
-        $linkText = $this->parseFallbackLinkTextIfLinkTextIsEmpty($linkText, $page['title'] ?? '');
+        $linkText = $this->parseFallbackLinkTextIfLinkTextIsEmpty($linkText, $resolvedPage['title'] ?? '');
         return $result
             ->withLinkConfiguration($configuration)
             ->withTarget($target)
@@ -291,16 +353,26 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         }
 
         $queryParameters = [];
-        $addQueryParams = ($conf['addQueryString'] ?? false) ? $this->getQueryArguments($conf['addQueryString'], $conf['addQueryString.'] ?? []) : '';
+        $addQueryString = $conf['addQueryString'] ?? false;
+        $addQueryParams = $addQueryString ? $this->getQueryArguments($addQueryString, $conf['addQueryString.'] ?? []) : '';
         $addQueryParams .= trim((string)$this->contentObjectRenderer->stdWrapValue('additionalParams', $conf));
         if ($addQueryParams === '&' || ($addQueryParams[0] ?? '') !== '&') {
             $addQueryParams = '';
         }
         parse_str($addQueryParams, $queryParameters);
+        if (!empty($conf['queryParameters']) && is_array($conf['queryParameters'])) {
+            $queryParameters = array_replace_recursive($queryParameters, $conf['queryParameters']);
+        }
         $linkVars = $this->calculateGlobalQueryParameters();
         if ($linkVars !== '') {
             $globalQueryParameters = [];
             parse_str($linkVars, $globalQueryParameters);
+            // "config.linkVars" carries query parameters of the current request over to the link,
+            // just like "addQueryString" does. A parameter dropped by "addQueryString.exclude"
+            // must therefore not sneak back in through "linkVars".
+            if ($addQueryString && ($conf['addQueryString.']['exclude'] ?? false)) {
+                $globalQueryParameters = $this->excludeQueryParameters($globalQueryParameters, (string)$conf['addQueryString.']['exclude']);
+            }
             $queryParameters = array_replace_recursive($globalQueryParameters, $queryParameters);
         }
         // Disable "?id=", for pages with no site configuration, this is added later-on anyway
@@ -362,11 +434,10 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
                 $mountPointPairs['closest'] = $temp_MP;
             }
         }
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
         // Look for overlay Mount Point:
-        $mount_info = $pageRepository->getMountPointInfo($page['uid'], $page);
+        $mount_info = $this->pageRepository->getMountPointInfo($page['uid'], $page);
         if (is_array($mount_info) && $mount_info['overlay']) {
-            $page = $pageRepository->getPage((int)$mount_info['mount_pid'], $disableGroupAccessCheck);
+            $page = $this->pageRepository->getPage((int)$mount_info['mount_pid'], $disableGroupAccessCheck);
             if (empty($page)) {
                 throw new UnableToLinkException('Mount point "' . $mount_info['mount_pid'] . '" was not available, so "' . $linkText . '" was not linked.', 1490987337, null, $linkText);
             }
@@ -394,11 +465,11 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
     protected function calculateTargetAttribute(array $page, array $conf, bool $treatAsExternalLink, string $target): string
     {
         if ($treatAsExternalLink) {
-            $target = $target ?: $this->resolveTargetAttribute($conf, 'extTarget');
+            $target = $target ?: $this->resolveTargetAttribute($conf, 'extTarget', $this->contentObjectRenderer);
         } else {
             $target = (isset($page['target']) && trim($page['target'])) ? $page['target'] : $target;
             if (empty($target)) {
-                $target = $this->resolveTargetAttribute($conf, 'target');
+                $target = $this->resolveTargetAttribute($conf, 'target', $this->contentObjectRenderer);
             }
         }
         return $target;
@@ -430,8 +501,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
     protected function modifyUrlForAccessRestrictedPage(string $url, array $page, string $overridePageType, ServerRequestInterface $request): string
     {
         $frontendTypoScriptConfigArray = $request->getAttribute('frontend.typoscript')?->getConfigArray();
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-        $thePage = $pageRepository->getPage((int)($frontendTypoScriptConfigArray ['typolinkLinkAccessRestrictedPages'] ?? 0));
+        $thePage = $this->pageRepository->getPage((int)($frontendTypoScriptConfigArray ['typolinkLinkAccessRestrictedPages'] ?? 0));
         $addParams = str_replace(
             [
                 '###RETURN_URL###',
@@ -456,14 +526,14 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
      * language parent, adjusts `$linkDetails['pageuid']` (for hook processing)
      * and modifies `$configuration['language']` (for language URL generation).
      */
-    protected function resolvePage(array &$linkDetails, array &$configuration, bool $disableGroupAccessCheck): array
+    protected function resolvePage(array &$linkDetails, array &$configuration, bool $disableGroupAccessCheck, bool $followLinks = true): array
     {
         $pageRepository = $this->buildPageRepository();
         // Looking up the page record to verify its existence
         // This is used when a page to a translated page is executed directly.
 
         if (isset($configuration['page']) && $configuration['page'] instanceof Page) {
-            $page = $configuration['page']->getTranslationSource()?->toArray() ?? $configuration['page']->toArray();
+            $page = $configuration['page']->getTranslationSource()?->toArray(true) ?? $configuration['page']->toArray(true);
         }
         // A page with doktype external and ?showModal=1 in url field leads to recursion in HMENU/Sitemap.
         // In the second call of this function $linkDetails['pageuid'] is different (=current page) to uid of Page
@@ -472,7 +542,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $page = $pageRepository->getPage((int)$linkDetails['pageuid'], $disableGroupAccessCheck);
         }
 
-        if (empty($page) || !is_array($page)) {
+        if (!isset($page)) {
             return [];
         }
 
@@ -483,7 +553,9 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $page = $pageRepository->getLanguageOverlay('pages', $page, new LanguageAspect((int)$configuration['language'], (int)$configuration['language']));
         }
 
-        $page = $this->resolveShortcutPage($page, $pageRepository, $disableGroupAccessCheck);
+        if ($followLinks) {
+            $page = $this->resolveShortcutPage($page, $pageRepository, $disableGroupAccessCheck);
+        }
 
         $languageCapability = $this->tcaSchemaFactory->get('pages')->getCapability(TcaSchemaCapability::Language);
         $languageField = $languageCapability->getLanguageField()->getName();
@@ -503,8 +575,10 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         if (empty($languageParentPage)) {
             return $page;
         }
-        // Check for the shortcut of the default-language page
-        $languageParentPage = $this->resolveShortcutPage($languageParentPage, $pageRepository, $disableGroupAccessCheck);
+        if ($followLinks) {
+            // Check for the shortcut of the default-language page
+            $languageParentPage = $this->resolveShortcutPage($languageParentPage, $pageRepository, $disableGroupAccessCheck);
+        }
 
         // Set the "pageuid" to the default-language page ID.
         $linkDetails['pageuid'] = (int)$languageParentPage['uid'];
@@ -518,8 +592,10 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
     protected function resolveShortcutPage(array $page, PageRepository $pageRepository, bool $disableGroupAccessCheck): array
     {
         try {
-            $page = $pageRepository->resolveShortcutPage($page, false, $disableGroupAccessCheck);
-        } catch (\Exception $e) {
+            $page = $pageRepository->resolveShortcutPage($page, $disableGroupAccessCheck);
+            $page = $pageRepository->resolveLinkPage($page, $disableGroupAccessCheck);
+        } catch (PageNotFoundException|LinkedPageNotResolvableException|CircularPageReferenceChainException|PageReferenceResolvingReachedIterationLimitException|ShortcutTargetPageNotFoundException $e) {
+            $this->logger->warning($e->getMessage(), ['Exception' => $e]);
             // Keep the existing page record if shortcut could not be resolved
         }
         return $page;
@@ -580,7 +656,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
 
         $targetPageId = (int)($page['l10n_parent'] > 0 ? $page['l10n_parent'] : $page['uid']);
         $queryParameters['_language'] = $siteLanguageOfTargetPage;
-        $pageObject = new Page($page);
+        $pageObject = $this->recordFactory->createFromDatabaseRow('pages', $page);
 
         if ($fragment
             && $useAbsoluteUrl === false
@@ -590,7 +666,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             && !($frontendTypoScriptConfigArray['baseURL'] ?? false)
             && count($queryParameters) === 1 // _language is always set
         ) {
-            $uri = (new Uri())->withFragment($fragment);
+            $uri = new Uri()->withFragment($fragment);
         } else {
             try {
                 $uri = $siteOfTargetPage->getRouter()->generateUri(
@@ -624,13 +700,21 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
     protected function getClosestMountPointValueForPage(int $pageId): string
     {
         $request = $this->contentObjectRenderer->getRequest();
-        $mountPoint = $request->getAttribute('frontend.page.information')?->getMountPoint() ?? '';
-        if (empty($GLOBALS['TYPO3_CONF_VARS']['FE']['enable_mount_pids']) || !$mountPoint) {
+        $pageInformation = $request->getAttribute('frontend.page.information');
+        if (!$pageInformation instanceof PageInformation) {
+            return '';
+        }
+        $mountPoint = $pageInformation->getMountPoint();
+        if (empty($GLOBALS['TYPO3_CONF_VARS']['FE']['enable_mount_pids']) || $mountPoint === '') {
             return '';
         }
         // Same page as current.
-        if (($request->getAttribute('frontend.page.information')?->getId() ?? 0) === $pageId) {
+        if ($pageInformation->getId() === $pageId) {
             return $mountPoint;
+        }
+        $localRootLine = $pageInformation->getLocalRootLine();
+        if ($localRootLine === []) {
+            return '';
         }
 
         // Find the closest mount point
@@ -638,9 +722,9 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         try {
             $tCR_rootline = GeneralUtility::makeInstance(RootlineUtility::class, $pageId)->get();
         } catch (RootLineException) {
-            $tCR_rootline = [];
+            return '';
         }
-        $localRootLine = $request->getAttribute('frontend.page.information')?->getLocalRootLine() ?? [];
+
         $inverseLocalRootLine = array_reverse($localRootLine);
         $rl_mpArray = [];
         $startMPaccu = false;
@@ -746,11 +830,10 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
         if ($id <= 0) {
             return;
         }
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
         // First level, check id
         if (!$level) {
             // Find mount point if any:
-            $mount_info = $pageRepository->getMountPointInfo($id);
+            $mount_info = $this->pageRepository->getMountPointInfo($id);
             // Overlay mode:
             if (is_array($mount_info) && $mount_info['overlay']) {
                 $MP_array[] = $mount_info['MPvar'];
@@ -788,7 +871,7 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
                 // Find mount point if any:
                 $next_id = (int)$row['uid'];
                 $next_MP_array = $MP_array;
-                $mount_info = $pageRepository->getMountPointInfo($next_id, $row);
+                $mount_info = $this->pageRepository->getMountPointInfo($next_id, $row);
                 // Overlay mode:
                 if (is_array($mount_info) && $mount_info['overlay']) {
                     $next_MP_array[] = $mount_info['MPvar'];
@@ -840,14 +923,24 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
             $currentQueryArray = array_replace_recursive($pageArguments->getQueryArguments(), $currentQueryArray);
         }
         if ($configuration['exclude'] ?? false) {
-            $excludeItems = array_map(urlencode(...), GeneralUtility::trimExplode(',', $configuration['exclude']));
-            $excludeString = implode('&', $excludeItems);
-            parse_str($excludeString, $excludedQueryParts);
-            $newQueryArray = ArrayUtility::arrayDiffKeyRecursive($currentQueryArray, $excludedQueryParts);
+            $newQueryArray = $this->excludeQueryParameters($currentQueryArray, (string)$configuration['exclude']);
         } else {
             $newQueryArray = $currentQueryArray;
         }
         return HttpUtility::buildQueryString($newQueryArray, '&');
+    }
+
+    /**
+     * Removes the query parameters listed in "addQueryString.exclude" from a set of query
+     * parameters taken from the current request.
+     *
+     * @param string $exclude Comma separated list of parameter names, e.g. "L,print" or "tx_ext[foo]"
+     */
+    protected function excludeQueryParameters(array $queryParameters, string $exclude): array
+    {
+        $excludeItems = array_map(urlencode(...), GeneralUtility::trimExplode(',', $exclude));
+        parse_str(implode('&', $excludeItems), $excludedQueryParts);
+        return ArrayUtility::arrayDiffKeyRecursive($queryParameters, $excludedQueryParts);
     }
 
     /**
@@ -878,30 +971,22 @@ class PageLinkBuilder extends AbstractTypolinkBuilder implements TypolinkBuilder
      */
     protected function buildPageRepository(?LanguageAspect $languageAspect = null): PageRepository
     {
-        // clone global context object (singleton)
-        $context = clone GeneralUtility::makeInstance(Context::class);
-        $context->setAspect('language', $languageAspect ?? new LanguageAspect());
-        return GeneralUtility::makeInstance(PageRepository::class, $context);
+        return $this->pageRepository->withLanguageAspect($languageAspect ?? new LanguageAspect());
     }
 
-    protected function sendCacheTagEvent(array $page): void
+    protected function addPageCacheTag(ServerRequestInterface $request, array $pageRecord): void
     {
         if ($this->features->isFeatureEnabled('frontend.cache.autoTagging')) {
-            $lifetime = $this->getPageCacheTimeout($page);
-            $this->eventDispatcher->dispatch(
-                new AddCacheTagEvent(
-                    new CacheTag(sprintf('pages_%s', $page['uid']), $lifetime)
-                )
+            $lifetime = $this->cacheLifetimeCalculator->calculateLifetimeForPage(
+                $pageRecord['uid'],
+                $pageRecord,
+                $request->getAttribute('frontend.typoscript')?->getConfigArray() ?? [],
+                GeneralUtility::makeInstance(Context::class)
+            );
+            $request->getAttribute('frontend.cache.collector')?->addCacheTags(
+                new CacheTag(sprintf('pages_%s', $pageRecord['uid']), $lifetime)
             );
         }
-    }
-
-    /**
-     * Get the cache lifetime for the given page record.
-     */
-    protected function getPageCacheTimeout(array $record): int
-    {
-        return $this->cacheLifetimeCalculator->calculateLifetimeForRow('pages', $record);
     }
 
     /**

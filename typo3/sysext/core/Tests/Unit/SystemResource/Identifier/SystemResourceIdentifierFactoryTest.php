@@ -1,0 +1,202 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+
+namespace TYPO3\CMS\Core\Tests\Unit\SystemResource\Identifier;
+
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Package\PackageInterface;
+use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Package\Resource\ResourceCollection;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolveSystemResourceIdentifierException;
+use TYPO3\CMS\Core\SystemResource\Exception\InvalidSystemResourceIdentifierException;
+use TYPO3\CMS\Core\SystemResource\Identifier\FalResourceIdentifier;
+use TYPO3\CMS\Core\SystemResource\Identifier\PackageResourceIdentifier;
+use TYPO3\CMS\Core\SystemResource\Identifier\SystemResourceIdentifierFactory;
+use TYPO3\CMS\Core\SystemResource\Identifier\UriResourceIdentifier;
+use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
+
+final class SystemResourceIdentifierFactoryTest extends UnitTestCase
+{
+    public static function correctIdentifierCreatedFromStringDataProvider(): \Generator
+    {
+        yield 'EXT: syntax' => [
+            'EXT:core/Resources/Public/Icons/Extension.svg',
+            PackageResourceIdentifier::class,
+            'PKG:typo3/cms-core:Resources/Public/Icons/Extension.svg',
+            'core',
+        ];
+        yield 'EXT: syntax with fragment' => [
+            'EXT:core/Resources/Public/Icons/Extension.svg#fragment',
+            PackageResourceIdentifier::class,
+            'PKG:typo3/cms-core:Resources/Public/Icons/Extension.svg#fragment',
+            'core',
+        ];
+        yield 'PKG: syntax' => [
+            'PKG:typo3/cms-core:Resources/Public/Icons/Extension.svg',
+            PackageResourceIdentifier::class,
+        ];
+        yield 'FAL: syntax' => [
+            'FAL:1:/identifier/of/file.ext',
+            FalResourceIdentifier::class,
+        ];
+        yield 'Absolute URL' => [
+            'https://example.com/foo/bar/',
+            UriResourceIdentifier::class,
+        ];
+        yield 'Absolute URL without protocol' => [
+            '//example.com/foo/bar/',
+            UriResourceIdentifier::class,
+        ];
+        yield 'Absolute URL with prefix' => [
+            'URI:https://example.com/foo/bar/',
+            UriResourceIdentifier::class,
+            'https://example.com/foo/bar/',
+        ];
+        yield 'Root path URI' => [
+            'URI:/foo/bar/',
+            UriResourceIdentifier::class,
+        ];
+        yield 'Relative path URI' => [
+            'URI:foo/bar/',
+            UriResourceIdentifier::class,
+        ];
+    }
+
+    #[DataProvider('correctIdentifierCreatedFromStringDataProvider')]
+    #[Test]
+    public function correctIdentifierCreatedFromString(string $potentialIdentifier, string $expectedClass, ?string $expectedNormalizedIdentifier = null, string $packageKey = 'core'): void
+    {
+        $packageManager = $this->createMock(PackageManager::class);
+        $packageManager
+            ->expects($this->atMost(PHP_INT_MAX))
+            ->method('extractPackageKeyFromPackagePath')
+            ->with($potentialIdentifier)
+            ->willReturn($packageKey);
+        $package = $this->createMock(PackageInterface::class);
+        $package
+            ->expects($this->atMost(PHP_INT_MAX))
+            ->method('getValueFromComposerManifest')
+            ->with('name')
+            ->willReturn('typo3/cms-' . $packageKey);
+        $package
+            ->method('getResources')
+            ->willReturn(new ResourceCollection());
+        $packageManager
+            ->method('getPackage')
+            ->willReturn($package);
+
+        $subject = new SystemResourceIdentifierFactory($packageManager);
+        $identifier = $subject->create($potentialIdentifier);
+        self::assertInstanceOf($expectedClass, $identifier);
+        self::assertSame($expectedNormalizedIdentifier ?? $potentialIdentifier, (string)$identifier);
+    }
+
+    public static function invalidIdentifierThrowsExceptionDataProvider(): \Generator
+    {
+        yield 'EXT prefix without colon' => [
+            'EXTxcore/Resources/Public/Icons/Extension.svg',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+        yield 'PKG: syntax, leading slash' => [
+            'PKG:typo3/cms-core:/Resources/Public/Icons/Extension.svg',
+        ];
+        yield 'PKG: back path' => [
+            'PKG:typo3/cms-core:Resources/../../../../../../etc/passwd',
+        ];
+        yield 'PKG prefix without colon' => [
+            'PKGxtypo3/cms-core:Resources/Public/Icons/Extension.svg',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+        yield 'FAL: syntax, storage not int' => [
+            'FAL:fileadmin:/identifier/of/file.ext',
+        ];
+        yield 'FAL: syntax, too few colons' => [
+            'FAL:1/identifier/of/file.ext',
+        ];
+        yield 'FAL: syntax, too many colons' => [
+            'FAL:1:/identifier/of/file:ext',
+        ];
+        yield 'FAL prefix without colon' => [
+            'FALx1:/identifier/of/file.ext',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+        yield 'URI: with following invalid URI' => [
+            'URI:1:/identifier/of/file:ext',
+        ];
+        yield 'URI: with following valid package identifier' => [
+            'URI:PKG:typo3/cms-core:Resources/Public/Icons/Extension.svg',
+        ];
+        yield 'URI: with following valid EXT identifier' => [
+            'URI:EXT:core/Resources/Public/Icons/Extension.svg#fragment',
+        ];
+        yield 'URI: with "invalid" scheme' => [
+            'file://my/path/to/file',
+        ];
+        yield 'URI prefix without colon' => [
+            'URIxfileadmin/path/file.ext',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+        yield 'relative path' => [
+            'fileadmin/templates/main.css',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+        yield 'pseudo random string' => [
+            'asdnnasdnoweoncsaasdncsasd',
+            CanNotResolveSystemResourceIdentifierException::class,
+        ];
+    }
+
+    #[DataProvider('invalidIdentifierThrowsExceptionDataProvider')]
+    #[Test]
+    public function invalidIdentifierThrowsException(string $potentialIdentifier, string $expectedException = InvalidSystemResourceIdentifierException::class): void
+    {
+        $this->expectException($expectedException);
+        $packageManager = self::createStub(PackageManager::class);
+        $subject = new SystemResourceIdentifierFactory($packageManager);
+        $subject->create($potentialIdentifier);
+    }
+
+    #[Test]
+    public function createFromPackagePathReturnsIdentifier(): void
+    {
+        $packageManager = $this->createMock(PackageManager::class);
+        $package = $this->createMock(PackageInterface::class);
+        $package
+            ->expects($this->atMost(PHP_INT_MAX))
+            ->method('getValueFromComposerManifest')
+            ->with('name')
+            ->willReturn('typo3/cms-core');
+        $package
+            ->method('getResources')
+            ->willReturn(new ResourceCollection());
+        $packageManager
+            ->expects($this->atMost(PHP_INT_MAX))
+            ->method('getPackage')
+            ->with('core')
+            ->willReturn($package);
+
+        $subject = new SystemResourceIdentifierFactory($packageManager);
+        $identifier = $subject->createFromPackagePath(
+            'core',
+            'Resources/Public/Icons/Extension.svg',
+            'core:Resources/Public/Icons/Extension.svg'
+        );
+        self::assertSame('PKG:typo3/cms-core:Resources/Public/Icons/Extension.svg', (string)$identifier);
+        self::assertSame('core:Resources/Public/Icons/Extension.svg', $identifier->givenIdentifier);
+    }
+}

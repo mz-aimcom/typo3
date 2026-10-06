@@ -17,9 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\BlogExample\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation\ORM\Cascade;
-use TYPO3\CMS\Extbase\Annotation\ORM\Lazy;
-use TYPO3\CMS\Extbase\Annotation\Validate;
+use TYPO3\CMS\Extbase\Attribute\ORM\Cascade;
+use TYPO3\CMS\Extbase\Attribute\ORM\Lazy;
+use TYPO3\CMS\Extbase\Attribute\Validate;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
 use TYPO3\CMS\Extbase\Persistence\ObjectStorage;
 
@@ -30,7 +30,7 @@ class Post extends AbstractEntity
 {
     protected ?Blog $blog = null;
 
-    #[Validate(['validator' => 'StringLength', 'options' => ['minimum' => 3, 'maximum' => 50]])]
+    #[Validate(validator: 'StringLength', options: ['minimum' => 3, 'maximum' => 50])]
     protected string $title = '';
 
     protected \DateTime $date;
@@ -43,7 +43,7 @@ class Post extends AbstractEntity
 
     protected ?Person $reviewer = null;
 
-    #[Validate(['validator' => 'StringLength', 'options' => ['minimum' => 3]])]
+    #[Validate(validator: 'StringLength', options: ['minimum' => 3])]
     protected string $content = '';
 
     /**
@@ -60,7 +60,7 @@ class Post extends AbstractEntity
      * @var ObjectStorage<Comment>
      */
     #[Lazy]
-    #[Cascade(['value' => 'remove'])]
+    #[Cascade('remove')]
     protected ObjectStorage $comments;
 
     /**
@@ -389,10 +389,10 @@ class Post extends AbstractEntity
      */
     public function __toString(): string
     {
-        return $this->title . chr(10) .
-            ' written on ' . $this->date->format('Y-m-d') . chr(10) .
-            ' by ' . $this->author->getFullName() . chr(10) .
-            wordwrap($this->content, 70, chr(10)) . chr(10) .
-            implode(', ', $this->tags->toArray());
+        return $this->title . chr(10)
+            . ' written on ' . $this->date->format('Y-m-d') . chr(10)
+            . ' by ' . $this->author->getFullName() . chr(10)
+            . wordwrap($this->content, 70, chr(10)) . chr(10)
+            . implode(', ', $this->tags->toArray());
     }
 }

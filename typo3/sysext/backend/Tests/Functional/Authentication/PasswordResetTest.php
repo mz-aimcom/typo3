@@ -20,10 +20,9 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Authentication;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LoggerTrait;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
-use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 use TYPO3\CMS\Backend\Authentication\PasswordReset;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Crypto\HashService;
@@ -31,9 +30,12 @@ use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Mail\MailerInterface;
+use TYPO3\CMS\Core\Mail\TemplatedEmailFactory;
+use TYPO3\CMS\Core\RateLimiter\RateLimiterFactory;
+use TYPO3\CMS\Core\RateLimiter\Storage\CachingFrameworkStorage;
 use TYPO3\CMS\Core\Session\SessionManager;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -122,16 +124,19 @@ final class PasswordResetTest extends FunctionalTestCase
         $subject = new PasswordReset(
             $loggerMock,
             $this->get(MailerInterface::class),
+            $this->get(TemplatedEmailFactory::class),
             new HashService(),
             new Random(),
             $this->get(ConnectionPool::class),
             new NoopEventDispatcher(),
             new PasswordHashFactory(),
             $this->get(UriBuilder::class),
-            new SessionManager(),
+            $this->get(SessionManager::class),
             $this->createRateLimiterFactory(),
         );
-        $subject->initiateReset(new ServerRequest(), new Context(), $emailAddress);
+        $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $subject->initiateReset($request, new Context(), $emailAddress);
     }
 
     #[Test]
@@ -142,7 +147,7 @@ final class PasswordResetTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordResetForAdmins'] = true;
         $GLOBALS['TYPO3_CONF_VARS']['MAIL']['transport'] = 'null';
         $emailAddress = 'duplicate@example.com';
-        $logger = new class () implements LoggerInterface {
+        $logger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -157,16 +162,22 @@ final class PasswordResetTest extends FunctionalTestCase
         $subject = new PasswordReset(
             $logger,
             $this->get(MailerInterface::class),
+            $this->get(TemplatedEmailFactory::class),
             new HashService(),
             new Random(),
             $this->get(ConnectionPool::class),
             new NoopEventDispatcher(),
             new PasswordHashFactory(),
             $this->get(UriBuilder::class),
-            new SessionManager(),
+            $this->get(SessionManager::class),
             $this->createRateLimiterFactory(),
         );
-        $subject->initiateReset(new ServerRequest(), new Context(), $emailAddress);
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        $request = new ServerRequest('https://localhost/typo3/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', $normalizedParams);
+        $subject->initiateReset($request, new Context(), $emailAddress);
         self::assertEquals('warning', $logger->records[0]['level']);
         self::assertEquals($emailAddress, $logger->records[0]['context']['email']);
     }
@@ -180,7 +191,7 @@ final class PasswordResetTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['MAIL']['transport'] = 'null';
         $emailAddress = 'editor-with-email@example.com';
         $username = 'editor-with-email';
-        $logger = new class () implements LoggerInterface {
+        $logger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -195,18 +206,21 @@ final class PasswordResetTest extends FunctionalTestCase
         $subject = new PasswordReset(
             $logger,
             $this->get(MailerInterface::class),
+            $this->get(TemplatedEmailFactory::class),
             new HashService(),
             new Random(),
             $this->get(ConnectionPool::class),
             new NoopEventDispatcher(),
             new PasswordHashFactory(),
             $this->get(UriBuilder::class),
-            new SessionManager(),
+            $this->get(SessionManager::class),
             $this->createRateLimiterFactory(),
         );
-        $uri = new Uri('https://localhost/typo3/');
-        $request = new ServerRequest($uri);
-        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        $request = new ServerRequest('https://localhost/typo3/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', $normalizedParams);
         $subject->initiateReset($request, new Context(), $emailAddress);
         self::assertEquals('info', $logger->records[0]['level']);
         self::assertEquals($emailAddress, $logger->records[0]['context']['email']);
@@ -225,16 +239,18 @@ final class PasswordResetTest extends FunctionalTestCase
         $subject = new PasswordReset(
             $loggerMock,
             $this->get(MailerInterface::class),
+            $this->get(TemplatedEmailFactory::class),
             new HashService(),
             new Random(),
             $this->get(ConnectionPool::class),
             new NoopEventDispatcher(),
             new PasswordHashFactory(),
             $this->get(UriBuilder::class),
-            new SessionManager(),
+            $this->get(SessionManager::class),
             $this->createRateLimiterFactory(),
         );
         $request = new ServerRequest();
+        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = $request->withQueryParams(['t' => 'token', 'i' => 'identity', 'e' => 13465444]);
         $subject->resetPassword($request, new Context());
         // Now with a password
@@ -254,7 +270,7 @@ final class PasswordResetTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordResetForAdmins'] = true;
         $GLOBALS['TYPO3_CONF_VARS']['MAIL']['transport'] = 'null';
         $emailAddress = 'editor-with-email@example.com';
-        $logger = new class () implements LoggerInterface {
+        $logger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -266,21 +282,29 @@ final class PasswordResetTest extends FunctionalTestCase
                 ];
             }
         };
+
+        // Flush system caches to have a clear state in case of requests affecting the rate limit test
+        $cacheManager = $this->get(CacheManager::class);
+        $cacheManager->flushCaches();
+
         $subject = new PasswordReset(
             $logger,
             $this->get(MailerInterface::class),
+            $this->get(TemplatedEmailFactory::class),
             new HashService(),
             new Random(),
             $this->get(ConnectionPool::class),
             new NoopEventDispatcher(),
             new PasswordHashFactory(),
             $this->get(UriBuilder::class),
-            new SessionManager(),
+            $this->get(SessionManager::class),
             $this->createRateLimiterFactory(),
         );
-        $uri = new Uri('https://localhost/typo3/');
-        $request = new ServerRequest($uri);
-        $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        $request = new ServerRequest('https://localhost/typo3/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', $normalizedParams);
         $subject->initiateReset($request, new Context(), $emailAddress); // 1st successful password reset
         $subject->initiateReset($request, new Context(), $emailAddress); // 2nd successful password reset
         $subject->initiateReset($request, new Context(), $emailAddress); // 3rd successful password reset
@@ -296,8 +320,8 @@ final class PasswordResetTest extends FunctionalTestCase
     private function createRateLimiterFactory(): RateLimiterFactory
     {
         return new RateLimiterFactory(
+            $this->get(CachingFrameworkStorage::class),
             ['id' => 'backend', 'policy' => 'sliding_window', 'limit' => 3, 'interval' => '30 minutes'],
-            new InMemoryStorage()
         );
     }
 }

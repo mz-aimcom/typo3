@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\Container;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\Container\PaletteAndSingleContainer;
 use TYPO3\CMS\Backend\Form\Container\SingleFieldContainer;
@@ -25,6 +26,7 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class PaletteAndSingleContainerTest extends UnitTestCase
 {
     #[Test]
@@ -33,14 +35,13 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $nodeFactoryMock = $this->createMock(NodeFactory::class);
         $singleFieldContainerMock = $this->createMock(SingleFieldContainer::class);
         $singleFieldContainerReturn = [
-            'additionalHiddenFields' => [],
             'additionalInlineLanguageLabelFiles' => [],
             'stylesheetFiles' => [],
             'javaScriptModules' => [],
             'inlineData' => [],
             'html' => 'aFieldRenderedHtml',
         ];
-        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->withAnyParameters()->willReturn($singleFieldContainerReturn);
+        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->willReturn($singleFieldContainerReturn);
 
         $labelReference = 'LLL:EXT:Resources/Private/Language/locallang.xlf:aLabel';
         $input = [
@@ -61,9 +62,9 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
             ],
         ];
 
-        $languageService = $this->createMock(LanguageService::class);
+        $languageService = self::createStub(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $backendUserAuthentication = $this->createMock(BackendUserAuthentication::class);
+        $backendUserAuthentication = self::createStub(BackendUserAuthentication::class);
         $backendUserAuthentication->method('shallDisplayDebugInformation')->willReturn(true);
         $GLOBALS['BE_USER'] = $backendUserAuthentication;
 
@@ -81,7 +82,7 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $expectedChildDataArray['renderType'] = 'singleFieldContainer';
         $expectedChildDataArray['fieldName'] = 'aField';
 
-        $nodeFactoryMock->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
+        $nodeFactoryMock->expects($this->atLeastOnce())->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
 
         $subject = new PaletteAndSingleContainer();
         $subject->injectNodeFactory($nodeFactoryMock);
@@ -98,14 +99,13 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $nodeFactoryMock = $this->createMock(NodeFactory::class);
         $singleFieldContainerMock = $this->createMock(SingleFieldContainer::class);
         $singleFieldContainerReturn = [
-            'additionalHiddenFields' => [],
             'additionalInlineLanguageLabelFiles' => [],
             'stylesheetFiles' => [],
             'javaScriptModules' => [],
             'inlineData' => [],
             'html' => 'aFieldRenderedHtml',
         ];
-        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->withAnyParameters()->willReturn($singleFieldContainerReturn);
+        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->willReturn($singleFieldContainerReturn);
 
         $labelReference = 'LLL:EXT:Resources/Private/Language/locallang.xlf:aLabel';
         $descriptionReference = 'LLL:EXT:Resources/Private/Language/locallang.xlf:aDescription';
@@ -129,9 +129,9 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
             ],
         ];
 
-        $languageService = $this->createMock(LanguageService::class);
+        $languageService = self::createStub(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $backendUserAuthentication = $this->createMock(BackendUserAuthentication::class);
+        $backendUserAuthentication = self::createStub(BackendUserAuthentication::class);
         $backendUserAuthentication->method('shallDisplayDebugInformation')->willReturn(true);
         $GLOBALS['BE_USER'] = $backendUserAuthentication;
 
@@ -149,7 +149,7 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $expectedChildDataArray['renderType'] = 'singleFieldContainer';
         $expectedChildDataArray['fieldName'] = 'aField';
 
-        $nodeFactoryMock->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
+        $nodeFactoryMock->expects($this->atLeastOnce())->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
 
         $subject = new PaletteAndSingleContainer();
         $subject->injectNodeFactory($nodeFactoryMock);
@@ -167,14 +167,13 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $nodeFactoryMock = $this->createMock(NodeFactory::class);
         $singleFieldContainerMock = $this->createMock(SingleFieldContainer::class);
         $singleFieldContainerReturn = [
-            'additionalHiddenFields' => [],
             'additionalInlineLanguageLabelFiles' => [],
             'stylesheetFiles' => [],
             'javaScriptModules' => [],
             'inlineData' => [],
             'html' => 'aFieldRenderedHtml',
         ];
-        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->withAnyParameters()->willReturn($singleFieldContainerReturn);
+        $singleFieldContainerMock->expects($this->atLeastOnce())->method('render')->willReturn($singleFieldContainerReturn);
 
         $labelReferenceFieldArray = 'LLL:EXT:Resources/Private/Language/locallang.xlf:aLabel';
         $labelReferencePaletteArray = 'LLL:EXT:Resources/Private/Language/locallang.xlf:aLabelPalette';
@@ -199,9 +198,9 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
             ],
         ];
 
-        $languageService = $this->createMock(LanguageService::class);
+        $languageService = self::createStub(LanguageService::class);
         $GLOBALS['LANG'] = $languageService;
-        $backendUserAuthentication = $this->createMock(BackendUserAuthentication::class);
+        $backendUserAuthentication = self::createStub(BackendUserAuthentication::class);
         $backendUserAuthentication->method('shallDisplayDebugInformation')->willReturn(true);
         $GLOBALS['BE_USER'] = $backendUserAuthentication;
 
@@ -219,7 +218,7 @@ final class PaletteAndSingleContainerTest extends UnitTestCase
         $expectedChildDataArray['renderType'] = 'singleFieldContainer';
         $expectedChildDataArray['fieldName'] = 'aField';
 
-        $nodeFactoryMock->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
+        $nodeFactoryMock->expects($this->atLeastOnce())->method('create')->with($expectedChildDataArray)->willReturn($singleFieldContainerMock);
 
         $subject = new PaletteAndSingleContainer();
         $subject->injectNodeFactory($nodeFactoryMock);

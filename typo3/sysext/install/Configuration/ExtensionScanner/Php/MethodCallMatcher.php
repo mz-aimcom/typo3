@@ -140,6 +140,7 @@ return [
         'maximumNumberOfArguments' => 0,
         'restFiles' => [
             'Breaking-80700-DeprecatedFunctionalityRemoved.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-75363-DeprecateFormResultCompilerJStop.rst',
         ],
     ],
@@ -508,6 +509,22 @@ return [
         'restFiles' => [
             'Breaking-80700-DeprecatedFunctionalityRemoved.rst',
             'Deprecation-73606-DeprecateIconRegistrygetDeprecationSettings.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Log\Writer\DatabaseWriter->getLogTable' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109295-DatabaseWriterSetLogTableGetLogTable.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Log\Writer\DatabaseWriter->setLogTable' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-109295-DatabaseWriterSetLogTableGetLogTable.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Core\Messaging\FlashMessage->getIconName' => [
@@ -4514,6 +4531,34 @@ return [
             'Breaking-92289-DecoupleLogicOfResourceFactoryIntoStorageRepository.rst',
         ],
     ],
+    'TYPO3\CMS\Core\Resource\ResourceFactory->getDefaultStorage' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Important-107735-InternalMethodsRemovedFromResourceFactory.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\ResourceFactory->getStorageObject' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Important-107735-InternalMethodsRemovedFromResourceFactory.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\ResourceFactory->createFolderObject' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Important-107735-InternalMethodsRemovedFromResourceFactory.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\ResourceFactory->getFileObjectByStorageAndIdentifier' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Important-107735-InternalMethodsRemovedFromResourceFactory.rst',
+        ],
+    ],
     'TYPO3\CMS\Core\Domain\Repository\PageRepository->fixVersioningPid' => [
         'numberOfMandatoryArguments' => 2,
         'maximumNumberOfArguments' => 2,
@@ -6343,6 +6388,7 @@ return [
         'maximumNumberOfArguments' => 0,
         'restFiles' => [
             'Deprecation-104223-FluidStandaloneMethods.rst',
+            'Breaking-108148-Fluid50.rst',
         ],
     ],
     'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper->registerTagAttribute' => [
@@ -6350,6 +6396,7 @@ return [
         'maximumNumberOfArguments' => 5,
         'restFiles' => [
             'Deprecation-104223-FluidStandaloneMethods.rst',
+            'Breaking-108148-Fluid50.rst',
         ],
     ],
     'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper->overrideArgument' => [
@@ -6357,6 +6404,15 @@ return [
         'maximumNumberOfArguments' => 6,
         'restFiles' => [
             'Deprecation-104463-FluidStandaloneOverrideArgument.rst',
+            'Breaking-108148-Fluid50.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Authentication\BackendUserAuthentication->returnWebmounts' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-104607-BackendUserAuthenticationReturnWebmounts.rst',
+            'Breaking-105377-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Fluid\View\TemplatePaths->fillDefaultsByPackageName' => [
@@ -6437,6 +6493,7 @@ return [
         'maximumNumberOfArguments' => 4,
         'restFiles' => [
             'Deprecation-107287-FileCollectionRegistryAddTypeToTCA.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
         ],
     ],
     'TYPO3\CMS\Backend\RecordList\DatabaseRecordList->renderListRow' => [
@@ -6521,6 +6578,492 @@ return [
         'maximumNumberOfArguments' => 0,
         'restFiles' => [
             'Breaking-107507-RemovedExtformAbstractFinisher-getTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Event\AfterCacheableContentIsGeneratedEvent->getController' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107578-EventAfterCacheableContentIsGeneratedEventChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Event\ShouldUseCachedPageDataIfAvailableEvent->getController' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Event\AfterCachedPageIsPersistedEvent->getController' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\DocHeaderComponent->setMetaInformation' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-107813-DeprecateMetaInformationAPI.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\DocHeaderComponent->setMetaInformationForResource' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-107813-DeprecateMetaInformationAPI.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeGenericButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeInputButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeSplitButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeDropDownButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeLinkButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeFullyRenderedButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeShortcutButton' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\ButtonBar->makeButton' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\Menu\Menu->makeMenuItem' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\Template\Components\MenuRegistry->makeMenu' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-107823-ButtonBarMakeMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Index\ExtractorRegistry->registerExtractionService' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-107783-RemovedRegisterExtractionService.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Imaging\GraphicalFunctions->gif_or_jpg' => [
+        'numberOfMandatoryArguments' => 3,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Deprecation-93981-GraphicalFunctionsGifOrJpg.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\Event\ModifyRecordListRecordActionsEvent->getActions' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107884-ReworkActionsToUseButtonsAPI.rst',
+        ],
+    ],
+    'TYPO3\CMS\Backend\RecordList\Event\ModifyRecordListRecordActionsEvent->setActions' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-107884-ReworkActionsToUseButtonsAPI.rst',
+        ],
+    ],
+    'TYPO3\CMS\Filelist\Event\ProcessFileListActionsEvent->getActionItems' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-107884-ReworkActionsToUseButtonsAPI.rst',
+        ],
+    ],
+    'TYPO3\CMS\Filelist\Event\ProcessFileListActionsEvent->setActionItems' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-107884-ReworkActionsToUseButtonsAPI.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->disableConcatenateCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->enableConcatenateCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getConcatenateCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->disableCompressCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->enableCompressCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getCompressCss' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->disableConcatenateJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->enableConcatenateJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getConcatenateJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->disableCompressJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->enableCompressJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getCompressJavascript' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Page\CacheHashCalculator->setConfiguration' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-108277-RemoveSuperfluousCacheHashCalculatorPublicMethods.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Page\CacheHashConfiguration->with' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-108277-RemoveSuperfluousCacheHashCalculatorPublicMethods.rst',
+        ],
+    ],
+    'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper->isValidType' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-108148-Fluid50.rst',
+        ],
+    ],
+    'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper->getFirstElementOfNonEmpty' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-108148-Fluid50.rst',
+        ],
+    ],
+    'TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper->validateArguments' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-108148-Fluid50.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Authentication\BackendUserAuthentication->recordEditAccessInternals' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 5,
+        'restFiles' => [
+            'Deprecation-108568-BackendUserAuthenticationRecordEditAccessInternals.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry->addAllowedRecordTypes' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Deprecation-108557-TCAOptionAllowedRecordTypesForPageTypes.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry->doesDoktypeOnlyAllowSpecifiedRecordTypes' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-108557-TCAOptionAllowedRecordTypesForPageTypes.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->addInlineLanguageDomain' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-108963-DeprecatePageRenderer-addInlineLanguageDomain.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getDocType' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getHtmlTag' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getHeadTag' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getFavIcon' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getIconMimeType' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getTemplateFile' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getMoveJsFromHeaderToFooter' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getBodyContent' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getInlineLanguageLabels' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getInlineLanguageLabelFiles' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->getMetaTag' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Page\PageRenderer->removeMetaTag' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Deprecation-109329-PageRendererGetMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->readFlexformIntoConf' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 3,
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Rendering\RendererRegistry->registerRendererClass' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-110277-FileRendererRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\Rendering\RendererRegistry->getRendererInstances' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-110277-FileRendererRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->setCorrelationId' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Deprecation-110285-DataHandlerSetCorrelationId.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\TextExtraction\TextExtractorRegistry->registerTextExtractor' => [
+        'numberOfMandatoryArguments' => 1,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-110286-TextExtractorRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Resource\TextExtraction\TextExtractorRegistry->getTextExtractorInstances' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-110286-TextExtractorRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry->registerManager' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 4,
+        'restFiles' => [
+            'Breaking-110287-MetaTagManagerRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry->removeAllManagers' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Breaking-110287-MetaTagManagerRegistrationAndInterfaceChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory->registerMenuType' => [
+        'numberOfMandatoryArguments' => 2,
+        'maximumNumberOfArguments' => 2,
+        'restFiles' => [
+            'Breaking-110485-MenuContentObjectRegistrationChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\Menu\MenuContentObjectFactory->getMenuObjectByType' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 1,
+        'restFiles' => [
+            'Breaking-110485-MenuContentObjectRegistrationChanged.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Console\CommandRegistry->getSchedulableCommands' => [
+        'numberOfMandatoryArguments' => 0,
+        'maximumNumberOfArguments' => 0,
+        'restFiles' => [
+            'Deprecation-110477-CommandRegistryGetSchedulableCommands.rst',
         ],
     ],
     /** Note (leave this at the bottom):

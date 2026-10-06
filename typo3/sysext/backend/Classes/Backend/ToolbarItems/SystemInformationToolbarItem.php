@@ -70,13 +70,9 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
      * @param string $module The associated module
      * @param string $params Query string with additional parameters
      */
-    public function addSystemMessage($text, $status = InformationStatus::OK, $count = 0, $module = '', $params = ''): void
+    public function addSystemMessage($text, InformationStatus $status = InformationStatus::OK, $count = 0, $module = '', $params = ''): void
     {
         $this->systemMessageTotalCount += $count;
-
-        if (!$status instanceof InformationStatus) {
-            $status = InformationStatus::OK;
-        }
 
         // define the severity for the badge
         if ($status->isGreaterThan($this->highestSeverity)) {
@@ -101,12 +97,8 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
      * @param string $iconIdentifier The icon identifier
      * @param InformationStatus $status The status of this system information
      */
-    public function addSystemInformation($title, $value, $iconIdentifier, $status = InformationStatus::NOTICE): void
+    public function addSystemInformation($title, $value, $iconIdentifier, InformationStatus $status = InformationStatus::NOTICE): void
     {
-        if (!$status instanceof InformationStatus) {
-            $status = InformationStatus::OK;
-        }
-
         $this->systemInformation[] = [
             'title' => $title,
             'value' => $value,
@@ -172,7 +164,7 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
      */
     public function getIndex(): int
     {
-        return 75;
+        return 30;
     }
 
     /**
@@ -206,9 +198,9 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
     {
         $this->systemInformation[] = [
             'title' => 'LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.installationMethod',
-            'value' => Environment::isComposerMode() ?
-                $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.installationMethod.composer') :
-                $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.installationMethod.classic'),
+            'value' => Environment::isComposerMode()
+                ? $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.installationMethod.composer')
+                : $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.installationMethod.classic'),
             'iconIdentifier' => 'actions-package',
         ];
     }
@@ -262,7 +254,7 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
                 'title' => 'LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.database',
                 'titleAddition' => $connectionName,
                 'value' => $serverVersion,
-                'status' => $success ?: InformationStatus::WARNING->value,
+                'status' => $success ? InformationStatus::NOTICE->value : InformationStatus::ERROR->value,
                 'iconIdentifier' => 'information-database',
             ];
         }
@@ -274,7 +266,7 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
         $this->systemInformation[] = [
             'title' => 'LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.applicationcontext',
             'value' => (string)$applicationContext,
-            'status' => $applicationContext->isProduction() ? InformationStatus::OK->value : InformationStatus::WARNING->value,
+            'status' => $applicationContext->isProduction() ? InformationStatus::NOTICE->value : InformationStatus::WARNING->value,
             'iconIdentifier' => 'information-application-context',
         ];
     }
@@ -295,9 +287,14 @@ class SystemInformationToolbarItem implements ToolbarItemInterface, RequestAware
             return;
         }
 
-        $revision = trim(CommandUtility::exec('git rev-parse --short HEAD'));
-        $branch = trim(CommandUtility::exec('git rev-parse --abbrev-ref HEAD'));
-        if (!empty($revision) && !empty($branch)) {
+        $revision = CommandUtility::exec('git rev-parse --short HEAD');
+        $branch = CommandUtility::exec('git rev-parse --abbrev-ref HEAD');
+        if ($revision === false || $branch === false) {
+            return;
+        }
+        $revision = trim($revision);
+        $branch = trim($branch);
+        if ($revision !== '' && $branch !== '') {
             $this->systemInformation[] = [
                 'title' => 'LLL:EXT:backend/Resources/Private/Language/locallang_toolbar.xlf:toolbarItems.sysinfo.gitrevision',
                 'value' => sprintf('%s [%s]', $revision, $branch),

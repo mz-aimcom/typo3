@@ -85,10 +85,25 @@ class GraphicalFunctions
      * Due to 'avif' still missing support with GraphicsMagick (https://sourceforge.net/p/graphicsmagick/feature-requests/64/),
      * this is not enabled by default. But if availability is detected, it is automatically appended to $webImageExt.
      * Also, system maintainers can add this format to $GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'].
+     * Please note, this array is populated in the constructor.
      *
      * @var list<non-empty-string>
      */
-    protected array $imageFileExt = ['gif', 'jpg', 'jpeg', 'png', 'tif', 'bmp', 'tga', 'pcx', 'ai', 'pdf', 'webp'];
+    protected array $imageFileExt = [];
+
+    /**
+     * Will hold the lookup map of "originalFileExtension" -> "processedFileExtension" according
+     * to the parsed interpretation of $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats']
+     * within the constructor.
+     * @var array<string, string> $defaultImagePreview
+     */
+    protected array $defaultImagePreview = [];
+
+    /**
+     * Last resort fallback when the $defaultImagePreview array does not match an entry, or when
+     * $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] specifies a fallback (via constructor).
+     */
+    protected string $defaultImagePreviewFallback = 'png';
 
     /**
      * Web image extensions (can be shown by a webbrowser)
@@ -175,13 +190,6 @@ class GraphicalFunctions
     protected string $im5fx_sharpenSteps = '1x2,2x2,3x2,2x3,3x3,4x3,3x4,4x4,4x5,5x5';
 
     /**
-     * This is the limit for the number of pixels in an image before it will be rendered as JPG instead of GIF/PNG
-     *
-     * @var int<1, max>
-     */
-    protected int $pixelLimitGif = 10000;
-
-    /**
      * @var int<1, 100>
      */
     protected int $jpegQuality = 85;
@@ -232,6 +240,33 @@ class GraphicalFunctions
         }
         // Secures that images are not scaled up.
         $this->mayScaleUp = (bool)$gfxConf['processor_allowUpscaling'];
+
+        // Set up default image preview processing formats
+        $map = $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] ?? [];
+        if (!is_array($map)) {
+            $map = [];
+        }
+        // For now only a single file extension is supported as a target format
+        // ([$originalFileExtension => $processedFileExtension]). Maybe in the future,
+        // multiple ones can be specified to indicate fallbacks when certain
+        // formats are not available, or allow to configure things like
+        // "if X amount of pixels, use format A, else format B".
+        // Filter the configuration array: Remove non-string entries, evaluate default
+        // $defaultImagePreviewFallback (if set), populate $defaultImagePreview.
+        array_walk($map, function ($mapProcessedFileExtension, $mapOriginalFileExtension) {
+            if (!is_string($mapProcessedFileExtension)) {
+                return;
+            }
+
+            $mapOriginalFileExtension = trim($mapOriginalFileExtension);
+            $mapProcessedFileExtension = trim($mapProcessedFileExtension);
+
+            if ($mapOriginalFileExtension === 'default') {
+                $this->defaultImagePreviewFallback = $mapProcessedFileExtension;
+            } else {
+                $this->defaultImagePreview[$mapOriginalFileExtension] = $mapProcessedFileExtension;
+            }
+        });
     }
 
     /**
@@ -357,17 +392,20 @@ class GraphicalFunctions
             } else {
                 $useFallback = true;
             }
-        } elseif ($targetFileExtension === 'avif' && !$this->avifSupportAvailable()) {
+        } elseif (
+            ($targetFileExtension === 'avif' && !$this->avifSupportAvailable())
+            || ($targetFileExtension === 'webp' && !$this->webpSupportAvailable())
+        ) {
             // Outside the "web-compatible" case above, we also need to check if a
             // specific output format can be written.
-            // For now, only AVIF has special support check handling.
+            // For now, only AVIF+WEBP has special support check handling.
             $useFallback = true;
         }
         if ($useFallback) {
             // Note that this may change the expected targetFileExtension from something like ".avif" to ".jpg".
             // This is evaluated further on in LocalCropScaleMaskHelper->processWithLocalFile() and the
             // processed filename will be altered accordingly.
-            $targetFileExtension = $this->gif_or_jpg($originalFileExtension, $info->getWidth(), $info->getHeight());
+            $targetFileExtension = $this->determineDefaultProcessingFileExtension($originalFileExtension);
         }
         if (!in_array($targetFileExtension, $this->imageFileExt, true)) {
             return null;
@@ -404,7 +442,7 @@ class GraphicalFunctions
         $command = '';
         if ($processingInstructions->cropArea) {
             $cropArea = $processingInstructions->cropArea;
-            $command .= ' -crop ' . $cropArea->getWidth() . 'x' . $cropArea->getHeight() . '+' . $cropArea->getOffsetLeft() . '+' . $cropArea->getOffsetTop() . '! +repage ';
+            $command .= ' -crop ' . (int)round($cropArea->getWidth()) . 'x' . (int)round($cropArea->getHeight()) . '+' . (int)round($cropArea->getOffsetLeft()) . '+' . (int)round($cropArea->getOffsetTop()) . '! +repage ';
         }
 
         // Start with the default scale command
@@ -459,7 +497,11 @@ class GraphicalFunctions
         GeneralUtility::mkdir_deep(Environment::getPublicPath() . '/typo3temp/assets/images/');
         $output = Environment::getPublicPath() . '/typo3temp/assets/images/' . $this->filenamePrefix . $theOutputName . '.' . $targetFileExtension;
         if ($this->dontCheckForExistingTempFile || !file_exists($output)) {
-            $this->imageMagickExec($sourceFile, $output, $command, $frame);
+            $temporaryOutput = $this->temporaryOutputPath($output);
+            $this->imageMagickExec($sourceFile, $temporaryOutput, $command, $frame);
+            if (file_exists($temporaryOutput)) {
+                rename($temporaryOutput, $output);
+            }
         }
         if (file_exists($output)) {
             // params might change some image data, so this should be calculated again
@@ -639,25 +681,46 @@ class GraphicalFunctions
             return '';
         }
         $theMask = $this->randomName() . '.png';
-        // +matte = no alpha layer in output
-        $this->imageMagickExec($mask, $theMask, '-colorspace GRAY +matte');
+        // +matte / -alpha off = no alpha layer in output
+        $noAlpha = $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] === 'ImageMagick' ? ' -alpha off ' : ' +matte ';
+        $this->imageMagickExec($mask, $theMask, '-colorspace GRAY' . $noAlpha);
 
+        $temporaryOutput = $this->temporaryOutputPath($output);
         $parameters = '-compose over'
             . ' -quality ' . $this->jpegQuality
-            . ' +matte '
+            . $noAlpha
             . ImageMagickFile::fromFilePath($input) . ' '
             . ImageMagickFile::fromFilePath($overlay) . ' '
             . ImageMagickFile::fromFilePath($theMask) . ' '
-            . CommandUtility::escapeShellArgument($output);
+            . CommandUtility::escapeShellArgument($temporaryOutput);
         $cmd = CommandUtility::imageMagickCommand('combine', $parameters);
         $this->IM_commands[] = [$output, $cmd];
         $ret = CommandUtility::exec($cmd);
+        if (file_exists($temporaryOutput)) {
+            rename($temporaryOutput, $output);
+        }
         // Change the permissions of the file
         GeneralUtility::fixPermissions($output);
         if (is_file($theMask)) {
             @unlink($theMask);
         }
         return $ret;
+    }
+
+    /**
+     * Returns a path next to $output, guaranteed not to collide with a concurrent call,
+     * ending in the same file extension - the image processor infers the output format
+     * from it. Write here, then rename() onto $output once writing has finished, so
+     * file_exists($output) is never true for a still-incomplete file.
+     */
+    protected function temporaryOutputPath(string $output): string
+    {
+        $pathInfo = pathinfo($output);
+        $temporaryName = $pathInfo['filename'] . '.' . uniqid('', true) . '.tmp';
+        if (($pathInfo['extension'] ?? '') !== '') {
+            $temporaryName .= '.' . $pathInfo['extension'];
+        }
+        return ($pathInfo['dirname'] !== '.' ? $pathInfo['dirname'] . '/' : '') . $temporaryName;
     }
 
     /**
@@ -675,8 +738,8 @@ class GraphicalFunctions
         $gfxConf = $GLOBALS['TYPO3_CONF_VARS']['GFX'] ?? [];
         // Use legacy processor_stripColorProfileCommand setting if defined, otherwise
         // use the preferred configuration option processor_stripColorProfileParameters
-        $stripColorProfileCommand = $gfxConf['processor_stripColorProfileCommand'] ??
-            implode(' ', array_map(CommandUtility::escapeShellArgument(...), $gfxConf['processor_stripColorProfileParameters'] ?? []));
+        $stripColorProfileCommand = $gfxConf['processor_stripColorProfileCommand']
+            ?? implode(' ', array_map(CommandUtility::escapeShellArgument(...), $gfxConf['processor_stripColorProfileParameters'] ?? []));
         if ($options['stripProfile'] && $stripColorProfileCommand !== '') {
             return $stripColorProfileCommand . ' ' . $parameters;
         }
@@ -691,21 +754,27 @@ class GraphicalFunctions
      ***********************************/
 
     /**
-     * Returns an image extension for an output image based on the number of pixels of the output and the file extension of the original file.
-     * For example: If the number of pixels exceeds $this->pixelLimitGif (normally 10000) then it will be a "jpg" string in return.
-     *
-     * @param string $type The file extension, lowercase.
-     * @param int $w The width of the output image.
-     * @param int $h The height of the output image.
-     * @return string The filename, either "jpg" or "png"
+     * Helper method available to all GraphicalFunctions/AbstractTask implementations, looks up the definition
+     * in $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] to see
+     * which processing output file format (file extension) should be used, based on
+     * Used in both GraphicalFunctions and ImageCropScaleMaskTask / ImagePreviewTask
+     * the file extension of the original file.
+     * @internal - Will get moved into its own service where it can be API (@todo)
      */
-    public function gif_or_jpg($type, $w, $h)
+    public function determineDefaultProcessingFileExtension(string $originalFileExtension = ''): string
     {
-        if ($type === 'ai' || $type === 'gif' || $w * $h < $this->pixelLimitGif) {
-            return 'png';
+        $map = $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] ?? [];
+
+        if (!is_array($map) || $map === [] || $originalFileExtension === '') {
+            // Should never be disabled. Last line of defense.
+            return $this->defaultImagePreviewFallback;
         }
-        // @todo Change this to allow specific fallback formats instead of hard-coded.
-        return 'jpg';
+
+        $originalFileExtension = strtolower($originalFileExtension);
+
+        // When a wanted file extension is not part of the format list, it needs to be converted to
+        // the "default" fallback format.
+        return $this->defaultImagePreview[$originalFileExtension] ?? $this->defaultImagePreviewFallback;
     }
 
     /**

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file source-language="en" target-language="pt-BR" datatype="plaintext" original="EXT:core/Resources/Private/Language/countries.xlf" product-name="typo3/cms-core">
     <body>
@@ -190,10 +190,6 @@
         <source>Bulgarian</source>
         <target>Búlgaro</target>
       </trans-unit>
-      <trans-unit id="bh" approved="yes">
-        <source>Bihari languages</source>
-        <target>Idiomas biaris</target>
-      </trans-unit>
       <trans-unit id="bho" approved="yes">
         <source>Bhojpuri</source>
         <target>Bhojpuri</target>
@@ -201,6 +197,10 @@
       <trans-unit id="bi" approved="yes">
         <source>Bislama</source>
         <target>Bislamá</target>
+      </trans-unit>
+      <trans-unit id="bih" approved="yes">
+        <source>Bihari languages</source>
+        <target>Idiomas biaris</target>
       </trans-unit>
       <trans-unit id="bik" approved="yes">
         <source>Bikol</source>
@@ -223,8 +223,8 @@
         <target>Bengali</target>
       </trans-unit>
       <trans-unit id="bnt" approved="yes">
-        <source>Bantu (Other)</source>
-        <target>Bantu (Outros)</target>
+        <source>Bantu languages</source>
+        <target>Idiomas bantos</target>
       </trans-unit>
       <trans-unit id="bo" approved="yes">
         <source>Tibetan</source>
@@ -380,7 +380,7 @@
       </trans-unit>
       <trans-unit id="cu" approved="yes">
         <source>Church Slavic; Old Slavonic; Church Slavonic; Old Bulgarian; Old Church Slavonic</source>
-        <target>Eslavo Eclesiástico; Eslavo Antigo; Eslavo Eclesiástico; Búlgaro Antigo; Eslavônico Antigo Eclesiástico</target>
+        <target>Eslavo Eclesiástico; Eslavo Antigo; Eslavo Eclesiástico; Búlgaro Antigo; Eslavo Eclesiástico Antigo</target>
       </trans-unit>
       <trans-unit id="cus" approved="yes">
         <source>Cushitic languages</source>
@@ -423,8 +423,8 @@
         <target>Slave (Atabascano)</target>
       </trans-unit>
       <trans-unit id="dgr" approved="yes">
-        <source>Dogrib</source>
-        <target>Dogrib</target>
+        <source>Tlicho; Dogrib</source>
+        <target>Tlicho; Dogrib</target>
       </trans-unit>
       <trans-unit id="din" approved="yes">
         <source>Dinka</source>
@@ -564,7 +564,7 @@
       </trans-unit>
       <trans-unit id="fro" approved="yes">
         <source>French, Old (842-ca. 1400)</source>
-        <target>Francês, antigo (842-apr. 1400)</target>
+        <target>Francês, Antigo (842-apr. 1400)</target>
       </trans-unit>
       <trans-unit id="frr" approved="yes">
         <source>Northern Frisian</source>
@@ -628,7 +628,7 @@
       </trans-unit>
       <trans-unit id="goh" approved="yes">
         <source>German, Old High (ca. 750-1050)</source>
-        <target>Alemão, medieval antigo (apr. 750-1050)</target>
+        <target>Alemão, Medieval Antigo (apr. 750-1050)</target>
       </trans-unit>
       <trans-unit id="gon" approved="yes">
         <source>Gondi</source>
@@ -1211,11 +1211,11 @@
         <target>Napolitano</target>
       </trans-unit>
       <trans-unit id="nb" approved="yes">
-        <source>Bokmål, Norwegian; Norwegian Bokmål</source>
-        <target>Norwegian Bokmål</target>
+        <source>Norwegian Bokmål</source>
+        <target>Norueguês Bokmål</target>
       </trans-unit>
       <trans-unit id="nd" approved="yes">
-        <source>Ndebele, North; North Ndebele</source>
+        <source>North Ndebele</source>
         <target>Ndebele do Norte</target>
       </trans-unit>
       <trans-unit id="nds" approved="yes">
@@ -1227,7 +1227,7 @@
         <target>Nepali</target>
       </trans-unit>
       <trans-unit id="new" approved="yes">
-        <source>Nepal Bhasa; Newari</source>
+        <source>Nepal Bhasa; Newar; Newari</source>
         <target>Nepal Bhasa; Neuari</target>
       </trans-unit>
       <trans-unit id="ng" approved="yes">
@@ -1251,7 +1251,7 @@
         <target>Holandês; Flamengo</target>
       </trans-unit>
       <trans-unit id="nn" approved="yes">
-        <source>Norwegian Nynorsk; Nynorsk, Norwegian</source>
+        <source>Norwegian Nynorsk</source>
         <target>Norueguês Nynorsk</target>
       </trans-unit>
       <trans-unit id="no" approved="yes">
@@ -1264,14 +1264,14 @@
       </trans-unit>
       <trans-unit id="non" approved="yes">
         <source>Norse, Old</source>
-        <target>Nórdico, Arcaico</target>
+        <target>Nórdico, Antigo</target>
       </trans-unit>
       <trans-unit id="nqo" approved="yes">
         <source>N'Ko</source>
         <target>N'Ko</target>
       </trans-unit>
       <trans-unit id="nr" approved="yes">
-        <source>Ndebele, South; South Ndebele</source>
+        <source>South Ndebele</source>
         <target>Ndebele do Sul</target>
       </trans-unit>
       <trans-unit id="nso" approved="yes">
@@ -1311,8 +1311,8 @@
         <target>Nzema</target>
       </trans-unit>
       <trans-unit id="oc" approved="yes">
-        <source>Occitan (post 1500); Provençal</source>
-        <target>Occitâno (pós-1500); Provençal</target>
+        <source>Occitan (post 1500)</source>
+        <target>Occitano (pós-1500)</target>
       </trans-unit>
       <trans-unit id="oj" approved="yes">
         <source>Ojibwa</source>
@@ -1372,7 +1372,7 @@
       </trans-unit>
       <trans-unit id="peo" approved="yes">
         <source>Persian, Old (ca. 600-400 B.C.)</source>
-        <target>Persa, antigo (apr. 600-400 AC)</target>
+        <target>Persa, Antigo (apr. 600-400 AC)</target>
       </trans-unit>
       <trans-unit id="phi" approved="yes">
         <source>Philippine languages</source>
@@ -1399,8 +1399,8 @@
         <target>Idiomas prácritos</target>
       </trans-unit>
       <trans-unit id="pro" approved="yes">
-        <source>Provençal, Old (to 1500)</source>
-        <target>Provençal, Arcaico (até 1500)</target>
+        <source>Provençal, Old (to 1500); Occitan, Old (to 1500)</source>
+        <target>Provençal, Arcaico (até 1500); Occitano, Arcaico (até 1500)</target>
       </trans-unit>
       <trans-unit id="ps" approved="yes">
         <source>Pushto; Pashto</source>
@@ -1475,8 +1475,8 @@
         <target>Yakut</target>
       </trans-unit>
       <trans-unit id="sai" approved="yes">
-        <source>South American Indian (Other)</source>
-        <target>Nativo Sul-Americano (Outros)</target>
+        <source>South American Indian languages</source>
+        <target>Idiomas indígenas sul-americanos</target>
       </trans-unit>
       <trans-unit id="sal" approved="yes">
         <source>Salishan languages</source>
@@ -1859,8 +1859,8 @@
         <target>Idiomas Wakashan</target>
       </trans-unit>
       <trans-unit id="wal" approved="yes">
-        <source>Walamo</source>
-        <target>Walamo</target>
+        <source>Wolaitta; Wolaytta</source>
+        <target>Wolaitta; Wolaita; Wolaytta</target>
       </trans-unit>
       <trans-unit id="war" approved="yes">
         <source>Waray</source>

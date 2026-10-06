@@ -220,27 +220,19 @@ class ExternalLinktype extends AbstractLinktype
             $this->errorParams['errorType'] = 'tooManyRedirects';
             $this->errorParams['exception'] = $e->getMessage();
             $this->errorParams['message'] = $this->getErrorMessage($this->errorParams);
-        } catch (ClientException | ServerException $e) {
+        } catch (ClientException|ServerException $e) {
             // ClientException - A GuzzleHttp\Exception\ClientException is thrown for 400 level errors if the http_errors request option is set to true.
             // ServerException - A GuzzleHttp\Exception\ServerException is thrown for 500 level errors if the http_errors request option is set to true.
-            if ($e->hasResponse()) {
-                $this->errorParams['errorType'] = self::ERROR_TYPE_HTTP_STATUS_CODE;
-                $this->errorParams['errno'] = $e->getResponse()->getStatusCode();
-            } else {
-                $this->errorParams['errorType'] = self::ERROR_TYPE_UNKNOWN;
-            }
+            $this->errorParams['errorType'] = self::ERROR_TYPE_HTTP_STATUS_CODE;
+            $this->errorParams['errno'] = $e->getResponse()->getStatusCode();
             $this->errorParams['exception'] = $e->getMessage();
             $this->errorParams['message'] = $this->getErrorMessage($this->errorParams);
-        } catch (RequestException | ConnectException $e) {
+        } catch (RequestException|ConnectException $e) {
             // RequestException - In the event of a networking error (connection timeout, DNS errors, etc.), a GuzzleHttp\Exception\RequestException is thrown.
             // Catching this exception will catch any exception that can be thrown while transferring requests.
             // ConnectException - A GuzzleHttp\Exception\ConnectException exception is thrown in the event of a networking error.
             $this->errorParams['errorType'] = self::ERROR_TYPE_LOWLEVEL_LIBCURL_ERRNO;
             $this->errorParams['exception'] = $e->getMessage();
-            $handlerContext = $e->getHandlerContext();
-            if ($handlerContext['errno'] ?? 0) {
-                $this->errorParams['errno'] = (int)($handlerContext['errno']);
-            }
             $this->errorParams['message'] = $this->getErrorMessage($this->errorParams);
         } catch (\Exception $e) {
             // Generic catch for anything else that may go wrong
@@ -381,7 +373,7 @@ class ExternalLinktype extends AbstractLinktype
                     $parts['host'] = $newDomain;
                     $url = HttpUtility::buildUrl($parts);
                 }
-            } catch (\Exception | \Throwable $e) {
+            } catch (\Throwable) {
                 // ignore error and proceed with link checking
             }
         }

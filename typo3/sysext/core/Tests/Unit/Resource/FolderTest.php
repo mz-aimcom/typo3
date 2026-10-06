@@ -20,9 +20,7 @@ namespace TYPO3\CMS\Core\Tests\Unit\Resource;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Folder;
-use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -30,10 +28,10 @@ final class FolderTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected function createFolderFixture($path, $name, $mockedStorage = null): Folder
+    private function createFolderFixture($path, $name, $mockedStorage = null): Folder
     {
         if ($mockedStorage === null) {
-            $mockedStorage = $this->createMock(ResourceStorage::class);
+            $mockedStorage = self::createStub(ResourceStorage::class);
         }
         return new Folder($mockedStorage, $path, $name);
     }
@@ -43,9 +41,9 @@ final class FolderTest extends UnitTestCase
     {
         $path = StringUtility::getUniqueId('path_');
         $name = StringUtility::getUniqueId('name_');
-        $mockedStorage = $this->createMock(ResourceStorage::class);
-        $fixture = $this->createFolderFixture($path, $name, $mockedStorage);
-        self::assertSame($mockedStorage, $fixture->getStorage());
+        $storageStub = self::createStub(ResourceStorage::class);
+        $fixture = $this->createFolderFixture($path, $name, $storageStub);
+        self::assertSame($storageStub, $fixture->getStorage());
         self::assertStringStartsWith($path, $fixture->getIdentifier());
         self::assertSame($name, $fixture->getName());
     }
@@ -117,12 +115,33 @@ final class FolderTest extends UnitTestCase
     }
 
     #[Test]
+    public function getFilesWithFilterModeNoFiltersKeepsStorageFilters(): void
+    {
+        $mockedStorage = $this->createMock(ResourceStorage::class);
+        $mockedStorage->method('getFilesInFolder')->willReturn([]);
+        $mockedStorage->expects($this->never())->method('setFileAndFolderNameFilters');
+
+        $fixture = $this->createFolderFixture('/somePath', 'someName', $mockedStorage);
+        $fixture->getFiles(0, 0, Folder::FILTER_MODE_NO_FILTERS);
+    }
+
+    #[Test]
+    public function getSubfoldersWithFilterModeNoFiltersKeepsStorageFilters(): void
+    {
+        $mockedStorage = $this->createMock(ResourceStorage::class);
+        $mockedStorage->method('getFoldersInFolder')->willReturn([]);
+        $mockedStorage->expects($this->never())->method('setFileAndFolderNameFilters');
+
+        $fixture = $this->createFolderFixture('/somePath', 'someName', $mockedStorage);
+        $fixture->getSubfolders(0, 0, Folder::FILTER_MODE_NO_FILTERS);
+    }
+
+    #[Test]
     public function getSubfolderCallsFactoryWithCorrectArguments(): void
     {
         $mockedStorage = $this->createMock(ResourceStorage::class);
         $mockedStorage->expects($this->once())->method('hasFolderInFolder')->with(self::equalTo('someSubfolder'))->willReturn(true);
 
-        $mockedFactory = $this->createMock(ResourceFactory::class);
         $folderFixture = $this->createFolderFixture(
             '/somePath/someFolder/',
             'someFolder',
@@ -134,10 +153,6 @@ final class FolderTest extends UnitTestCase
             $mockedStorage
         );
         $mockedStorage->expects($this->once())->method('getFolderInFolder')->willReturn($subfolderFixture);
-        GeneralUtility::setSingletonInstance(
-            ResourceFactory::class,
-            $mockedFactory
-        );
         self::assertEquals($subfolderFixture, $folderFixture->getSubfolder('someSubfolder'));
     }
 

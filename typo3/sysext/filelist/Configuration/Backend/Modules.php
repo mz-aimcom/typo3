@@ -7,11 +7,11 @@ use TYPO3\CMS\Filelist\Controller\FileListController;
  */
 return [
     'media_management' => [
-        'parent' => 'file',
+        'parent' => 'media',
         'access' => 'user',
         'path' => '/module/file/list',
-        'iconIdentifier' => 'module-filelist',
-        'labels' => 'LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf',
+        'iconIdentifier' => 'module-file',
+        'labels' => 'filelist.module',
         'aliases' => ['file_FilelistList'],
         'routes' => [
             '_default' => [

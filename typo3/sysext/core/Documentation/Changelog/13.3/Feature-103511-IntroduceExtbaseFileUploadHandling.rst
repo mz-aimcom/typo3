@@ -119,7 +119,7 @@ Example:
         $mimeTypeValidator = GeneralUtility::makeInstance(MimeTypeValidator::class);
         $mimeTypeValidator->setOptions(['allowedMimeTypes' => ['image/jpeg']]);
         $fileExtensionValidator = GeneralUtility::makeInstance(FileExtensionValidator::class);
-        $fileExtensionValidator->setOptions(['allowedFileExtensions' => ['jpg', 'jpeg']);
+        $fileExtensionValidator->setOptions(['allowedFileExtensions' => ['jpg', 'jpeg']]);
 
         $fileHandlingServiceConfiguration = $this->arguments->getArgument('myArgument')->getFileHandlingServiceConfiguration();
         $fileHandlingServiceConfiguration->addFileUploadConfiguration(
@@ -284,7 +284,7 @@ Example:
     public function initializeCreateAction(): void
     {
         $argument = $this->arguments->getArgument('myArgument');
-        $configuration = $argument->getFileHandlingServiceConfiguration()->getConfigurationForProperty('file');
+        $configuration = $argument->getFileHandlingServiceConfiguration()->getFileUploadConfigurationForProperty('file');
         $configuration?->setUploadFolder($this->settings['uploadFolder'] ?? '1:/fallback_folder');
     }
 
@@ -305,7 +305,7 @@ section of the :php-short:`\TYPO3\CMS\Extbase\Annotation\FileUpload` attribute:
 *   :php:`minFiles`
 *   :php:`maxFiles`
 *   :php:`fileExtension`  (for :php:`TYPO3\CMS\Extbase\Validation\Validator\FileExtensionValidator`)
-*   :php:`fileSize`  (for :php:`TYPO3\CMS\Extbase\Validation\Validator\FilesizeValidator`)
+*   :php:`fileSize`  (for :php:`TYPO3\CMS\Extbase\Validation\Validator\FileSizeValidator`)
 *   :php:`imageDimensions` (for :php:`TYPO3\CMS\Extbase\Validation\Validator\ImageDimensionsValidator`)
 *   :php:`mimeType` (for :php:`TYPO3\CMS\Extbase\Validation\Validator\MimeTypeValidator`)
 *   :php:`allowedMimeTypes` (shorthand notation for configuration option :php:`allowedMimeTypes` of the :php:`MimeTypeValidator`)

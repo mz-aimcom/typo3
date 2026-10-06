@@ -38,6 +38,9 @@ use TYPO3\CMS\Form\Domain\Configuration\ArrayProcessing\ArrayProcessor;
 use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
 use TYPO3\CMS\Form\Domain\Configuration\FlexformConfiguration\Processors\FinisherOptionGenerator;
 use TYPO3\CMS\Form\Domain\Configuration\FlexformConfiguration\Processors\ProcessorDto;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\Prototype\FormEngineDefinition;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\Prototype\PrototypeConfiguration;
+use TYPO3\CMS\Form\Domain\DTO\SearchCriteria;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Form\Mvc\Configuration\Exception\NoSuchFileException;
 use TYPO3\CMS\Form\Mvc\Configuration\Exception\ParseErrorException;
@@ -89,7 +92,7 @@ readonly class DataStructureIdentifierListener
         }
         $identifier = $event->getIdentifier();
         $currentFlexData = [];
-        if (!empty($row['pi_flexform']) && !\is_array($row['pi_flexform'])) {
+        if (!empty($row['pi_flexform']) && !is_array($row['pi_flexform'])) {
             $currentFlexData = GeneralUtility::xml2array($row['pi_flexform']);
         }
         // Add selected form value
@@ -142,7 +145,7 @@ readonly class DataStructureIdentifierListener
         if (($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface) {
             $request = $GLOBALS['TYPO3_REQUEST'];
         } else {
-            $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+            $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         }
         $this->extbaseConfigurationManager->setRequest($request);
         // @todo: Is this really needed? Isn't this event listener bound to BE only?
@@ -151,25 +154,24 @@ readonly class DataStructureIdentifierListener
             $isFrontend = true;
         }
         $typoScriptSettings = $this->extbaseConfigurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_SETTINGS, 'form');
-        $formSettings = $this->extFormConfigurationManager->getYamlConfiguration($typoScriptSettings, $isFrontend);
+        $formSettings = $this->extFormConfigurationManager->getYamlConfiguration($typoScriptSettings, $isFrontend, $isFrontend ? $request : null);
         try {
             // Add list of existing forms to drop down if we find our key in the identifier
             $formIsAccessible = false;
-            foreach ($this->formPersistenceManager->listForms($formSettings) as $form) {
-                $invalidFormDefinition = $form['invalid'] ?? false;
-                if ($form['persistenceIdentifier'] === $identifier['ext-form-persistenceIdentifier']) {
+            foreach ($this->formPersistenceManager->listForms($formSettings, new SearchCriteria()) as $formMetadata) {
+                if ($formMetadata->persistenceIdentifier === $identifier['ext-form-persistenceIdentifier']) {
                     $formIsAccessible = true;
                 }
-                if ($invalidFormDefinition) {
+                if ($formMetadata->invalid) {
                     $dataStructure['sheets']['sDEF']['ROOT']['el']['settings.persistenceIdentifier']['config']['items'][] = [
-                        'label' => $form['name'] . ' (' . $form['persistenceIdentifier'] . ')',
-                        'value' => $form['persistenceIdentifier'],
+                        'label' => $formMetadata->name . ' (' . $formMetadata->persistenceIdentifier . ')',
+                        'value' => $formMetadata->persistenceIdentifier,
                         'icon' => 'overlay-missing',
                     ];
                 } else {
                     $dataStructure['sheets']['sDEF']['ROOT']['el']['settings.persistenceIdentifier']['config']['items'][] = [
-                        'label' => $form['name'] . ' (' . $form['persistenceIdentifier'] . ')',
-                        'value' => $form['persistenceIdentifier'],
+                        'label' => $formMetadata->name . ' (' . $formMetadata->persistenceIdentifier . ')',
+                        'value' => $formMetadata->persistenceIdentifier,
                         'icon' => 'content-form',
                     ];
                 }
@@ -187,7 +189,7 @@ readonly class DataStructureIdentifierListener
             // If a specific form is selected and if finisher override is active, add finisher sheets
             if (!empty($identifier['ext-form-persistenceIdentifier']) && $formIsAccessible) {
                 $persistenceIdentifier = $identifier['ext-form-persistenceIdentifier'];
-                $formDefinition = $this->formPersistenceManager->load($persistenceIdentifier, $formSettings, []);
+                $formDefinition = $this->formPersistenceManager->load($persistenceIdentifier);
                 $translationFile = 'LLL:EXT:form/Resources/Private/Language/Database.xlf';
                 $dataStructure['sheets']['sDEF']['ROOT']['el']['settings.overrideFinishers'] = [
                     'label' => $translationFile . ':tt_content.pi_flexform.formframework.overrideFinishers',
@@ -199,7 +201,9 @@ readonly class DataStructureIdentifierListener
                 $newSheets = [];
                 if (!empty($formDefinition['finishers'])) {
                     $prototypeName = $formDefinition['prototypeName'] ?? 'standard';
-                    $prototypeConfiguration = $this->configurationService->getPrototypeConfiguration($prototypeName);
+                    $prototypeConfiguration = PrototypeConfiguration::fromArray(
+                        $this->configurationService->getPrototypeConfiguration($prototypeName)
+                    );
                     $newSheets = $this->getAdditionalFinisherSheets($persistenceIdentifier, $formDefinition, $prototypeName, $prototypeConfiguration);
                 }
                 if (empty($newSheets)) {
@@ -230,28 +234,34 @@ readonly class DataStructureIdentifierListener
      * @param string $persistenceIdentifier Current persistence identifier
      * @param array $formDefinition The form definition
      */
-    protected function getAdditionalFinisherSheets(string $persistenceIdentifier, array $formDefinition, string $prototypeName, array $prototypeConfiguration): array
+    protected function getAdditionalFinisherSheets(string $persistenceIdentifier, array $formDefinition, string $prototypeName, PrototypeConfiguration $prototypeConfiguration): array
     {
-        if (empty($prototypeConfiguration['finishersDefinition'])) {
-            return [];
-        }
         $formIdentifier = $formDefinition['identifier'];
-        $finishersDefinition = $prototypeConfiguration['finishersDefinition'];
         $sheets = ['sheets' => []];
         foreach ($formDefinition['finishers'] as $formFinisherDefinition) {
             $finisherIdentifier = $formFinisherDefinition['identifier'];
-            if (!isset($finishersDefinition[$finisherIdentifier]['FormEngine']['elements'])) {
+            $finisherDefinition = $prototypeConfiguration->finishers->get($finisherIdentifier);
+            $formEngineDefinition = $finisherDefinition?->formEngine;
+            if ($finisherDefinition === null || $formEngineDefinition === null || !$formEngineDefinition->has('elements')) {
                 continue;
             }
             $sheetIdentifier = $this->buildFlexformSheetIdentifier($persistenceIdentifier, $prototypeName, $formIdentifier, $finisherIdentifier);
-            $finishersDefinition = $this->translateFinisherDefinitionByIdentifier($finisherIdentifier, $finishersDefinition, $prototypeConfiguration);
-            $prototypeFinisherDefinition = $finishersDefinition[$finisherIdentifier];
-            $finisherLabel = $prototypeFinisherDefinition['FormEngine']['label'] ?? '';
+            $formEngineDefinitionForFlexForm = $this->translateFormEngineConfiguration(
+                $formEngineDefinition,
+                $finisherDefinition->getTranslationFiles($prototypeConfiguration->formEngine),
+            );
+            $finisherLabel = $formEngineDefinitionForFlexForm->label ?? '';
             $sheet = $this->initializeNewSheetArray($sheetIdentifier, $finisherLabel);
-            $converterDto = GeneralUtility::makeInstance(ProcessorDto::class, $finisherIdentifier, $prototypeFinisherDefinition, $formFinisherDefinition);
+            $converterDto = GeneralUtility::makeInstance(
+                ProcessorDto::class,
+                $finisherIdentifier,
+                $formEngineDefinitionForFlexForm,
+                $finisherDefinition->options,
+                $formFinisherDefinition,
+            );
             // Remove all container elements "el" from sections beforehand.
             // These should not be matched by the regex below. This greatly reduces headaches.
-            $elements = $prototypeFinisherDefinition['FormEngine']['elements'];
+            $elements = $formEngineDefinitionForFlexForm->elements;
             foreach ($elements as $key => $element) {
                 if ($element['section'] ?? false) {
                     unset($elements[$key]['el']);
@@ -317,8 +327,7 @@ readonly class DataStructureIdentifierListener
         $this->flashMessageService
             ->getMessageQueueByIdentifier('core.template.flashMessages')
             ->enqueue(
-                GeneralUtility::makeInstance(
-                    FlashMessage::class,
+                new FlashMessage(
                     sprintf(
                         $languageService->sL('LLL:EXT:form/Resources/Private/Language/Database.xlf:tt_content.preview.invalidFrameworkConfiguration.text'),
                         $identifier,
@@ -336,14 +345,11 @@ readonly class DataStructureIdentifierListener
         return md5($persistenceIdentifier . $prototypeName . $formIdentifier . $finisherIdentifier);
     }
 
-    protected function translateFinisherDefinitionByIdentifier(string $finisherIdentifier, array $finishersDefinition, array $prototypeConfiguration): array
+    protected function translateFormEngineConfiguration(FormEngineDefinition $formEngineDefinition, array $translationFiles): FormEngineDefinition
     {
-        $translationFiles = $finishersDefinition[$finisherIdentifier]['FormEngine']['translationFiles'] ?? $prototypeConfiguration['formEngine']['translationFiles'];
-        $finishersDefinition[$finisherIdentifier]['FormEngine'] = $this->translationService->translateValuesRecursive(
-            $finishersDefinition[$finisherIdentifier]['FormEngine'],
-            $translationFiles
+        return FormEngineDefinition::fromArray(
+            $this->translationService->translateValuesRecursive($formEngineDefinition->getRaw(), $translationFiles)
         );
-        return $finishersDefinition;
     }
 
     protected function getLanguageService(): LanguageService

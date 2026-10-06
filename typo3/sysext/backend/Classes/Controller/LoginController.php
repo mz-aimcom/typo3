@@ -56,9 +56,9 @@ use TYPO3\CMS\Core\View\ViewFactoryInterface;
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  * @todo: The central template rendering magic needs an overhaul: Currently, LoginProviderInterface has to
- *        be implemented, which retrieves a "prepared" view with tons of variable used by the default Layout "Login.html".
+ *        be implemented, which retrieves a "prepared" view with tons of variable used by the default Layout "Login.fluid.html".
  *        Single LoginProviderInterface then set their template path ("Login/UserPassLoginForm" in UsernamePasswordLoginProvider),
- *        which sets Login.html as layout in its template to then get its sections "loginFormFields" and "ResetPassword"
+ *        which sets Login.fluid.html as layout in its template to then get its sections "loginFormFields" and "ResetPassword"
  *        rendered. This strategy is a major mess and needs to be turned around somehow.
  *        Note there is also this BE "relogin" and "login refresh" foo with lots of attached JS magic that
  *        should either be streamlined to actually work, or (preferred) be thrown away.
@@ -113,7 +113,7 @@ readonly class LoginController
         $backendUser = $this->getBackendUserAuthentication();
         if (!empty($backendUser->user['uid'])) {
             // If BE user is logged in, redirect to backend. Also handles "refresh" foo.
-            $this->checkRedirect($request, $backendUser, $loginRefresh);
+            $this->checkRedirect($request, $loginRefresh);
         }
 
         $languageService = $this->getLanguageService();
@@ -126,11 +126,11 @@ readonly class LoginController
             $backendUser->user['lang'] = $preferredBrowserLanguage;
         }
 
-        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, useNonce: true);
+        if (($backgroundImageStyles = $this->authenticationStyleInformation->getBackgroundImageStyles($request)) !== '') {
+            $this->pageRenderer->addCssInlineBlock('loginBackgroundImage', $backgroundImageStyles, null, false, true);
         }
         if (($highlightColorStyles = $this->authenticationStyleInformation->getHighlightColorStyles()) !== '') {
-            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, useNonce: true);
+            $this->pageRenderer->addCssInlineBlock('loginHighlightColor', $highlightColorStyles, null, false, true);
         }
         $loginProviderIdentifier = $this->loginProviderResolver->resolveLoginProviderIdentifierFromRequest($request, 'be_lastLoginProvider');
         if (empty($backendUser->user['uid'])) {
@@ -181,7 +181,7 @@ readonly class LoginController
         $templateFile = $loginProvider->modifyView($request, $view);
         $content = $view->render($templateFile);
         $this->pageRenderer->setBodyContent('<body>' . $content);
-        $response = $this->pageRenderer->renderResponse();
+        $response = $this->pageRenderer->renderResponse($request);
         return $this->appendLoginProviderCookie($request, $response);
     }
 
@@ -200,7 +200,7 @@ readonly class LoginController
     /**
      * @throws PropagateResponseException
      */
-    protected function checkRedirect(ServerRequestInterface $request, BackendUserAuthentication $backendUser, bool $loginRefresh): void
+    protected function checkRedirect(ServerRequestInterface $request, bool $loginRefresh): void
     {
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
         if (!$formProtection instanceof BackendFormProtection) {
@@ -213,35 +213,27 @@ readonly class LoginController
         } else {
             $formProtection->storeSessionTokenInRegistry();
             // @todo: Consolidate RouteDispatcher::evaluateReferrer() when changing 'main' to something different
-            $tsConfigRedirectToURL = (string)($backendUser->getTSConfig()['auth.']['BE.']['redirectToURL'] ?? '');
-            if ($tsConfigRedirectToURL !== '') {
-                trigger_error(
-                    'User TSConfig auth.BE.redirectToURL has been deprecated in TYPO3 v14.0 and will be removed in v15.0.',
-                    E_USER_DEPRECATED
-                );
-            }
-
-            $redirectToURL = $tsConfigRedirectToURL ?:
-                (string)$this->uriBuilder->buildUriWithRedirect('main', [], RouteRedirect::createFromRequest($request));
+            $redirectToURL = (string)$this->uriBuilder->buildUriWithRedirect('main', [], RouteRedirect::createFromRequest($request));
             throw new PropagateResponseException(new RedirectResponse($redirectToURL, 303), 1724705833);
         }
     }
 
     /**
-     * If a login provider was chosen in the previous request, which is not the default provider,
-     * it is stored in a Cookie and appended to the HTTP Response.
+     * A login provider, which is not the primary one, is remembered in a cookie. Once the primary
+     * provider is used again, an existing cookie is expired instead of being set to the default.
      */
     protected function appendLoginProviderCookie(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
         $normalizedParams = $request->getAttribute('normalizedParams');
         $loginProviderIdentifier = $this->loginProviderResolver->resolveLoginProviderIdentifierFromRequest($request, 'be_lastLoginProvider');
-        if ($loginProviderIdentifier === $this->loginProviderResolver->getPrimaryLoginProviderIdentifier()) {
+        $isPrimaryProvider = $loginProviderIdentifier === $this->loginProviderResolver->getPrimaryLoginProviderIdentifier();
+        if ($isPrimaryProvider && !isset($request->getCookieParams()['be_lastLoginProvider'])) {
             return $response;
         }
         $cookie = new Cookie(
             'be_lastLoginProvider',
-            $loginProviderIdentifier,
-            $GLOBALS['EXEC_TIME'] + 7776000, // 90 days
+            $isPrimaryProvider ? '' : $loginProviderIdentifier,
+            $isPrimaryProvider ? 1 : $GLOBALS['EXEC_TIME'] + 7776000, // expired, or 90 days
             $this->backendEntryPointResolver->getPathFromRequest($request),
             '',
             // Use the secure option when the current request is served by a secure connection

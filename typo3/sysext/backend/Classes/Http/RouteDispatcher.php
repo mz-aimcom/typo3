@@ -21,6 +21,7 @@ use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Http\Security\ReferrerEnforcer;
 use TYPO3\CMS\Backend\Routing\Exception\InvalidRequestTokenException;
 use TYPO3\CMS\Backend\Routing\Exception\MissingRequestTokenException;
 use TYPO3\CMS\Backend\Routing\Route;
@@ -34,7 +35,6 @@ use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\Dispatcher;
 use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
-use TYPO3\CMS\Core\Http\Security\ReferrerEnforcer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -98,9 +98,6 @@ class RouteDispatcher extends Dispatcher
             return null;
         }
         $referrerFlags = GeneralUtility::trimExplode(',', $route->getOption('referrer') ?? '', true);
-        if (!in_array('required', $referrerFlags, true)) {
-            return null;
-        }
         return $this->referrerEnforcer->handle(
             $request,
             [
@@ -119,7 +116,7 @@ class RouteDispatcher extends Dispatcher
      */
     protected function assertRequestToken(ServerRequestInterface $request, Route $route): void
     {
-        if ($route->getOption('access') === 'public') {
+        if (!$route->getAccess()->requiresRequestToken()) {
             return;
         }
         $token = (string)($request->getParsedBody()['token'] ?? $request->getQueryParams()['token'] ?? '');
@@ -168,10 +165,10 @@ class RouteDispatcher extends Dispatcher
 
         $event = $this->eventDispatcher->dispatch(new SudoModeRequiredEvent($claim));
         if ($event->isVerificationRequired()) {
-            throw (new VerificationRequiredException(
+            throw new VerificationRequiredException(
                 'Sudo Mode Confirmation Required',
                 1605812020
-            ))->withClaim($claim);
+            )->withClaim($claim);
         }
     }
 }

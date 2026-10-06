@@ -17,9 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Database\Platform\Traits;
 
-use Doctrine\DBAL\Platforms\AbstractPlatform;
-use Doctrine\DBAL\Platforms\SQLitePlatform;
-use Doctrine\DBAL\Types\JsonType;
+use Doctrine\DBAL\Platforms\MariaDBPlatform;
+use Doctrine\DBAL\Platforms\MySQLPlatform;
+use Doctrine\DBAL\Types\GuidType;
 use Doctrine\DBAL\Types\Type;
 
 /**
@@ -84,9 +84,7 @@ trait GetColumnDeclarationSQLCommentTypeAwareTrait
      */
     private function addTypeCommentIfNeeded(array $column): array
     {
-        /** @var AbstractPlatform $self Needed to satisfy PHPStan */
-        $self = $this;
-        if ($this->typeRequiresCommentHint($self, $column['type'])) {
+        if ($this->typeRequiresCommentHint($column['type'])) {
             $column['comment'] .= '(DC2Type:' . Type::lookupName($column['type']) . ')';
         }
         return $column;
@@ -104,16 +102,22 @@ trait GetColumnDeclarationSQLCommentTypeAwareTrait
      * for example:
      * - https://github.com/doctrine/dbal/blob/61446f07fcb522414d6cfd8b1c3e5f9e18c579ba/src/Types/JsonType.php#L80-L95
      */
-    private function typeRequiresCommentHint(AbstractPlatform $platform, Type $type): bool
+    private function typeRequiresCommentHint(Type $type): bool
     {
         $map = [
-            SQLitePlatform::class => [
-                JsonType::class,
+            // Note: SQLite is absent by intention. The TYPO3 SQLite platform declares dedicated
+            //       `JSON` and `UUID` column types and maps them back on introspection, so no type
+            //       comment is needed - and must not be written, because SQLite cannot parse an
+            //       inline comment in `ALTER TABLE <table> ADD COLUMN <definition>`.
+            MariaDBPlatform::class => [
+                GuidType::class,
             ],
-            AbstractPlatform::class => [],
+            MySQLPlatform::class => [
+                GuidType::class,
+            ],
         ];
         foreach ($map as $platformClass => $platformTypes) {
-            if (!$platform instanceof $platformClass) {
+            if (!$this instanceof $platformClass) {
                 continue;
             }
             foreach ($platformTypes as $platformType) {

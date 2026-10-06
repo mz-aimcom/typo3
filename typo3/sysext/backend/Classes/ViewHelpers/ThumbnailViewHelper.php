@@ -20,10 +20,10 @@ namespace TYPO3\CMS\Backend\ViewHelpers;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
 use TYPO3\CMS\Core\Resource\ProcessedFile;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Service\ImageService;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper for the backend which generates an `<img>` tag with the special URI to render thumbnails deferred.
@@ -41,12 +41,10 @@ final class ThumbnailViewHelper extends AbstractTagBasedViewHelper
      */
     protected $tagName = 'img';
 
-    private ImageService $imageService;
-
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ResourceFactory $resourceFactory
+    ) {
         parent::__construct();
-        $this->imageService = GeneralUtility::makeInstance(ImageService::class);
     }
 
     public function initializeArguments(): void
@@ -67,17 +65,14 @@ final class ThumbnailViewHelper extends AbstractTagBasedViewHelper
         $this->registerArgument('context', 'string', 'context for image rendering', false, ProcessedFile::CONTEXT_IMAGEPREVIEW);
     }
 
-    /**
-     * @throws Exception
-     */
     public function render(): string
     {
         if (($this->arguments['src'] === '' && $this->arguments['image'] === null) || ($this->arguments['src'] !== '' && $this->arguments['image'] !== null)) {
-            throw new Exception('You must either specify a string src or a File object.', 1533290762);
+            throw new InvalidArgumentValueException('You must either specify a string src or a File object.', 1533290762);
         }
 
         try {
-            $image = $this->imageService->getImage((string)$this->arguments['src'], $this->arguments['image'], (bool)$this->arguments['treatIdAsReference']);
+            $image = $this->resourceFactory->resolveFileObject($this->arguments['image'] ?? (string)$this->arguments['src'], (bool)$this->arguments['treatIdAsReference']);
 
             $cropString = $this->arguments['crop'];
             if ($cropString === null && $image->hasProperty('crop') && $image->getProperty('crop')) {
@@ -97,17 +92,23 @@ final class ThumbnailViewHelper extends AbstractTagBasedViewHelper
             }
 
             if (is_callable([$image, 'getOriginalFile'])) {
-                // Get the original file from the file reference
+                // Get the original file from the file reference. Note this also switches the
+                // metadata source of the alt/title attributes read below to the original file.
                 $image = $image->getOriginalFile();
             }
 
             $processedFile = $image->process($this->arguments['context'], $processingInstructions);
+            if ($processedFile->usesOriginalFile() && !$image->isImage()) {
+                // No processor was able to create a thumbnail and the original file is not
+                // an image either, so there is nothing that could be rendered as an image.
+                return '';
+            }
             $imageUri = $processedFile->getPublicUrl();
 
             if (!$this->tag->hasAttribute('data-focus-area')) {
                 $focusArea = $cropVariantCollection->getFocusArea($cropVariant);
                 if (!$focusArea->isEmpty()) {
-                    $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($image));
+                    $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($processedFile));
                 }
             }
             $this->tag->addAttribute('src', $imageUri);

@@ -1288,4 +1288,89 @@ return [
             'Deprecation-107562-IpAnonymizationTaskConfigurationViaGlobals.rst',
         ],
     ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'scheduler\'][\'tasks\']' => [
+        'restFiles' => [
+            'Deprecation-98453-SchedulerTaskRegistrationViaSCOPTIONS.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'beforeRendering\']' => [
+        'restFiles' => [
+            'Breaking-107569-RemovedBeforeRenderingHook.rst',
+            'Feature-107569-IntroducePSR14BeforeRenderableIsRenderedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'afterInitializeCurrentPage\']' => [
+        'restFiles' => [
+            'Breaking-107566-RemovedAfterInitializeCurrentPageHook.rst',
+            'Feature-107566-IntroducePSR14AfterCurrentPageIsResolvedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'afterFormStateInitialized\']' => [
+        'restFiles' => [
+            'Breaking-109811-RemovedAfterFormStateInitializedHook.rst',
+            'Feature-109811-PSR14AfterFormStateInitializedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'afterSubmit\']' => [
+        'restFiles' => [
+            'Breaking-107568-RemovedAfterSubmitHook.rst',
+            'Feature-107568-IntroducePSR14BeforeRenderableIsValidatedEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'afterBuildingFinished\']' => [
+        'restFiles' => [
+            'Breaking-98239-RemovedAfterBuildingFinishedHook.rst',
+            'Feature-98239-IntroducePSR14AfterFormIsBuiltEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'ext/form\'][\'buildFormDefinitionValidationConfiguration\']' => [
+        'restFiles' => [
+            'Breaking-109849-RemovedBuildFormDefinitionValidationConfigurationHook.rst',
+            'Feature-109849-PSR14AfterFormDefinitionValidationConfigurationIsBuiltEvent.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'BackendLayoutDataProvider\']' => [
+        'restFiles' => [
+            'Breaking-107784-RemoveBackendLayoutDataProviderRegistrationViaGLOBALS.rst',
+            'Feature-107784-AutoconfigureBackendLayoutDataProviders.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'FE\'][\'cssConcatenateHandler\']' => [
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'FE\'][\'cssCompressHandler\']' => [
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'FE\'][\'jsConcatenateHandler\']' => [
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'FE\'][\'jsCompressHandler\']' => [
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SC_OPTIONS\'][\'t3lib/class.t3lib_div.php\'][\'minifyJavaScript\']' => [
+        'restFiles' => [
+            'Breaking-108055-RemovedPageRendererRelatedHooksAndMethods.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'EXTCONF\'][\'backend\'][\'avatarProviders\']' => [
+        'restFiles' => [
+            'Breaking-107871-RemoveBackendAvatarProviderRegistrationViaGLOBALS.rst',
+            'Feature-107871-AutoconfigureBackendAvatarProviders.rst',
+        ],
+    ],
+    '$GLOBALS[\'TYPO3_CONF_VARS\'][\'SYS\'][\'fluid\'][\'namespaces\']' => [
+        'restFiles' => [
+            'Deprecation-108524-FluidNamespacesInTYPO3_CONF_VARS.rst',
+            'Feature-108524-ConfigurationFileToRegisterGlobalFluidNamespaces.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
 ];

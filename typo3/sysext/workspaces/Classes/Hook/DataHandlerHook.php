@@ -33,6 +33,7 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\SysLog\Action\Database as DatabaseAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
+use TYPO3\CMS\Core\Type\VirtualRecord;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 use TYPO3\CMS\Workspaces\Authorization\WorkspacePublishGate;
@@ -96,7 +97,38 @@ class DataHandlerHook
      */
     public function processCmdmap($command, $table, $id, $value, &$commandIsProcessed, DataHandler $dataHandler)
     {
-        // custom command "version"
+        // Custom command "publish": Publishes a workspace record to live. In contrast to the
+        // legacy "version" command with action "swap", it is keyed by the uid of the workspace
+        // version, the live uid and the workspace are resolved from t3ver_oid and t3ver_wsid.
+        if ($command === 'publish') {
+            $commandIsProcessed = true;
+            $versionId = (int)$id;
+            $versionRecord = BackendUtility::getRecord($table, $versionId);
+            if ($versionRecord === null) {
+                // Publishing an outer element can cascade and remove the workspace versions of
+                // its children, so commands queued for them afterwards have nothing left to do.
+                return;
+            }
+            // New records (t3ver_state=NEW_PLACEHOLDER) have no t3ver_oid, they become the live
+            // record themselves when published.
+            $liveId = (int)($versionRecord['t3ver_oid'] ?: $versionId);
+            // version_swap() evaluates the workspace of the current user, which is not
+            // necessarily the workspace the record to publish lives in.
+            $backupWorkspaceId = $dataHandler->BE_USER->workspace;
+            $dataHandler->BE_USER->workspace = (int)($versionRecord['t3ver_wsid'] ?? 0);
+            $this->version_swap(
+                $table,
+                $liveId,
+                $versionId,
+                $dataHandler,
+                (string)($value['comment'] ?? ''),
+                (array)($value['notificationAlternativeRecipients'] ?? [])
+            );
+            $dataHandler->BE_USER->workspace = $backupWorkspaceId;
+            return;
+        }
+
+        // Custom command "version"
         if ($command !== 'version') {
             return;
         }
@@ -220,11 +252,12 @@ class DataHandlerHook
             $dataHandler->log($table, $id, DatabaseAction::VERSIONIZE, null, SystemLogErrorClassification::USER_ERROR, 'Attempt to set stage for record failed: {reason}', null, ['reason' => $errorCode]);
             return;
         }
-        $pageRecord = [];
         if ($table === 'pages') {
             $pageRecord = $record;
         } elseif ((int)$record['pid'] > 0) {
             $pageRecord = BackendUtility::getRecord('pages', $record['pid']) ?? [];
+        } else {
+            $pageRecord = VirtualRecord::RootPage;
         }
         if (!$dataHandler->hasPermissionToUpdate($table, $pageRecord)) {
             $dataHandler->log($table, $id, DatabaseAction::VERSIONIZE, null, SystemLogErrorClassification::USER_ERROR, 'Attempt to set stage for record failed because you do not have edit access');
@@ -248,7 +281,7 @@ class DataHandlerHook
         $workspaceId = (int)$workspaceInfo['uid'];
         // Write the stage change to history
         $historyStore = $this->getRecordHistoryStore($workspaceId, $dataHandler->BE_USER);
-        $historyStore->changeStageForRecord($table, $id, ['current' => $currentStage, 'next' => $stageId, 'comment' => $comment, 'recipients' => $notificationAlternativeRecipients]);
+        $historyStore->changeStageForRecord($table, $id, ['current' => $currentStage, 'next' => $stageId, 'comment' => $comment, 'recipients' => $notificationAlternativeRecipients], $dataHandler->getCorrelationId());
         if ((int)$workspaceInfo['stagechg_notification'] > 0) {
             $this->notificationInfo = $this->createNotificationInformation($this->notificationInfo, $workspaceInfo, $table, $id, $stageId, $comment, $notificationAlternativeRecipients);
         }
@@ -257,6 +290,7 @@ class DataHandlerHook
     /**
      * Publishing / Swapping (= switching) versions of a record
      * Version from archive (future/past, called "swap version") will get the uid of the "t3ver_oid", the official element with uid = "t3ver_oid" will get the new versions old uid. PIDs are swapped also
+     * @todo: in v16 we should rename "swapping" to "publishing" everywhere.
      *
      * @param string $table Table name
      * @param int $id UID of the online record to swap
@@ -275,11 +309,12 @@ class DataHandlerHook
         }
         // Store original live version for publish history
         $originalLiveVersion = $curVersion;
-        $pageRecord = [];
         if ($table === 'pages') {
             $pageRecord = $curVersion;
         } elseif ((int)$curVersion['pid'] > 0) {
             $pageRecord = BackendUtility::getRecord('pages', $curVersion['pid']) ?? [];
+        } else {
+            $pageRecord = VirtualRecord::RootPage;
         }
         if (!$dataHandler->hasPermissionToUpdate($table, $pageRecord)) {
             // Return early if online record editing is denied
@@ -289,7 +324,7 @@ class DataHandlerHook
         // Versioned records which contents will be moved into $curVersion
         $isNewRecord = VersionState::tryFrom($curVersion['t3ver_state'] ?? 0) === VersionState::NEW_PLACEHOLDER;
         if ($isNewRecord) {
-            if (!$dataHandler->hasPagePermission(Permission::PAGE_SHOW, $pageRecord)) {
+            if (!$dataHandler->hasPageContextPermission('pages', Permission::PAGE_SHOW, $pageRecord)) {
                 $dataHandler->log($table, $id, DatabaseAction::PUBLISH, null, SystemLogErrorClassification::USER_ERROR, 'You cannot publish a record you do not have edit and show permissions for');
                 return;
             }
@@ -318,13 +353,14 @@ class DataHandlerHook
             $dataHandler->log($table, $id, DatabaseAction::PUBLISH, null, SystemLogErrorClassification::USER_ERROR, 'Records in workspace #{workspace} can only be published when in "Publish" stage', null, ['workspace' => $workspaceId]);
             return;
         }
-        $workspaceSwapPageRecord = [];
         if ($table === 'pages') {
             $workspaceSwapPageRecord = $swapVersion;
         } elseif ((int)$swapVersion['pid'] > 0) {
             $workspaceSwapPageRecord = BackendUtility::getRecord('pages', $swapVersion['pid']) ?? [];
+        } else {
+            $workspaceSwapPageRecord = VirtualRecord::RootPage;
         }
-        if (!$dataHandler->hasPagePermission(Permission::PAGE_SHOW, $workspaceSwapPageRecord)
+        if (!$dataHandler->hasPageContextPermission($table, Permission::PAGE_SHOW, $workspaceSwapPageRecord)
             || !$dataHandler->hasPermissionToUpdate($table, $workspaceSwapPageRecord)
         ) {
             $dataHandler->log($table, $swapWith, DatabaseAction::PUBLISH, null, SystemLogErrorClassification::USER_ERROR, 'You cannot publish a record you do not have edit and show permissions for');
@@ -429,8 +465,9 @@ class DataHandlerHook
             'recipients' => $notificationAlternativeRecipients,
         ];
         $historyStore = $this->getRecordHistoryStore((int)$wsAccess['uid'], $dataHandler->BE_USER);
-        $historyStore->publishRecord($table, $id, $swapWith, $publishPayload);
+        $historyStore->publishRecord($table, $id, $swapWith, $publishPayload, $dataHandler->getCorrelationId());
 
+        // @deprecated since TYPO3 v15.0, will be removed in TYPO3 v16.0.
         $this->notificationInfo = $this->createNotificationInformation(
             $this->notificationInfo,
             $wsAccess,
@@ -568,7 +605,7 @@ class DataHandlerHook
             $dataHandler->addRemapAction(
                 $tableName,
                 (int)$liveData['uid'],
-                [$this, 'updateInlineForeignFieldSorting'],
+                $this->updateInlineForeignFieldSorting(...),
                 [(int)$liveData['uid'], $foreignTable, $liveRelations->tableArray[$foreignTable], $configuration, $dataHandler->BE_USER->workspace]
             );
         }
@@ -576,7 +613,7 @@ class DataHandlerHook
             $dataHandler->addRemapAction(
                 $tableName,
                 (int)$liveData['uid'],
-                [$this, 'updateInlineForeignFieldSorting'],
+                $this->updateInlineForeignFieldSorting(...),
                 [(int)$liveData['uid'], $foreignTable, $versionRelations->tableArray[$foreignTable], $configuration, 0]
             );
         }
@@ -632,8 +669,12 @@ class DataHandlerHook
                 'workspaceId' => $workspaceId,
                 'comment' => $comment,
                 'recipients' => $notificationAlternativeRecipients,
-            ]
+            ],
+            $dataHandler->getCorrelationId()
         );
+        // @deprecated since TYPO3 v15.0, will be removed in TYPO3 v16.0.
+        //             STAGE_PUBLISH_EXECUTE_ID usage for notifications will be replaced
+        //             with a dedicated notification mechanism for publish actions.
         $this->notificationInfo = $this->createNotificationInformation(
             $this->notificationInfo,
             $wsAccess,
@@ -768,7 +809,7 @@ class DataHandlerHook
     }
 
     /**
-     * Makes an instance for RecordHistoryStore. This is needed as DataHandler would usually trigger the setHistory()
+     * Makes an instance for RecordHistoryStore. This is needed as DataHandler collects record's history
      * but has no support for tracking "stage change" information.
      *
      * So we have to do this manually. Usually a $dataHandler->updateDB() could do this, but we use raw update statements

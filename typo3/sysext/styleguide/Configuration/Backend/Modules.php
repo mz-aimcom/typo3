@@ -1,36 +1,31 @@
 <?php
 
 use TYPO3\CMS\Styleguide\Controller\ComponentsController;
+use TYPO3\CMS\Styleguide\Controller\GraphicalFunctionsController;
 use TYPO3\CMS\Styleguide\Controller\PageTreesController;
 use TYPO3\CMS\Styleguide\Controller\StylesController;
 
 return [
     'styleguide' => [
-        'parent' => 'system',
+        'parent' => 'admin',
+        'position' => ['after' => 'system_reports'],
         'access' => 'admin',
         'workspaces' => 'live',
-        'path' => '/module/system/styleguide',
+        'path' => '/module/styleguide',
         'iconIdentifier' => 'module-styleguide',
-        'labels' => [
-            'title' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.title',
-            'shortDescription' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.shortDescription',
-            'description' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.description',
-        ],
-        'routes' => [
-            '_default' => [
-                'target' => StylesController::class . '::handleRequest',
-            ],
-        ],
+        'labels' => 'styleguide.modules.overview',
         'aliases' => ['help_styleguide'],
+        'appearance' => [
+            'dependsOnSubmodules' => true,
+        ],
+        'showSubmoduleOverview' => true,
     ],
     'styleguide_components' => [
         'parent' => 'styleguide',
         'access' => 'admin',
         'workspaces' => 'live',
-        'path' => '/module/system/styleguide/components',
-        'labels' => [
-            'title' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.components.title',
-        ],
+        'path' => '/module/styleguide/components',
+        'labels' => 'styleguide.modules.components',
         'routes' => [
             '_default' => [
                 'target' => ComponentsController::class . '::handleRequest',
@@ -41,10 +36,8 @@ return [
         'parent' => 'styleguide',
         'access' => 'admin',
         'workspaces' => 'live',
-        'path' => '/module/system/styleguide/styles',
-        'labels' => [
-            'title' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.styles.title',
-        ],
+        'path' => '/module/styleguide/styles',
+        'labels' => 'styleguide.modules.styles',
         'routes' => [
             '_default' => [
                 'target' => StylesController::class . '::handleRequest',
@@ -55,13 +48,23 @@ return [
         'parent' => 'styleguide',
         'access' => 'admin',
         'workspaces' => 'live',
-        'path' => '/module/system/styleguide/manage-page-trees',
-        'labels' => [
-            'title' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:module.configuration.pageTrees.title',
-        ],
+        'path' => '/module/styleguide/manage-page-trees',
+        'labels' => 'styleguide.modules.pagetrees',
         'routes' => [
             '_default' => [
                 'target' => PageTreesController::class . '::handleRequest',
+            ],
+        ],
+    ],
+    'styleguide_graphical_functions' => [
+        'parent' => 'styleguide',
+        'access' => 'admin',
+        'workspaces' => 'live',
+        'path' => '/module/styleguide/graphical-functions',
+        'labels' => 'styleguide.modules.graphical_functions',
+        'routes' => [
+            '_default' => [
+                'target' => GraphicalFunctionsController::class . '::handleRequest',
             ],
         ],
     ],

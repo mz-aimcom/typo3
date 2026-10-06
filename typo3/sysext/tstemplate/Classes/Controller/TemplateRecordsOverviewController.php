@@ -20,13 +20,11 @@ namespace TYPO3\CMS\Tstemplate\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Http\RedirectResponse;
-use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -64,9 +62,6 @@ class TemplateRecordsOverviewController extends AbstractTemplateModuleController
 
         $sites = $this->siteFinder->getAllSites();
         foreach ($sites as $site) {
-            if (!$site instanceof Site) {
-                continue;
-            }
             if (!$site->isTypoScriptRoot()) {
                 continue;
             }
@@ -108,8 +103,9 @@ class TemplateRecordsOverviewController extends AbstractTemplateModuleController
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->setTitle($this->getLanguageService()->sL($currentModule->getTitle()), '');
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
-        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
+        $this->addPreviewButtonToDocHeader($view, $pageRecord);
+        $this->addShortcutButtonToDocHeader($view, $currentModuleIdentifier, $pageRecord, $pageUid, $this->getLanguageService()->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_overview.xlf:typoscriptRecords.title'));
         if ($pageUid !== 0) {
             $view->makeDocHeaderModuleMenu(['id' => $pageUid]);
         }
@@ -144,22 +140,5 @@ class TemplateRecordsOverviewController extends AbstractTemplateModuleController
         // Tree node sorting by pages sorting field
         uasort($pages, static fn($a, $b) => $a['sorting'] - $b['sorting']);
         return $pages;
-    }
-
-    private function addShortcutButtonToDocHeader(ModuleTemplate $view, string $moduleIdentifier, array $pageInfo, int $pageUid): void
-    {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutTitle = sprintf(
-            '%s: %s [%d]',
-            $languageService->sL('LLL:EXT:tstemplate/Resources/Private/Language/locallang_overview.xlf:typoscriptRecords.title'),
-            BackendUtility::getRecordTitle('pages', $pageInfo),
-            $pageUid
-        );
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier($moduleIdentifier)
-            ->setDisplayName($shortcutTitle)
-            ->setArguments(['id' => $pageUid]);
-        $buttonBar->addButton($shortcutButton);
     }
 }

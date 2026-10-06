@@ -15,10 +15,12 @@
 
 namespace TYPO3\CMS\Core\Resource\Rendering;
 
+use TYPO3\CMS\Core\Attribute\AsFileRenderer;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
+#[AsFileRenderer]
 class VideoTagRenderer implements FileRendererInterface
 {
     /**
@@ -36,28 +38,14 @@ class VideoTagRenderer implements FileRendererInterface
     protected array $excludeAttributes = ['api', 'no-cookie'];
 
     /**
-     * Returns the priority of the renderer
-     * This way it is possible to define/overrule a renderer
-     * for a specific file type/context.
-     * For example create a video renderer for a certain storage/driver type.
-     * Should be between 1 and 100, 100 is more important than 1
-     *
-     * @return int
-     */
-    public function getPriority()
-    {
-        return 1;
-    }
-
-    /**
      * Check if given File(Reference) can be rendered
      *
      * @param FileInterface $file File or FileReference to render
-     * @return bool
      */
-    public function canRender(FileInterface $file)
+    public function canRender(FileInterface $file): bool
     {
-        return in_array($file->getMimeType(), $this->possibleMimeTypes, true);
+        $mimeType = strtolower(trim(explode(';', $file->getMimeType(), 2)[0]));
+        return in_array($mimeType, $this->possibleMimeTypes, true);
     }
 
     /**
@@ -66,9 +54,8 @@ class VideoTagRenderer implements FileRendererInterface
      * @param int|string $width TYPO3 known format; examples: 220, 200m or 200c
      * @param int|string $height TYPO3 known format; examples: 220, 200m or 200c
      * @param array $options controls = TRUE/FALSE (default TRUE), autoplay = TRUE/FALSE (default FALSE), loop = TRUE/FALSE (default FALSE)
-     * @return string
      */
-    public function render(FileInterface $file, $width, $height, array $options = [])
+    public function render(FileInterface $file, int|string $width, int|string $height, array $options = []): string
     {
         // If autoplay isn't set manually check if $file is a FileReference take autoplay from there
         if (!isset($options['autoplay']) && $file instanceof FileReference) {
@@ -80,42 +67,37 @@ class VideoTagRenderer implements FileRendererInterface
 
         $attributes = [];
         if (isset($options['additionalAttributes']) && is_array($options['additionalAttributes'])) {
-            $attributes[] = GeneralUtility::implodeAttributes($options['additionalAttributes'], true, true);
+            $attributes = $options['additionalAttributes'];
         }
         if (isset($options['data']) && is_array($options['data'])) {
-            array_walk($options['data'], static function (string &$value, string $key): void {
-                $value = 'data-' . htmlspecialchars($key) . '="' . htmlspecialchars($value) . '"';
-            });
-            $attributes[] = implode(' ', $options['data']);
+            foreach ($options['data'] as $key => $value) {
+                $attributes['data-' . $key] ??= $value;
+            }
         }
         if ((int)$width > 0) {
-            $attributes[] = 'width="' . (int)$width . '"';
+            $attributes['width'] ??= (int)$width;
         }
         if ((int)$height > 0) {
-            $attributes[] = 'height="' . (int)$height . '"';
+            $attributes['height'] ??= (int)$height;
         }
         if (!isset($options['controls']) || !empty($options['controls'])) {
-            $attributes[] = 'controls';
+            $attributes['controls'] ??= true;
         }
         if (!empty($options['autoplay'])) {
-            $attributes[] = 'autoplay';
+            $attributes['autoplay'] ??= true;
             // If autoplay is enabled, enforce muted, see https://developer.chrome.com/blog/autoplay/
-            $attributes[] = 'muted';
+            $attributes['muted'] ??= true;
         }
         if (!empty($options['muted'])) {
-            $attributes[] = 'muted';
+            $attributes['muted'] ??= true;
         }
         if (!empty($options['loop'])) {
-            $attributes[] = 'loop';
+            $attributes['loop'] ??= true;
         }
         if (isset($options['additionalConfig']) && is_array($options['additionalConfig'])) {
             foreach ($options['additionalConfig'] as $key => $value) {
                 if ($value && !in_array($key, $this->excludeAttributes, true)) {
-                    if ((int)$value !== 1) {
-                        $attributes[] = htmlspecialchars($key) . '="' . htmlspecialchars($value) . '"';
-                    } else {
-                        $attributes[] = htmlspecialchars($key);
-                    }
+                    $attributes[$key] ??= (int)$value !== 1 ? $value : true;
                     // Ensure that the property is not set afterwards
                     $options[$key] = false;
                 }
@@ -124,16 +106,15 @@ class VideoTagRenderer implements FileRendererInterface
 
         foreach (['class', 'dir', 'id', 'lang', 'style', 'title', 'accesskey', 'tabindex', 'onclick', 'controlsList', 'preload'] as $key) {
             if (!empty($options[$key])) {
-                $attributes[] = $key . '="' . htmlspecialchars($options[$key]) . '"';
+                $attributes[$key] ??= $options[$key];
             }
         }
 
-        // Clean up duplicate attributes
-        $attributes = array_unique($attributes);
+        $attributesString = GeneralUtility::implodeAttributes($attributes, false, true, true);
 
         return sprintf(
             '<video%s><source src="%s" type="%s"></video>',
-            empty($attributes) ? '' : ' ' . implode(' ', $attributes),
+            $attributesString === '' ? '' : ' ' . $attributesString,
             htmlspecialchars((string)$file->getPublicUrl()),
             $file->getMimeType()
         );

@@ -1,0 +1,25 @@
+//
+// Record Identity
+// ===============
+//
+// Markup:
+// <div class="recordidentity">
+//   <span class="recordidentity-type">{icon} Standard Page</span>
+//   <small class="recordidentity-id" title="Unique ID 1194">[pages:1194]</small>
+// </div>
+//
+
+.recordidentity {
+    margin-bottom: var(--typo3-spacing);
+
+    .t3-page-column-lang-name & {
+        margin-bottom: 0;
+    }
+
+    &,
+    &-type {
+        display: inline-flex;
+        align-items: center;
+        gap: .25rem;
+    }
+}

@@ -20,8 +20,7 @@ namespace TYPO3\CMS\Backend\Middleware;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\RateLimiter\LimiterInterface;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\RouteRedirect;
@@ -32,8 +31,10 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Controller\ErrorPageController;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\RedirectResponse;
+use TYPO3\CMS\Core\Http\Response;
+use TYPO3\CMS\Core\Http\SetCookieService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
-use TYPO3\CMS\Core\RateLimiter\RateLimiterFactory;
+use TYPO3\CMS\Core\RateLimiter\RateLimiterFactoryInterface;
 use TYPO3\CMS\Core\RateLimiter\RequestRateLimitedException;
 use TYPO3\CMS\Core\Session\UserSessionManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -44,42 +45,16 @@ use TYPO3\CMS\Core\Utility\HttpUtility;
  *
  * @internal
  */
-class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAuthenticator implements LoggerAwareInterface
+class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAuthenticator
 {
-    use LoggerAwareTrait;
-
-    /**
-     * List of requests that don't need a valid BE user
-     */
-    protected array $publicRoutes = [
-        '/login',
-        '/login/frame',
-        '/login/password-reset/forget',
-        '/login/password-reset/initiate-reset',
-        '/login/password-reset/validate',
-        '/login/password-reset/finish',
-        '/login/request-token',
-        '/install/server-response-check/host',
-        '/install',
-        '/install.php',
-        '/ajax/login',
-        '/ajax/logout',
-        '/ajax/login/preflight',
-        '/ajax/login/refresh',
-        '/ajax/login/timedout',
-    ];
-
-    private LanguageServiceFactory $languageServiceFactory;
-    private RateLimiterFactory $rateLimiterFactory;
-
     public function __construct(
         Context $context,
-        LanguageServiceFactory $languageServiceFactory,
-        RateLimiterFactory $rateLimiterFactory
+        private readonly LanguageServiceFactory $languageServiceFactory,
+        private readonly RateLimiterFactoryInterface $rateLimiterFactory,
+        private readonly LoggerInterface $logger,
+        private readonly UriBuilder $uriBuilder,
     ) {
         parent::__construct($context);
-        $this->languageServiceFactory = $languageServiceFactory;
-        $this->rateLimiterFactory = $rateLimiterFactory;
     }
 
     /**
@@ -89,6 +64,7 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
     {
         /** @var Route $route */
         $route = $request->getAttribute('route');
+        $isAjaxCall = (bool)($route->getOption('ajax') ?? false);
 
         // The global must be available very early, because methods below
         // might trigger code which relies on it. See: #45625
@@ -103,6 +79,9 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
             // If MFA is required and we are not already on the "auth_mfa"
             // route, force the user to it for further authentication.
             if (!$mfaRequested && $this->isLoggedInBackendUserRequired($route)) {
+                if ($isAjaxCall) {
+                    return new Response(statusCode: 401);
+                }
                 return $this->redirectToMfaEndpoint(
                     'auth_mfa',
                     $GLOBALS['BE_USER'],
@@ -116,7 +95,10 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
         $this->setBackendUserAspect($GLOBALS['BE_USER'], (int)($GLOBALS['BE_USER']->user['workspace_id'] ?? 0));
         if ($this->isLoggedInBackendUserRequired($route)) {
             if (!$this->context->getAspect('backend.user')->isLoggedIn()) {
-                $uri = GeneralUtility::makeInstance(UriBuilder::class)->buildUriWithRedirect(
+                if ($isAjaxCall) {
+                    return new Response(statusCode: 401);
+                }
+                $uri = $this->uriBuilder->buildUriWithRedirect(
                     'login',
                     [],
                     RouteRedirect::createFromRoute($route, $request->getQueryParams())
@@ -151,6 +133,9 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
                 && $GLOBALS['BE_USER']->isMfaSetupRequired()
                 && $route->getOption('_identifier') !== 'setup_mfa'
             ) {
+                if ($isAjaxCall) {
+                    return new Response(statusCode: 401);
+                }
                 return $this->redirectToMfaEndpoint('setup_mfa', $GLOBALS['BE_USER'], $request);
             }
         }
@@ -163,8 +148,14 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
     }
 
     /**
-     * Backend requests should always apply Set-Cookie information and never be cacheable.
+     * Backend requests should almost always apply Set-Cookie information and never be cacheable.
      * This is also needed if there is a redirect from somewhere in the code.
+     *
+     * The cookie is omitted from the response, if no cookie is set and
+     * the user has not just been logged in, because that means we
+     * a) do not delete a cookie and b) must not delete a cookie
+     * that was omitted by the browser due to SameSite=strict handling
+     * in cross-site requests.
      *
      * @throws \TYPO3\CMS\Core\Context\Exception\AspectNotFoundException
      */
@@ -173,13 +164,20 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
         ResponseInterface $response,
         ?BackendUserAuthentication $userAuthentication
     ): ResponseInterface {
+        $setCookie = true;
         if ($userAuthentication) {
+            $isCookieSet = isset($request->getCookieParams()[$userAuthentication->name]);
             // If no backend user is logged-in, the cookie should be removed
             if (!$this->context->getAspect('backend.user')->isLoggedIn()) {
-                $userAuthentication->removeCookie();
+                if ($isCookieSet) {
+                    $userAuthentication->removeCookie();
+                } else {
+                    $setCookie = false;
+                }
             }
-            // Ensure to always apply a cookie
-            $response = $userAuthentication->appendCookieToResponse($response, $request->getAttribute('normalizedParams'));
+            if ($setCookie) {
+                $response = $this->applyCookieToResponse($response, $request, $userAuthentication);
+            }
         }
         // Additional headers to never cache any PHP request should be sent at any time when
         // accessing the TYPO3 Backend
@@ -204,26 +202,48 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
         ServerRequestInterface $request,
         array $parameters = []
     ): ResponseInterface {
+        $routeRedirect
+            // when intercepting {entryPoint}/login?redirect=media_management
+            = RouteRedirect::createFromRequest($request)
+            // when intercepting {entryPoint}/module/file/list
+            ?? RouteRedirect::createFromRoute($request->getAttribute('route'), $request->getQueryParams());
         $response = new RedirectResponse(
-            GeneralUtility::makeInstance(UriBuilder::class)->buildUriWithRedirect($endpoint, $parameters, RouteRedirect::createFromRequest($request))
+            $this->uriBuilder->buildUriWithRedirect($endpoint, $parameters, $routeRedirect)
         );
         // Add necessary cookies and headers to the response so
         // the already passed authentication step is not lost.
-        $response = $user->appendCookieToResponse($response, $request->getAttribute('normalizedParams'));
+        $response = $this->applyCookieToResponse($response, $request, $user);
         $response = $this->applyHeadersToResponse($response);
         return $response;
     }
 
     /**
+     * Applies the session cookie as evaluated by the authentication process
+     * to the response.
+     */
+    protected function applyCookieToResponse(
+        ResponseInterface $response,
+        ServerRequestInterface $request,
+        BackendUserAuthentication $userAuthentication
+    ): ResponseInterface {
+        return SetCookieService::create($userAuthentication->name, $userAuthentication->loginType)->applyCookieToResponse(
+            $response,
+            $userAuthentication->getSession(),
+            $userAuthentication->getCookieBehavior(),
+            $request->getAttribute('normalizedParams')
+        );
+    }
+
+    /**
      * Check if the user is required for the request.
-     * If we're trying to do a login or an ajax login, don't require a user.
+     * Routes declared with the access "anonymous" (login, password reset, ...) don't require a user.
      *
-     * @param Route $route the Route path to check against, something like '
+     * @param Route $route the Route to check against
      * @return bool true when the Route requires an authenticated backend user
      */
     protected function isLoggedInBackendUserRequired(Route $route): bool
     {
-        return in_array($route->getPath(), $this->publicRoutes, true) === false;
+        return $route->getAccess()->requiresAuthentication();
     }
 
     protected function ensureLoginRateLimit(BackendUserAuthentication $user, ServerRequestInterface $request): ?LimiterInterface
@@ -231,13 +251,13 @@ class BackendUserAuthenticator extends \TYPO3\CMS\Core\Middleware\BackendUserAut
         if (!$user->isActiveLogin($request)) {
             return null;
         }
-        $loginRateLimiter = $this->rateLimiterFactory->createLoginRateLimiter($user, $request);
+        $loginRateLimiter = $this->rateLimiterFactory->createLoginRateLimiter($request, $user->loginType);
         $limit = $loginRateLimiter->consume();
         if (!$limit->isAccepted()) {
             $this->logger->debug('Login request has been rate limited for IP address {ipAddress}', ['ipAddress' => $request->getAttribute('normalizedParams')->getRemoteAddress()]);
             $dateformat = $GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy'] . ' ' . $GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm'];
-            $lockedUntil = $limit->getRetryAfter()->getTimestamp() > 0 ?
-                ' until ' . date($dateformat, $limit->getRetryAfter()->getTimestamp()) : '';
+            $lockedUntil = $limit->getRetryAfter()->getTimestamp() > 0
+                ? ' until ' . date($dateformat, $limit->getRetryAfter()->getTimestamp()) : '';
             throw new RequestRateLimitedException(
                 HttpUtility::HTTP_STATUS_403,
                 'The login is locked' . $lockedUntil . ' due to too many failed login attempts from your IP address.',

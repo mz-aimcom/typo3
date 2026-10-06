@@ -28,12 +28,12 @@ cron-script independently of frontend requests. The "crawler"
 extension is used as a service to perform the execution of queue
 entries that controls the indexing.
 
-You can create an indexing configuration in the :guilabel:`Web > List` module
+You can create an indexing configuration in the :guilabel:`Content > Record` module
 in on any page. Where to place the configuration depends on the type of
 data that should be indexed. See following sections.
 
 ..  figure:: /Images/IndexingConfiguration/IndexingConfiguration.png
-    :alt: Screenshot of an indexing configuration record in the List module of the TYPO3 backend
+    :alt: Screenshot of an indexing configuration record in the Record module of the TYPO3 backend
 
     Common parameters in Indexing Configurations
 
@@ -55,7 +55,7 @@ configuration of type "Page tree":
 *   Root page: Your start page
 *   Depth: 4 Levels (or as many as there are)
 
-Using the :guilabel:`Web > List` module create this indexing configuration in
+Using the :guilabel:`Content > Records` module create this indexing configuration in
 a system folder on your site.
 
 For each page a combination of
@@ -87,6 +87,12 @@ single view plugin of news.
 *   GET parameter string: For example: "&tx_news[action]=show&tx_news[news]=###UID###".
     The chash will be automatically attached. This must correspond with
     what the plugin takes of parameters.
+
+*   Index Records immediately when saved?: When enabled, records of the
+    configured table are indexed as soon as they are saved in the backend.
+    This applies to records located on the page of the configuration, or on
+    the Alternative Source Page, if set. Hiding or deleting a record removes
+    it from the index.
 
 If a record is removed its indexing entry will also be
 removed upon next indexing. The UID of the record is saved in the index for
@@ -150,8 +156,8 @@ the Setup field like this:
 ..  code-block:: typoscript
     :caption: packages/my_site_package/Configuration/Sets/MySet/setup.typoscript
 
-    plugin.tx_indexedsearch.search.defaultFreeIndexUidList = 0,6,7,8
-    plugin.tx_indexedsearch.blind.freeIndexUid = 0
+    plugin.tx_indexedsearch.settings.defaultFreeIndexUidList = 0,6,7,8
+    plugin.tx_indexedsearch.settings.blind.freeIndexUid = 0
 
 The "defaultFreeIndexUidList" is uid numbers of indexing
 configurations to show in the categorization! The order determines
@@ -160,7 +166,7 @@ which are shown in top.
 The categorization is only displayed, when the "Category" selector in the
 "Advanced" search form is set to "All categorized". You can preset the
 selector to use this setting by default:
-:ref:`plugin.tx_indexedsearch.settings.defaultOptions.freeIndexUid <typo3/cms-indexed-search:confval-defaultoptions-freeindexuid>`.
+:ref:`plugin.tx_indexedsearch.settings.defaultOptions.freeIndexUid <confval-defaultoptions-freeindexuid>`.
 
 For example:
 
@@ -213,6 +219,6 @@ Disable frontend-initiated indexing
 
 If you choose to index your site using Indexing Configurations you can
 disable indexing through the user requests in the frontend. This is
-done via the module :guilabel:`Admin Tools > Settings > Extension Configuration`.
+done via the module :guilabel:`System > Settings > Extension Configuration`.
 
 Toggle the configuration option "Disable Indexing in Frontend".

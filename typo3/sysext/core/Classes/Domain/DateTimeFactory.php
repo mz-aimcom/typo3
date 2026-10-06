@@ -36,7 +36,7 @@ final readonly class DateTimeFactory
         );
     }
 
-    public static function createFomDatabaseValueAndTCAConfig(int|string|null $value, array $fieldConfig): ?\DateTimeImmutable
+    public static function createFromDatabaseValueAndTCAConfig(int|string|null $value, array $fieldConfig): ?\DateTimeImmutable
     {
         $persistenceType = in_array($fieldConfig['dbType'] ?? null, QueryHelper::getDateTimeTypes(), true) ? $fieldConfig['dbType'] : null;
         $isNative = $persistenceType !== null;
@@ -55,14 +55,14 @@ final readonly class DateTimeFactory
         $format = $fieldConfig['format'] ?? null;
         $persistenceType = in_array($fieldConfig['dbType'] ?? null, QueryHelper::getDateTimeTypes(), true) ? $fieldConfig['dbType'] : null;
         // A native time field must not be formatted as date
-        if (($format === 'datetime' || $format === 'date') && $persistenceType === 'time') {
+        if (($format === 'datetime' || $format === 'datetimesec' || $format === 'date') && $persistenceType === 'time') {
             return 'timesec';
         }
         // A native date field must not be formatted as time
-        if (($format === 'time' || $format === 'timesec') && $persistenceType === 'date') {
+        if (($format === 'time' || $format === 'timesec' || $format === 'datetime' || $format === 'datetimesec') && $persistenceType === 'date') {
             return 'date';
         }
-        if (in_array($format, ['datetime', 'date', 'time', 'timesec'], true)) {
+        if (in_array($format, ['datetime', 'date', 'time', 'timesec', 'datetimesec'], true)) {
             return $format;
         }
         if ($persistenceType !== null) {
@@ -100,7 +100,7 @@ final readonly class DateTimeFactory
             return null;
         }
 
-        $emptyFormat = QueryHelper::getDateTimeFormats()[$persistenceType]['empty'] ?? null;
+        $emptyFormat = QueryHelper::getDateTimeFormats()[$persistenceType  ?? '']['empty'] ?? null;
         // A regular empty value is null for nullable fields
         $emptyValue = $isNullable ? null : ($emptyFormat ?? 0);
         // A legacy empty value is "0000-00-00" or "0000-00-00 00:00:00" stored
@@ -131,7 +131,7 @@ final readonly class DateTimeFactory
                 // The field value is something like "2016-01-01" or "2016-01-01 10:11:12.
                 default => new \DateTimeImmutable($value),
             };
-        } catch (\Exception|\DateMalformedStringException $e) { // @todo drop catch(\Exception) once php 8.3 is minimum
+        } catch (\DateMalformedStringException $e) {
             throw new \InvalidArgumentException('Invalid date provided', 1743159490, $e);
         }
 
@@ -140,6 +140,7 @@ final readonly class DateTimeFactory
             'time' => $datetime->setDate(1970, 1, 1)->setTime((int)$datetime->format('H'), (int)$datetime->format('i'), 0),
             'timesec' => $datetime->setDate(1970, 1, 1),
             'date' => $datetime->setTime(0, 0, 0),
+            // default case also for 'datetimesec'
             default => $datetime,
         };
     }

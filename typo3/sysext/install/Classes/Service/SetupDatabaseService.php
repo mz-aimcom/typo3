@@ -17,10 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Service;
 
+use Doctrine\DBAL\Connection as DoctrineConnection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception as DBALException;
 use Doctrine\DBAL\Exception\ConnectionException;
+use Doctrine\DBAL\Schema\Name\UnqualifiedName;
 use Psr\Container\ContainerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Crypto\Random;
@@ -35,12 +38,12 @@ use TYPO3\CMS\Core\PasswordPolicy\PasswordPolicyAction;
 use TYPO3\CMS\Core\PasswordPolicy\PasswordPolicyValidator;
 use TYPO3\CMS\Core\PasswordPolicy\Validator\Dto\ContextData;
 use TYPO3\CMS\Core\Registry;
+use TYPO3\CMS\Core\Service\UpgradeWizardsService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Configuration\Exception;
 use TYPO3\CMS\Install\Database\PermissionsCheck;
 use TYPO3\CMS\Install\SystemEnvironment\DatabaseCheck;
-use TYPO3\CMS\Install\Updates\DatabaseRowsUpdateWizard;
 
 /**
  * Service class helping to manage database related settings and operations required to set up TYPO3
@@ -48,6 +51,7 @@ use TYPO3\CMS\Install\Updates\DatabaseRowsUpdateWizard;
  *
  * @phpstan-import-type Params from DriverManager
  */
+#[Autoconfigure(public: true)]
 class SetupDatabaseService
 {
     protected array $validDrivers = [
@@ -62,11 +66,12 @@ class SetupDatabaseService
         private readonly ConfigurationManager $configurationManager,
         private readonly PermissionsCheck $databasePermissionsCheck,
         private readonly Registry $registry,
+        private readonly ConnectionPool $connectionPool,
     ) {}
 
     /**
      * @param array $values
-     * @return array
+     * @return array{0: bool, 1: FlashMessage[], 2: array} Success state, messages and the default connection settings written to the configuration
      */
     public function setDefaultConnectionSettings(array $values): array
     {
@@ -150,7 +155,7 @@ class SetupDatabaseService
             }
             // For sqlite a db path is automatically calculated
             if (isset($values['driver']) && $values['driver'] === 'pdo_sqlite') {
-                $dbFilename = '/cms-' . (new Random())->generateRandomHexString(8) . '.sqlite';
+                $dbFilename = '/cms-' . new Random()->generateRandomHexString(8) . '.sqlite';
                 // If the "var/" folder exists outside of document root, put it into "var/sqlite/"
                 // Otherwise simply into "typo3conf/"
                 if (Environment::getProjectPath() !== Environment::getPublicPath()) {
@@ -172,7 +177,7 @@ class SetupDatabaseService
             // Test connection settings and write to config if connect is successful
             try {
                 $connectionParams = $defaultConnectionSettings;
-                $connectionParams['wrapperClass'] = Connection::class;
+                $connectionParams['wrapperClass'] = DoctrineConnection::class;
                 $connection = DriverManager::getConnection($connectionParams);
                 if ($connection->getNativeConnection() !== null) {
                     $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
@@ -195,7 +200,7 @@ class SetupDatabaseService
             $this->configurationManager->setLocalConfigurationValuesByPathValuePairs($localConfigurationPathValuePairs);
         }
 
-        return [$success, $messages];
+        return [$success, $messages, $defaultConnectionSettings];
     }
 
     /**
@@ -272,13 +277,26 @@ class SetupDatabaseService
     {
         $connectionParams = $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME];
         unset($connectionParams['dbname']);
+        if (in_array($connectionParams['driver'] ?? '', ['mysqli', 'pdo_mysql'], true)) {
+            // Doctrine's MySQL introspection provider requires a database to be selected on the
+            // connection - it runs `SELECT DATABASE()` and rejects NULL - even though listing all
+            // database names is a server-level operation that does not need one. `information_schema`
+            // always exists and is readable by any user, so it is used as a neutral placeholder to
+            // satisfy that requirement without depending on a database the user may not have chosen yet.
+            $connectionParams['dbname'] = 'information_schema';
+        }
 
         // Establishing the connection using the Doctrine DriverManager directly
         // as we need a connection without selecting a database right away. Otherwise
         // an invalid database name would lead to exceptions which would prevent
         // changing the currently configured database.
         $connection = DriverManager::getConnection($connectionParams);
-        $databaseArray = $connection->createSchemaManager()->listDatabases();
+        // Doctrine returns name objects here. Convert them to plain strings right away, `getValue()`
+        // is used instead of `toString()`, as the latter would add identifier quotes to the name.
+        $databaseArray = array_map(
+            static fn(UnqualifiedName $databaseName): string => $databaseName->getIdentifier()->getValue(),
+            $connection->createSchemaManager()->introspectDatabaseNames()
+        );
         $connection->close();
 
         // Remove organizational tables from database list
@@ -298,7 +316,7 @@ class SetupDatabaseService
 
                 $databases[] = [
                     'name' => $databaseName,
-                    'tables' => count($connection->createSchemaManager()->listTableNames()),
+                    'tables' => count($connection->createSchemaManager()->introspectTableNames()),
                     'readonly' => false,
                 ];
                 $connection->close();
@@ -324,7 +342,7 @@ class SetupDatabaseService
             || (string)($GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME]['path'] ?? '') !== ''
         ) {
             try {
-                $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+                $connection = $this->connectionPool
                     ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
                 if ($connection->getNativeConnection() !== null) {
                     $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
@@ -343,10 +361,10 @@ class SetupDatabaseService
      */
     public function createDatabase(string $name): void
     {
-        $platform = GeneralUtility::makeInstance(ConnectionPool::class)
+        $platform = $this->connectionPool
             ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME)
             ->getDatabasePlatform();
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+        $connection = $this->connectionPool
             ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
         $connection->executeStatement(
             PlatformInformation::getDatabaseCreateStatementWithCharset(
@@ -364,7 +382,7 @@ class SetupDatabaseService
     public function isDatabaseConnectSuccessful(): bool
     {
         try {
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+            $connection = $this->connectionPool
                 ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
             if ($connection->getNativeConnection() !== null) {
                 $connection->executeQuery($connection->getDatabasePlatform()->getDummySelectSQL());
@@ -471,10 +489,10 @@ class SetupDatabaseService
 
         $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME]['dbname'] = $dbName;
         try {
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+            $connection = $this->connectionPool
                 ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
 
-            if (!empty($connection->createSchemaManager()->listTableNames())) {
+            if (!empty($connection->createSchemaManager()->introspectTableNames())) {
                 $result = new FlashMessage(
                     sprintf('Cannot use database "%s"', $dbName)
                     . ', because it already contains tables. Please select a different database or choose to create one!',
@@ -507,10 +525,10 @@ class SetupDatabaseService
      */
     public function importDatabaseData(): array
     {
-        // Will load ext_localconf and ext_tables. This is pretty safe here since we are
-        // in first install (database empty), so it is very likely that no extension is loaded
-        // that could trigger a fatal at this point.
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
+        // Will load ext_localconf. This is pretty safe here since we are in first install
+        // (database empty), so it is very likely that no extension is loaded that could
+        // trigger a fatal at this point.
+        $container = $this->lateBootService->loadExtLocalconfDatabase();
 
         $sqlReader = $container->get(SqlReader::class);
         $sqlCode = $sqlReader->getTablesDefinitionString(true);
@@ -695,10 +713,11 @@ class SetupDatabaseService
 
     public function markWizardsDone(ContainerInterface $container): void
     {
-        foreach ($container->get(UpgradeWizardsService::class)->getNonRepeatableUpgradeWizards() as $className) {
+        $upgradeWizardService = $container->get(UpgradeWizardsService::class);
+        foreach ($upgradeWizardService->getNonRepeatableUpgradeWizards() as $className) {
             $this->registry->set('installUpdate', $className, 1);
         }
-        $this->registry->set('installUpdateRows', 'rowUpdatersDone', GeneralUtility::makeInstance(DatabaseRowsUpdateWizard::class)->getAvailableRowUpdater());
+        $this->registry->set('installUpdateRows', 'rowUpdatersDone', $upgradeWizardService->getAllRowUpdaterIdentifiers());
     }
 
     /**

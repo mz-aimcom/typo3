@@ -18,24 +18,31 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Validation;
 
 use Psr\Http\Message\ServerRequestInterface;
-use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Extbase\Reflection\ClassSchema\TypeAdapter;
 use TYPO3\CMS\Extbase\Reflection\ReflectionService;
 use TYPO3\CMS\Extbase\Utility\TypeHandlingUtility;
 use TYPO3\CMS\Extbase\Validation\Exception\NoSuchValidatorException;
 use TYPO3\CMS\Extbase\Validation\Validator\CollectionValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\ConjunctionValidator;
+use TYPO3\CMS\Extbase\Validation\Validator\ConstraintDecoratingValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\GenericObjectValidator;
 use TYPO3\CMS\Extbase\Validation\Validator\ValidatorInterface;
 
 /**
  * Validator resolver to automatically find an appropriate validator for a given subject.
  *
+ * About the Autoconfigure Attribute:
+ *    Form Renderables are not services and fetch this resolver from the container,
+ *    see AbstractRenderable::createValidator(), so it has to stay public.
+ *
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-class ValidatorResolver implements SingletonInterface
+#[Autoconfigure(public: true)]
+class ValidatorResolver
 {
     protected array $baseValidatorConjunctions = [];
 
@@ -90,10 +97,10 @@ class ValidatorResolver implements SingletonInterface
      * Builds a base validator conjunction for the given data type.
      *
      * The base validation rules are those which were declared directly in a class (typically
-     * a model) through some validate annotations on properties.
+     * a model) through some #[Validate] attributes on properties.
      *
      * If a property holds a class for which a base validator exists, that property will be
-     * checked as well, regardless of a validation annotation.
+     * checked as well, regardless of a validation attribute.
      *
      * Additionally, if a custom validator was defined for the class in question, it will be added
      * to the end of the conjunction. A custom validator is found if it follows the naming convention
@@ -118,7 +125,7 @@ class ValidatorResolver implements SingletonInterface
         $objectValidator = $this->createValidator(GenericObjectValidator::class);
         foreach ($classSchema->getProperties() as $property) {
             $primaryType = $property->getPrimaryType();
-            if (!$primaryType instanceof Type) {
+            if (!$primaryType instanceof TypeAdapter) {
                 // @todo: The type is only necessary here for further analyzing whether it's a simple type or
                 //        a collection. If this is evaluated in the ClassSchema, this whole code part is not needed
                 //        any longer and can be removed.
@@ -130,12 +137,14 @@ class ValidatorResolver implements SingletonInterface
 
             $propertyTargetClassName = $primaryType->getClassName() ?? $primaryType->getBuiltinType();
 
-            if (!TypeHandlingUtility::isSimpleType($propertyTargetClassName)) {
+            // Skip transient properties for auto-generated validators (model-typed properties).
+            // Transient properties are not persisted and may not have public accessors.
+            if (!TypeHandlingUtility::isSimpleType($propertyTargetClassName) && !$property->isTransient()) {
                 // The outer simpleType check reduces lookups to the class loader
                 // @todo: Whether the property holds a simple type or not and whether it holds a collection is known in
                 //        in the ClassSchema. The information could be made available and not evaluated here again.
                 $primaryCollectionValueType = $property->getPrimaryCollectionValueType();
-                if ($primaryType->isCollection() && $primaryCollectionValueType instanceof Type) {
+                if ($primaryType->isCollection() && $primaryCollectionValueType instanceof TypeAdapter) {
                     /** @var CollectionValidator $collectionValidator */
                     $collectionValidator = $this->createValidator(
                         CollectionValidator::class,
@@ -177,15 +186,19 @@ class ValidatorResolver implements SingletonInterface
                 //        \TYPO3\CMS\Extbase\Validation\ValidatorResolver::createValidator once again. However, to
                 //        keep things simple for now, we still use the method createValidator here. In the future,
                 //        createValidator must only accept FQCN's.
-                $newValidator = $this->createValidator(
-                    $validatorDefinition['className'],
-                    $validatorDefinition['options'],
-                    $request
-                );
+                if (isset($validatorDefinition['constraint'])) {
+                    $newValidator = new ConstraintDecoratingValidator($validatorDefinition['constraint']);
+                } else {
+                    $newValidator = $this->createValidator(
+                        $validatorDefinition['className'],
+                        $validatorDefinition['options'],
+                        $request,
+                    );
+                }
                 if ($newValidator === null) {
                     throw new NoSuchValidatorException(
-                        'Invalid validate annotation in ' . $targetClassName . '::' . $property->getName() . ': ' .
-                        'Could not resolve class name for validator "' . $validatorDefinition['className'] . '".',
+                        'Invalid #[Validate] attribute in ' . $targetClassName . '::' . $property->getName() . ': '
+                        . 'Could not resolve class name for validator "' . $validatorDefinition['className'] . '".',
                         1241098027
                     );
                 }

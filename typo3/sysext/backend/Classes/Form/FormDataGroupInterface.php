@@ -27,5 +27,5 @@ interface FormDataGroupInterface
      * @param array $result Initialized result array
      * @return array Result filled with data
      */
-    public function compile(array $result);
+    public function compile(array $result): array;
 }

@@ -43,6 +43,13 @@ return [
         'target' => Controller\LinkController::class . '::resourceAction',
     ],
 
+    // Resolve a link to title, path and frontend URL
+    'link_preview' => [
+        'path' => '/link/preview',
+        'methods' => ['GET'],
+        'target' => Controller\LinkPreviewController::class . '::resolveAction',
+    ],
+
     // File processing
     'file_process' => [
         'path' => '/file/process',
@@ -202,34 +209,80 @@ return [
         'target' => Controller\FileStorage\TreeController::class . '::filterDataAction',
     ],
 
-    // Get shortcut edit form
-    'shortcut_editform' => [
-        'path' => '/shortcut/editform',
-        'target' => Controller\ShortcutController::class . '::showEditFormAction',
+    // Bookmark management API
+    'bookmark_list' => [
+        'path' => '/bookmark/list',
+        'methods' => ['GET'],
+        'target' => Controller\BookmarkController::class . '::listAction',
+    ],
+    'bookmark_create' => [
+        'path' => '/bookmark/create',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::createAction',
+    ],
+    'bookmark_update' => [
+        'path' => '/bookmark/update',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::updateAction',
+    ],
+    'bookmark_delete' => [
+        'path' => '/bookmark/delete',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::deleteAction',
+    ],
+    'bookmark_reorder' => [
+        'path' => '/bookmark/reorder',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::reorderAction',
+    ],
+    'bookmark_delete_multiple' => [
+        'path' => '/bookmark/delete-multiple',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::deleteMultipleAction',
+    ],
+    'bookmark_move' => [
+        'path' => '/bookmark/move',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::moveAction',
     ],
 
-    // Save edited shortcut
-    'shortcut_saveform' => [
-        'path' => '/shortcut/saveform',
-        'target' => Controller\ShortcutController::class . '::updateAction',
+    // Bookmark group management
+    'bookmark_group_create' => [
+        'path' => '/bookmark/group/create',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::createGroupAction',
+    ],
+    'bookmark_group_update' => [
+        'path' => '/bookmark/group/update',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::updateGroupAction',
+    ],
+    'bookmark_group_delete' => [
+        'path' => '/bookmark/group/delete',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::deleteGroupAction',
+    ],
+    'bookmark_group_reorder' => [
+        'path' => '/bookmark/group/reorder',
+        'methods' => ['POST'],
+        'target' => Controller\BookmarkController::class . '::reorderGroupsAction',
     ],
 
-    // Render shortcut toolbar item
-    'shortcut_list' => [
-        'path' => '/shortcut/list',
-        'target' => Controller\ShortcutController::class . '::menuAction',
+    // Flush caches from the clear cache toolbar item
+    'clearcache_group_pages' => [
+        'path' => '/cache/group/pages/flush',
+        'methods' => ['POST'],
+        'target' => Controller\ClearCacheController::class . '::flushCacheGroupPagesAction',
     ],
-
-    // Delete a shortcut
-    'shortcut_remove' => [
-        'path' => '/shortcut/remove',
-        'target' => Controller\ShortcutController::class . '::removeAction',
+    'clearcache_group_all' => [
+        'path' => '/cache/group/all/flush',
+        'methods' => ['POST'],
+        'target' => Controller\ClearCacheController::class . '::flushCacheGroupAllAction',
     ],
-
-    // Create a new shortcut
-    'shortcut_create' => [
-        'path' => '/shortcut/create',
-        'target' => Controller\ShortcutController::class . '::addAction',
+    'clearcache_page' => [
+        'path' => '/cache/page/flush',
+        'methods' => ['POST'],
+        'target' => Controller\ClearCacheController::class . '::flushCachePageAction',
     ],
 
     // Render systeminformation toolbar item
@@ -255,34 +308,36 @@ return [
     'login' => [
         'path' => '/login',
         'target' => \TYPO3\CMS\Backend\Controller\AjaxLoginController::class . '::loginAction',
-        'access' => 'public',
+        'access' => 'anonymous',
     ],
 
     // Log out from backend
     'logout' => [
         'path' => '/logout',
+        'methods' => ['POST'],
         'target' => \TYPO3\CMS\Backend\Controller\AjaxLoginController::class . '::logoutAction',
-        'access' => 'public',
+        'access' => 'anonymous',
     ],
 
     // Preflight check for login form
     'login_preflight' => [
         'path' => '/login/preflight',
         'target' => \TYPO3\CMS\Backend\Controller\AjaxLoginController::class . '::preflightAction',
-        'access' => 'public',
+        'access' => 'anonymous',
     ],
 
     // Refresh login of backend
     'login_refresh' => [
         'path' => '/login/refresh',
         'target' => \TYPO3\CMS\Backend\Controller\AjaxLoginController::class . '::refreshAction',
+        'access' => 'anonymous',
     ],
 
     // Check if backend session has timed out
     'login_timedout' => [
         'path' => '/login/timedout',
         'target' => \TYPO3\CMS\Backend\Controller\AjaxLoginController::class . '::isTimedOutAction',
-        'access' => 'public',
+        'access' => 'anonymous',
         'parameters' => [
             'skipSessionUpdate' => 1,
         ],
@@ -370,25 +425,34 @@ return [
         'target' => \TYPO3\CMS\Backend\Controller\LinkBrowserController::class . '::encodeTypoLink',
     ],
 
-    // Get languages in page
-    'page_languages' => [
-        'path' => '/records/localize/get-languages',
-        'target' => Controller\Page\LocalizationController::class . '::getUsedLanguagesInPage',
-        'inheritAccessFromModule' => 'web_layout',
+    // Localization Wizard
+    'wizard_localization_get_record' => [
+        'path' => '/wizard/localization/record',
+        'target' => Controller\Wizard\LocalizationController::class . '::getRecord',
     ],
-
-    // Get summary of records to localize
-    'records_localize_summary' => [
-        'path' => '/records/localize/summary',
-        'target' => Controller\Page\LocalizationController::class . '::getRecordLocalizeSummary',
-        'inheritAccessFromModule' => 'web_layout',
+    'wizard_localization_get_targets' => [
+        'path' => '/wizard/localization/targets',
+        'target' => Controller\Wizard\LocalizationController::class . '::getTargets',
     ],
-
-    // Localize the records
-    'records_localize' => [
-        'path' => '/records/localize',
-        'target' => Controller\Page\LocalizationController::class . '::localizeRecords',
-        'inheritAccessFromModule' => 'web_layout',
+    'wizard_localization_get_sources' => [
+        'path' => '/wizard/localization/sources',
+        'target' => Controller\Wizard\LocalizationController::class . '::getSources',
+    ],
+    'wizard_localization_get_modes' => [
+        'path' => '/wizard/localization/modes',
+        'target' => Controller\Wizard\LocalizationController::class . '::getModes',
+    ],
+    'wizard_localization_get_handlers' => [
+        'path' => '/wizard/localization/handlers',
+        'target' => Controller\Wizard\LocalizationController::class . '::getHandlers',
+    ],
+    'wizard_localization_get_content' => [
+        'path' => '/wizard/localization/content',
+        'target' => Controller\Wizard\LocalizationController::class . '::getContent',
+    ],
+    'wizard_localization_localize' => [
+        'path' => '/wizard/localization/localize',
+        'target' => Controller\Wizard\LocalizationController::class . '::localize',
     ],
 
     // column selector
@@ -402,13 +466,7 @@ return [
         'target' => \TYPO3\CMS\Backend\Controller\ColumnSelectorController::class . '::showColumnsSelectorAction',
     ],
 
-    // Clear page cache in list module
-    'web_list_clearpagecache' => [
-        'path' => '/web/list/clearpagecache',
-        'target' => \TYPO3\CMS\Backend\Controller\ClearPageCacheController::class . '::mainAction',
-    ],
-
-    // Record download in list module
+    // Record download in records module
     'record_download_settings' => [
         'path' => '/record/download/settings',
         'target' => \TYPO3\CMS\Backend\Controller\RecordListDownloadController::class . '::downloadSettingsAction',
@@ -431,7 +489,7 @@ return [
         'access' => 'systemMaintainer',
         'path' => '/security/csp/control',
         'target' => \TYPO3\CMS\Backend\Security\ContentSecurityPolicy\CspAjaxController::class . '::handleRequest',
-        'inheritAccessFromModule' => 'tools_csp',
+        'inheritAccessFromModule' => 'content_security_policy',
     ],
 
     'sudo_mode_control' => [
@@ -454,5 +512,41 @@ return [
     'color_scheme_update' => [
         'path' => '/color-scheme/update',
         'target' => Controller\ColorSchemeController::class . '::updateAction',
+    ],
+    // QR Code
+    'qrcode_generator' => [
+        'path' => '/qrcode/generate',
+        'target' => Controller\QrCodeController::class . '::getQrCodeAction',
+        'methods' => ['GET'],
+    ],
+    'qrcode_download' => [
+        'path' => '/qrcode/download',
+        'target' => Controller\QrCodeController::class . '::downloadAction',
+        'methods' => ['POST'],
+    ],
+    'wizard_page_get_doktypes' => [
+        'path' => '/wizard/page/doktypes',
+        'target' => Controller\Wizard\PageWizardController::class . '::getDoktypesAction',
+        'methods' => ['GET'],
+    ],
+    'wizard_page_get_page_detail' => [
+        'path' => '/wizard/page/page-detail',
+        'target' => Controller\Wizard\PageWizardController::class . '::getPageDetailAction',
+        'methods' => ['GET'],
+    ],
+    'wizard_page_get_processed_value' => [
+        'path' => '/wizard/page/processed-value',
+        'target' => Controller\Wizard\PageWizardController::class . '::getProcessedValueAction',
+        'methods' => ['GET'],
+    ],
+    'wizard_config' => [
+        'path' => '/wizard/config',
+        'target' => Controller\Wizard\WizardController::class . '::getConfigurationAction',
+        'methods' => ['GET'],
+    ],
+    'wizard_submit' => [
+        'path' => '/wizard/submit',
+        'target' => Controller\Wizard\WizardController::class . '::submitDataAction',
+        'methods' => ['POST'],
     ],
 ];

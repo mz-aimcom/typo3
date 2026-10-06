@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\FrontendLogin\Validation;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
@@ -31,13 +30,12 @@ use TYPO3\CMS\FrontendLogin\Event\ModifyRedirectUrlValidationResultEvent;
  *
  * @internal for now as it might get adopted for further streamlining against other validation paradigms
  */
-class RedirectUrlValidator implements LoggerAwareInterface
+readonly class RedirectUrlValidator
 {
-    use LoggerAwareTrait;
-
     public function __construct(
         protected SiteFinder $siteFinder,
-        protected EventDispatcherInterface $eventDispatcher
+        protected EventDispatcherInterface $eventDispatcher,
+        protected LoggerInterface $logger,
     ) {}
 
     /**
@@ -51,7 +49,7 @@ class RedirectUrlValidator implements LoggerAwareInterface
 
         // Validate the URL
         $result = false;
-        if ($this->isRelativeUrl($value) || $this->isInCurrentDomain($request, $value) || $this->isInLocalDomain($value)) {
+        if ($this->isRelativeUrl($request, $value) || $this->isInCurrentDomain($request, $value) || $this->isInLocalDomain($value)) {
             $result = true;
         }
 
@@ -107,14 +105,14 @@ class RedirectUrlValidator implements LoggerAwareInterface
     /**
      * Determines whether the URL is relative to the current TYPO3 installation.
      */
-    protected function isRelativeUrl(string $url): bool
+    protected function isRelativeUrl(RequestInterface $request, string $url): bool
     {
-        $url = GeneralUtility::sanitizeLocalUrl($url);
+        $url = GeneralUtility::sanitizeLocalUrl($url, $request);
         if (!empty($url)) {
             $parsedUrl = @parse_url($url);
             if ($parsedUrl !== false && !isset($parsedUrl['scheme']) && !isset($parsedUrl['host'])) {
                 // If the relative URL starts with a slash, we need to check if it's within the current site path
-                return $parsedUrl['path'][0] !== '/' || str_starts_with($parsedUrl['path'], GeneralUtility::getIndpEnv('TYPO3_SITE_PATH'));
+                return $parsedUrl['path'][0] !== '/' || str_starts_with($parsedUrl['path'], $request->getAttribute('normalizedParams')->getSitePath());
             }
         }
         return false;

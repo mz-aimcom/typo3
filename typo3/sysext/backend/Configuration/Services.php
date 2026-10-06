@@ -7,12 +7,19 @@ namespace TYPO3\CMS\Backend;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use TYPO3\CMS\Backend\Attribute\AsAvatarProvider;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Attribute\AsSidebarComponent;
 use TYPO3\CMS\Backend\ContextMenu\ItemProviders\ProviderInterface;
+use TYPO3\CMS\Backend\DependencyInjection\AvatarProviderPass;
+use TYPO3\CMS\Backend\DependencyInjection\ModuleAccessGatePass;
+use TYPO3\CMS\Backend\DependencyInjection\SidebarComponentsPass;
 use TYPO3\CMS\Backend\ElementBrowser\ElementBrowserInterface;
 use TYPO3\CMS\Backend\Form\NodeInterface;
+use TYPO3\CMS\Backend\Localization\LocalizationHandlerInterface;
 use TYPO3\CMS\Backend\Search\LiveSearch\SearchProviderInterface;
 use TYPO3\CMS\Backend\Toolbar\ToolbarItemInterface;
+use TYPO3\CMS\Core\Attribute\AsModuleAccessGate;
 use TYPO3\CMS\Core\DependencyInjection\PublicServicePass;
 
 return static function (ContainerConfigurator $container, ContainerBuilder $containerBuilder) {
@@ -21,6 +28,7 @@ return static function (ContainerConfigurator $container, ContainerBuilder $cont
     $containerBuilder->registerForAutoconfiguration(ProviderInterface::class)->addTag('backend.contextmenu.itemprovider');
     $containerBuilder->registerForAutoconfiguration(SearchProviderInterface::class)->addTag('livesearch.provider');
     $containerBuilder->registerForAutoconfiguration(NodeInterface::class)->addTag('backend.form.node');
+    $containerBuilder->registerForAutoconfiguration(LocalizationHandlerInterface::class)->addTag('backend.localization.handler');
 
     $containerBuilder->addCompilerPass(new PublicServicePass('backend.controller'));
 
@@ -33,11 +41,41 @@ return static function (ContainerConfigurator $container, ContainerBuilder $cont
 
     $containerBuilder->addCompilerPass(new PublicServicePass('backend.form.dataprovider'));
 
+    $containerBuilder->addCompilerPass(new AvatarProviderPass('backend.avatar_provider'));
+
+    $containerBuilder->addCompilerPass(new SidebarComponentsPass(AsSidebarComponent::TAG_NAME));
+
+    $containerBuilder->addCompilerPass(new ModuleAccessGatePass(AsModuleAccessGate::TAG_NAME));
+
     // adds tag backend.controller to services
     $containerBuilder->registerAttributeForAutoconfiguration(
         AsController::class,
         static function (ChildDefinition $definition, AsController $attribute): void {
             $definition->addTag(AsController::TAG_NAME);
         }
+    );
+
+    // Autoconfigure backend avatar providers
+    $containerBuilder->registerAttributeForAutoconfiguration(
+        AsAvatarProvider::class,
+        static function (ChildDefinition $definition, AsAvatarProvider $attribute): void {
+            $definition->addTag(AsAvatarProvider::TAG_NAME, [
+                'identifier' => $attribute->identifier,
+                'before' => implode(',', $attribute->before),
+                'after' => implode(',', $attribute->after),
+            ]);
+        },
+    );
+
+    // Autoconfigure backend sidebar components
+    $containerBuilder->registerAttributeForAutoconfiguration(
+        AsSidebarComponent::class,
+        static function (ChildDefinition $definition, AsSidebarComponent $attribute): void {
+            $definition->addTag(AsSidebarComponent::TAG_NAME, [
+                'identifier' => $attribute->identifier,
+                'before' => implode(',', $attribute->before),
+                'after' => implode(',', $attribute->after),
+            ]);
+        },
     );
 };

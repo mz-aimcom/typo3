@@ -12,7 +12,6 @@
  */
 
 import 'bootstrap';
-import '../../renderable/clearable';
 import '../../renderable/wrap-group';
 import '../../renderable/offset-group';
 import { AbstractInteractableModule, type ModuleLoadedResponse } from '../abstract-interactable-module';
@@ -25,7 +24,6 @@ import type MessageInterface from '@typo3/install/message-interface';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { Collapse } from 'bootstrap';
 import DebounceEvent from '@typo3/core/event/debounce-event';
-import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ModalElement } from '@typo3/backend/modal';
 
@@ -56,11 +54,6 @@ class ExtensionConfiguration extends AbstractInteractableModule {
           event.preventDefault();
           searchInput.focus();
         }
-      } else if (event.key === KeyTypesEnum.ESCAPE) {
-        // Clear search on ESC key
-        event.preventDefault();
-        searchInput.value = '';
-        searchInput.focus();
       }
     }).bindTo(currentModal);
 
@@ -105,7 +98,6 @@ class ExtensionConfiguration extends AbstractInteractableModule {
           const data: ModuleLoadedResponse = await response.resolve();
           if (data.success === true) {
             modalContent.innerHTML = data.html;
-            (modalContent.querySelector(Identifiers.searchInput) as HTMLInputElement).clearable();
             this.initializeWrap();
             this.initializeColorPicker();
           }
@@ -188,12 +180,10 @@ class ExtensionConfiguration extends AbstractInteractableModule {
 
       parent.appendChild(offsetGroup);
 
-      parent.querySelectorAll('.t3js-emconf-offsetfield').forEach((offsetField: HTMLInputElement) => {
-        new RegularEvent('keyup', (event: KeyboardEvent) => {
-          const target = parent.querySelector<HTMLInputElement>((event.currentTarget as HTMLElement).dataset.target);
-          target.value = parent.querySelector<HTMLInputElement>(target.dataset.offsetfieldX).value + ',' + parent.querySelector<HTMLInputElement>(target.dataset.offsetfieldY).value;
-        }).bindTo(offsetField);
-      });
+      new RegularEvent('keyup', (event: KeyboardEvent, offsetField: HTMLInputElement): void => {
+        const target = parent.querySelector<HTMLInputElement>(offsetField.dataset.target);
+        target.value = parent.querySelector<HTMLInputElement>(target.dataset.offsetfieldX).value + ',' + parent.querySelector<HTMLInputElement>(target.dataset.offsetfieldY).value;
+      }).delegateTo(parent, '.t3js-emconf-offsetfield');
     });
 
     this.currentModal.querySelectorAll('.t3js-emconf-wrap').forEach((element: HTMLInputElement): void => {
@@ -209,12 +199,10 @@ class ExtensionConfiguration extends AbstractInteractableModule {
 
       parent.appendChild(offsetGroup);
 
-      parent.querySelectorAll('.t3js-emconf-wrapfield').forEach((wrapField: HTMLInputElement) => {
-        new RegularEvent('keyup', (event: KeyboardEvent) => {
-          const target = parent.querySelector<HTMLInputElement>((event.currentTarget as HTMLElement).dataset.target);
-          target.value = parent.querySelector<HTMLInputElement>(target.dataset.wrapfieldStart).value + '|' + parent.querySelector<HTMLInputElement>(target.dataset.wrapfieldEnd).value;
-        }).bindTo(wrapField);
-      });
+      new RegularEvent('keyup', (event: KeyboardEvent, wrapField: HTMLInputElement): void => {
+        const target = parent.querySelector<HTMLInputElement>(wrapField.dataset.target);
+        target.value = parent.querySelector<HTMLInputElement>(target.dataset.wrapfieldStart).value + '|' + parent.querySelector<HTMLInputElement>(target.dataset.wrapfieldEnd).value;
+      }).delegateTo(parent, '.t3js-emconf-wrapfield');
     });
   }
 }

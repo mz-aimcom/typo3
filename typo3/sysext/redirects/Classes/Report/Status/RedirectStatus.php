@@ -23,7 +23,6 @@ use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Registry;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Redirects\Command\CheckIntegrityCommand;
 use TYPO3\CMS\Redirects\Configuration\CheckIntegrityConfiguration;
 use TYPO3\CMS\Redirects\Repository\RedirectRepository;
@@ -35,13 +34,13 @@ use TYPO3\CMS\Reports\StatusProviderInterface;
  * Performs checks regarding redirects
  */
 #[Autoconfigure(public: true)]
-class RedirectStatus implements StatusProviderInterface, RequestAwareStatusProviderInterface
+readonly class RedirectStatus implements StatusProviderInterface, RequestAwareStatusProviderInterface
 {
     public function __construct(
-        protected readonly BackendViewFactory $backendViewFactory,
-        protected readonly RedirectRepository $redirectRepository,
-        protected readonly Registry $registry,
-        protected readonly CheckIntegrityConfiguration $checkIntegrityConfiguration,
+        protected BackendViewFactory $backendViewFactory,
+        protected RedirectRepository $redirectRepository,
+        protected Registry $registry,
+        protected CheckIntegrityConfiguration $checkIntegrityConfiguration,
     ) {}
 
     /**
@@ -90,8 +89,7 @@ class RedirectStatus implements StatusProviderInterface, RequestAwareStatusProvi
             'reportedConflicts' => [],
         ]);
 
-        return GeneralUtility::makeInstance(
-            Status::class,
+        return new Status(
             $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.conflictingRedirects'),
             $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.conflictingRedirects.none'),
             $view->render('Report/RedirectStatus'),
@@ -117,8 +115,7 @@ class RedirectStatus implements StatusProviderInterface, RequestAwareStatusProvi
             'reportedConflicts' => $reportedConflicts,
         ]);
 
-        return GeneralUtility::makeInstance(
-            Status::class,
+        return new Status(
             $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.conflictingRedirects'),
             $value,
             $view->render('Report/RedirectStatus'),
@@ -136,8 +133,7 @@ class RedirectStatus implements StatusProviderInterface, RequestAwareStatusProvi
         $checkPoint = time() - $this->checkIntegrityConfiguration->seconds;
         $lastCheckIsWithinCheckPeriod = $lastCheck >= $checkPoint;
         if (!$hasCheckedBefore || !$lastCheckIsWithinCheckPeriod) {
-            return GeneralUtility::makeInstance(
-                Status::class,
+            return new Status(
                 $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.checkIntegrityResultState'),
                 $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.checkIntegrityResultState.title'),
                 $this->getLanguageService()->sL('LLL:EXT:redirects/Resources/Private/Language/locallang_reports.xlf:status.checkIntegrityResultState.message'),

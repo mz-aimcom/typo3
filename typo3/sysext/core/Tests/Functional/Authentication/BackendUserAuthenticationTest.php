@@ -20,6 +20,8 @@ namespace TYPO3\CMS\Core\Tests\Functional\Authentication;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaRequiredException;
+use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class BackendUserAuthenticationTest extends FunctionalTestCase
@@ -43,6 +45,68 @@ final class BackendUserAuthenticationTest extends FunctionalTestCase
     {
         $backendUser = $this->setUpBackendUser(3);
         self::assertCount(3, $backendUser->getFileMountRecords());
+    }
+
+    #[Test]
+    public function readOnlyMountPointWithStorageIsAddedToFileMountRecords(): void
+    {
+        $this->get(CacheManager::class)->getCache('runtime')->remove('backendUserAuthenticationFileMountRecords');
+        $backendUser = $this->setUpBackendUser(3);
+        $backendUser->user['TSconfig'] = 'options.folderTree.altElementBrowserMountPoints = 1:/read-only/';
+        $backendUser->fetchGroupData();
+
+        $fileMountRecords = $backendUser->getFileMountRecords();
+
+        self::assertCount(4, $fileMountRecords);
+        self::assertSame(1, $fileMountRecords['1/read-only/-readonly']['base']);
+        self::assertSame('1:/read-only/', $fileMountRecords['1/read-only/-readonly']['identifier']);
+        self::assertTrue($fileMountRecords['1/read-only/-readonly']['read_only']);
+    }
+
+    #[Test]
+    public function readOnlyMountPointWithoutStorageUsesDefaultStorage(): void
+    {
+        $this->get(CacheManager::class)->getCache('runtime')->remove('backendUserAuthenticationFileMountRecords');
+        $this->getConnectionPool()->getConnectionForTable('sys_file_storage')
+            ->update('sys_file_storage', ['is_default' => 1], ['uid' => 1]);
+        $this->get(StorageRepository::class)->flush();
+        $backendUser = $this->setUpBackendUser(3);
+        $backendUser->user['TSconfig'] = 'options.folderTree.altElementBrowserMountPoints = /read-only/';
+        $backendUser->fetchGroupData();
+
+        $fileMountRecords = $backendUser->getFileMountRecords();
+
+        self::assertSame(1, $fileMountRecords['1/read-only/-readonly']['base']);
+        self::assertSame('1:/read-only/', $fileMountRecords['1/read-only/-readonly']['identifier']);
+    }
+
+    #[Test]
+    public function readOnlyMountPointWithoutStorageThrowsIfNoDefaultStorageExists(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1404472382);
+        $this->get(CacheManager::class)->getCache('runtime')->remove('backendUserAuthenticationFileMountRecords');
+        $backendUser = $this->setUpBackendUser(3);
+        $backendUser->user['TSconfig'] = 'options.folderTree.altElementBrowserMountPoints = /read-only/';
+        $backendUser->fetchGroupData();
+        $backendUser->getFileMountRecords();
+    }
+
+    #[Test]
+    public function readOnlyMountPointWithoutStorageUsesCreatedDefaultStorageIfNoStorageExists(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('sys_file_storage')->truncate('sys_file_storage');
+        $storageRepository = $this->get(StorageRepository::class);
+        $storageRepository->flush();
+        $backendUser = $this->setUpBackendUser(3);
+        $backendUser->user['TSconfig'] = 'options.folderTree.altElementBrowserMountPoints = /read-only/';
+        $backendUser->fetchGroupData();
+
+        $fileMountRecords = $backendUser->getFileMountRecords();
+
+        $defaultStorageUid = $storageRepository->getDefaultStorageUid();
+        self::assertNotNull($defaultStorageUid);
+        self::assertSame($defaultStorageUid, $fileMountRecords[$defaultStorageUid . '/read-only/-readonly']['base']);
     }
 
     #[Test]
@@ -84,7 +148,7 @@ final class BackendUserAuthenticationTest extends FunctionalTestCase
     {
         $subject = $this->setUpBackendUser(3);
         $subject->fetchGroupData();
-        self::assertEquals('web_info,web_layout,web_list,file_filelist', $subject->groupData['modules']);
+        self::assertEquals('content_status,web_layout,records,file_filelist', $subject->groupData['modules']);
         self::assertEquals([1, 4, 5, 3, 2, 6], $subject->userGroupsUID);
         self::assertEquals(['groupValue' => 'from_group_6', 'userValue' => 'from_user_3'], $subject->getTSConfig()['test.']['default.']);
     }
@@ -148,5 +212,25 @@ final class BackendUserAuthenticationTest extends FunctionalTestCase
     {
         $subject = $this->setUpBackendUser($userId);
         self::assertEquals($expected, $subject->isExportEnabled());
+    }
+
+    #[Test]
+    public function userTsConfigConditionMatchesAdminUser(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_tsconfig_conditions.csv');
+        $userTsConfig = $this->setUpBackendUser(10)->getTSConfig();
+        self::assertSame('yes', $userTsConfig['isAdminMatched'] ?? null);
+        self::assertArrayNotHasKey('isNotAdminMatched', $userTsConfig);
+        self::assertSame('yes', $userTsConfig['isLoggedInMatched'] ?? null);
+    }
+
+    #[Test]
+    public function userTsConfigConditionMatchesNonAdminUser(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/be_users_tsconfig_conditions.csv');
+        $userTsConfig = $this->setUpBackendUser(11)->getTSConfig();
+        self::assertArrayNotHasKey('isAdminMatched', $userTsConfig);
+        self::assertSame('yes', $userTsConfig['isNotAdminMatched'] ?? null);
+        self::assertSame('yes', $userTsConfig['isLoggedInMatched'] ?? null);
     }
 }

@@ -18,8 +18,10 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Workspaces\Service;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryHelper;
@@ -28,14 +30,12 @@ use TYPO3\CMS\Core\Database\Query\Restriction\RootLevelRestriction;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Resource\Exception\FileDoesNotExistException;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Schema\Capability\LabelCapability;
 use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Versioning\VersionState;
 
 /**
@@ -48,44 +48,107 @@ readonly class WorkspaceService
 {
     public const LIVE_WORKSPACE_ID = 0;
 
+    /**
+     * Default (initialized) workspace for a user - internal "no access" workspace
+     */
+    public const NOACCESS_WORKSPACE_ID = -99;
+
     public const PUBLISH_ACCESS_ONLY_IN_PUBLISH_STAGE = 1;
     public const PUBLISH_ACCESS_ONLY_WORKSPACE_OWNERS = 2;
     public const PUBLISH_ACCESS_HIDE_ENTIRE_WORKSPACE_ACTION_DROPDOWN = 4;
 
     public function __construct(
+        #[Autowire(service: 'cache.runtime')]
+        private FrontendInterface $runtimeCache,
         private TcaSchemaFactory $tcaSchemaFactory,
         private ConnectionPool $connectionPool,
         private ResourceFactory $resourceFactory,
     ) {}
 
     /**
+     * Check if the current backend user has access to workspaces.
+     *
+     * Returns true if the user is an admin, is currently in a workspace,
+     * or has access to at least one custom workspace.
+     */
+    public function hasAccessToWorkspaces(): bool
+    {
+        $backendUser = $this->getBackendUser();
+        if ($backendUser->isAdmin() || $backendUser->workspace === self::NOACCESS_WORKSPACE_ID) {
+            return true;
+        }
+
+        // Only grant access if there are workspaces beyond just the live workspace
+        $availableWorkspaces = $this->getAvailableWorkspaces();
+        return !($backendUser->workspace === self::LIVE_WORKSPACE_ID
+            && count($availableWorkspaces) === 1
+            && key($availableWorkspaces) === self::LIVE_WORKSPACE_ID);
+    }
+
+    /**
+     * Check if the current backend user can switch between workspaces.
+     *
+     * Returns true if the user has more than one workspace available.
+     */
+    public function canSwitchWorkspaces(): bool
+    {
+        return count($this->getAvailableWorkspaces()) > 1;
+    }
+
+    /**
      * Retrieves the available workspaces from the database and checks whether
      * they're available to the current BE user
      *
-     * @return array array of workspaces available to the current user
+     * @return ($includeWorkspaceData is true
+     *   ? array<int, array{title: string, uid: int, adminusers: string, description: string, color?: string}>
+     *   : array<int, string>
+     * ) workspaces available to the current user
      */
-    public function getAvailableWorkspaces(): array
+    public function getAvailableWorkspaces(bool $includeWorkspaceData = false): array
     {
+        $cacheId = 'workspace-service-available-workspaces' . ($includeWorkspaceData ? '-detailed' : '');
+        $cached = $this->runtimeCache->get($cacheId);
+        if ($cached !== false) {
+            return $cached;
+        }
+
         $backendUser = $this->getBackendUser();
         $availableWorkspaces = [];
         // add default workspaces
         if ($backendUser->checkWorkspace(self::LIVE_WORKSPACE_ID)) {
-            $availableWorkspaces[self::LIVE_WORKSPACE_ID] = $this->getWorkspaceTitle(self::LIVE_WORKSPACE_ID);
+            $availableWorkspaces[self::LIVE_WORKSPACE_ID] = $includeWorkspaceData ? [
+                'uid' => self::LIVE_WORKSPACE_ID,
+                'title' => $this->getLanguageService()->sL('workspaces.messages:workspaceInfo.live.title'),
+                'color' => 'red',
+                'adminusers' => '',
+                'description' => $this->getLanguageService()->sL('workspaces.messages:workspaceInfo.live.description'),
+            ] : $this->getLanguageService()->sL('workspaces.messages:workspaceInfo.live.title');
         }
         // add custom workspaces (selecting all, filtering by BE_USER check):
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_workspace');
         $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(RootLevelRestriction::class));
+        $labelField = $this->tcaSchemaFactory->get('sys_workspace')->getCapability(TcaSchemaCapability::Label)->getPrimaryFieldName();
+
+        // Always fetch adminusers and members for checkWorkspace() access verification
+        $columns = ['uid', $labelField . ' AS title', 'adminusers', 'members'];
+        if ($includeWorkspaceData) {
+            $columns[] = 'color';
+            $columns[] = 'description';
+        }
+
         $result = $queryBuilder
-            ->select('uid', 'title', 'adminusers', 'members')
+            ->select(...$columns)
             ->from('sys_workspace')
-            ->orderBy('title')
+            ->orderBy($labelField)
             ->executeQuery();
 
         while ($workspace = $result->fetchAssociative()) {
             if ($backendUser->checkWorkspace($workspace)) {
-                $availableWorkspaces[$workspace['uid']] = $workspace['title'];
+                $availableWorkspaces[(int)$workspace['uid']] = $includeWorkspaceData ? $workspace : $workspace['title'];
             }
         }
+
+        $this->runtimeCache->set($cacheId, $availableWorkspaces);
         return $availableWorkspaces;
     }
 
@@ -97,16 +160,12 @@ readonly class WorkspaceService
         $title = false;
         switch ($wsId) {
             case self::LIVE_WORKSPACE_ID:
-                $title = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_misc.xlf:shortcut_onlineWS');
+                $title = $this->getLanguageService()->sL('workspaces.messages:workspaceInfo.live.title');
                 break;
             default:
-                $schema = $this->tcaSchemaFactory->get('sys_workspace');
-                /** @var LabelCapability $labelCapability */
-                $labelCapability = $schema->getCapability(TcaSchemaCapability::Label);
-                $labelField = $labelCapability->getPrimaryFieldName();
-                $wsRecord = BackendUtility::getRecord('sys_workspace', $wsId, 'uid,' . $labelField);
+                $wsRecord = BackendUtility::getRecord('sys_workspace', $wsId);
                 if (is_array($wsRecord)) {
-                    $title = (string)$wsRecord[$labelField];
+                    $title = (string)BackendUtility::getRecordTitle('sys_workspace', $wsRecord);
                 }
         }
         if ($title === false) {
@@ -145,9 +204,9 @@ readonly class WorkspaceService
             // Traverse the selection to build CMD array:
             foreach ($versions as $table => $records) {
                 foreach ($records as $rec) {
-                    // For new records, the live ID is the same as the version ID
-                    $liveId = $rec['t3ver_oid'] ?: $rec['uid'];
-                    $cmd[$table][$liveId]['version'] = ['action' => 'swap', 'swapWith' => $rec['uid']];
+                    // Publishing always uses the versionId
+                    $versionId = (int)$rec['uid'];
+                    $cmd[$table][$versionId]['publish'] = [];
                 }
             }
         }
@@ -155,7 +214,7 @@ readonly class WorkspaceService
     }
 
     /**
-     * Building DataHandler CMD-array for releasing all versions in a workspace.
+     * Building DataHandler CMD-array for discarding all versions in a workspace.
      *
      * @param int $wsid Real workspace ID, cannot be ONLINE (zero).
      * @param int|null $language Select specific language only
@@ -179,7 +238,8 @@ readonly class WorkspaceService
             // Traverse the selection to build CMD array:
             foreach ($versions as $table => $records) {
                 foreach ($records as $rec) {
-                    $cmd[$table][$rec['uid']]['version'] = ['action' => 'flush'];
+                    $versionId = (int)$rec['uid'];
+                    $cmd[$table][$versionId]['discard'] = true;
                 }
             }
         }
@@ -234,13 +294,13 @@ readonly class WorkspaceService
             $recs = $this->selectAllVersionsFromPages($schema, $pageList, $wsid, $stage, $language);
             $newRecords = $this->getNewVersionsForPages($schema, $pageList, $wsid, $stage, $language);
             foreach ($newRecords as &$newRecord) {
-                // If we're dealing with a 'new' record, this one has no t3ver_oid. On publish, there is no
-                // live counterpart, but the publish methods later need a live uid to publish to. We thus
-                // use the uid as t3ver_oid here to be transparent on javascript side.
+                // If we're dealing with a 'new' record, this one has no t3ver_oid. We use the uid as
+                // t3ver_oid here to be transparent on the JavaScript side for display purposes.
+                // The publish command uses the versioned UID directly and resolves the live ID internally.
                 $newRecord['t3ver_oid'] = $newRecord['uid'];
             }
             unset($newRecord);
-            $moveRecs = $this->getMovedRecordsFromPages($schema, $pageList, $wsid, $stage);
+            $moveRecs = $this->getMovedRecordsFromPages($schema, $pageList, $wsid, $stage, $language);
             $recs = array_merge($recs, $newRecords, $moveRecs);
             $recs = $this->filterPermittedElements($recs, $table);
             if (!empty($recs)) {
@@ -271,7 +331,9 @@ readonly class WorkspaceService
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
-        $fields = ['A.uid', 'A.pid', 'A.t3ver_oid', 'A.t3ver_stage', 'B.pid', 'B.pid AS wspid', 'B.pid AS livepid'];
+        // Move pointers are excluded below, so the version (A) always lives on the pid of its live record (B),
+        // which is why "wspid" and "livepid" are both taken from B.
+        $fields = ['A.uid', 'A.t3ver_oid', 'A.t3ver_stage', 'B.pid', 'B.pid AS wspid', 'B.pid AS livepid'];
         if ($schema->isLanguageAware()) {
             $fields[] = 'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
             $fields[] = 'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName();
@@ -327,7 +389,7 @@ readonly class WorkspaceService
             }
         }
 
-        if ($schema->isLanguageAware() && MathUtility::canBeInterpretedAsInteger($language)) {
+        if ($schema->isLanguageAware() && $language !== null) {
             $constraints[] = $queryBuilder->expr()->eq(
                 'A.' . $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                 $queryBuilder->createNamedParameter($language, Connection::PARAM_INT)
@@ -446,10 +508,10 @@ readonly class WorkspaceService
             }
         }
 
-        if ($schema->isLanguageAware() && MathUtility::canBeInterpretedAsInteger($language)) {
+        if ($schema->isLanguageAware() && $language !== null) {
             $constraints[] = $queryBuilder->expr()->eq(
                 $languageField,
-                $queryBuilder->createNamedParameter((int)$language, Connection::PARAM_INT)
+                $queryBuilder->createNamedParameter($language, Connection::PARAM_INT)
             );
         }
 
@@ -482,8 +544,13 @@ readonly class WorkspaceService
     /**
      * Find all moved records at their new position.
      */
-    protected function getMovedRecordsFromPages(TcaSchema $schema, string $pageList, int $wsid, int $stage): array
+    protected function getMovedRecordsFromPages(TcaSchema $schema, string $pageList, int $wsid, int $stage, ?int $language = null): array
     {
+        // If table is not localizable, but localized records shall
+        // be collected, an empty result array needs to be returned:
+        if (!$schema->isLanguageAware() && $language > 0) {
+            return [];
+        }
         $table = $schema->getName();
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
@@ -524,6 +591,13 @@ readonly class WorkspaceService
             $constraints[] = $queryBuilder->expr()->eq(
                 'C.t3ver_stage',
                 $queryBuilder->createNamedParameter($stage, Connection::PARAM_INT)
+            );
+        }
+
+        if ($schema->isLanguageAware() && $language !== null) {
+            $constraints[] = $queryBuilder->expr()->eq(
+                'C.' . $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
+                $queryBuilder->createNamedParameter($language, Connection::PARAM_INT)
             );
         }
 

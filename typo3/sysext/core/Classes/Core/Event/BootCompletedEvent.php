@@ -18,11 +18,12 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Core\Event;
 
 /**
- * Executed when TYPO3 has fully booted (after all ext_tables.php files have been processed)
+ * Executed when TYPO3 has fully booted
  */
 final readonly class BootCompletedEvent
 {
-    public function __construct(protected bool $cachingEnabled) {}
+    public function __construct(private bool $cachingEnabled) {}
+
     public function isCachingEnabled(): bool
     {
         return $this->cachingEnabled;

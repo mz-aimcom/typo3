@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Utility;
 
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\VersionNumberUtility;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Dependency;
@@ -33,7 +32,7 @@ use TYPO3\CMS\Extensionmanager\Service\ExtensionManagementService;
  * Utility for dealing with dependencies
  * @internal This class is a specific ExtensionManager implementation and is not part of the Public TYPO3 API.
  */
-class DependencyUtility implements SingletonInterface
+class DependencyUtility
 {
     /**
      * @var ExtensionRepository
@@ -44,11 +43,6 @@ class DependencyUtility implements SingletonInterface
      * @var ListUtility
      */
     protected $listUtility;
-
-    /**
-     * @var EmConfUtility
-     */
-    protected $emConfUtility;
 
     /**
      * @var ExtensionManagementService
@@ -78,11 +72,6 @@ class DependencyUtility implements SingletonInterface
     public function injectListUtility(ListUtility $listUtility)
     {
         $this->listUtility = $listUtility;
-    }
-
-    public function injectEmConfUtility(EmConfUtility $emConfUtility)
-    {
-        $this->emConfUtility = $emConfUtility;
     }
 
     public function injectManagementService(ExtensionManagementService $managementService)
@@ -133,7 +122,7 @@ class DependencyUtility implements SingletonInterface
                 }
             } catch (UnresolvedDependencyException $e) {
                 if (in_array($identifier, Dependency::$specialDependencies)) {
-                    $extensionKey = $extension->getExtensionKey();
+                    $extensionKey = $extension->extensionKey;
                 } else {
                     $extensionKey = $identifier;
                 }
@@ -257,8 +246,8 @@ class DependencyUtility implements SingletonInterface
                 }
             } else {
                 throw new MissingVersionDependencyException(
-                    'The extension ' . $extensionKey . ' is installed in version ' . $loadedVersion .
-                    ' but needed in version ' . $dependency->getLowestVersion() . ' - ' . $dependency->getHighestVersion(),
+                    'The extension ' . $extensionKey . ' is installed in version ' . $loadedVersion
+                    . ' but needed in version ' . $dependency->getLowestVersion() . ' - ' . $dependency->getHighestVersion(),
                     1430561927
                 );
             }
@@ -390,11 +379,8 @@ class DependencyUtility implements SingletonInterface
     protected function isAvailableVersionCompatible(Dependency $dependency): bool
     {
         $this->setAvailableExtensions();
-        $extensionData = $this->emConfUtility->includeEmConf(
-            $dependency->getIdentifier(),
-            $this->availableExtensions[$dependency->getIdentifier()]['packagePath'] ?? ''
-        );
-        return $dependency->isVersionCompatible($extensionData['version']);
+        $version = (string)($this->availableExtensions[$dependency->getIdentifier()]['version'] ?? '');
+        return $dependency->isVersionCompatible($version);
     }
 
     /**
@@ -402,7 +388,7 @@ class DependencyUtility implements SingletonInterface
      */
     protected function isExtensionDownloadableFromRemote(string $extensionKey): bool
     {
-        return $this->extensionRepository->count(['extensionKey' => $extensionKey]) > 0;
+        return count($this->extensionRepository->findByExtensionKeyOrderedByVersion($extensionKey)) > 0;
     }
 
     /**
@@ -410,11 +396,11 @@ class DependencyUtility implements SingletonInterface
      */
     protected function isDownloadableVersionCompatible(Dependency $dependency): bool
     {
-        $count = $this->extensionRepository->countByVersionRangeAndExtensionKey(
+        $count = count($this->extensionRepository->findByVersionRangeAndExtensionKeyOrderedByVersion(
             $dependency->getIdentifier(),
             $dependency->getLowestVersionAsInteger(),
             $dependency->getHighestVersionAsInteger()
-        );
+        ));
         return !empty($count);
     }
 
@@ -427,7 +413,7 @@ class DependencyUtility implements SingletonInterface
         foreach ($extensions as $extension) {
             /** @var Extension $extension */
             $this->checkDependencies($extension);
-            $extensionKey = $extension->getExtensionKey();
+            $extensionKey = $extension->extensionKey;
 
             if (isset($this->dependencyErrors[$extensionKey])) {
                 // reset dependencyErrors and continue with next version

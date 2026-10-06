@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\Tests\Functional\Domain\Model\Renderable;
 
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
@@ -33,6 +34,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class AbstractRenderableTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $coreExtensionsToLoad = [
         'form',
     ];
@@ -41,20 +44,21 @@ final class AbstractRenderableTest extends FunctionalTestCase
     public function setOptionsResetsValidatorsIfDefined(): void
     {
         // $prototypeConfiguration is a monster array. Get it up front.
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseConfigurationManager = $this->get(ExtbaseConfigurationManagerInterface::class);
         $extbaseConfigurationManager->setRequest($request);
         $extFormConfigurationManager = $this->get(ExtFormConfigurationManagerInterface::class);
         $configurationService = new ConfigurationService(
             $extbaseConfigurationManager,
             $extFormConfigurationManager,
-            $this->createMock(TranslationService::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(FrontendInterface::class),
+            self::createStub(TranslationService::class),
+            self::createStub(FrontendInterface::class),
+            self::createStub(FrontendInterface::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $prototypeConfiguration = $configurationService->getPrototypeConfiguration('standard');
 
-        $subject = new class () extends AbstractRenderable {};
+        $subject = new class extends AbstractRenderable {};
         $subject->setIdentifier('Foo');
         $subject->setParentRenderable(new FormDefinition('foo', $prototypeConfiguration));
 
@@ -72,7 +76,7 @@ final class AbstractRenderableTest extends FunctionalTestCase
     #[Test]
     public function beforeRenderableIsRemovedEventIsTriggered(): void
     {
-        $subject = new class () extends AbstractRenderable {};
+        $subject = new class extends AbstractRenderable {};
         $subject->setLabel('test');
         $container = $this->get('service_container');
         $state = [

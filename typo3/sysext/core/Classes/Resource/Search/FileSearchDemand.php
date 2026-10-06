@@ -24,45 +24,16 @@ use TYPO3\CMS\Core\Resource\Folder;
  */
 class FileSearchDemand
 {
-    /**
-     * @var string|null
-     */
-    private $searchTerm;
-
-    /**
-     * @var Folder|null
-     */
-    private $folder;
-
-    /**
-     * @var int|null
-     */
-    private $firstResult;
-
-    /**
-     * @var int|null
-     */
-    private $maxResults;
-
-    /**
-     * @var array|null
-     */
-    private $searchFields;
-
-    /**
-     * @var array|null
-     */
-    private $orderings;
-
-    /**
-     * @var bool
-     */
-    private $recursive = false;
+    private ?string $searchTerm;
+    private ?Folder $folder = null;
+    private ?int $firstResult = null;
+    private ?int $maxResults = null;
+    private ?array $searchFields = null;
+    private ?array $orderings = null;
+    private bool $recursive = false;
 
     /**
      * Only factory methods are allowed to be used to create this object
-     *
-     * @param string|null $searchTerm
      */
     private function __construct(?string $searchTerm = null)
     {
@@ -82,6 +53,11 @@ class FileSearchDemand
     public function getSearchTerm(): ?string
     {
         return $this->searchTerm;
+    }
+
+    public function hasSearchTerm(): bool
+    {
+        return $this->searchTerm !== null;
     }
 
     public function getFolder(): ?Folder
@@ -116,18 +92,12 @@ class FileSearchDemand
 
     public function withSearchTerm(string $searchTerm): self
     {
-        $demand = clone $this;
-        $demand->searchTerm = $searchTerm;
-
-        return $demand;
+        return clone($this, ['searchTerm' => $searchTerm]);
     }
 
     public function withFolder(Folder $folder): self
     {
-        $demand = clone $this;
-        $demand->folder = $folder;
-
-        return $demand;
+        return clone($this, ['folder' => $folder]);
     }
 
     /**
@@ -136,18 +106,12 @@ class FileSearchDemand
      */
     public function withStartResult(int $firstResult): self
     {
-        $demand = clone $this;
-        $demand->firstResult = $firstResult;
-
-        return $demand;
+        return clone($this, ['firstResult' => $firstResult]);
     }
 
     public function withMaxResults(int $maxResults): self
     {
-        $demand = clone $this;
-        $demand->maxResults = $maxResults;
-
-        return $demand;
+        return clone($this, ['maxResults' => $maxResults]);
     }
 
     public function addSearchField(string $tableName, string $field): self
@@ -168,9 +132,6 @@ class FileSearchDemand
 
     public function withRecursive(): self
     {
-        $demand = clone $this;
-        $demand->recursive = true;
-
-        return $demand;
+        return clone($this, ['recursive' => true]);
     }
 }

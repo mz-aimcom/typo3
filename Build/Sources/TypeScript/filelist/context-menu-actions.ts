@@ -11,7 +11,6 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { lll } from '@typo3/core/lit-helper';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Notification from '@typo3/backend/notification';
@@ -19,6 +18,8 @@ import Modal from '@typo3/backend/modal';
 import Md5 from '@typo3/backend/hashing/md5';
 import { fileListOpenElementBrowser } from '@typo3/filelist/file-list';
 import { FileListActionEvent, type FileListActionDetail, FileListActionUtility } from './file-list-actions';
+import coreCoreLabels from '~labels/core.core';
+import coreCommonLabels from '~labels/core.common';
 
 /**
  * Module: @typo3/filelist/context-menu-actions
@@ -42,7 +43,7 @@ class ContextMenuActions {
     }
     document.body.removeChild(anchorTag);
     // Add notification about successful preparation
-    Notification.success(lll('file_download.success'), '', 2);
+    Notification.success(coreCoreLabels.get('file_download.success'), '', 2);
   }
 
   public static renameFile(table: string, uid: string, dataset: DOMStringMap): void {
@@ -92,6 +93,7 @@ class ContextMenuActions {
     top.TYPO3.Backend.ContentContainer.setUrl(
       top.TYPO3.settings.FormEngine.moduleUrl
       + '&edit[sys_file_metadata][' + resource.metaUid + ']=edit'
+      + '&module=' + encodeURIComponent(top.TYPO3.ModuleMenu.App.getCurrentModule())
       + '&returnUrl=' + ContextMenuActions.getReturnUrl()
     );
   }
@@ -105,13 +107,6 @@ class ContextMenuActions {
     }
   }
 
-  public static uploadFile(table: string, uid: string, dataset: DOMStringMap): void {
-    const actionUrl: string = dataset.actionUrl;
-    top.TYPO3.Backend.ContentContainer.setUrl(
-      actionUrl + '&target=' + encodeURIComponent(uid) + '&returnUrl=' + ContextMenuActions.getReturnUrl(),
-    );
-  }
-
   public static createFolder(table: string, uid: string, dataset: DOMStringMap): void {
     top.TYPO3.Backend.ContentContainer.get().document.dispatchEvent(new CustomEvent(fileListOpenElementBrowser, {
       detail: {
@@ -123,10 +118,13 @@ class ContextMenuActions {
   }
 
   public static createFile(table: string, uid: string, dataset: DOMStringMap): void {
-    const actionUrl: string = dataset.actionUrl;
-    top.TYPO3.Backend.ContentContainer.setUrl(
-      actionUrl + '&target=' + encodeURIComponent(uid) + '&returnUrl=' + ContextMenuActions.getReturnUrl(),
-    );
+    top.TYPO3.Backend.ContentContainer.get().document.dispatchEvent(new CustomEvent(fileListOpenElementBrowser, {
+      detail: {
+        actionUrl: dataset.actionUrl,
+        identifier: dataset.identifier,
+        mode: dataset.mode,
+      }
+    }));
   }
 
   public static downloadFile(table: string, uid: string, dataset: DOMStringMap): void {
@@ -135,17 +133,17 @@ class ContextMenuActions {
 
   public static downloadFolder(table: string, uid: string, dataset: DOMStringMap): void {
     // Add notification about the download being prepared
-    Notification.info(lll('file_download.prepare'), '', 2);
+    Notification.info(coreCoreLabels.get('file_download.prepare'), '', 2);
     const actionUrl: string = dataset.actionUrl;
     (new AjaxRequest(actionUrl)).post({ items: [uid] })
       .then(async (response): Promise<void> => {
         let fileName = response.response.headers.get('Content-Disposition');
         if (!fileName) {
           const data = await response.resolve();
-          if (data.success === false && data.status) {
-            Notification.warning(lll('file_download.' + data.status), lll('file_download.' + data.status + '.message'), 10);
+          if (data.success === false && data.status === 'noFiles') {
+            Notification.warning(coreCoreLabels.get('file_download.noFiles'), coreCoreLabels.get('file_download.noFiles.message'), 10);
           } else {
-            Notification.error(lll('file_download.error'));
+            Notification.error(coreCoreLabels.get('file_download.error'));
           }
           return;
         }
@@ -155,7 +153,7 @@ class ContextMenuActions {
         ContextMenuActions.triggerFileDownload(URL.createObjectURL(blob), fileName, true);
       })
       .catch(() => {
-        Notification.error(lll('file_download.error'));
+        Notification.error(coreCoreLabels.get('file_download.error'));
       });
   }
 
@@ -190,13 +188,13 @@ class ContextMenuActions {
       SeverityEnum.warning,
       [
         {
-          text: dataset.buttonCloseText || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: dataset.buttonCloseText || coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: dataset.buttonOkText || TYPO3.lang['button.delete'] || 'Delete',
+          text: dataset.buttonOkText || coreCommonLabels.get('delete') || 'Delete',
           btnClass: 'btn-warning',
           name: 'delete',
         },
@@ -292,13 +290,13 @@ class ContextMenuActions {
       SeverityEnum.warning,
       [
         {
-          text: dataset.buttonCloseText || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: dataset.buttonCloseText || coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: dataset.buttonOkText || TYPO3.lang['button.ok'] || 'OK',
+          text: dataset.buttonOkText || coreCommonLabels.get('ok'),
           btnClass: 'btn-warning',
           name: 'ok',
         },
@@ -329,10 +327,10 @@ class ContextMenuActions {
 
     (new AjaxRequest(dataset.actionUrl)).post(payload)
       .then(() => {
-        Notification.success(lll('online_media.update.success'));
+        Notification.success(coreCoreLabels.get('online_media.update.success'));
       })
       .catch(() => {
-        Notification.error(lll('online_media.update.error'));
+        Notification.error(coreCoreLabels.get('online_media.update.error'));
       })
       .finally(() => {
         window.location.reload();

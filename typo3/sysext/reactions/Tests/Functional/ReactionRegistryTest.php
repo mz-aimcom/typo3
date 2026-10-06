@@ -25,11 +25,11 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class ReactionRegistryTest extends FunctionalTestCase
 {
-    protected bool $resetSingletonInstances = true;
+    protected bool $initializeDatabase = false;
 
     protected array $coreExtensionsToLoad = ['reactions'];
 
-    protected ReactionRegistry $subject;
+    private ReactionRegistry $subject;
 
     protected function setUp(): void
     {
@@ -53,9 +53,9 @@ final class ReactionRegistryTest extends FunctionalTestCase
         self::assertNull($this->subject->getReactionByType('invalid'));
     }
 
-    protected function buildReactionMock(): \IteratorAggregate
+    private function buildReactionMock(): \IteratorAggregate
     {
-        $class = new class () implements \IteratorAggregate {
+        $class = new class implements \IteratorAggregate {
             public function getIterator(): \Traversable
             {
                 return new \ArrayIterator([CreateRecordReaction::getType() => GeneralUtility::makeInstance(CreateRecordReaction::class)]);

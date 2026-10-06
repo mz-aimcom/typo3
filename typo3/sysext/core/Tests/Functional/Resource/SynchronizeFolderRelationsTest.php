@@ -31,7 +31,7 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class SynchronizeFolderRelationsTest extends FunctionalTestCase
 {
-    protected SynchronizeFolderRelations $subject;
+    private SynchronizeFolderRelations $subject;
 
     protected function setUp(): void
     {
@@ -92,10 +92,9 @@ final class SynchronizeFolderRelationsTest extends FunctionalTestCase
         self::assertStringContainsString('5 File collection records', $flashMessage->getMessage());
     }
 
-    protected function getAfterFolderRenamedEvent(string $targetIdentifier): AfterFolderRenamedEvent
+    private function getAfterFolderRenamedEvent(string $targetIdentifier): AfterFolderRenamedEvent
     {
-        $sourceDriver = $this->createMock(LocalDriver::class);
-        $storage = new ResourceStorage($sourceDriver, ['uid' => 1]);
+        $storage = new ResourceStorage(self::createStub(LocalDriver::class), ['uid' => 1]);
         $targetFolder = new Folder($storage, $targetIdentifier, 'renamed folder');
         $sourceFolder = new Folder($storage, '/foo/bar/', 'some folder');
         return new AfterFolderRenamedEvent($targetFolder, $sourceFolder);

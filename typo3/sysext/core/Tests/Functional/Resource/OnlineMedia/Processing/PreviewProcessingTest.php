@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\Tests\Functional\Resource\OnlineMedia\Processing;
 
 use PHPUnit\Framework\Attributes\Test;
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Resource\File;
@@ -32,6 +33,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class PreviewProcessingTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     #[Test]
     public function afterVideoPreviewFetchedEventIsTriggered(): void
     {
@@ -70,14 +73,15 @@ final class PreviewProcessingTest extends FunctionalTestCase
             $onlineMediaHelperRegistry,
             $container->get(EventDispatcherInterface::class),
         );
+        $subject->setLogger(new NullLogger());
 
-        $file = new File(['name' => 'MyVideo'], $this->createMock(ResourceStorage::class), []);
-        $taskMock = $this->createMock(AbstractTask::class);
-        $taskMock->method('getSourceFile')->willReturn($file);
-        $taskMock->method('getName')->willReturn('Preview');
-        $taskMock->method('getConfiguration')->willReturn(['width' => 150, 'height' => 150]);
+        $file = new File(['name' => 'MyVideo'], self::createStub(ResourceStorage::class), []);
+        $taskStub = self::createStub(AbstractTask::class);
+        $taskStub->method('getSourceFile')->willReturn($file);
+        $taskStub->method('getName')->willReturn('Preview');
+        $taskStub->method('getConfiguration')->willReturn(['width' => 150, 'height' => 150]);
 
-        $subject->processTask($taskMock);
+        $subject->processTask($taskStub);
 
         self::assertInstanceOf(AfterVideoPreviewFetchedEvent::class, $afterVideoPreviewFetchedEvent);
         self::assertEquals($initialPreviewImageFilename, $oldPreviewImageFilename);

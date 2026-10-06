@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -16,30 +18,107 @@
 namespace TYPO3\CMS\Backend\Template\Components;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use TYPO3\CMS\Backend\Template\Components\Buttons\Action\ShortcutButton;
+use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDownButton;
-use TYPO3\CMS\Backend\Template\Components\Buttons\FullyRenderedButton;
-use TYPO3\CMS\Backend\Template\Components\Buttons\InputButton;
-use TYPO3\CMS\Backend\Template\Components\Buttons\LinkButton;
 use TYPO3\CMS\Backend\Template\Components\Buttons\PositionInterface;
-use TYPO3\CMS\Backend\Template\Components\Buttons\SplitButton;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Bar holding the buttons
+ * Container for managing buttons in the backend module document header.
+ * The ButtonBar organizes buttons into two positions (left and right) with multiple groups,
+ * allowing precise control over button placement and visual grouping.
+ *
+ * Buttons are organized in a three-level structure:
+ * 1. Position: LEFT or RIGHT side of the header
+ * 2. Group: Numerical groups within each position (1, 2, 3, etc.)
+ * 3. Individual buttons within each group
+ *
+ * Groups are rendered with visual spacing between them, allowing logical grouping
+ * of related actions. Lower group numbers appear first (left-to-right, or top-to-bottom on mobile).
+ *
+ * Example - Using pre-configured buttons from ComponentFactory:
+ *
+ * ```
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
+ *
+ * public function myAction(): ResponseInterface
+ * {
+ *     $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
+ *
+ *     // Use pre-configured save button
+ *     $saveButton = $this->componentFactory->createSaveButton('editform');
+ *     $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ *
+ *     // Use pre-configured back button
+ *     $backButton = $this->componentFactory->createBackButton($returnUrl);
+ *     $buttonBar->addButton($backButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+ * }
+ * ```
+ *
+ * Example - Creating custom buttons with ComponentFactory:
+ *
+ * ```
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
+ *
+ * public function myAction(): ResponseInterface
+ * {
+ *     $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
+ *
+ *     // Create custom link button
+ *     $customButton = $this->componentFactory->createLinkButton()
+ *         ->setHref('/custom-action')
+ *         ->setTitle('Custom Action')
+ *         ->setIcon($iconFactory->getIcon('actions-custom'));
+ *     $buttonBar->addButton($customButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ * }
+ * ```
+ *
+ * Example - Buttons with automatic positioning:
+ *
+ * ```
+ * // ShortcutButton implements PositionInterface and positions itself automatically
+ * $shortcutButton = $this->componentFactory->createShortcutButton()
+ *     ->setRouteIdentifier('my_module')
+ *     ->setDisplayName('My Module');
+ * $buttonBar->addButton($shortcutButton); // Position and group are automatic
+ * ```
+ *
+ * Example - Dropdown button:
+ *
+ * ```
+ * $dropdownButton = $this->componentFactory->createDropDownButton()
+ *     ->setLabel('Actions')
+ *     ->setIcon($iconFactory->getIcon('actions-menu'));
+ *
+ * $item1 = $this->componentFactory->createDropDownItem()
+ *     ->setLabel('Edit')
+ *     ->setHref('/edit');
+ * $dropdownButton->addItem($item1);
+ *
+ * $item2 = $this->componentFactory->createDropDownItem()
+ *     ->setLabel('Delete')
+ *     ->setHref('/delete');
+ * $dropdownButton->addItem($item2);
+ *
+ * $buttonBar->addButton($dropdownButton, ButtonBar::BUTTON_POSITION_RIGHT, 1);
+ * ```
  *
  * @phpstan-type Buttons array<self::BUTTON_POSITION_*, array<int, list<ButtonInterface>>>
  */
+#[Autoconfigure(public: true)]
 class ButtonBar
 {
     /**
-     * Identifier for the left button bar
+     * Position constant for left side of the button bar
      */
     public const BUTTON_POSITION_LEFT = 'left';
 
     /**
-     * Identifier for the right button bar
+     * Position constant for right side of the button bar
      */
     public const BUTTON_POSITION_RIGHT = 'right';
 
@@ -50,26 +129,33 @@ class ButtonBar
      */
     protected array $buttons = [];
 
+    public function __construct(
+        protected readonly EventDispatcherInterface $eventDispatcher,
+    ) {}
+
     /**
-     * Add button
+     * Add a new button
+     *
+     * Buttons implementing PositionInterface will automatically use their own
+     * predefined position and group, ignoring the $buttonPosition and $buttonGroup
+     * parameters. This ensures buttons like ShortcutButton always appear in their
+     * designated location.
      *
      * @param ButtonInterface $button The Button Object to add
-     * @param self::BUTTON_POSITION_* $buttonPosition Position of the button (left/right)
-     * @param int $buttonGroup Buttongroup of the button
+     * @param self::BUTTON_POSITION_* $buttonPosition Position of the button (left/right). Ignored if button implements PositionInterface.
+     * @param int $buttonGroup Buttongroup of the button. Ignored if button implements PositionInterface.
      *
      * @throws \InvalidArgumentException In case a button is not valid
-     *
-     * @return $this
      */
     public function addButton(
         ButtonInterface $button,
-        $buttonPosition = self::BUTTON_POSITION_LEFT,
-        $buttonGroup = 1
-    ) {
+        string $buttonPosition = self::BUTTON_POSITION_LEFT,
+        int $buttonGroup = 1
+    ): static {
         if (!$button->isValid()) {
             throw new \InvalidArgumentException('Button "' . $button->getType() . '" is not valid', 1441706370);
         }
-        // Determine the default button position
+        // Buttons implementing PositionInterface define their own position and group
         if ($button instanceof PositionInterface) {
             $buttonPosition = $button->getPosition();
             $buttonGroup = $button->getGroup();
@@ -80,88 +166,10 @@ class ButtonBar
     }
 
     /**
-     * Creates a new button of the given type
-     *
-     * @param string $button ButtonClass to invoke. Must implement ButtonInterface
-     *
-     * @throws \InvalidArgumentException In case a ButtonClass does not implement
-     * ButtonInterface
-     *
-     * @return ButtonInterface
-     */
-    public function makeButton($button)
-    {
-        if (!in_array(ButtonInterface::class, class_implements($button) ?: [], true)) {
-            throw new \InvalidArgumentException('A Button must implement ButtonInterface', 1441706378);
-        }
-        return GeneralUtility::makeInstance($button);
-    }
-
-    /**
-     * Creates a new InputButton
-     *
-     * @return InputButton
-     */
-    public function makeInputButton()
-    {
-        return GeneralUtility::makeInstance(InputButton::class);
-    }
-
-    /**
-     * Creates a new SplitButton
-     *
-     * @return SplitButton
-     */
-    public function makeSplitButton()
-    {
-        return GeneralUtility::makeInstance(SplitButton::class);
-    }
-
-    /**
-     * Creates a new DropDownButton
-     *
-     * @return DropDownButton
-     */
-    public function makeDropDownButton()
-    {
-        return GeneralUtility::makeInstance(DropDownButton::class);
-    }
-
-    /**
-     * Creates a new LinkButton
-     *
-     * @return LinkButton
-     */
-    public function makeLinkButton()
-    {
-        return GeneralUtility::makeInstance(LinkButton::class);
-    }
-
-    /**
-     * Creates a new FullyRenderedButton
-     *
-     * @return FullyRenderedButton
-     */
-    public function makeFullyRenderedButton()
-    {
-        return GeneralUtility::makeInstance(FullyRenderedButton::class);
-    }
-
-    /**
-     * Creates a new ShortcutButton
-     *
-     * @return ShortcutButton
-     */
-    public function makeShortcutButton()
-    {
-        return GeneralUtility::makeInstance(ShortcutButton::class);
-    }
-
-    /**
      * Returns an associative array of all buttons in the form of
      * ButtonPosition > ButtonGroup > Button
      */
-    public function getButtons(): array
+    public function getButtons(ServerRequestInterface $request): array
     {
         // here we need to call the sorting methods and stuff.
         foreach ($this->buttons as $position => $_) {
@@ -169,10 +177,31 @@ class ButtonBar
         }
 
         // Dispatch event for manipulating the docHeaderButtons
-        $this->buttons = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
-            new ModifyButtonBarEvent($this->buttons, $this)
-        )->getButtons();
+        $this->buttons = $this->eventDispatcher->dispatch(new ModifyButtonBarEvent($this->buttons, $this, $request))->getButtons();
 
         return $this->buttons;
+    }
+
+    /**
+     * Checks whether a button of the specified type has been added to the button bar.
+     *
+     * This is primarily used for backwards compatibility detection to prevent
+     * duplicate automatic buttons when controllers manually add them.
+     *
+     * @param class-string<ButtonInterface> $buttonClassName Fully qualified button class name
+     * @return bool True if a button of this type exists, false otherwise
+     */
+    public function hasButtonOfType(string $buttonClassName): bool
+    {
+        foreach ($this->buttons as $groups) {
+            foreach ($groups as $groupButtons) {
+                foreach ($groupButtons as $button) {
+                    if ($button instanceof $buttonClassName) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

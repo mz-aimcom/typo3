@@ -242,9 +242,21 @@ return [
             'config' => [
                 'type' => 'text',
                 'cols' => 40,
+                'renderType' => 'codeEditor',
+                'format' => 'typoscript',
                 'rows' => 5,
                 'enableTabulator' => true,
                 'fixedFont' => true,
+            ],
+        ],
+        'tsconfig_includes' => [
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:tsconfig_includes',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectMultipleSideBySide',
+                'size' => 10,
+                'items' => [],
+                'softref' => 'ext_fileref',
             ],
         ],
         'subgroup' => [
@@ -280,44 +292,44 @@ return [
     ],
     'types' => [
         '0' => ['showitem' => '
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+            --div--;core.form.tabs:general,
                 title, subgroup,
                 --palette--;;authentication,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.tabs.record_permissions,
+            --div--;core.form.tabs:recordpermissions,
                 --palette--;;permissionGeneral,
                 --palette--;;permissionSpecific,
                 --palette--;;permissionLanguages,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.tabs.module_permissions,
+            --div--;core.form.tabs:modulepermissions,
                 groupMods, custom_options, workspace_perms,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.tabs.mounts_and_workspaces,
+            --div--;core.form.tabs:mounts,
                 db_mountpoints, file_mountpoints, file_permissions, category_perms,
-            --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.tabs.options,
-                TSconfig,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+            --div--;core.form.tabs:options,
+                TSconfig, tsconfig_includes,
+            --div--;core.form.tabs:access,
                 hidden,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+            --div--;core.form.tabs:notes,
                 description,
-            --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+            --div--;core.form.tabs:extended,
         '],
     ],
     'palettes' => [
         'authentication' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.palettes.authentication',
+            'label' => 'core.form.palettes:authentication',
             'showitem' => 'mfa_providers',
         ],
         'permissionGeneral' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.palettes.permissionGeneral',
+            'label' => 'core.form.palettes:permission_general',
             'showitem' => '
                 tables_modify,
                 --linebreak--, non_exclude_fields
             ',
         ],
         'permissionLanguages' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.palettes.permissionLanguages',
+            'label' => 'core.form.palettes:permission_languages',
             'showitem' => 'allowed_languages',
         ],
         'permissionSpecific' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_groups.palettes.permissionSpecific',
+            'label' => 'core.form.palettes:permission_specific',
             'showitem' => '
                 pagetypes_select,
                 --linebreak--, explicit_allowdeny

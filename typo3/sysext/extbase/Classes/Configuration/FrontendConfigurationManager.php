@@ -19,13 +19,14 @@ namespace TYPO3\CMS\Extbase\Configuration;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Event\Configuration\BeforeFlexFormConfigurationOverrideEvent;
+use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 
 /**
  * A general purpose configuration manager used in frontend mode.
@@ -37,7 +38,7 @@ final readonly class FrontendConfigurationManager
 {
     public function __construct(
         private TypoScriptService $typoScriptService,
-        private FlexFormService $flexFormService,
+        private FlexFormTools $flexFormTools,
         private PageRepository $pageRepository,
         private EventDispatcherInterface $eventDispatcher
     ) {}
@@ -81,7 +82,10 @@ final readonly class FrontendConfigurationManager
         if (!empty($frameworkConfiguration['persistence']['storagePid'])) {
             if (is_array($frameworkConfiguration['persistence']['storagePid'])) {
                 $conf = $this->typoScriptService->convertPlainArrayToTypoScriptArray($frameworkConfiguration['persistence']);
-                $frameworkConfiguration['persistence']['storagePid'] = $GLOBALS['TSFE']->cObj->stdWrapValue('storagePid', $conf);
+                $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
+                $contentObjectRenderer->setRequest($request);
+                $contentObjectRenderer->start($request->getAttribute('frontend.page.information')->getPageRecord(), 'pages');
+                $frameworkConfiguration['persistence']['storagePid'] = $contentObjectRenderer->stdWrapValue('storagePid', $conf);
             }
             if (!empty($frameworkConfiguration['persistence']['recursive'])) {
                 $storagePids = $this->getRecursiveStoragePids(
@@ -102,8 +106,8 @@ final readonly class FrontendConfigurationManager
         $frontendTypoScript = $request->getAttribute('frontend.typoscript');
         if (!($frontendTypoScript instanceof FrontendTypoScript)) {
             throw new \RuntimeException(
-                'Setup array has not been initialized. This happens in cached Frontend scope where full TypoScript' .
-                ' is not needed by the system.',
+                'Setup array has not been initialized. This happens in cached Frontend scope where full TypoScript'
+                . ' is not needed by the system.',
                 1700841298
             );
         }
@@ -242,7 +246,7 @@ final readonly class FrontendConfigurationManager
         $flexFormConfiguration = $contentObject?->data['pi_flexform'] ?? [];
         if (is_string($flexFormConfiguration)) {
             if ($flexFormConfiguration !== '') {
-                $flexFormConfiguration = $this->flexFormService->convertFlexFormContentToArray($flexFormConfiguration);
+                $flexFormConfiguration = $this->flexFormTools->convertFlexFormContentToArray($flexFormConfiguration);
             } else {
                 $flexFormConfiguration = [];
             }

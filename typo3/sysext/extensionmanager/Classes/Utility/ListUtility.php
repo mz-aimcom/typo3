@@ -20,11 +20,13 @@ namespace TYPO3\CMS\Extensionmanager\Utility;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Package\Event\PackagesMayHaveChangedEvent;
+use TYPO3\CMS\Core\Package\MetaData;
 use TYPO3\CMS\Core\Package\PackageInterface;
 use TYPO3\CMS\Core\Package\PackageManager;
-use TYPO3\CMS\Core\SingletonInterface;
-use TYPO3\CMS\Core\Utility\PathUtility;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\Utility\VersionNumberUtility;
+use TYPO3\CMS\Extensionmanager\Domain\Model\DownloadQueue;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
 use TYPO3\CMS\Extensionmanager\Domain\Repository\ExtensionRepository;
 use TYPO3\CMS\Extensionmanager\Enum\ExtensionType;
@@ -38,13 +40,8 @@ use TYPO3\CMS\Extensionmanager\Enum\ExtensionType;
  * - The name 'listUtility' is not good, the methods could be moved to some 'extensionInformationUtility', or a repository?
  * @internal This class is a specific ExtensionManager implementation and is not part of the Public TYPO3 API.
  */
-class ListUtility implements SingletonInterface
+class ListUtility
 {
-    /**
-     * @var EmConfUtility
-     */
-    protected $emConfUtility;
-
     /**
      * @var ExtensionRepository
      */
@@ -65,19 +62,20 @@ class ListUtility implements SingletonInterface
      */
     protected $eventDispatcher;
 
+    protected SystemResourceFactory $resourceFactory;
+
+    protected SystemResourcePublisherInterface $resourcePublisher;
+
     /**
      * @var DependencyUtility
      */
     protected $dependencyUtility;
 
+    protected DownloadQueue $downloadQueue;
+
     public function injectEventDispatcher(EventDispatcherInterface $eventDispatcher)
     {
         $this->eventDispatcher = $eventDispatcher;
-    }
-
-    public function injectEmConfUtility(EmConfUtility $emConfUtility)
-    {
-        $this->emConfUtility = $emConfUtility;
     }
 
     public function injectExtensionRepository(ExtensionRepository $extensionRepository)
@@ -95,6 +93,21 @@ class ListUtility implements SingletonInterface
         $this->dependencyUtility = $dependencyUtility;
     }
 
+    public function injectDownloadQueue(DownloadQueue $downloadQueue)
+    {
+        $this->downloadQueue = $downloadQueue;
+    }
+
+    public function injectResourceFactory(SystemResourceFactory $resourceFactory)
+    {
+        $this->resourceFactory = $resourceFactory;
+    }
+
+    public function injectResourcePublisher(SystemResourcePublisherInterface $resourcePublisher)
+    {
+        $this->resourcePublisher = $resourcePublisher;
+    }
+
     /**
      * Returns the list of available, but not necessarily loaded extensions
      *
@@ -106,24 +119,46 @@ class ListUtility implements SingletonInterface
             $this->availableExtensions = [];
             $this->eventDispatcher->dispatch(new PackagesMayHaveChangedEvent());
             foreach ($this->packageManager->getAvailablePackages() as $package) {
-                if (!$package->getPackageMetaData()->isExtensionType()) {
+                $metaData = $package->getPackageMetaData();
+                if (!$metaData->isExtensionType()) {
                     continue;
                 }
                 $installationType = $this->getInstallTypeForPackage($package);
-                if ($filter === '' || $filter === $installationType) {
-                    $version = $package->getPackageMetaData()->getVersion();
-                    $icon = $package->getPackageIcon();
-                    $extensionData = [
-                        'packagePath' => $package->getPackagePath(),
-                        'type' => $installationType,
-                        'key' => $package->getPackageKey(),
-                        'version' => $version,
-                        'state' => str_starts_with($version, 'dev-') ? 'alpha' : 'stable',
-                        'icon' => $icon ? PathUtility::getAbsoluteWebPath($package->getPackagePath() . $icon) : '',
-                        'title' => $package->getPackageMetaData()->getTitle(),
-                    ];
-                    $this->availableExtensions[$package->getPackageKey()] = $extensionData;
+                if ($filter !== '' && $filter !== $installationType) {
+                    continue;
                 }
+                $icon = $package->getResources()->getPackageIcon();
+                $extensionData = [
+                    'packagePath' => $package->getPackagePath(),
+                    'type' => $installationType,
+                    'key' => $package->getPackageKey(),
+                    'version' => $metaData->getVersion(),
+                    'stability' => $metaData->getStability(),
+                    'build' => $metaData->getBuild(),
+                    // For backwards compatibility with the UI, merge everything into a single state value
+                    'computedState' => $metaData->isExcludedFromUpdates() ? 'excludeFromUpdates' : ($metaData->getBuild() ?? $metaData->getStability()->value),
+                    'excludeFromUpdates' => $metaData->isExcludedFromUpdates(),
+                    'icon' => $icon ? (string)$this->resourcePublisher->generateUri($this->resourceFactory->createPublicResource($icon), null) : '',
+                    'title' => $metaData->getTitle(),
+                    'description' => $metaData->getDescription() ?? '',
+                ];
+                $constraints = $metaData->getConstraints();
+                if (count($constraints) > 0) {
+                    $extensionData['constraints'] = [];
+                    foreach ($constraints as $type => $typeConstraints) {
+                        foreach ($typeConstraints as $constraint) {
+                            $packageName = $constraint->getValue();
+                            if ($packageName === 'typo3/cms-core') {
+                                $extKey = 'typo3';
+                            } else {
+                                $extKey = $this->packageManager->getPackageKeyFromComposerName($constraint->getValue());
+                            }
+                            /** @var MetaData\PackageConstraint $constraint */
+                            $extensionData['constraints'][$type][$extKey] = $type === 'suggests' ? '' : $constraint->getVersionRange();
+                        }
+                    }
+                }
+                $this->availableExtensions[$package->getPackageKey()] = $extensionData;
             }
         }
 
@@ -178,34 +213,17 @@ class ListUtility implements SingletonInterface
     }
 
     /**
-     * Adds the information from the emconf array to the extension information
+     * Adds the information from TER to the extension information
      */
-    public function enrichExtensionsWithEmConfInformation(array $extensions): array
+    public function enrichExtensionsWithTerInformation(array $extensions): array
     {
-        foreach ($extensions as $extensionKey => $properties) {
-            $emConf = $this->emConfUtility->includeEmConf($extensionKey, $properties['packagePath'] ?? '');
-            if (!is_array($emConf)) {
-                continue;
-            }
-            $extensions[$extensionKey] = array_merge($emConf, $properties);
-            $extensions[$extensionKey]['state'] = $emConf['state'] ?? $extensions[$extensionKey]['state'] ?? 'stable';
-        }
-        return $extensions;
-    }
-
-    /**
-     * Adds the information from the emconf array and TER to the extension information
-     */
-    public function enrichExtensionsWithEmConfAndTerInformation(array $extensions): array
-    {
-        $extensions = $this->enrichExtensionsWithEmConfInformation($extensions);
         foreach ($extensions as $extensionKey => $properties) {
             $terObject = $this->getExtensionTerData($extensionKey, $properties['version'] ?? '');
             if ($terObject === null) {
                 continue;
             }
             $extensions[$extensionKey]['terObject'] = $terObject;
-            $extensions[$extensionKey]['remote'] = $terObject->getRemoteIdentifier();
+            $extensions[$extensionKey]['remote'] = $terObject->remote;
             $extensions[$extensionKey]['updateAvailable'] = false;
             $extensions[$extensionKey]['updateToVersion'] = null;
 
@@ -237,11 +255,10 @@ class ListUtility implements SingletonInterface
             if ($terObject instanceof Extension) {
                 // Found in TER now, set version information to the known ones, so we can look if there is a newer one
                 // Use a cloned object, otherwise wrong information is stored in persistenceManager
-                $terObject = clone $terObject;
-                $terObject->setVersion($version);
-                $terObject->setIntegerVersion(
-                    VersionNumberUtility::convertVersionNumberToInteger($terObject->getVersion())
-                );
+                $terObject = clone($terObject, [
+                    'version' => $version,
+                    'integerVersion' => VersionNumberUtility::convertVersionNumberToInteger($version),
+                ]);
             } else {
                 $terObject = null;
             }
@@ -258,7 +275,7 @@ class ListUtility implements SingletonInterface
     {
         $availableExtensions = $this->getAvailableExtensions($filter);
         $availableAndInstalledExtensions = $this->getAvailableAndInstalledExtensions($availableExtensions);
-        return $this->enrichExtensionsWithEmConfAndTerInformation($availableAndInstalledExtensions);
+        return $this->enrichExtensionsWithTerInformation($availableAndInstalledExtensions);
     }
 
     /**
@@ -269,21 +286,41 @@ class ListUtility implements SingletonInterface
     protected function getUpdateableVersion(Extension $extensionData): ?Extension
     {
         // Only check for update for TER extensions
-        $version = $extensionData->getIntegerVersion();
+        $version = $extensionData->integerVersion;
         $extensionUpdates = $this->extensionRepository->findByVersionRangeAndExtensionKeyOrderedByVersion(
-            $extensionData->getExtensionKey(),
+            $extensionData->extensionKey,
             $version,
             0,
             false
         );
-        if ($extensionUpdates->count() > 0) {
+        if (count($extensionUpdates) === 0) {
+            return null;
+        }
+        // Determining the update candidate is a query: it only reports whether an update
+        // could be installed. The dependency check however marks dependent extensions for
+        // download, update and installation as a side effect, and those queues are shared.
+        // Candidates of a single extension key may require conflicting versions of the same
+        // dependency - for instance an extension maintained for two core versions in
+        // parallel, whose major lines depend on different major versions of a shared base
+        // extension. Queueing both lets DownloadQueue::addExtensionToQueue() throw, which
+        // breaks the extension list and the extension status report entirely. Candidates
+        // are therefore probed with empty queues, restoring the state of an enclosing
+        // dependency resolve run afterwards.
+        $extensionQueue = $this->downloadQueue->resetExtensionQueue();
+        $extensionInstallStorage = $this->downloadQueue->resetExtensionInstallStorage();
+        try {
             foreach ($extensionUpdates as $extensionUpdate) {
                 /** @var Extension $extensionUpdate */
                 $this->dependencyUtility->checkDependencies($extensionUpdate);
                 if (!$this->dependencyUtility->hasDependencyErrors()) {
                     return $extensionUpdate;
                 }
+                $this->downloadQueue->resetExtensionQueue();
+                $this->downloadQueue->resetExtensionInstallStorage();
             }
+        } finally {
+            $this->downloadQueue->restoreExtensionQueue($extensionQueue);
+            $this->downloadQueue->restoreExtensionInstallStorage($extensionInstallStorage);
         }
         return null;
     }

@@ -29,7 +29,10 @@ class ContentContainer extends AbstractContainer {
     );
   }
 
-  public setUrl(urlToLoad: string, interactionRequest?: InteractionRequest, module?: string): Promise<void> {
+  public setUrl(urlToLoad: string|URL, interactionRequest?: InteractionRequest, module?: string): Promise<void> {
+    if (urlToLoad instanceof URL) {
+      urlToLoad = urlToLoad.toString();
+    }
     const router = this.resolveRouterElement();
     if (router === null && self !== top) {
       // abort, if router can not be found and this module is not used in a top frame (popup)
@@ -47,7 +50,7 @@ class ContentContainer extends AbstractContainer {
         Loader.start();
         router.setAttribute('endpoint', urlToLoad);
         router.setAttribute('module', module ? module : null);
-        router.parentElement.addEventListener('typo3-module-loaded', (): void => Loader.finish(), { once: true });
+        router.parentElement.addEventListener('typo3-module-loaded', () => Loader.finish(), { once: true });
       } else {
         // popup mode assume that we're in a standalone frame if the router cannot be found.
         document.location.assign(urlToLoad);

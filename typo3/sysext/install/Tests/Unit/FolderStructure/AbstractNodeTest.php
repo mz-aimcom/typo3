@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\FolderStructure;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
@@ -27,6 +28,7 @@ use TYPO3\CMS\Install\FolderStructure\Exception\InvalidArgumentException;
 use TYPO3\CMS\Install\FolderStructure\NodeInterface;
 use TYPO3\CMS\Install\FolderStructure\RootNodeInterface;
 
+#[AllowMockObjectsWithoutExpectations]
 final class AbstractNodeTest extends AbstractFolderStructureTestCase
 {
     #[Test]
@@ -60,7 +62,7 @@ final class AbstractNodeTest extends AbstractFolderStructureTestCase
     public function getParentReturnsSetParent(): void
     {
         $node = $this->getAccessibleMock(AbstractNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $node->_set('parent', $parent);
         self::assertSame($parent, $node->_call('getParent'));
     }
@@ -112,10 +114,13 @@ final class AbstractNodeTest extends AbstractFolderStructureTestCase
     {
         $node = $this->getAccessibleMock(AbstractNode::class, ['getAbsolutePath'], [], '', false);
         $testRoot = Environment::getVarPath() . '/tests/';
-        $this->testFilesToDelete[] = $testRoot;
         GeneralUtility::mkdir_deep($testRoot);
         $path = $testRoot . StringUtility::getUniqueId('link_');
         $target = $testRoot . StringUtility::getUniqueId('notExists_');
+        // Register the unique link and not the shared root: other test cases keep
+        // their files below the same root and must not have them removed. The
+        // target is unlinked by the test itself and must not be registered.
+        $this->testFilesToDelete[] = $path;
         touch($target);
         symlink($target, $path);
         unlink($target);

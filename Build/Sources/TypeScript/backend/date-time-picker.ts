@@ -12,11 +12,15 @@
  */
 
 import flatpickr from 'flatpickr';
+import Persistent from '@typo3/backend/storage/persistent';
 import ShortcutButtonsPlugin from 'shortcut-buttons-flatpickr';
 import { DateTime } from 'luxon';
+import DomHelper from '@typo3/backend/utility/dom-helper';
 import ThrottleEvent from '@typo3/core/event/throttle-event';
 import type { PostValidationEvent } from '@typo3/backend/form-engine-validation';
+import type { DateConfiguration } from '@typo3/backend/type/date-configuration';
 import '@typo3/backend/input/clearable';
+import coreLabels from '~labels/core.core';
 
 const ISO8601_LOCALTIME = 'ISO8601_LOCALTIME';
 
@@ -29,14 +33,14 @@ interface FlatpickrInputElement extends HTMLInputElement {
  * contains all logic for the date time picker used in FormEngine, EXT:belog and EXT:scheduler
  */
 class DateTimePicker {
-  private readonly format: string = (typeof opener?.top?.TYPO3 !== 'undefined' ? opener.top : top).TYPO3.settings.DateTimePicker.DateFormat;
+  private readonly format: DateConfiguration = (typeof opener?.top?.TYPO3 !== 'undefined' ? opener.top : top).TYPO3.settings.DateConfiguration;
 
   /**
    * initialize date fields to add a datepicker to each field
    * note: this function can be called multiple times (e.g. after AJAX requests) because it only
    * applies to fields which haven't been used yet.
    */
-  public initialize(element: HTMLInputElement): void {
+  public initialize(element: HTMLInputElement, appendTo: HTMLElement | null = null): void {
     if (!(element instanceof HTMLInputElement) || typeof element.dataset.datepickerInitialized !== 'undefined') {
       return;
     }
@@ -52,25 +56,62 @@ class DateTimePicker {
 
     element.dataset.datepickerInitialized = '1';
     import('flatpickr/dist/l10n').then((): void => {
-      this.initializeField(element, userLocale as flatpickr.Options.LocaleKey);
+      this.initializeField(element, userLocale as flatpickr.Options.LocaleKey, appendTo);
     });
   }
 
   /**
    * Initialize a single field
    */
-  private initializeField(inputElement: HTMLInputElement, locale: flatpickr.Options.LocaleKey): void {
-    const scrollEvent = this.getScrollEvent();
+  private initializeField(inputElement: HTMLInputElement, locale: flatpickr.Options.LocaleKey, appendTo: HTMLElement | null = null): void {
     const options = this.getDateOptions(inputElement);
     options.locale = locale;
-    options.onOpen = [
-      (): void => {
-        scrollEvent.bindTo(document.querySelector('.t3js-module-body'));
-      }
-    ];
-    options.onClose = (): void => {
-      scrollEvent.release();
-    };
+    if (appendTo) {
+      options.appendTo = appendTo;
+    }
+
+    // Custom "first day of week" user preference
+    const dow = Persistent.get('dateTimeFirstDayOfWeek');
+
+    if (dow != null && dow !== '') {
+      // stored number is 1-index based, convert to 0-index.
+      const dowNumber = parseInt(dow, 10) - 1;
+
+      // two entries need to be adjusted here for proper utilization
+      // in non-english localisations.
+      flatpickr.l10ns[locale].firstDayOfWeek = dowNumber;
+      flatpickr.l10ns.default.firstDayOfWeek = dowNumber;
+    }
+
+    const usePopover = appendTo instanceof HTMLElement && appendTo.localName === 'typo3-formengine-element-datetime';
+
+    if (usePopover) {
+      // Disable flatpickr's own positioning; native popover + CSS anchor positioning handle it.
+      options.position = (): void => { /* handled by popover */ };
+      options.onOpen = [
+        (_dates: Date[], _currentDateString: string, self: flatpickr.Instance): void => {
+          if (!self.calendarContainer.hasAttribute('popover')) {
+            self.calendarContainer.setAttribute('popover', 'manual');
+          }
+          self.calendarContainer.showPopover();
+        }
+      ];
+      options.onClose = (_dates: Date[], _currentDateString: string, self: flatpickr.Instance): void => {
+        if (self.calendarContainer.matches(':popover-open')) {
+          self.calendarContainer.hidePopover();
+        }
+      };
+    } else {
+      const scrollEvent = this.getScrollEvent();
+      options.onOpen = [
+        (): void => {
+          scrollEvent.bindTo(DomHelper.scrollEventTarget(inputElement));
+        }
+      ];
+      options.onClose = (): void => {
+        scrollEvent.release();
+      };
+    }
 
     // initialize the date time picker on this element
     const dateTimePicker = flatpickr(inputElement, options);
@@ -99,9 +140,7 @@ class DateTimePicker {
 
   /**
    * Due to some whack CSS the scrollPosition of the document stays 0 which renders a stuck date time picker.
-   * Because of this the position is recalculated on scrolling `.t3js-module-body`.
-   *
-   * @return {ThrottleEvent}
+   * Because of this the position is recalculated on scrolling the nearest scrollable ancestor.
    */
   private getScrollEvent(): ThrottleEvent {
     return new ThrottleEvent('scroll', (): void => {
@@ -179,6 +218,8 @@ class DateTimePicker {
           // collides with using altInput – sigh.
           self.altInput.id = self.input.id;
           self.input.removeAttribute('id');
+          // Disable browser autofill to prevent interference with the datepicker
+          self.altInput.setAttribute('autocomplete', 'off');
           self.altInput.clearable();
           if (self.input.dataset.formengineInputName !== undefined) {
             self.altInput.dataset.formengineDatepickerRealInputName = self.input.dataset.formengineInputName;
@@ -190,6 +231,13 @@ class DateTimePicker {
               self.altInput.classList.toggle('has-error', !e.detail.isValid);
             }
           });
+
+          // Move the hidden input (self.input) to right after the clearable wrapper
+          // This prevents it from affecting :first-child CSS selectors while maintaining proper DOM order
+          const wrapper = self.altInput.closest('.form-control-clearable-wrapper');
+          if (wrapper !== null) {
+            wrapper.insertAdjacentElement('afterend', self.input);
+          }
         }
       },
       onChange: (dates: Date[], currentDateString: string, self: flatpickr.Instance): void => {
@@ -212,7 +260,7 @@ class DateTimePicker {
           theme: 'typo3',
           button: [
             {
-              label: top.TYPO3.lang['labels.datepicker.today'] || 'Today'
+              label: coreLabels.get('labels.datepicker.today')
             },
           ],
           onClick: (index: number, fp: flatpickr.Instance) => {
@@ -225,11 +273,11 @@ class DateTimePicker {
     // set options based on type
     switch (type) {
       case 'datetime':
-        options.altFormat = format[1];
+        options.altFormat = format.formats.datetime;
         options.enableTime = true;
         break;
       case 'date':
-        options.altFormat = format[0];
+        options.altFormat = format.formats.date;
         break;
       case 'time':
         options.altFormat = 'HH:mm';
@@ -241,6 +289,11 @@ class DateTimePicker {
         options.enableSeconds = true;
         options.enableTime = true;
         options.noCalendar = true;
+        break;
+      case 'datetimesec':
+        options.altFormat = format.formats.date + ' HH:mm:ss';
+        options.enableSeconds = true;
+        options.enableTime = true;
         break;
       case 'year':
         options.altFormat = 'yyyy';

@@ -22,12 +22,8 @@ use TYPO3\CMS\Extbase\DomainObject\AbstractDomainObject;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithAllTypesOfMethods;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithAllTypesOfProperties;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAnnotationWithoutParam;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAnnotationWithoutParamTypeHint;
-use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAttributeWithoutParam;
 use TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAttributeWithoutParamTypeHint;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidTypeHintException;
-use TYPO3\CMS\Extbase\Validation\Exception\InvalidValidationConfigurationException;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ClassSchemaTest extends UnitTestCase
@@ -45,10 +41,7 @@ final class ClassSchemaTest extends UnitTestCase
                 'publicPropertyWithDefaultValue',
                 'stringTypedProperty',
                 'nullableStringTypedProperty',
-                'propertyWithTransientAnnotation',
                 'propertyWithTransientAttribute',
-                'propertyWithCascadeAnnotation',
-                'propertyWithCascadeAnnotationWithoutVarAnnotation',
                 'propertyWithCascadeAttribute',
                 'propertyWithObjectStorageAnnotation',
                 'propertyWithObjectStorageAnnotationWithoutFQCN',
@@ -60,7 +53,7 @@ final class ClassSchemaTest extends UnitTestCase
                 AbstractDomainObject::PROPERTY_VERSIONED_UID,
                 AbstractDomainObject::PROPERTY_PID,
             ],
-            array_keys((new ClassSchema(DummyClassWithAllTypesOfProperties::class))->getProperties())
+            array_keys(new ClassSchema(DummyClassWithAllTypesOfProperties::class)->getProperties())
         );
     }
 
@@ -83,41 +76,21 @@ final class ClassSchemaTest extends UnitTestCase
                 'methodWithMandatoryParam',
                 'methodWithDefaultValueParam',
                 'methodWithTypeHintedParam',
-                'methodWithDocBlockTypeHintOnly',
             ],
-            array_keys((new ClassSchema(DummyClassWithAllTypesOfMethods::class))->getMethods())
+            array_keys(new ClassSchema(DummyClassWithAllTypesOfMethods::class)->getMethods())
         );
     }
 
     #[Test]
     public function classSchemaDetectsDynamicProperties(): void
     {
-        self::assertTrue((new ClassSchema(DummyClassWithAllTypesOfProperties::class))->hasProperty('publicProperty'));
-        self::assertTrue((new ClassSchema(DummyClassWithAllTypesOfProperties::class))->hasProperty('protectedProperty'));
-        self::assertTrue((new ClassSchema(DummyClassWithAllTypesOfProperties::class))->hasProperty('privateProperty'));
+        self::assertTrue(new ClassSchema(DummyClassWithAllTypesOfProperties::class)->hasProperty('publicProperty'));
+        self::assertTrue(new ClassSchema(DummyClassWithAllTypesOfProperties::class)->hasProperty('protectedProperty'));
+        self::assertTrue(new ClassSchema(DummyClassWithAllTypesOfProperties::class)->hasProperty('privateProperty'));
     }
 
     #[Test]
-    public function classSchemaGenerationThrowsExceptionWithValidateDoctrineAnnotationsForParamWithoutTypeHint(): void
-    {
-        $this->expectException(InvalidTypeHintException::class);
-        $this->expectExceptionMessage('Missing type information for parameter "$fooParam" in TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAnnotationWithoutParamTypeHint->methodWithValidateAnnotationsAction(): Use a type hint.');
-        $this->expectExceptionCode(1515075192);
-
-        new ClassSchema(DummyControllerWithValidateAnnotationWithoutParamTypeHint::class);
-    }
-
-    #[Test]
-    public function classSchemaGenerationThrowsExceptionWithValidateDoctrineAnnotationsForMissingParam(): void
-    {
-        $this->expectException(InvalidValidationConfigurationException::class);
-        $this->expectExceptionMessage('Invalid validate annotation in TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAnnotationWithoutParam->methodWithValidateAnnotationsAction(): The following validators have been defined for missing param "$fooParam": NotEmpty, StringLength');
-        $this->expectExceptionCode(1515073585);
-
-        new ClassSchema(DummyControllerWithValidateAnnotationWithoutParam::class);
-    }
-    #[Test]
-    public function classSchemaGenerationThrowsExceptionWithValidateDoctrineAttributesForParamWithoutTypeHint(): void
+    public function classSchemaGenerationThrowsExceptionWithValidateAttributesForParamWithoutTypeHint(): void
     {
         $this->expectException(InvalidTypeHintException::class);
         $this->expectExceptionMessage('Missing type information for parameter "$fooParam" in TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAttributeWithoutParamTypeHint->methodWithValidateAttributesAction(): Use a type hint.');
@@ -127,19 +100,9 @@ final class ClassSchemaTest extends UnitTestCase
     }
 
     #[Test]
-    public function classSchemaGenerationThrowsExceptionWithValidateDoctrineAttributesForMissingParam(): void
-    {
-        $this->expectException(InvalidValidationConfigurationException::class);
-        $this->expectExceptionMessage('Invalid validate annotation in TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyControllerWithValidateAttributeWithoutParam->methodWithValidateAttributesAction(): The following validators have been defined for missing param "$fooParam": NotEmpty, StringLength');
-        $this->expectExceptionCode(1515073585);
-
-        new ClassSchema(DummyControllerWithValidateAttributeWithoutParam::class);
-    }
-
-    #[Test]
     public function classSchemaDetectsMethodParameterTypeViaReflection(): void
     {
-        $class = new class () {
+        $class = new class {
             public function foo(string $foo): void {}
 
             public function bar(ClassSchema $foo): void {}
@@ -153,22 +116,22 @@ final class ClassSchemaTest extends UnitTestCase
     #[Test]
     public function classSchemaPrefersMethodParameterTypeDetectionViaReflection(): void
     {
-        $class = new class () {
+        $class = new class {
             /**
              * @param ClassSchema $foo
              */
-            public function foo(string $foo): void {}
+            public function foo(mixed $foo): void {}
         };
 
         $classSchema = new ClassSchema(get_class($class));
-        self::assertSame('string', $classSchema->getMethod('foo')->getParameter('foo')->getType());
+        self::assertSame('mixed', $classSchema->getMethod('foo')->getParameter('foo')->getType());
     }
 
     #[Test]
     public function classSchemaCanHandleSelfMethodReturnTypes(): void
     {
-        $class = new class () {
-            public function __construct(?self $copy = null) {}
+        $class = new class {
+            public function __construct(public ?self $copy = null) {}
             public function injectCopy(self $copy): void {}
             public function foo($copy): self
             {
@@ -180,12 +143,5 @@ final class ClassSchemaTest extends UnitTestCase
         $classSchema = new ClassSchema(get_class($class));
         self::assertSame(get_class($class), $classSchema->getMethod('injectCopy')->getParameter('copy')->getType());
         self::assertSame(get_class($class), $classSchema->getMethod('bar')->getParameter('copy')->getType());
-    }
-
-    #[Test]
-    public function classSchemaDetectsMethodParameterTypeDetectionViaDocBlocksIfNoTypeHintIsGiven(): void
-    {
-        $classSchema = new ClassSchema(DummyClassWithAllTypesOfMethods::class);
-        self::assertSame(DummyClassWithAllTypesOfMethods::class, $classSchema->getMethod('methodWithDocBlockTypeHintOnly')->getParameter('param')->getType());
     }
 }

@@ -61,10 +61,8 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
 
     /**
      * The parent renderable
-     *
-     * @var CompositeRenderableInterface|null
      */
-    protected $parentRenderable;
+    protected ?CompositeRenderableInterface $parentRenderable = null;
 
     /**
      * The label of this renderable
@@ -167,8 +165,8 @@ abstract class AbstractRenderable implements RenderableInterface, VariableRender
 
             foreach ($options['validators'] as $validatorConfiguration) {
                 $configurationHash = md5(
-                    spl_object_hash($this) .
-                    json_encode($validatorConfiguration)
+                    spl_object_hash($this)
+                    . json_encode($validatorConfiguration)
                 );
                 if (in_array($configurationHash, $configurationHashes)) {
                     continue;

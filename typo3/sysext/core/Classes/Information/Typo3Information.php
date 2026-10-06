@@ -30,7 +30,8 @@ class Typo3Information
     public const URL_LICENSE = 'https://typo3.org/project/licenses/';
     public const URL_EXCEPTION = 'https://typo3.org/go/exception/CMS/';
     public const URL_DONATE = 'https://typo3.org/community/contribute/donate/';
-    private const URL_DOCS = 'https://docs.typo3.org/permalink/%s@%s';
+    public const URL_TRADEMARK = 'https://typo3.org/trademark';
+    private const string URL_DOCS = 'https://docs.typo3.org/permalink/%s@%s';
 
     protected LanguageService $languageService;
 
@@ -39,7 +40,7 @@ class Typo3Information
         if (($GLOBALS['LANG'] ?? null) instanceof LanguageService) {
             $this->languageService = $GLOBALS['LANG'];
         } else {
-            $this->languageService = GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('default');
+            $this->languageService = GeneralUtility::makeInstance(LanguageServiceFactory::class)->create('en');
         }
     }
 
@@ -88,33 +89,29 @@ class Typo3Information
 
         if (strlen($loginCopyrightWarrantyProvider) >= 2 && strlen($loginCopyrightWarrantyURL) >= 10) {
             $warrantyNote = sprintf(
-                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:warranty.by'),
+                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:free_software_and_custom_warranty'),
                 htmlspecialchars($loginCopyrightWarrantyProvider),
                 '<a href="' . htmlspecialchars($loginCopyrightWarrantyURL) . '" target="_blank" rel="noreferrer">',
                 '</a>'
             );
         } else {
             $warrantyNote = sprintf(
-                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:no.warranty'),
-                '<a href="' . htmlspecialchars(static::URL_LICENSE) . '" target="_blank" rel="noreferrer">',
-                '</a>'
-            );
-        }
-        return '<a href="' . htmlspecialchars(static::URL_COMMUNITY) . '" target="_blank" rel="noreferrer">' .
-            $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:typo3.cms') . '</a>. ' .
-            $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:copyright') . ' &copy; '
-            . htmlspecialchars($this->getCopyrightYear()) . ' Kasper Sk&aring;rh&oslash;j. ' .
-            $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:extension.copyright') . ' ' .
-            sprintf(
-                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:details.link'),
-                '<a href="' . htmlspecialchars(static::URL_COMMUNITY) . '" target="_blank" rel="noreferrer">' . htmlspecialchars(static::URL_COMMUNITY) . '</a>'
-            ) . ' ' .
-            strip_tags($warrantyNote, '<a>') . ' ' .
-            sprintf(
-                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:free.software'),
+                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:free_software_and_warranty'),
                 '<a href="' . htmlspecialchars(static::URL_LICENSE) . '" target="_blank" rel="noreferrer">',
                 '</a> '
-            )
+            );
+        }
+        return '<a href="' . htmlspecialchars(static::URL_COMMUNITY) . '" target="_blank" rel="noreferrer">'
+            . $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:typo3.cms') . '</a>. '
+            . $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:copyright') . ' &copy; '
+            . htmlspecialchars($this->getCopyrightYear()) . ' Kasper Sk&aring;rh&oslash;j. '
+            . $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:extension.copyright') . ' '
+            . sprintf(
+                $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:extension.trademark'),
+                '<a href="' . htmlspecialchars(static::URL_TRADEMARK) . '" target="_blank" rel="noreferrer">',
+                '</a>'
+            ) . ' '
+            . $warrantyNote
             . $this->languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_login.xlf:keep.notice');
     }
 
@@ -124,12 +121,13 @@ class Typo3Information
      * For example, specifying an identifier like 't3coreapi:troubleshooting-php-troubleshooting-opcode' will return
      * 'https://docs.typo3.org/permalink/t3coreapi:troubleshooting-php-troubleshooting-opcode@14.0'
      */
-    public function getDocsLink(string $identifier): string
+    public static function getDocsLink(string $identifier): string
     {
+        // Static by intention: This method must be usable during early bootstrap to allow
+        // creating docs links before DI is ready, for instance in DI warmup deprecation messages.
         if (str_contains($identifier, '@')) {
             throw new \InvalidArgumentException('The identifier must not contain the "@" character.', 1728643940);
         }
-
-        return sprintf(self::URL_DOCS, $identifier, (new Typo3Version())->getBranch());
+        return sprintf(self::URL_DOCS, $identifier, new Typo3Version()->getBranch());
     }
 }

@@ -20,30 +20,39 @@ namespace TYPO3\CMS\Core\Http\Security;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Http\HtmlResponse;
-use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Directive;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 
 /**
+ * Evaluates the `Referer` header of a request against the application the request was addressed to.
+ *
+ * Deciding whether a referrer is same-origin (= originating from the very same application) cannot
+ * be done generically - the concrete URI details of the addressed application are required for that.
+ * Therefore, this class is abstract and each application (backend, install tool) has to provide its
+ * own `resolveReferrerType()` implementation.
+ *
  * @internal
  */
-class ReferrerEnforcer
+abstract readonly class ReferrerEnforcer
 {
-    private const TYPE_REFERRER_EMPTY = 1;
-    private const TYPE_REFERRER_SAME_SITE = 2;
-    private const TYPE_REFERRER_SAME_ORIGIN = 4;
+    protected const int TYPE_REFERRER_EMPTY = 1;
+    protected const int TYPE_REFERRER_SAME_SITE = 2;
+    protected const int TYPE_REFERRER_SAME_ORIGIN = 4;
+    protected const int TYPE_REFERRER_CROSS_SITE = 8;
 
     public function handle(ServerRequestInterface $request, array $options): ?ResponseInterface
     {
-        $requestHost = rtrim($this->resolveRequestHost($request), '/') . '/';
-        $requestDir = $this->resolveRequestDir($request);
-        $referrerType = $this->resolveReferrerType($request, $requestHost, $requestDir);
+        $flags = $options['flags'] ?? [];
+        if ($flags === []) {
+            return null;
+        }
+        $referrerType = $this->resolveReferrerType($request);
         // valid referrer, no more actions required
         if ($referrerType & self::TYPE_REFERRER_SAME_ORIGIN) {
             return null;
         }
-        $flags = $options['flags'] ?? [];
         $expiration = $options['expiration'] ?? 5;
         $nonce = $request->getAttribute('nonce');
         // referrer is missing and route requested to refresh
@@ -53,6 +62,7 @@ class ReferrerEnforcer
                 in_array('refresh-always', $flags, true)
                 || ($referrerType & self::TYPE_REFERRER_EMPTY && in_array('refresh-empty', $flags, true))
                 || ($referrerType & self::TYPE_REFERRER_SAME_SITE && in_array('refresh-same-site', $flags, true))
+                || ($referrerType & self::TYPE_REFERRER_CROSS_SITE && in_array('refresh-cross-site', $flags, true))
             )
         ) {
             $refreshUri = $request->getUri();
@@ -62,11 +72,12 @@ class ReferrerEnforcer
                 http_build_query($queryParams, '', '&', PHP_QUERY_RFC3986)
             );
             $scriptUri = $this->resolveAbsoluteWebPath(
-                'EXT:core/Resources/Public/JavaScript/referrer-refresh.js'
+                'EXT:core/Resources/Public/JavaScript/referrer-refresh.js',
+                $request
             );
             $attributes = ['src' => $scriptUri];
             if ($nonce instanceof ConsumableNonce) {
-                $attributes['nonce'] = $nonce->consume();
+                $attributes['nonce'] = $nonce->consumeStatic(Directive::ScriptSrcElem);
             }
             // simulating navigate event by clicking anchor link
             // since meta-refresh won't change `document.referrer` in e.g. Firefox
@@ -80,6 +91,11 @@ class ReferrerEnforcer
                 GeneralUtility::implodeAttributes($attributes, true)
             ));
         }
+
+        if (!in_array('required', $flags, true)) {
+            return null;
+        }
+
         $subject = $options['subject'] ?? '';
         if ($referrerType & self::TYPE_REFERRER_EMPTY) {
             // still empty referrer or invalid referrer, deny route invocation
@@ -95,42 +111,23 @@ class ReferrerEnforcer
         );
     }
 
-    protected function resolveAbsoluteWebPath(string $target): string
+    protected function resolveAbsoluteWebPath(string $target, ServerRequestInterface $request): string
     {
-        return PathUtility::getPublicResourceWebPath($target);
+        return (string)PathUtility::getSystemResourceUri($target, $request);
     }
 
-    protected function resolveReferrerType(ServerRequestInterface $request, string $requestHost, string $requestDir): int
-    {
-        $referrer = $request->getServerParams()['HTTP_REFERER'] ?? '';
-        if ($referrer === '') {
-            return self::TYPE_REFERRER_EMPTY;
-        }
-        if (str_starts_with($referrer, $requestDir)) {
-            // same-origin implies same-site
-            return self::TYPE_REFERRER_SAME_ORIGIN | self::TYPE_REFERRER_SAME_SITE;
-        }
-        if (str_starts_with($referrer, $requestHost)) {
-            return self::TYPE_REFERRER_SAME_SITE;
-        }
-        return 0;
-    }
+    /**
+     * Determines whether the referrer is same-origin (= the very same application), same-site
+     * (= the same host, but a different application) or neither of both.
+     *
+     * Implementations must not fall back to the request directory to detect same-origin: all
+     * applications are served from the same entry script, which would make any same-site referrer
+     * appear as same-origin.
+     */
+    abstract protected function resolveReferrerType(ServerRequestInterface $request): int;
 
     protected function resolveRequestHost(ServerRequestInterface $request): string
     {
-        $normalizedParams = $request->getAttribute('normalizedParams');
-        if ($normalizedParams instanceof NormalizedParams) {
-            return $normalizedParams->getRequestHost();
-        }
-        return GeneralUtility::getIndpEnv('TYPO3_REQUEST_HOST');
-    }
-
-    protected function resolveRequestDir(ServerRequestInterface $request): string
-    {
-        $normalizedParams = $request->getAttribute('normalizedParams');
-        if ($normalizedParams instanceof NormalizedParams) {
-            return $normalizedParams->getRequestDir();
-        }
-        return GeneralUtility::getIndpEnv('TYPO3_REQUEST_DIR');
+        return $request->getAttribute('normalizedParams')->getRequestHost();
     }
 }

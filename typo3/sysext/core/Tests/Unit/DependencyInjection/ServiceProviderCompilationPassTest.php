@@ -33,19 +33,19 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ServiceProviderCompilationPassTest extends UnitTestCase
 {
-    protected function getContainer(array $serviceProviders, ?callable $configure = null): ContainerBuilder
+    private function getContainer(array $serviceProviders, ?callable $configure = null): ContainerBuilder
     {
         static $id = 0;
 
         $packages = [];
         foreach ($serviceProviders as $serviceProvider) {
-            $package = $this->createMock(Package::class);
+            $package = self::createStub(Package::class);
             $package->method('getPackageKey')->willReturn($serviceProvider);
             $package->method('getServiceProvider')->willReturn($serviceProvider);
             $packages[$serviceProvider] = $package;
         }
 
-        $packageManager = $this->createMock(PackageManager::class);
+        $packageManager = self::createStub(PackageManager::class);
         $packageManager->method('getActivePackages')->willReturn($packages);
 
         $registry = new ServiceProviderRegistry($packageManager);

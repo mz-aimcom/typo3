@@ -48,6 +48,7 @@ class ExtensionXmlParser implements \SplSubject
     protected string $authoremail = '';
     protected string $authorname = '';
     protected string $category = '';
+    protected string $composerName = '';
     protected string $dependencies = '';
     protected string $description = '';
     protected int $extensionDownloadCounter = 0;
@@ -57,6 +58,7 @@ class ExtensionXmlParser implements \SplSubject
     protected int $reviewstate = 0;
     protected string $state = '';
     protected string $t3xfilemd5 = '';
+    protected string $artifactSha256 = '';
     protected string $title = '';
     protected string $uploadcomment = '';
     protected string $version = '';
@@ -87,8 +89,8 @@ class ExtensionXmlParser implements \SplSubject
         xml_parser_set_option($parser, XML_OPTION_CASE_FOLDING, 0);
         xml_parser_set_option($parser, XML_OPTION_SKIP_WHITE, 0);
         xml_parser_set_option($parser, XML_OPTION_TARGET_ENCODING, 'utf-8');
-        xml_set_element_handler($parser, [$this, 'startElement'], [$this, 'endElement']);
-        xml_set_character_data_handler($parser, [$this, 'characterData']);
+        xml_set_element_handler($parser, $this->startElement(...), $this->endElement(...));
+        xml_set_character_data_handler($parser, $this->characterData(...));
         if (!($fp = @fopen($file, 'r'))) {
             throw $this->createUnableToOpenFileResourceException($file);
         }
@@ -210,6 +212,9 @@ class ExtensionXmlParser implements \SplSubject
             case 't3xfilemd5':
                 $this->t3xfilemd5 = $this->elementData;
                 break;
+            case 'artifactsha256':
+                $this->artifactSha256 = $this->elementData;
+                break;
             case 'documentation_link':
                 $this->documentationLink = $this->elementData;
                 break;
@@ -223,6 +228,10 @@ class ExtensionXmlParser implements \SplSubject
                     $this->distributionWelcomeImage = $this->elementData;
                 }
                 break;
+            case 'composerinfo':
+                $composerInfo = json_decode($this->elementData, true);
+                $this->composerName = is_array($composerInfo) ? ($composerInfo['name'] ?? '') : '';
+                break;
         }
     }
 
@@ -235,8 +244,8 @@ class ExtensionXmlParser implements \SplSubject
     {
         // Resetting at least class property "version" is mandatory as we need to do some magic in
         // regards to an extension's and version's child node "downloadcounter"
-        $this->version = $this->authorcompany = $this->authorname = $this->authoremail = $this->category = $this->dependencies = $this->state = '';
-        $this->description = $this->ownerusername = $this->t3xfilemd5 = $this->title = $this->uploadcomment = $this->documentationLink = $this->distributionImage = $this->distributionWelcomeImage = '';
+        $this->version = $this->authorcompany = $this->authorname = $this->authoremail = $this->category = $this->composerName = $this->dependencies = $this->state = '';
+        $this->description = $this->ownerusername = $this->t3xfilemd5 = $this->artifactSha256 = $this->title = $this->uploadcomment = $this->documentationLink = $this->distributionImage = $this->distributionWelcomeImage = '';
         $this->lastuploaddate = $this->reviewstate = $this->versionDownloadCounter = 0;
         if ($resetAll) {
             $this->extensionKey = '';
@@ -331,6 +340,14 @@ class ExtensionXmlParser implements \SplSubject
     }
 
     /**
+     * Returns the composer package name of an extension's version.
+     */
+    public function getComposerName(): string
+    {
+        return $this->composerName;
+    }
+
+    /**
      * Returns dependencies of an extension's version as a serialized string
      */
     public function getDependencies(): string
@@ -400,6 +417,17 @@ class ExtensionXmlParser implements \SplSubject
     public function getT3xfilemd5(): string
     {
         return $this->t3xfilemd5;
+    }
+
+    /**
+     * Returns the SHA-256 hash of the zip artifact of an extension's version.
+     *
+     * Empty for remotes that do not publish it, and for versions uploaded
+     * before the remote started to record it.
+     */
+    public function getArtifactSha256(): string
+    {
+        return $this->artifactSha256;
     }
 
     /**

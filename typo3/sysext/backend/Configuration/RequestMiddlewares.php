@@ -47,6 +47,16 @@ return [
                 'typo3/cms-backend/https-redirector',
             ],
         ],
+        /** internal: do not use or reference this middleware in your own code */
+        'typo3/cms-backend/fetch-metadata-guard' => [
+            'target' => \TYPO3\CMS\Backend\Middleware\FetchMetadataGuard::class,
+            'after' => [
+                'typo3/cms-backend/backend-routing',
+            ],
+            'before' => [
+                'typo3/cms-backend/authentication',
+            ],
+        ],
         'typo3/cms-core/request-token-middleware' => [
             'target' => \TYPO3\CMS\Core\Middleware\RequestTokenMiddleware::class,
             'after' => [
@@ -80,25 +90,31 @@ return [
                 'typo3/cms-backend/sudo-mode-interceptor',
             ],
         ],
-        /** internal: do not use or reference this middleware in your own code */
-        'typo3/cms-backend/output-compression' => [
-            'target' => \TYPO3\CMS\Backend\Middleware\OutputCompression::class,
+        'typo3/cms-backend/page-context' => [
+            'target' => \TYPO3\CMS\Backend\Middleware\PageContextInitialization::class,
             'after' => [
-                'typo3/cms-backend/authentication',
+                'typo3/cms-backend/site-resolver',
             ],
         ],
         /** internal: do not use or reference this middleware in your own code */
         'typo3/cms-backend/csp-headers' => [
             'target' => \TYPO3\CMS\Backend\Middleware\ContentSecurityPolicyHeaders::class,
             'after' => [
-                'typo3/cms-backend/output-compression',
+                'typo3/cms-backend/authentication',
+            ],
+        ],
+        /** internal: do not use or reference this middleware in your own code */
+        'typo3/cms-backend/js-label-importmap-resolver' => [
+            'target' => \TYPO3\CMS\Backend\Middleware\JavaScriptLabelImportMapEntryResolver::class,
+            'after' => [
+                'typo3/cms-backend/csp-headers',
             ],
         ],
         /** internal: do not use or reference this middleware in your own code */
         'typo3/cms-backend/response-headers' => [
             'target' => \TYPO3\CMS\Backend\Middleware\AdditionalResponseHeaders::class,
             'after' => [
-                'typo3/cms-backend/csp-headers',
+                'typo3/cms-backend/js-label-importmap-resolver',
             ],
         ],
         /** internal: do not use or reference this middleware in your own code */

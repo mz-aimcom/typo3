@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file source-language="en" target-language="km" datatype="plaintext" original="EXT:core/Resources/Private/Language/countries.xlf" product-name="typo3/cms-core">
     <body>
@@ -1620,7 +1620,7 @@
       </trans-unit>
       <trans-unit id="VI.name" approved="yes">
         <source>Virgin Islands, U.S.</source>
-        <target>កោះវីជីន (អាមេរិក)</target>
+        <target>កោះវឺជីន ,នៃសហរដ្ឋអាមេរិក។</target>
       </trans-unit>
       <trans-unit id="VI.official_name" approved="yes">
         <source>Virgin Islands of the United States</source>

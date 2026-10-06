@@ -35,6 +35,10 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
  */
 final class TypolinkViewHelper extends AbstractViewHelper
 {
+    public function __construct(
+        private readonly TypoLinkCodecService $typoLinkCodecService
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('parameter', 'mixed', 'stdWrap.typolink style parameter string', true);
@@ -48,14 +52,13 @@ final class TypolinkViewHelper extends AbstractViewHelper
     public function render(): string
     {
         $parameter = $this->arguments['parameter'] ?? '';
-        $typoLinkCodecService = GeneralUtility::makeInstance(TypoLinkCodecService::class);
         if (!$parameter instanceof TypolinkParameter) {
             $parameter = TypolinkParameter::createFromTypolinkParts(
-                is_scalar($parameter) ? $typoLinkCodecService->decode((string)$parameter) : []
+                is_scalar($parameter) ? $this->typoLinkCodecService->decode((string)$parameter) : []
             );
         }
         // Merge the $parameter with other arguments and encode the typolink again
-        $typolink = $typoLinkCodecService->encode(
+        $typolink = $this->typoLinkCodecService->encode(
             TypolinkParameter::createFromTypolinkParts(self::mergeTypoLinkConfiguration($parameter->toArray(), $this->arguments))->toArray()
         );
         $request = null;
@@ -75,7 +78,7 @@ final class TypolinkViewHelper extends AbstractViewHelper
             'parameter' => $typoLinkParameter,
             'forceAbsoluteUrl' => $absolute,
         ];
-        if (isset($arguments['language']) && $arguments['language'] !== null) {
+        if (array_key_exists('language', $arguments) && $arguments['language'] !== null) {
             $instructions['language'] = (string)$arguments['language'];
         }
         if ($addQueryString && $addQueryString !== 'false') {

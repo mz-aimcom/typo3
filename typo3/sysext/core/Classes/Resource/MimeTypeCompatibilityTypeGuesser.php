@@ -57,7 +57,7 @@ final readonly class MimeTypeCompatibilityTypeGuesser
     {
         $mimeTypeCompatibility = [];
 
-        foreach ((new MimeTypeCollection())->getMap() as $mimeType => $extensions) {
+        foreach (new MimeTypeCollection()->getMap() as $mimeType => $extensions) {
             if (str_ends_with($mimeType, '+xml')) {
                 foreach ($extensions as $extension) {
                     $mimeTypeCompatibility['text/xml'][$extension] = $mimeType;
@@ -69,8 +69,8 @@ final readonly class MimeTypeCompatibilityTypeGuesser
                     $mimeTypeCompatibility['text/plain'][$extension] = $mimeType;
                 }
             } elseif (
-                str_ends_with($mimeType, '+yaml') ||
-                (str_starts_with($mimeType, 'text/') && $mimeType !== 'text/plain')
+                str_ends_with($mimeType, '+yaml')
+                || (str_starts_with($mimeType, 'text/') && $mimeType !== 'text/plain')
             ) {
                 foreach ($extensions as $extension) {
                     $mimeTypeCompatibility['text/plain'][$extension] = $mimeType;

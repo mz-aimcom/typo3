@@ -196,7 +196,7 @@ The following TCA options are not evaluated anymore:
 
 The following extbase validator options have been removed:
 
-- :php:`errorMessage` in :php:`TYPO3\CMS\Extbase\Validation\Validator\RegularExpressionValidator` :ref:`(Deprecation entry) <deprecation-102326-1699703964>`
+- :php:`errorMessage` in :php:`\TYPO3\CMS\Extbase\Validation\Validator\RegularExpressionValidator` :ref:`(Deprecation entry) <deprecation-102326-1699703964>`
 - Shorthand support of :php`TYPO3.CMS.Extbase` usage :ref:`(Deprecation entry) <deprecation-103965-1717335369>`
 
 The following fallbacks have been removed:
@@ -221,6 +221,10 @@ The following upgrade wizards have been removed:
 - Migrate backend groups "explicit_allowdeny" field to simplified format
 - Migrate sys_log entries to a JSON formatted value
 - Migrate storage and folder to the new folder_identifier property of the "sys_file_collection" table
+
+The following row updater has been removed:
+
+- :php:`\TYPO3\CMS\Install\Updates\RowUpdater\SysRedirectRootPageMoveMigration`
 
 The following database table fields have been removed:
 

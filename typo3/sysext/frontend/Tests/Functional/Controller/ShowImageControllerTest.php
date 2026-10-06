@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\Controller;
 use Masterminds\HTML5;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
@@ -27,12 +28,12 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class ShowImageControllerTest extends FunctionalTestCase
 {
+    protected array $pathsToProvideInTestInstance = [
+        'typo3/sysext/frontend/Tests/Functional/Fixtures/Images/' => 'fileadmin/',
+    ];
+
     protected function setUp(): void
     {
-        $this->pathsToProvideInTestInstance = [
-            ...$this->pathsToProvideInTestInstance,
-            'typo3/sysext/frontend/Tests/Functional/Fixtures/Images/' => 'fileadmin/',
-        ];
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/fileadmin_images.csv');
@@ -88,7 +89,7 @@ final class ShowImageControllerTest extends FunctionalTestCase
     ): void {
         $uri = new Uri($baseUrl);
         $hashService = $this->get(HashService::class);
-        $queryParams['md5'] = $hashService->hmac(implode('|', [$fileId, $queryParams['parameters'][0]]), 'tx_cms_showpic');
+        $queryParams['md5'] = $hashService->hmac(implode('|', [$fileId, $queryParams['parameters'][0]]), 'tx_cms_showpic', HashAlgo::SHA3_256);
         $uri = $uri->withQuery($uri->getQuery() . '&' . http_build_query($queryParams));
 
         $request = new InternalRequest((string)$uri);
@@ -97,7 +98,7 @@ final class ShowImageControllerTest extends FunctionalTestCase
         $content = (string)$response->getBody();
         self::assertNotEmpty($content);
 
-        $document = (new HTML5())->loadHTML($content);
+        $document = new HTML5()->loadHTML($content);
         $titles = $document->getElementsByTagName('title');
         $images = $document->getElementsByTagName('img');
         self::assertSame($expectedTitle, $titles->item(0)->nodeValue);
@@ -119,7 +120,7 @@ final class ShowImageControllerTest extends FunctionalTestCase
         $expectedHttpStatusCode = 410;
         $hashService = $this->get(HashService::class);
         $fileId = null;
-        $queryParams['md5'] = $hashService->hmac(implode('|', [$fileId, $queryParams['parameters'][0]]), 'tx_cms_showpic');
+        $queryParams['md5'] = $hashService->hmac(implode('|', [$fileId, $queryParams['parameters'][0]]), 'tx_cms_showpic', HashAlgo::SHA3_256);
         $uri = $uri->withQuery($uri->getQuery() . '&' . http_build_query($queryParams));
 
         $request = new InternalRequest((string)$uri);

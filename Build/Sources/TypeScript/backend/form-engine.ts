@@ -21,8 +21,8 @@
  */
 
 import DocumentService from '@typo3/core/document-service';
-import $ from 'jquery';
 import FormEngineValidation from '@typo3/backend/form-engine-validation';
+import Notification from '@typo3/backend/notification';
 import { default as Modal, type ModalElement } from '@typo3/backend/modal';
 import * as MessageUtility from '@typo3/backend/utility/message-utility';
 import Severity from '@typo3/backend/severity';
@@ -36,6 +36,10 @@ import '@typo3/backend/form-engine/element/extra/char-counter';
 import type { PromiseControls } from '@typo3/backend/event/interaction-request-assignment';
 import Hotkeys, { ModifierKeys } from '@typo3/backend/hotkeys';
 import RegularEvent from '@typo3/core/event/regular-event';
+import backendAltDocLabels from '~labels/backend.alt_doc';
+import coreCoreLabels from '~labels/core.core';
+import { parseItemCountLimits, type ItemCount } from '@typo3/backend/form-engine/element/extra/item-count';
+import type { ElementBrowserMessage, ElementBrowserElementAddedMessage } from '@typo3/backend/element-browser';
 
 export interface OnFieldChangeItem {
   name: string;
@@ -51,14 +55,22 @@ type FormEngineType = {
   formElement: HTMLFormElement,
   openedPopupWindow: Window | null,
   browserUrl: string,
-  doSaveFieldName: string,
 };
 
+const enum FormAction {
+  save = '_savedok',
+  saveAndClose = '_saveandclosedok',
+  saveAndView = '_savedokview',
+  saveAndNew = '_savedoknew',
+  duplicate = '_duplicatedoc',
+  saveAndAddRecord = '_savedokaddrecord',
+}
+
 type OnChangeFieldHandlerCallback = (data: object, e: Event) => void;
-type PreviewActionCallback = (targetName: string, previewUrl: string, $actionElement: JQuery, modal: ModalElement) => void;
-type NewActionCallback = (targetName: string, $actionElement: JQuery) => void;
-type DuplicateActionCallback = (targetName: string, $actionElement: JQuery) => void;
-type DeleteActionCallback = (targetName: string, $actionElement: JQuery) => void;
+type PreviewActionCallback = (targetName: string, previewUrl: string, actionElement: HTMLInputElement, modal: ModalElement) => void;
+type NewActionCallback = (targetName: string, actionElement: HTMLInputElement) => void;
+type DuplicateActionCallback = (targetName: string, actionElement: HTMLInputElement) => void;
+type DeleteActionCallback = (targetName: string, anchorElement: HTMLAnchorElement) => void;
 export type FormEngineFieldElement = HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement;
 
 /**
@@ -105,13 +117,13 @@ export default (function() {
       return;
     }
     const modal = Modal.advanced({
-      title: TYPO3.lang['FormEngine.refreshRequiredTitle'],
-      content: TYPO3.lang['FormEngine.refreshRequiredContent'],
+      title: coreCoreLabels.get('mess.refreshRequired.title'),
+      content: coreCoreLabels.get('mess.refreshRequired.content'),
       severity: Severity.warning,
       staticBackdrop: true,
       buttons: [
         {
-          text: TYPO3.lang['FormEngine.refreshRequiredCancel'] || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: coreCoreLabels.get('mess.refreshRequired.cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
@@ -120,11 +132,11 @@ export default (function() {
           }
         },
         {
-          text: TYPO3.lang['FormEngine.refreshRequiredConfirm'] || TYPO3.lang['button.ok'] || 'OK',
+          text: coreCoreLabels.get('mess.refreshRequired.confirm'),
           btnClass: 'btn-' + Severity.getCssClass(Severity.warning),
           name: 'ok',
           trigger: () => {
-            FormEngine.closeModalsRecursive();
+            modal.hideModal();
             saveDocumentWithoutValidation();
           }
         }
@@ -152,11 +164,10 @@ export default (function() {
     consumeTypes: ['typo3.setUrl', 'typo3.beforeSetUrl', 'typo3.refresh'],
     Validation: FormEngineValidation,
     interactionRequestMap: InteractionRequestMap,
-    formName: TYPO3.settings.FormEngine.formName,
+    formName: 'editform',
     formElement: undefined,
     openedPopupWindow: null,
     browserUrl: '',
-    doSaveFieldName: ''
   };
 
   Object.defineProperty(
@@ -185,14 +196,36 @@ export default (function() {
    * Opens a popup window with the element browser (browser.php)
    *
    * @param {string} mode can be "db" or "file"
-   * @param {string} params additional params for the browser window
+   * @param {string} fieldReference form field name reference
+   * @param {string} allowedTypes allowed tables or file extensions
+   * @param {string} disallowedTypes disallowed file extensions (for file mode)
+   * @param {string} irreObjectId IRRE object identifier
    * @param {string} entryPoint the entry point, which should be expanded by default
    */
-  FormEngine.openPopupWindow = function(mode: string, params: string, entryPoint: string): ModalElement {
-    const queryParams: {mode: string, bparams: string, expandPage?: string, expandFolder?: string} = {
+  FormEngine.openPopupWindow = function(
+    mode: string,
+    fieldReference: string,
+    allowedTypes: string,
+    disallowedTypes: string,
+    irreObjectId: string,
+    entryPoint: string,
+    useEvents: false,
+  ): ModalElement {
+    const queryParams: Record<string, string> = {
       mode: mode,
-      bparams: params
     };
+    if (fieldReference) {
+      queryParams.fieldReference = fieldReference;
+    }
+    if (allowedTypes) {
+      queryParams.allowedTypes = allowedTypes;
+    }
+    if (disallowedTypes) {
+      queryParams.disallowedFileExtensions = disallowedTypes;
+    }
+    if (irreObjectId) {
+      queryParams.irreObjectId = irreObjectId;
+    }
     if (entryPoint) {
       if (mode === 'db') {
         queryParams.expandPage = entryPoint;
@@ -200,6 +233,7 @@ export default (function() {
         queryParams.expandFolder = entryPoint;
       }
     }
+    queryParams.useEvents = useEvents ? '1' : '0';
     return Modal.advanced({
       type: Modal.types.iframe,
       content: FormEngine.browserUrl + '&' + (new URLSearchParams(queryParams)).toString(),
@@ -227,15 +261,11 @@ export default (function() {
     exclusiveValues: string[] = [],
     optionEl: HTMLOptionElement = undefined,
   ): void {
-    let
-      fieldEl,
-      $fieldEl,
-      isMultiple = false,
-      isList = false;
+    let isMultiple = false;
+    let isList = false;
 
-    $fieldEl = FormEngine.getFieldElement(fieldName);
-    fieldEl = $fieldEl.get(0);
-    const originalFieldEl = $fieldEl.get(0);
+    let fieldEl = FormEngine.getFieldElement(fieldName) as HTMLSelectElement | null;
+    const originalFieldEl = fieldEl;
 
     if (originalFieldEl === null || value === '--div--' || originalFieldEl instanceof HTMLOptGroupElement) {
       return;
@@ -243,45 +273,46 @@ export default (function() {
 
     // Check if the form object has a "_list" element
     // The "_list" element exists for multiple selection select types
-    const $listFieldEl = FormEngine.getFieldElement(fieldName, '_list', true);
-    if ($listFieldEl.length > 0) {
-      $fieldEl = $listFieldEl;
-      fieldEl = $fieldEl.get(0);
+    const listFieldEl = FormEngine.getFieldElement(fieldName, '_list', true) as HTMLSelectElement | null;
+    if (listFieldEl !== null) {
+      fieldEl = listFieldEl;
 
-      isMultiple = ($fieldEl.prop('multiple') && $fieldEl.prop('size') != '1');
+      isMultiple = fieldEl.multiple && fieldEl.size !== 1;
       isList = true;
     }
 
     if (isMultiple || isList) {
-      const $availableFieldEl = FormEngine.getFieldElement(fieldName, '_avail');
-      const availableFieldEl = $availableFieldEl.get(0);
+      const availableFieldEl = FormEngine.getFieldElement(fieldName, '_avail') as HTMLSelectElement | null;
+      if (availableFieldEl === null) {
+        return;
+      }
 
       // If multiple values are not allowed, clear anything that is in the control already
       if (!isMultiple) {
-        for (const el of fieldEl.querySelectorAll('option') as NodeListOf<HTMLOptionElement>) {
-          const $option = $availableFieldEl.find(selector`option[value="${$(el).attr('value')}"]`);
-          if ($option.length) {
-            $option.removeClass('hidden').prop('disabled', false);
-            FormEngine.enableOptGroup($option.get(0));
+        for (const el of fieldEl.querySelectorAll('option')) {
+          const option: HTMLOptionElement | null = availableFieldEl.querySelector(selector`option[value="${el.value}"]`);
+          if (option !== null) {
+            option.classList.remove('hidden');
+            option.disabled = false;
+            FormEngine.enableOptGroup(option);
           }
         }
-        $fieldEl.empty();
+        fieldEl.replaceChildren();
       }
 
       // Clear elements if exclusive values are found
       if (exclusiveValues.length > 0) {
         let reenableOptions = false;
 
-        // the new value is exclusive => remove all existing values
+        const currentOptions = fieldEl.querySelectorAll('option');
         if (exclusiveValues.includes(value)) {
-          $fieldEl.empty();
+          // the new value is exclusive => remove all existing values
+          fieldEl.replaceChildren();
           reenableOptions = true;
-        } else if ($fieldEl.find('option').length == 1) {
+        } else if (currentOptions.length === 1 && exclusiveValues.includes(currentOptions[0].value)) {
           // there is an old value, and it was exclusive => it has to be removed
-          if (exclusiveValues.includes($fieldEl.find('option').prop('value'))) {
-            $fieldEl.empty();
-            reenableOptions = true;
-          }
+          fieldEl.replaceChildren();
+          reenableOptions = true;
         }
 
         if (reenableOptions && typeof optionEl !== 'undefined') {
@@ -297,13 +328,20 @@ export default (function() {
       let addNewValue = true;
 
       // check if there is a "_mul" field (a field on the right) and if the field was already added
-      const $multipleFieldEl = FormEngine.getFieldElement(fieldName, '_mul', true);
-      if ($multipleFieldEl.length == 0 || $multipleFieldEl.val() == 0) {
-        for (const optionEl of fieldEl.querySelectorAll('option') as NodeListOf<HTMLOptionElement>) {
-          if (optionEl.value == value) {
+      const multipleFieldEl = FormEngine.getFieldElement(fieldName, '_mul', true) as HTMLInputElement | null;
+      if (multipleFieldEl === null || Number(multipleFieldEl.value) === 0) {
+        for (const existingOptionEl of fieldEl.querySelectorAll('option')) {
+          if (existingOptionEl.value === value) {
             addNewValue = false;
             break;
           }
+        }
+
+        // Respect TCA maxitems for list-like fields and prevent inserting
+        // additional values once the client-side limit is reached.
+        const maxItems = Number(fieldEl.dataset.maxitems ?? 0);
+        if (addNewValue && Number.isFinite(maxItems) && maxItems > 0 && fieldEl.querySelectorAll('option').length >= maxItems) {
+          addNewValue = false;
         }
 
         if (addNewValue && typeof optionEl !== 'undefined') {
@@ -323,9 +361,11 @@ export default (function() {
       // element can be added
       if (addNewValue) {
         // finally add the option
-        const $option = $('<option></option>');
-        $option.attr({ value: value, title: title }).text(label);
-        $option.appendTo($fieldEl);
+        const option = document.createElement('option');
+        option.value = value;
+        option.title = title;
+        option.text = label;
+        fieldEl.append(option);
 
         // set the hidden field
         FormEngine.updateHiddenFieldValueFromSelect(fieldEl, originalFieldEl);
@@ -333,6 +373,9 @@ export default (function() {
         FormEngine.markFieldAsChanged(originalFieldEl);
         FormEngine.Validation.validateField(fieldEl);
         FormEngine.Validation.validateField(availableFieldEl);
+      }
+      if (!addNewValue && Number(fieldEl.dataset.maxitems ?? 0) > 0) {
+        FormEngine.showMaxItemsReachedNotice(fieldEl);
       }
 
     } else {
@@ -348,7 +391,7 @@ export default (function() {
       }
 
       // Change the selected value
-      $fieldEl.val(value);
+      fieldEl.value = value;
       FormEngine.Validation.validateField(fieldEl);
     }
   };
@@ -367,53 +410,111 @@ export default (function() {
     // set the values to the final hidden field
     originalFieldEl.value = selectedValues.join(',');
     originalFieldEl.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+
+    // Allow the max-items notice to be shown again once the selection drops below the limit.
+    const maxItems = Number(selectFieldEl.dataset.maxitems ?? 0);
+    if (maxItems > 0 && selectFieldEl.options.length < maxItems) {
+      selectFieldEl.dataset.maxitemsNoticeShown = '0';
+    }
+  };
+
+  FormEngine.showMaxItemsReachedNotice = function(selectFieldEl: HTMLSelectElement): void {
+    const maxItems = Number(selectFieldEl.dataset.maxitems ?? 0);
+    if (!Number.isFinite(maxItems) || maxItems <= 0) {
+      return;
+    }
+    if (selectFieldEl.dataset.maxitemsNoticeShown === '1') {
+      return;
+    }
+
+    const message = maxItems === 1
+      ? coreCoreLabels.get('labels.maxItemsReached.single')
+      : coreCoreLabels.get('labels.maxItemsReached.multiple', {
+        '0': maxItems.toString(),
+      });
+    Notification.info(coreCoreLabels.get('labels.maxItemsReached.title'), message);
+    selectFieldEl.dataset.maxitemsNoticeShown = '1';
   };
 
   /**
-   * Returns a jQuery object of the field DOM element of the current form, can also be used to
+   * Attaches an item count badge web component to a field that carries item
+   * count validation rules (minitems/maxitems). This works generically for all
+   * field types emitting `data-formengine-validation-rules`, including custom
+   * fields provided by extensions.
+   */
+  FormEngine.attachItemCountBadge = function(fieldEl: HTMLElement): void {
+    if (fieldEl.dataset.itemcountBadgeInitialized === '1') {
+      return;
+    }
+
+    const { minItems, maxItems } = parseItemCountLimits(fieldEl);
+    if (minItems <= 0 && maxItems <= 0) {
+      return;
+    }
+
+    const container = (fieldEl.closest('.t3js-formengine-field-item') ?? fieldEl.closest('fieldset')) as HTMLElement | null;
+    if (container === null) {
+      return;
+    }
+
+    fieldEl.dataset.itemcountBadgeInitialized = '1';
+    const badge = document.createElement('typo3-backend-formengine-item-count') as ItemCount;
+    badge.field = fieldEl;
+    container.appendChild(badge);
+  };
+
+  FormEngine.initializeItemCountBadges = function(): void {
+    FormEngine.formElement.querySelectorAll('[data-formengine-validation-rules]').forEach((fieldEl: Element): void => {
+      FormEngine.attachItemCountBadge(fieldEl as HTMLElement);
+    });
+  };
+
+  /**
+   * Returns the field DOM element of the current form, can also be used to
    * request an alternative field like "_list", "_avail" or "_mul"
    *
    * @param {String} fieldName the name of the field (<input name="fieldName">)
    * @param {String} appendix optional
-   * @param {Boolean} noFallback if set, then the appendix value is returned no matter if it exists or not
+   * @param {Boolean} noFallback if set, then the appendix element is returned no matter if it exists or not
    */
-  FormEngine.getFieldElement = function(fieldName: string, appendix: string, noFallback: boolean): JQuery {
+  FormEngine.getFieldElement = function(fieldName: string, appendix?: string, noFallback?: boolean): HTMLElement | null {
     // if an appendix is set, return the field with the appendix (like _mul or _list)
     if (appendix) {
-      let $fieldEl;
+      let appendixFieldEl: HTMLElement | null;
       switch (appendix) {
         case '_list':
-          $fieldEl = $(selector`:input[data-formengine-input-name="${fieldName}"]:not([type=hidden])`, FormEngine.formElement);
+          appendixFieldEl = FormEngine.formElement.querySelector(selector`:is(input, select, textarea)[data-formengine-input-name="${fieldName}"]:not([type=hidden])`);
           break;
         case '_avail':
-          $fieldEl = $(selector`:input[data-relatedfieldname="${fieldName}"]`, FormEngine.formElement);
+          appendixFieldEl = FormEngine.formElement.querySelector(selector`:is(input, select, textarea)[data-relatedfieldname="${fieldName}"]`);
           break;
         case '_mul':
-          $fieldEl = $(selector`:input[type=hidden][data-formengine-input-name="${fieldName}"]`, FormEngine.formElement);
+          appendixFieldEl = FormEngine.formElement.querySelector(selector`input[type=hidden][data-formengine-input-name="${fieldName}"]`);
           break;
         default:
-          $fieldEl = null;
+          appendixFieldEl = null;
           break;
       }
-      if (($fieldEl && $fieldEl.length > 0) || noFallback === true) {
-        return $fieldEl;
+      if (appendixFieldEl !== null || noFallback === true) {
+        return appendixFieldEl;
       }
     }
 
-    return $(FormEngine.formElement.elements.namedItem(fieldName));
+    const fieldEl = FormEngine.formElement.elements.namedItem(fieldName);
+    return fieldEl instanceof HTMLElement ? fieldEl : null;
   };
 
+  FormEngine.delegatesInitialized = false;
+
   /**
-   * Initialize events for all form engine relevant tasks.
+   * Initialize global event delegates for all form engine relevant tasks.
    * This function only needs to be called once on page load,
    * as it using deferrer methods only
    */
-  FormEngine.initializeEvents = function() {
-    if (top.TYPO3 && typeof top.TYPO3.Backend !== 'undefined') {
-      top.TYPO3.Backend.consumerScope.attach(FormEngine);
-      window.addEventListener('pagehide', () => top.TYPO3.Backend.consumerScope.detach(FormEngine), { once: true });
+  FormEngine.initializeDelegates = function() {
+    if (FormEngine.delegatesInitialized) {
+      return;
     }
-
     new RegularEvent('click', (e: Event): void => {
       e.preventDefault();
       FormEngine.preventExitIfNotSaved(
@@ -455,10 +556,28 @@ export default (function() {
       e.stopPropagation();
 
       const mode = target.dataset.mode;
-      const params = target.dataset.params;
+      const fieldReference = target.dataset.fieldReference ?? '';
+      const allowedTypes = target.dataset.allowedTypes ?? '';
+      const disallowedTypes = target.dataset.disallowedTypes ?? '';
+      const irreObjectId = target.dataset.irreObjectId ?? '';
       const entryPoint = target.dataset.entryPoint;
+      const useEvents = target.dataset.useEvents === 'true';
 
-      FormEngine.openPopupWindow(mode, params, entryPoint);
+      const modal = FormEngine.openPopupWindow(mode, fieldReference, allowedTypes, disallowedTypes, irreObjectId, entryPoint, useEvents);
+
+      if (useEvents) {
+        modal.addEventListener('typo3:element-browser:message', (e: CustomEvent<ElementBrowserMessage>) => {
+          const { actionName, close } = e.detail;
+          if (actionName === 'typo3:elementBrowser:elementAdded') {
+            const { fieldName, value, label } = e.detail as ElementBrowserElementAddedMessage;
+            FormEngine.setSelectOptionFromExternalSource(fieldName, value, label || value, label || value);
+          }
+          if (close) {
+            modal.hideModal();
+            target.focus();
+          }
+        });
+      }
     }).delegateTo(document, '.t3js-element-browser');
 
     new RegularEvent('click', (evt: Event, target: HTMLElement): void => {
@@ -471,21 +590,22 @@ export default (function() {
       FormEngine.processOnFieldChange(items, evt);
     }).delegateTo(document, '[data-formengine-field-change-event="change"]');
 
-    FormEngine.formElement.addEventListener('submit', function (e: SubmitEvent) {
-      const form = e.target as HTMLFormElement;
-      if (form.closeDoc?.value !== '0') {
-        return;
-      }
-
-      if (e.submitter !== null && (e.submitter.tagName === 'A' || e.submitter.hasAttribute('form')) && !e.defaultPrevented) {
-        const saveField = form.querySelector(selector`input[name="${FormEngine.doSaveFieldName}"]`) as HTMLInputElement|null;
-        if (saveField !== null) {
-          saveField.value = '1';
-        }
-      }
-    });
-
     window.addEventListener('message', FormEngine.handlePostMessage);
+
+    FormEngine.delegatesInitialized = true;
+  };
+
+  /**
+   * Initialize events for all form engine relevant tasks.
+   */
+  FormEngine.initializeEvents = function() {
+    if (top.TYPO3 && typeof top.TYPO3.Backend !== 'undefined') {
+      // @todo: The consumer scope attachment is actually not needed
+      // in page wizard and context panel (which currently uses it own handling).
+      // This needs to be streamlined.
+      top.TYPO3.Backend.consumerScope.attach(FormEngine);
+      window.addEventListener('pagehide', () => top.TYPO3.Backend.consumerScope.detach(FormEngine), { once: true });
+    }
   };
 
   FormEngine.consume = function(interactionRequest: TriggerRequest): Promise<void> {
@@ -574,7 +694,9 @@ export default (function() {
     const addOrUpdateCounter = (minCharacterCountLeft: string, event: Event) => {
       const parent = (event.currentTarget as HTMLInputElement).closest('.t3js-formengine-field-item');
       const counter = parent.querySelector('.t3js-charcounter-min');
-      const labelValue = TYPO3.lang['FormEngine.minCharactersLeft'].replace('{0}', minCharacterCountLeft);
+      const labelValue = coreCoreLabels.get('labels.remainingCharacters', {
+        '0': minCharacterCountLeft
+      });
       if (counter) {
         counter.querySelector('span').innerHTML = labelValue;
       } else {
@@ -710,6 +832,7 @@ export default (function() {
     FormEngine.initializeLocalizationStateSelector();
     FormEngine.initializeMinimumCharactersLeftViews();
     FormEngine.initializeRemainingCharacterViews();
+    FormEngine.initializeItemCountBadges();
   };
 
   /**
@@ -735,9 +858,8 @@ export default (function() {
    * @return {boolean}
    */
   FormEngine.hasChange = function(): boolean {
-
-    const formElementChanges = $(selector`form[name="${FormEngine.formName}"] .has-change`).length > 0,
-      inlineRecordChanges = $('[name^="data["].has-change').length > 0;
+    const formElementChanges = document.querySelector(selector`form[name="${FormEngine.formName}"] .has-change`) !== null;
+    const inlineRecordChanges = document.querySelector('[name^="data["].has-change') !== null;
     return formElementChanges || inlineRecordChanges;
   };
 
@@ -754,7 +876,7 @@ export default (function() {
   FormEngine.markFieldAsChanged = function (field: FormEngineFieldElement): void {
     field.classList.add('has-change');
     const fieldLabel = field.closest('.t3js-formengine-palette-field')?.querySelector('.t3js-formengine-label');
-    if (fieldLabel !== null) {
+    if (fieldLabel !== null && fieldLabel !== undefined) {
       fieldLabel.classList.add('has-change');
     }
   };
@@ -790,23 +912,23 @@ export default (function() {
     callback = callback || FormEngine.preventExitIfNotSavedCallback;
 
     if (FormEngine.hasChange() || FormEngine.isNew()) {
-      const title = TYPO3.lang['label.confirm.close_without_save.title'] || 'Unsaved changes';
-      const content = TYPO3.lang['label.confirm.close_without_save.content'] || 'You currently have unsaved changes which will be discarded if you close without saving.';
+      const title = backendAltDocLabels.get('label.confirm.close_without_save.title');
+      const content = backendAltDocLabels.get('label.confirm.close_without_save.content');
       const buttons: Array<{text: string, btnClass: string, name: string, active?: boolean}> = [
         {
-          text: TYPO3.lang['buttons.confirm.close_without_save.no'] || 'Keep editing',
+          text: backendAltDocLabels.get('buttons.confirm.close_without_save.no'),
           btnClass: 'btn-default',
           name: 'no'
         },
         {
-          text: TYPO3.lang['buttons.confirm.close_without_save.yes'] || 'Discard changes',
+          text: backendAltDocLabels.get('buttons.confirm.close_without_save.yes'),
           btnClass: 'btn-default',
           name: 'yes'
         }
       ];
-      if ($('.has-error').length === 0) {
+      if (document.querySelector('.has-error') === null) {
         buttons.push({
-          text: TYPO3.lang['buttons.confirm.save_and_close'] || 'Save and close',
+          text: backendAltDocLabels.get('buttons.confirm.save_and_close'),
           btnClass: 'btn-primary',
           name: 'save',
           active: true
@@ -831,15 +953,89 @@ export default (function() {
   };
 
   /**
+   * Show modal to confirm following a "+ add related record" (fieldControl.addRecord)
+   * link whose OWN record is itself still new/unsaved. Since Wizard/AddController
+   * can only link a newly created record back into an already-persisted uid,
+   * discarding here means abandoning the whole attempt (closing the document,
+   * same as preventExitIfNotSavedCallback) rather than following through to
+   * create an orphaned record that could never be linked back anyway. The
+   * only way to actually continue to the add-record wizard is "save first".
+   *
+   * @param {Object.<string, string>} addRecordParams
+   * @returns {Boolean}
+   */
+  FormEngine.preventFollowAddRecordLinkIfNotSaved = function(addRecordParams: {[key: string]: string}): boolean {
+    const title = backendAltDocLabels.get('label.confirm.add_record_unsaved_parent.title');
+    const content = backendAltDocLabels.get('label.confirm.add_record_unsaved_parent.content');
+    const buttons: Array<{text: string, btnClass: string, name: string, active?: boolean}> = [
+      {
+        text: backendAltDocLabels.get('buttons.confirm.close_without_save.no'),
+        btnClass: 'btn-default',
+        name: 'no'
+      },
+      {
+        text: backendAltDocLabels.get('buttons.confirm.close_without_save.yes'),
+        btnClass: 'btn-default',
+        name: 'yes'
+      }
+    ];
+    if (document.querySelector('.has-error') === null) {
+      buttons.push({
+        text: backendAltDocLabels.get('buttons.confirm.add_record_unsaved_parent.save'),
+        btnClass: 'btn-primary',
+        name: 'save',
+        active: true
+      });
+    }
+
+    const modal = Modal.confirm(title, content, Severity.warning, buttons);
+    modal.addEventListener('button.clicked', function(e: Event) {
+      modal.hideModal();
+      const name = (e.target as HTMLButtonElement).name;
+      if (name === 'yes') {
+        FormEngine.closeDocument();
+      } else if (name === 'save') {
+        FormEngine.saveAndContinueToAddRecord(addRecordParams);
+      }
+    });
+    return false;
+  };
+
+  /**
+   * Saves the current document, then (server-side, once the record this
+   * addRecordParams.originalUid placeholder was saved under is known)
+   * redirects on to Wizard/AddController for the field identified by
+   * addRecordParams, see FormAction::savedokaddrecord() /
+   * EditDocumentController::processData().
+   *
+   * @param {Object.<string, string>} addRecordParams
+   */
+  FormEngine.saveAndContinueToAddRecord = function(addRecordParams: {[key: string]: string}): void {
+    Object.keys(addRecordParams).forEach((key: string): void => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'addRecordAfterSave[' + key + ']';
+      input.value = addRecordParams[key];
+      FormEngine.formElement.append(input);
+    });
+    FormEngine.formElement.append(createActionInput(FormAction.saveAndAddRecord));
+    // Submitted as a regular save on top: "_savedokaddrecord" is only understood by
+    // EditDocumentController, while other hosts of FormEngine forms (site configuration,
+    // constant editor, ...) test "_savedok" literally. Without it, such a form would
+    // neither save nor create anything and silently discard the submitted data.
+    submitFormWithAction(FormAction.save);
+  };
+
+  /**
    * Show modal to confirm closing the document without saving
    */
   FormEngine.preventSaveIfHasErrors = function(): boolean {
-    if ($('.has-error').length > 0) {
-      const title = TYPO3.lang['label.alert.save_with_error.title'] || 'You have errors in your form!';
-      const content = TYPO3.lang['label.alert.save_with_error.content'] || 'Please check the form, there is at least one error in your form.';
+    if (document.querySelector('.has-error') !== null) {
+      const title = backendAltDocLabels.get('label.alert.save_with_error.title');
+      const content = backendAltDocLabels.get('label.alert.save_with_error.content');
       const modal = Modal.confirm(title, content, Severity.error, [
         {
-          text: TYPO3.lang['buttons.alert.save_with_error.ok'] || 'OK',
+          text: backendAltDocLabels.get('buttons.alert.save_with_error.ok'),
           btnClass: 'btn-danger',
           name: 'ok'
         }
@@ -884,6 +1080,32 @@ export default (function() {
   };
 
   /**
+   * Releases the doc header button bar, which is rendered "inert" as long as the
+   * ui block is shown, to prevent unintended operations while FormEngine is loading.
+   * Called after FormEngine initialization is complete.
+   *
+   * The block is applied to the button bar as a whole, never to the single buttons,
+   * so that the disabled state of individual buttons remains untouched.
+   */
+  FormEngine.enableDocHeaderButtons = function(): void {
+    const docHeaderBar = document.querySelector('.t3js-module-docheader-buttons');
+    if (!docHeaderBar) {
+      return;
+    }
+
+    docHeaderBar.removeAttribute('inert');
+    docHeaderBar.removeAttribute('aria-busy');
+  };
+
+  const createActionInput = (name: string): HTMLInputElement => {
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = name;
+    actionInput.value = '1';
+    return actionInput;
+  };
+
+  /**
    * Preview action
    *
    * When there are changes:
@@ -898,11 +1120,11 @@ export default (function() {
 
     const previewUrl = (event.target as HTMLAnchorElement).href;
     const isNew = ('isNew' in (event.target as HTMLAnchorElement).dataset);
-    const $actionElement = $('<input />').attr('type', 'hidden').attr('name', '_savedokview').attr('value', '1');
+    const actionElement = createActionInput(FormAction.saveAndView);
     if (FormEngine.hasChange() || FormEngine.isNew()) {
-      FormEngine.showPreviewModal(previewUrl, isNew, $actionElement, callback);
+      FormEngine.showPreviewModal(previewUrl, isNew, actionElement, callback);
     } else {
-      $(selector`form[name="${FormEngine.formName}"]`).append($actionElement);
+      FormEngine.formElement.append(actionElement);
       window.open('', 'newTYPO3frontendWindow');
       FormEngine.formElement.submit();
     }
@@ -913,9 +1135,9 @@ export default (function() {
    *
    * @param {string} modalButtonName
    * @param {string} previewUrl
-   * @param {ModalElement} actionElement
+   * @param {HTMLInputElement} actionElement
    */
-  FormEngine.previewActionCallback = function(modalButtonName: string, previewUrl: string, actionElement: ModalElement): void {
+  FormEngine.previewActionCallback = function(modalButtonName: string, previewUrl: string, actionElement: HTMLInputElement): void {
     Modal.dismiss();
     switch(modalButtonName) {
       case 'discard':
@@ -927,7 +1149,7 @@ export default (function() {
         }
         break;
       case 'save':
-        $(selector`form[name="${FormEngine.formName}"]`).append($(actionElement));
+        FormEngine.formElement.append(actionElement);
         window.open('', 'newTYPO3frontendWindow');
         FormEngine.saveDocument();
         break;
@@ -941,23 +1163,23 @@ export default (function() {
    *
    * @param {string} previewUrl
    * @param {bool} isNew
-   * @param {element} $actionElement
+   * @param {HTMLInputElement} actionElement
    * @param {Function} callback
    */
-  FormEngine.showPreviewModal = function(previewUrl: string, isNew: boolean, $actionElement: JQuery, callback: PreviewActionCallback): void {
-    const title = TYPO3.lang['label.confirm.view_record_changed.title'] || 'Do you want to save before viewing?';
+  FormEngine.showPreviewModal = function(previewUrl: string, isNew: boolean, actionElement: HTMLInputElement, callback: PreviewActionCallback): void {
+    const title = backendAltDocLabels.get('label.confirm.view_record_changed.title');
     const modalCancelButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.view_record_changed.cancel'] || 'Cancel',
+      text: backendAltDocLabels.get('buttons.confirm.view_record_changed.cancel'),
       btnClass: 'btn-default',
       name: 'cancel'
     };
     const modaldismissViewButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.view_record_changed.no-save'] || 'View without changes',
+      text: backendAltDocLabels.get('buttons.confirm.view_record_changed.no-save'),
       btnClass: 'btn-default',
       name: 'discard'
     };
     const modalsaveViewButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.view_record_changed.save'] || 'Save changes and view',
+      text: backendAltDocLabels.get('buttons.confirm.view_record_changed.save'),
       btnClass: 'btn-primary',
       name: 'save',
       active: true
@@ -974,8 +1196,7 @@ export default (function() {
         modalsaveViewButtonConfiguration
       ];
       contentStrings = [
-        TYPO3.lang['label.confirm.view_record_changed.content.is-new-page']
-        || 'You need to save your changes before viewing the page. Do you want to save and view them now?'
+        backendAltDocLabels.get('label.confirm.view_record_changed.content.is-new-page')
       ];
     } else {
       modalButtons = [
@@ -983,15 +1204,13 @@ export default (function() {
         modaldismissViewButtonConfiguration,
       ];
       contentStrings = [
-        TYPO3.lang['label.confirm.view_record_changed.content']
-        || 'You currently have unsaved changes. You can either discard these changes or save and view them.'
+        backendAltDocLabels.get('label.confirm.view_record_changed.content')
       ];
       if (FormEngine.Validation.isValid()) {
         modalButtons.push(modalsaveViewButtonConfiguration);
       } else {
         contentStrings.push(
-          TYPO3.lang['label.confirm.view_record_changed.invalid_form']
-          || 'The form appears to be invalid, therefore "Save changes and view" is not available.'
+          backendAltDocLabels.get('label.confirm.view_record_changed.invalid_form')
         );
       }
     }
@@ -1004,7 +1223,7 @@ export default (function() {
     });
     const modal = Modal.confirm(title, contentElement, Severity.info, modalButtons);
     modal.addEventListener('button.clicked', function (event: Event) {
-      callback((event.target as HTMLButtonElement).name, previewUrl, $actionElement, modal);
+      callback((event.target as HTMLButtonElement).name, previewUrl, actionElement, modal);
     });
   };
 
@@ -1021,12 +1240,12 @@ export default (function() {
   FormEngine.newAction = function(event: Event, callback: NewActionCallback): void {
     callback = callback || FormEngine.newActionCallback;
 
-    const $actionElement = $('<input />').attr('type', 'hidden').attr('name', '_savedoknew').attr('value', '1');
+    const actionElement = createActionInput(FormAction.saveAndNew);
     const isNew = ('isNew' in (event.target as HTMLElement).dataset);
     if (FormEngine.hasChange() || FormEngine.isNew()) {
-      FormEngine.showNewModal(isNew, $actionElement, callback);
+      FormEngine.showNewModal(isNew, actionElement, callback);
     } else {
-      $(selector`form[name="${FormEngine.formName}"]`).append($actionElement);
+      FormEngine.formElement.append(actionElement);
       FormEngine.formElement.submit();
     }
   };
@@ -1035,18 +1254,17 @@ export default (function() {
    * The callback for the preview action
    *
    * @param {string} modalButtonName
-   * @param {element} $actionElement
+   * @param {HTMLInputElement} actionElement
    */
-  FormEngine.newActionCallback = function(modalButtonName: string, $actionElement: JQuery): void {
-    const $form = $(selector`form[name="${FormEngine.formName}"]`);
+  FormEngine.newActionCallback = function(modalButtonName: string, actionElement: HTMLInputElement): void {
     Modal.dismiss();
     switch(modalButtonName) {
       case 'no':
-        $form.append($actionElement);
+        FormEngine.formElement.append(actionElement);
         FormEngine.formElement.submit();
         break;
       case 'yes':
-        $form.append($actionElement);
+        FormEngine.formElement.append(actionElement);
         FormEngine.saveDocument();
         break;
       default:
@@ -1058,28 +1276,25 @@ export default (function() {
    * Show the new modal
    *
    * @param {bool} isNew
-   * @param {element} $actionElement
+   * @param {HTMLInputElement} actionElement
    * @param {Function} callback
    */
-  FormEngine.showNewModal = function(isNew: boolean, $actionElement: JQuery, callback: NewActionCallback): void {
-    const title = TYPO3.lang['label.confirm.new_record_changed.title'] || 'Do you want to save before adding?';
-    const content = (
-      TYPO3.lang['label.confirm.new_record_changed.content']
-      || 'You need to save your changes before creating a new record. Do you want to save and create now?'
-    );
+  FormEngine.showNewModal = function(isNew: boolean, actionElement: HTMLInputElement, callback: NewActionCallback): void {
+    const title = backendAltDocLabels.get('label.confirm.new_record_changed.title');
+    const content = backendAltDocLabels.get('label.confirm.new_record_changed.content');
     let modalButtons = [];
     const modalCancelButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.new_record_changed.cancel'] || 'Cancel',
+      text: backendAltDocLabels.get('buttons.confirm.new_record_changed.cancel'),
       btnClass: 'btn-default',
       name: 'cancel'
     };
     const modalNoButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.new_record_changed.no'] || 'No, just add',
+      text: backendAltDocLabels.get('buttons.confirm.new_record_changed.no'),
       btnClass: 'btn-default',
       name: 'no'
     };
     const modalYesButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.new_record_changed.yes'] || 'Yes, save and create now',
+      text: backendAltDocLabels.get('buttons.confirm.new_record_changed.yes'),
       btnClass: 'btn-primary',
       name: 'yes',
       active: true
@@ -1098,7 +1313,7 @@ export default (function() {
     }
     const modal = Modal.confirm(title, content, Severity.info, modalButtons);
     modal.addEventListener('button.clicked', function (event: Event) {
-      callback((event.target as HTMLButtonElement).name, $actionElement);
+      callback((event.target as HTMLButtonElement).name, actionElement);
     });
   };
 
@@ -1112,12 +1327,12 @@ export default (function() {
   FormEngine.duplicateAction = function(event: Event, callback: DuplicateActionCallback): void {
     callback = callback || FormEngine.duplicateActionCallback;
 
-    const $actionElement = $('<input />').attr('type', 'hidden').attr('name', '_duplicatedoc').attr('value', '1');
+    const actionElement = createActionInput(FormAction.duplicate);
     const isNew = ('isNew' in (event.target as HTMLElement).dataset);
     if (FormEngine.hasChange() || FormEngine.isNew()) {
-      FormEngine.showDuplicateModal(isNew, $actionElement, callback);
+      FormEngine.showDuplicateModal(isNew, actionElement, callback);
     } else {
-      $(selector`form[name="${FormEngine.formName}"]`).append($actionElement);
+      FormEngine.formElement.append(actionElement);
       FormEngine.formElement.submit();
     }
   };
@@ -1126,18 +1341,17 @@ export default (function() {
    * The callback for the duplicate action
    *
    * @param {string} modalButtonName
-   * @param {element} $actionElement
+   * @param {HTMLInputElement} actionElement
    */
-  FormEngine.duplicateActionCallback = function(modalButtonName: string, $actionElement: JQuery): void {
-    const $form = $(selector`form[name="${FormEngine.formName}"]`);
+  FormEngine.duplicateActionCallback = function(modalButtonName: string, actionElement: HTMLInputElement): void {
     Modal.dismiss();
     switch(modalButtonName) {
       case 'no':
-        $form.append($actionElement);
+        FormEngine.formElement.append(actionElement);
         FormEngine.formElement.submit();
         break;
       case 'yes':
-        $form.append($actionElement);
+        FormEngine.formElement.append(actionElement);
         FormEngine.saveDocument();
         break;
       default:
@@ -1145,25 +1359,24 @@ export default (function() {
     }
   };
 
-  FormEngine.showDuplicateModal = function(isNew: boolean, $actionElement: JQuery, callback: DuplicateActionCallback): void {
-    const title = TYPO3.lang['label.confirm.duplicate_record_changed.title'] || 'Do you want to save before duplicating this record?';
+  FormEngine.showDuplicateModal = function(isNew: boolean, actionElement: HTMLInputElement, callback: DuplicateActionCallback): void {
+    const title = backendAltDocLabels.get('label.confirm.duplicate_record_changed.title');
     const content = (
-      TYPO3.lang['label.confirm.duplicate_record_changed.content']
-      || 'You currently have unsaved changes. Do you want to save your changes before duplicating this record?'
+      backendAltDocLabels.get('label.confirm.duplicate_record_changed.content')
     );
     let modalButtons = [];
     const modalCancelButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.duplicate_record_changed.cancel'] || 'Cancel',
+      text: backendAltDocLabels.get('buttons.confirm.duplicate_record_changed.cancel'),
       btnClass: 'btn-default',
       name: 'cancel'
     };
     const modalDismissDuplicateButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.duplicate_record_changed.no'] || 'No, just duplicate the original',
+      text: backendAltDocLabels.get('button.confirm.duplicate_record_changed.no'),
       btnClass: 'btn-default',
       name: 'no'
     };
     const modalSaveDuplicateButtonConfiguration = {
-      text: TYPO3.lang['buttons.confirm.duplicate_record_changed.yes'] || 'Yes, save and duplicate this record',
+      text: backendAltDocLabels.get('buttons.confirm.duplicate_record_changed.yes'),
       btnClass: 'btn-primary',
       name: 'yes',
       active: true
@@ -1182,7 +1395,7 @@ export default (function() {
     }
     const modal = Modal.confirm(title, content, Severity.info, modalButtons);
     modal.addEventListener('button.clicked', function (event: Event) {
-      callback((event.target as HTMLButtonElement).name, $actionElement);
+      callback((event.target as HTMLButtonElement).name, actionElement);
     });
   };
 
@@ -1196,57 +1409,57 @@ export default (function() {
   FormEngine.deleteAction = function(event: Event, callback: DeleteActionCallback): void {
     callback = callback || FormEngine.deleteActionCallback;
 
-    const $anchorElement = $(event.target);
+    const anchorElement = (event.target as HTMLElement).closest('.t3js-editform-delete-record') as HTMLAnchorElement;
 
-    FormEngine.showDeleteModal($anchorElement, callback);
+    FormEngine.showDeleteModal(anchorElement, callback);
   };
 
   /**
    * The callback for the delete action
    *
    * @param {string} modalButtonName
-   * @param {element} $anchorElement
+   * @param {HTMLAnchorElement} anchorElement
    */
-  FormEngine.deleteActionCallback = function(modalButtonName: string, $anchorElement: JQuery): void {
+  FormEngine.deleteActionCallback = function(modalButtonName: string, anchorElement: HTMLAnchorElement): void {
     Modal.dismiss();
     if (modalButtonName === 'yes') {
-      FormEngine.invokeRecordDeletion($anchorElement);
+      FormEngine.invokeRecordDeletion(anchorElement);
     }
   };
 
   /**
    * Show the delete modal
    *
-   * @param {element} $anchorElement
+   * @param {HTMLAnchorElement} anchorElement
    * @param {Function} callback
    */
-  FormEngine.showDeleteModal = function($anchorElement: JQuery, callback: DeleteActionCallback): void {
-    const title = TYPO3.lang['label.confirm.delete_record.title'] || 'Delete this record?';
-    let content = (TYPO3.lang['label.confirm.delete_record.content'] || 'Are you sure you want to delete the record \'%s\'?').replace('%s', $anchorElement.data('record-info'));
+  FormEngine.showDeleteModal = function(anchorElement: HTMLAnchorElement, callback: DeleteActionCallback): void {
+    const title = backendAltDocLabels.get('label.confirm.delete_record.title');
+    let content = backendAltDocLabels.get('label.confirm.delete_record.content', [anchorElement.dataset.recordInfo]);
 
-    if ($anchorElement.data('reference-count-message')) {
-      content += '\n' + $anchorElement.data('reference-count-message');
+    if (anchorElement.dataset.referenceCountMessage) {
+      content += '\n' + anchorElement.dataset.referenceCountMessage;
     }
 
-    if ($anchorElement.data('translation-count-message')) {
-      content += '\n' + $anchorElement.data('translation-count-message');
+    if (anchorElement.dataset.translationCountMessage) {
+      content += '\n' + anchorElement.dataset.translationCountMessage;
     }
 
     const modal = Modal.confirm(title, content, Severity.warning, [
       {
-        text: TYPO3.lang['buttons.confirm.delete_record.no'] || 'Cancel',
+        text: backendAltDocLabels.get('buttons.confirm.delete_record.no'),
         btnClass: 'btn-default',
         name: 'no'
       },
       {
-        text: TYPO3.lang['buttons.confirm.delete_record.yes'] || 'Yes, delete this record',
+        text: backendAltDocLabels.get('buttons.confirm.delete_record.yes'),
         btnClass: 'btn-warning',
         name: 'yes',
         active: true
       }
     ]);
     modal.addEventListener('button.clicked', function (event: Event) {
-      callback((event.target as HTMLButtonElement).name, $anchorElement);
+      callback((event.target as HTMLButtonElement).name, anchorElement);
     });
   };
 
@@ -1270,28 +1483,30 @@ export default (function() {
     FormEngine.formElement.submit();
   };
 
-  FormEngine.saveDocument = function(): void {
+  const submitFormWithAction = (name: string): void => {
     const currentlyFocussed = document.activeElement;
     if (currentlyFocussed instanceof HTMLInputElement || currentlyFocussed instanceof HTMLSelectElement || currentlyFocussed instanceof HTMLTextAreaElement) {
       // Blur currently focussed :input element to trigger FormEngine's internal data normalization
       currentlyFocussed.blur();
     }
 
-    const saveField = FormEngine.formElement.querySelector(selector`input[name="${FormEngine.doSaveFieldName}"]`) as HTMLInputElement|null;
-    if (saveField !== null) {
-      saveField.value = '1';
+    // Try to find a matching submit button so the SubmitInterceptor can handle spinner
+    // and disable state. If no button exists, fall back to a hidden input to carry the action value.
+    const submitter = document.querySelector(selector`button[name="${name}"][form="${FormEngine.formElement.id}"]`) as HTMLButtonElement | null;
+    if (submitter !== null) {
+      FormEngine.formElement.requestSubmit(submitter);
+    } else {
+      FormEngine.formElement.append(createActionInput(name));
+      FormEngine.formElement.requestSubmit();
     }
-    FormEngine.formElement.requestSubmit();
+  };
+
+  FormEngine.saveDocument = function(): void {
+    submitFormWithAction(FormAction.save);
   };
 
   FormEngine.saveAndCloseDocument = function(): void {
-    const saveAndCloseInput = document.createElement('input');
-    saveAndCloseInput.type = 'hidden';
-    saveAndCloseInput.name = '_saveandclosedok';
-    saveAndCloseInput.value = '1';
-    document.querySelector(selector`form[name="${FormEngine.formName}"]`).append(saveAndCloseInput);
-
-    FormEngine.saveDocument();
+    submitFormWithAction(FormAction.saveAndClose);
   };
 
   /**
@@ -1300,18 +1515,17 @@ export default (function() {
    * Sets some options and registers the DOMready handler to initialize further things
    *
    * @param {String} browserUrl
-   * @param {String} doSaveFieldName
    */
-  FormEngine.initialize = function(browserUrl: string, doSaveFieldName: string): void {
+  FormEngine.initialize = function(browserUrl: string): void {
     FormEngine.browserUrl = browserUrl;
-    // Add doSaveFieldName - fall back to do `doSave` for b/w compatibility
-    FormEngine.doSaveFieldName = doSaveFieldName || 'doSave';
 
+    FormEngine.initializeDelegates();
     DocumentService.ready().then((): void => {
       FormEngine.initializeEvents();
       FormEngine.Validation.initialize(this);
       FormEngine.reinitialize();
-      $('#t3js-ui-block').remove();
+      document.getElementById('t3js-ui-block')?.remove();
+      FormEngine.enableDocHeaderButtons();
 
       FormEngine.formElement.dispatchEvent(new Event('typo3:form-engine:ready'));
       formEngineIsReady = true;
@@ -1321,7 +1535,7 @@ export default (function() {
         e.preventDefault();
 
         FormEngine.saveDocument();
-      }, { scope: 'backend/form-engine', allowOnEditables: true, bindElement: FormEngine.formElement._savedok });
+      }, { scope: 'backend/form-engine', allowOnEditables: true });
       Hotkeys.register([Hotkeys.normalizedCtrlModifierKey, ModifierKeys.SHIFT, 's'], (e: KeyboardEvent): void => {
         e.preventDefault();
 
@@ -1330,8 +1544,8 @@ export default (function() {
     });
   };
 
-  FormEngine.invokeRecordDeletion = function ($anchorElement: JQuery) {
-    window.location.href = $anchorElement.attr('href');
+  FormEngine.invokeRecordDeletion = function (anchorElement: HTMLAnchorElement) {
+    window.location.href = anchorElement.href;
   };
 
   // make the form engine object publicly visible for other objects in the TYPO3 namespace

@@ -22,7 +22,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * Create and return a defined array of data ready to be used by the
  * container / element render part of FormEngine
  */
-class FormDataCompiler
+readonly class FormDataCompiler
 {
     /**
      * Main entry method maps given data input array and sanitizes some
@@ -59,7 +59,10 @@ class FormDataCompiler
                 }
             }
             if ($dataKey === 'vanillaUid') {
-                if (!MathUtility::canBeInterpretedAsInteger($dataValue) && !str_starts_with($dataValue, 'NEW')) {
+                if (
+                    !MathUtility::canBeInterpretedAsInteger($dataValue)
+                    && !(is_string($dataValue) && str_starts_with($dataValue, 'NEW'))
+                ) {
                     throw new \InvalidArgumentException('$vanillaUid is not an integer or "NEW..." string ID', 1437654247);
                 }
                 if (isset($initialData['command']) && $initialData['command'] === 'edit' && $dataValue < 0) {
@@ -81,13 +84,6 @@ class FormDataCompiler
         $resultKeysBeforeFormDataGroup = array_keys($result);
 
         $result = $formDataGroup->compile($result);
-
-        if (!is_array($result)) {
-            throw new \UnexpectedValueException(
-                'Data group provider must return array',
-                1446664764
-            );
-        }
 
         if (!empty($result['renderData'])) {
             throw new \RuntimeException(
@@ -186,6 +182,11 @@ class FormDataCompiler
             // TCA of table with processed fields. After processing, this array contains merged and resolved
             // array data, items were resolved, only used types are set, renderTypes are set.
             'processedTca' => [],
+            // SchemaCollection of all TCA tables.
+            'tcaSchemata' => null,
+            // Keeps the full TCA. Needed to reinitialize processedTca for inline form handling.
+            // Why not use $GLOBALS['TCA']? Because we want to get rid of it here and sometimes the TCA needs to be faked.
+            'fullTca' => null,
             // List of columns to be processed by data provider. Array value is the column name.
             'columnsToProcess' => [],
             // If set to TRUE, no wizards are calculated and rendered later

@@ -196,7 +196,7 @@ abstract class AbstractLinkBrowserController
             return new HtmlResponse($content);
         }
         $this->pageRenderer->setBodyContent('<body ' . GeneralUtility::implodeAttributes($this->getBodyTagAttributes(), true, true) . '>' . $content);
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($request);
     }
 
     /**
@@ -335,11 +335,11 @@ abstract class AbstractLinkBrowserController
     }
 
     /**
-     * Add the currently set URL to the view
+     * Add the currently set Link URL to the view
      */
     protected function renderCurrentUrl(ViewInterface $view): void
     {
-        $view->assign('currentUrl', $this->currentLinkHandler->formatCurrentUrl());
+        $view->assign('currentLink', $this->currentLinkHandler->formatCurrentUrl());
     }
 
     /**
@@ -467,16 +467,14 @@ abstract class AbstractLinkBrowserController
         $fieldRenderingDefinitions['target'] = '
             <!-- Selecting target for link: -->
             <div class="element-browser-form-group">
-                <label for="ltarget" class="form-label">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:target')) . '</label>
-                <span class="input-group">
-                    <input id="ltarget" type="text" name="ltarget" class="t3js-linkTarget form-control"
-                        value="' . htmlspecialchars($this->linkAttributeValues['target'] ?? '') . '" />
-                    <select name="ltarget_type" class="t3js-targetPreselect form-select">
-                        <option value=""></option>
-                        <option value="_top">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:top')) . '</option>
-                        <option value="_blank">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:newWindow')) . '</option>
-                    </select>
-                </span>
+                <label for="ltarget" class="form-label">
+                    ' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:target')) . '
+                </label>
+                <typo3-backend-combobox>
+                     <input id="ltarget" type="text" name="ltarget" class="form-control" value="' . htmlspecialchars($this->linkAttributeValues['target'] ?? '') . '" />
+                    <typo3-backend-combobox-choice value="_top" icon="actions-window">' . $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:top') . '</typo3-backend-combobox-choice>
+                    <typo3-backend-combobox-choice value="_blank" icon="actions-window-open">' . $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:newWindow') . '</typo3-backend-combobox-choice>
+                </typo3-backend-combobox>
             </div>';
 
         $fieldRenderingDefinitions['title'] = '
@@ -503,6 +501,24 @@ abstract class AbstractLinkBrowserController
                 <label for="lparams" class="form-label">' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:params')) . '</label>
                 <input id="lparams" type="text" name="lparams" class="form-control"
                     value="' . htmlspecialchars($this->linkAttributeValues['params'] ?? '') . '" />
+            </div>';
+
+        $fieldRenderingDefinitions['rel'] = '
+            <!-- Selecting rel for link: -->
+            <div class="element-browser-form-group">
+                <label for="lrel" class="form-label">' . htmlspecialchars($lang->sL('backend.browse_links:linkRelationship')) . '</label>
+                <input id="lrel" type="text" name="lrel" class="form-control"
+                    value="' . htmlspecialchars($this->linkAttributeValues['rel'] ?? '') . '" />
+            </div>';
+
+        $fieldRenderingDefinitions['download'] = '
+            <!-- Selecting download for link: -->
+            <div class="element-browser-form-group">
+                <typo3-backend-link-browser-download
+                    value="' . htmlspecialchars($this->linkAttributeValues['download'] ?? '') . '"
+                    label-download="' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:download')) . '"
+                    label-filename="' . htmlspecialchars($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:download.customFilename')) . '"
+                ></typo3-backend-link-browser-download>
             </div>';
 
         return $fieldRenderingDefinitions;

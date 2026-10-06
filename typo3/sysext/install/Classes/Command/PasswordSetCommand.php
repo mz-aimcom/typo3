@@ -23,26 +23,38 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
+use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
-use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Exception\InvalidPasswordRulesException;
+use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\PasswordPolicy\Generator\PasswordGeneratorInterface;
+use TYPO3\CMS\Core\PasswordPolicy\PasswordService;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 final class PasswordSetCommand extends Command
 {
     public function __construct(
         string $name,
-        protected readonly PasswordHashFactory $passwordHashFactory,
-        protected readonly ConfigurationManager $configurationManager,
-        protected readonly Random $random
+        private readonly PasswordHashFactory $passwordHashFactory,
+        private readonly ConfigurationManager $configurationManager,
+        private readonly LanguageServiceFactory $languageServiceFactory,
+        private readonly PasswordService $passwordService,
     ) {
         parent::__construct($name);
     }
 
-    public function configure(): void
+    protected function configure(): void
     {
         $this
+            ->addOption(
+                'password-length',
+                'p',
+                InputOption::VALUE_OPTIONAL,
+                'Specify the length of auto-generated passwords.',
+            )
             ->addOption(
                 'dry-run',
                 'd',
@@ -59,18 +71,72 @@ final class PasswordSetCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $io = new SymfonyStyle($input, $output);
+
+        if (!Bootstrap::checkIfEssentialConfigurationExists($this->configurationManager)) {
+            $io->error('Setting an Install Tool password requires a working installation (configuration files are missing).');
+            return Command::FAILURE;
+        }
+
+        $currentSettingsWithoutAdditionalParsing = $this->configurationManager->getMergedLocalConfiguration();
+        if (($currentSettingsWithoutAdditionalParsing['BE']['installToolPassword'] ?? '') !== ($GLOBALS['TYPO3_CONF_VARS']['BE']['installToolPassword'] ?? '')) {
+            $io->error('Your Install Tool password is different in settings.php and additional.php. This command can only effectively change the password for "settings.php" and therefore any changes would not take effect.');
+            return Command::FAILURE;
+        }
+
         $dryRun = $input->getOption('dry-run');
         $noInteraction = $input->getOption('no-interaction');
 
         $password = !$noInteraction
             ? $this
                 ->getQuestionHelper()
-                ->ask($input, $output, (new Question('Password (leave empty for auto generation): '))->setHidden(true))
+                ->ask($input, $output, new Question('Password (leave empty for auto generation): ')->setHidden(true))
             : null;
 
         if ($password === null) {
-            $password = $this->random->generateRandomPassword([]);
-            $output->writeln(sprintf('Generated password: <info>%s</info>', $password));
+            $generator = $GLOBALS['TYPO3_CONF_VARS']['SYS']['passwordPolicies']['installTool']['generator'] ?? null;
+            if (!class_exists($generator['className'] ?? '') || !is_array($generator['options'] ?? null)) {
+                throw new \LogicException(
+                    'The TYPO3_CONF_VARS.SYS.passwordPolicies.installTool.generator configuration is misconfigured.'
+                    . ' Please ensure that the sub key \'className\' is set, and the sub key \'options\' is an array of required option values.',
+                    1770131006
+                );
+            }
+
+            $passwordGeneratorClassName = $generator['className'];
+            $passwordGeneratorOptions = $generator['options'];
+
+            $passwordGenerator = GeneralUtility::makeInstance($passwordGeneratorClassName);
+            if (!$passwordGenerator instanceof PasswordGeneratorInterface) {
+                throw new \LogicException('Class ' . $passwordGeneratorClassName . ' does not implement PasswordGeneratorInterface', 1770131293);
+            }
+
+            if ($input->getOption('password-length') !== null) {
+                $passwordGeneratorOptions['length'] = (int)$input->getOption('password-length');
+            }
+            $length = $passwordGeneratorOptions['length'];
+            $password = $passwordGenerator->generate($passwordGeneratorOptions);
+            $output->writeln(sprintf('Password length: %d characters', $length));
+            // A generated password may contain '<', '>' or '\', which Symfony's
+            // OutputFormatter would silently mangle on display. Emit the password via
+            // OUTPUT_RAW so it bypasses the formatter entirely, and apply the 'info'
+            // style manually when decoration is on to keep the green highlight.
+            $coloredPassword = $output->isDecorated()
+                ? $output->getFormatter()->getStyle('info')->apply($password)
+                : $password;
+            $output->write('Generated password: ');
+            $output->writeln($coloredPassword, OutputInterface::OUTPUT_RAW);
+        }
+
+        // Validation error messages require a valid LANG object to operate on (or a backend user context, which we don't need here)
+        $GLOBALS['LANG'] = $this->languageServiceFactory->create('en');
+        $validationResultErrors = $this->passwordService->getValidationErrorsForInstallToolUpdate($password);
+        if ($validationResultErrors !== []) {
+            $output->writeln('Your password could not be used. The following validation rules did not pass:');
+            foreach ($validationResultErrors as $validatorKey => $message) {
+                $output->writeln(sprintf(' - <error>%s</error> (%s)', $message, $validatorKey));
+            }
+            return Command::FAILURE;
         }
 
         $passwordHashed = $this->passwordHashFactory->getDefaultHashInstance('BE')->getHashedPassword($password);
@@ -82,13 +148,14 @@ final class PasswordSetCommand extends Command
                 ->configurationManager
                 ->setLocalConfigurationValueByPath('BE/installToolPassword', $passwordHashed);
 
-            $output->writeln('<info>Install Tool password updated.</info>');
+            $output->writeln('<info>Install Tool password updated in "settings.php".</info>');
+            $output->writeln('<comment>Please note that a custom override of this password in "additional.php" will have higher priority.</comment>');
         }
 
         return Command::SUCCESS;
     }
 
-    protected function getQuestionHelper(): QuestionHelper
+    private function getQuestionHelper(): QuestionHelper
     {
         /** @var QuestionHelper $helper */
         $helper = $this->getHelper('question');

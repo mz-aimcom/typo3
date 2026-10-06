@@ -21,9 +21,11 @@ use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Type;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Platform\PlatformInformation;
 use TYPO3\CMS\Core\Database\Schema\ConnectionMigrator;
 use TYPO3\CMS\Core\Database\Schema\SchemaDiff;
@@ -31,27 +33,28 @@ use TYPO3\CMS\Core\Database\Schema\TableDiff;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ConnectionMigratorTest extends UnitTestCase
 {
-    protected MySQLPlatform $platform;
-    protected AccessibleObjectInterface&MockObject $subject;
-    protected int $maxIdentifierLength = -1;
+    private AccessibleObjectInterface&MockObject $subject;
+    private int $maxIdentifierLength = -1;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $platformMock = $this->createMock(MySQLPlatform::class);
-        $platformMock->method('quoteIdentifier')->with(self::anything())->willReturnArgument(0);
-        $this->platform = $platformMock;
+        $platformStub = self::createStub(MySQLPlatform::class);
+        $platformStub->method('quoteIdentifier')->willReturnArgument(0);
 
-        $connectionMock = $this->createMock(Connection::class);
-        $connectionMock->method('getDatabasePlatform')->willReturn($this->platform);
-        $connectionMock->method('quoteIdentifier')->with(self::anything())->willReturnArgument(0);
+        $connectionStub = self::createStub(Connection::class);
+        $connectionStub->method('getDatabasePlatform')->willReturn($platformStub);
+        $connectionStub->method('quoteIdentifier')->willReturnArgument(0);
 
-        $this->maxIdentifierLength = PlatformInformation::getMaxIdentifierLength($this->platform);
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
 
-        $this->subject = $this->getAccessibleMock(ConnectionMigrator::class, null, ['Default', $connectionMock, []]);
+        $this->maxIdentifierLength = PlatformInformation::getMaxIdentifierLength($platformStub);
+
+        $this->subject = $this->getAccessibleMock(ConnectionMigrator::class, null, ['Default', $connectionStub, $connectionPoolStub, []]);
     }
 
     #[Test]
@@ -148,7 +151,7 @@ final class ConnectionMigratorTest extends UnitTestCase
     /**
      * Utility method to create a table instance with name that exceeds the identifier limits.
      */
-    protected function getTable(): Table
+    private function getTable(): Table
     {
         $tableName = 'table_name_that_is_ridiculously_long_' . bin2hex(random_bytes(100));
         return new Table($tableName);
@@ -157,7 +160,7 @@ final class ConnectionMigratorTest extends UnitTestCase
     /**
      * Utility method to create a column instance with name that exceeds the identifier limits.
      */
-    protected function getColumn(): Column
+    private function getColumn(): Column
     {
         $columnName = 'column_name_that_is_ridiculously_long_' . bin2hex(random_bytes(100));
         return new Column(

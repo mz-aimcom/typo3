@@ -27,7 +27,7 @@ final class TitleTagRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    private const LANGUAGE_PRESETS = [
+    private const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'websiteTitle' => 'Site EN'],
     ];
 
@@ -242,7 +242,7 @@ final class TitleTagRenderingTest extends FunctionalTestCase
     public function checkIfCorrectTitleTagIsRendered(array $pageConfig, array $expectations): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withQueryParameters([
+            new InternalRequest()->withQueryParameters([
                 'id' => (int)$pageConfig['pageId'],
                 'noPageTitle' => (int)($pageConfig['noPageTitle'] ?? 0),
                 'headerData' => (int)($pageConfig['headerData'] ?? 0),

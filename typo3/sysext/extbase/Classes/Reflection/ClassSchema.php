@@ -17,46 +17,41 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Reflection;
 
-use Doctrine\Common\Annotations\AnnotationReader;
-use phpDocumentor\Reflection\DocBlock\Tags\Param;
 use phpDocumentor\Reflection\DocBlockFactory;
-use phpDocumentor\Reflection\DocBlockFactoryInterface;
 use Symfony\Component\PropertyInfo\Extractor\PhpDocExtractor;
 use Symfony\Component\PropertyInfo\Extractor\ReflectionExtractor;
 use Symfony\Component\PropertyInfo\PropertyInfoExtractor;
-use Symfony\Component\PropertyInfo\Type;
+use Symfony\Component\Validator\Constraint;
 use TYPO3\CMS\Core\Type\BitSet;
-use TYPO3\CMS\Extbase\Annotation\FileUpload;
-use TYPO3\CMS\Extbase\Annotation\IgnoreValidation;
-use TYPO3\CMS\Extbase\Annotation\ORM\Cascade;
-use TYPO3\CMS\Extbase\Annotation\ORM\Lazy;
-use TYPO3\CMS\Extbase\Annotation\ORM\Transient;
-use TYPO3\CMS\Extbase\Annotation\Validate;
+use TYPO3\CMS\Extbase\Attribute;
 use TYPO3\CMS\Extbase\Mvc\Controller\ControllerInterface;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Exception\NoSuchMethodException;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Exception\NoSuchPropertyException;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Method;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Property;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\PropertyCharacteristics;
-use TYPO3\CMS\Extbase\Reflection\DocBlock\Tags\Null_;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidTypeHintException;
 use TYPO3\CMS\Extbase\Validation\Exception\InvalidValidationConfigurationException;
 use TYPO3\CMS\Extbase\Validation\ValidatorClassNameResolver;
 
 /**
  * A class schema
+ *
+ * @phpstan-import-type PropertyDefinitionSpec from Property
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
 class ClassSchema
 {
-    private const BIT_CLASS_IS_CONTROLLER = 1 << 3;
+    private const int BIT_CLASS_IS_CONTROLLER = 1 << 3;
     private BitSet $bitSet;
     private static array $propertyObjects = [];
     private static array $methodObjects = [];
+    /**
+     * @var array<string, PropertyDefinitionSpec>
+     */
     private array $properties = [];
     private array $methods = [];
     private static ?PropertyInfoExtractor $propertyInfoExtractor = null;
-    private static ?DocBlockFactoryInterface $docBlockFactory = null;
 
     /**
      * Constructs this class schema
@@ -88,40 +83,15 @@ class ClassSchema
             );
         }
 
-        if (self::$docBlockFactory === null) {
-            self::$docBlockFactory = DocBlockFactory::createInstance([
-                'author' => Null_::class,
-                'covers' => Null_::class,
-                'deprecated' => Null_::class,
-                'link' => Null_::class,
-                'method' => Null_::class,
-                'property-read' => Null_::class,
-                'property' => Null_::class,
-                'property-write' => Null_::class,
-                'return' => Null_::class,
-                'see' => Null_::class,
-                'since' => Null_::class,
-                'source' => Null_::class,
-                'throw' => Null_::class,
-                'throws' => Null_::class,
-                'uses' => Null_::class,
-                'var' => Null_::class,
-                'version' => Null_::class,
-            ]);
-        }
-
         $this->reflectProperties($reflectionClass);
         $this->reflectMethods($reflectionClass);
     }
 
     /**
-     * @throws \Doctrine\Common\Annotations\AnnotationException
      * @throws \TYPO3\CMS\Extbase\Validation\Exception\NoSuchValidatorException
      */
     protected function reflectProperties(\ReflectionClass $reflectionClass): void
     {
-        $annotationReader = new AnnotationReader();
-
         foreach ($reflectionClass->getProperties() as $reflectionProperty) {
             if ($reflectionProperty->isStatic()) {
                 continue;
@@ -145,23 +115,35 @@ class ClassSchema
             $fileUploadAttributes = [];
             foreach ($reflectionProperty->getAttributes() as $attribute) {
                 match ($attribute->getName()) {
-                    Validate::class => $validateAttributes[] = $attribute,
-                    FileUpload::class => $fileUploadAttributes[] = $attribute,
-                    Lazy::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_LAZY,
-                    Transient::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_TRANSIENT,
-                    Cascade::class => $this->properties[$propertyName]['c'] = ($attribute->newInstance())->value,
+                    Attribute\Validate::class => $validateAttributes[] = $attribute,
+                    Attribute\FileUpload::class => $fileUploadAttributes[] = $attribute,
+                    Attribute\ORM\Lazy::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_LAZY,
+                    Attribute\ORM\Transient::class => $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_TRANSIENT,
+                    Attribute\ORM\Cascade::class => $this->properties[$propertyName]['c'] = $attribute->newInstance()->value,
                     default => '' // non-extbase attributes
                 };
+
+                if (is_a($attribute->getName(), Constraint::class, true)) {
+                    $validateAttributes[] = $attribute;
+                }
             }
             foreach ($validateAttributes as $attribute) {
                 $validator = $attribute->newInstance();
-                $validatorObjectName = ValidatorClassNameResolver::resolve($validator->validator);
 
-                $this->properties[$propertyName]['v'][] = [
-                    'name' => $validator->validator,
-                    'options' => $validator->options,
-                    'className' => $validatorObjectName,
-                ];
+                if ($validator instanceof Constraint) {
+                    $property = [
+                        'constraint' => $validator,
+                        'className' => $validator::class,
+                    ];
+                } else {
+                    $property = [
+                        'name' => $validator->validator,
+                        'options' => $validator->options,
+                        'className' => ValidatorClassNameResolver::resolve($validator->validator),
+                    ];
+                }
+
+                $this->properties[$propertyName]['v'][] = $property;
             }
 
             foreach ($fileUploadAttributes as $attribute) {
@@ -176,64 +158,11 @@ class ClassSchema
                 ];
             }
 
-            $annotations = $annotationReader->getPropertyAnnotations($reflectionProperty);
-
-            /** @var array<int, Validate> $validateAnnotations */
-            $validateAnnotations = array_filter(
-                $annotations,
-                static fn(object $annotation): bool => $annotation instanceof Validate
-            );
-
-            if (count($validateAnnotations) > 0) {
-                foreach ($validateAnnotations as $validateAnnotation) {
-                    $validatorObjectName = ValidatorClassNameResolver::resolve($validateAnnotation->validator);
-
-                    $this->properties[$propertyName]['v'][] = [
-                        'name' => $validateAnnotation->validator,
-                        'options' => $validateAnnotation->options,
-                        'className' => $validatorObjectName,
-                    ];
-                }
-            }
-
-            /** @var array<int, FileUpload> $fileUploadAnnotations */
-            $fileUploadAnnotations = array_filter(
-                $annotations,
-                static fn(object $annotation): bool => $annotation instanceof FileUpload
-            );
-
-            if (count($fileUploadAnnotations) > 0) {
-                foreach ($fileUploadAnnotations as $fileUploadAnnotation) {
-                    $this->properties[$propertyName]['f'] = [
-                        'validation' => $fileUploadAnnotation->validation,
-                        'uploadFolder' => $fileUploadAnnotation->uploadFolder,
-                        'addRandomSuffix' => $fileUploadAnnotation->addRandomSuffix,
-                        'duplicationBehavior' => $fileUploadAnnotation->duplicationBehavior,
-                        'createUploadFolderIfNotExist' => $fileUploadAnnotation->createUploadFolderIfNotExist,
-                    ];
-                }
-            }
-
-            if ($annotationReader->getPropertyAnnotation($reflectionProperty, Lazy::class) instanceof Lazy) {
-                $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_LAZY;
-            }
-
-            if ($annotationReader->getPropertyAnnotation($reflectionProperty, Transient::class) instanceof Transient) {
-                $propertyCharacteristicsBit += PropertyCharacteristics::ANNOTATED_TRANSIENT;
-            }
-
             $this->properties[$propertyName]['propertyCharacteristicsBit'] = $propertyCharacteristicsBit;
 
-            /** @var Type[] $types */
-            $types = (array)self::$propertyInfoExtractor->getTypes($this->className, $propertyName, ['reflectionProperty' => $reflectionProperty]);
-
-            if ($types !== [] && ($annotation = $annotationReader->getPropertyAnnotation($reflectionProperty, Cascade::class)) instanceof Cascade) {
-                /** @var Cascade $annotation */
-                $this->properties[$propertyName]['c'] = $annotation->value;
-            }
-
-            foreach ($types as $type) {
-                $this->properties[$propertyName]['t'][] = $type;
+            $type = self::$propertyInfoExtractor->getType($this->className, $propertyName, ['reflectionProperty' => $reflectionProperty]);
+            if ($type !== null) {
+                $this->properties[$propertyName]['t'] = $type;
             }
         }
     }
@@ -241,14 +170,11 @@ class ClassSchema
     /**
      * @throws InvalidTypeHintException
      * @throws InvalidValidationConfigurationException
-     * @throws \Doctrine\Common\Annotations\AnnotationException
      * @throws \ReflectionException
      * @throws \TYPO3\CMS\Extbase\Validation\Exception\NoSuchValidatorException
      */
     protected function reflectMethods(\ReflectionClass $reflectionClass): void
     {
-        $annotationReader = new AnnotationReader();
-
         foreach ($reflectionClass->getMethods() as $reflectionMethod) {
             if ($reflectionMethod->isStatic()) {
                 continue;
@@ -257,73 +183,32 @@ class ClassSchema
             $methodName = $reflectionMethod->getName();
 
             $this->methods[$methodName] = [];
-            $this->methods[$methodName]['private']      = $reflectionMethod->isPrivate();
-            $this->methods[$methodName]['protected']    = $reflectionMethod->isProtected();
-            $this->methods[$methodName]['public']       = $reflectionMethod->isPublic();
-            $this->methods[$methodName]['params']       = [];
+            $this->methods[$methodName]['private'] = $reflectionMethod->isPrivate();
+            $this->methods[$methodName]['protected'] = $reflectionMethod->isProtected();
+            $this->methods[$methodName]['public'] = $reflectionMethod->isPublic();
+            $this->methods[$methodName]['params'] = [];
             $isAction = $this->bitSet->get(self::BIT_CLASS_IS_CONTROLLER) && str_ends_with($methodName, 'Action');
 
-            $argumentValidators = [];
-
+            /** @var array<string, list<Attribute\Validate>> $validateAttributes */
             $validateAttributes = [];
-            $reflectionAttributes = $reflectionMethod->getAttributes();
-            foreach ($reflectionAttributes as $attribute) {
-                match ($attribute->getName()) {
-                    Validate::class => $validateAttributes[] = $attribute,
-                    default => '' // non-extbase attributes
-                };
-            }
+            /** @var array<string, list<Attribute\IgnoreValidation>> $validateAttributes */
+            $ignoreValidationAttributes = [];
 
-            $annotations = $annotationReader->getMethodAnnotations($reflectionMethod);
-
-            /** @var array<int<0, max>, Validate> $validateAnnotations */
-            $validateAnnotations = array_filter(
-                $annotations,
-                static fn(object $annotation): bool => $annotation instanceof Validate
-            );
-
-            if ($isAction && (count($validateAnnotations) > 0 || $validateAttributes !== [])) {
-                foreach ($validateAnnotations as $validateAnnotation) {
-                    $validatorName = $validateAnnotation->validator;
-                    $validatorObjectName = ValidatorClassNameResolver::resolve($validatorName);
-
-                    $argumentValidators[$validateAnnotation->param][] = [
-                        'name' => $validatorName,
-                        'options' => $validateAnnotation->options,
-                        'className' => $validatorObjectName,
-                    ];
-                }
-                foreach ($validateAttributes as $attribute) {
-                    $validator = $attribute->newInstance();
-                    $validatorObjectName = ValidatorClassNameResolver::resolve($validator->validator);
-
-                    $argumentValidators[$validator->param][] = [
-                        'name' => $validator->validator,
-                        'options' => $validator->options,
-                        'className' => $validatorObjectName,
-                    ];
-                }
-            }
-
-            $docComment = $reflectionMethod->getDocComment();
-            $docComment = is_string($docComment) ? $docComment : '';
-
-            foreach ($reflectionMethod->getParameters() as $parameterPosition => $reflectionParameter) {
+            foreach ($reflectionMethod->getParameters() as $reflectionParameter) {
                 $parameterName = $reflectionParameter->getName();
-                $ignoreValidationParameters = [];
-                $ignoreValidationParametersFromAttribute = [];
+                $parameterAttributes = $reflectionParameter->getAttributes();
+
+                $validateAttributes[$parameterName] ??= [];
+                $ignoreValidationAttributes[$parameterName] ??= [];
 
                 if ($isAction) {
-                    $ignoreValidationParameters = array_filter(
-                        $annotations,
-                        static fn(object $annotation): bool => $annotation instanceof IgnoreValidation && $annotation->argumentName === $parameterName
-                    );
-
-                    $ignoreValidationParametersFromAttribute = array_filter(
-                        $reflectionAttributes,
-                        static fn(\ReflectionAttribute $attribute): bool
-                            => $attribute->getName() === IgnoreValidation::class && $attribute->newInstance()->argumentName === $parameterName
-                    );
+                    foreach ($parameterAttributes as $parameterAttribute) {
+                        match ($parameterAttribute->getName()) {
+                            Attribute\Validate::class => $validateAttributes[$parameterName][] = $parameterAttribute->newInstance(),
+                            Attribute\IgnoreValidation::class => $ignoreValidationAttributes[$parameterName][] = $parameterAttribute->newInstance(),
+                            default => '' // non-extbase attributes
+                        };
+                    }
                 }
 
                 $reflectionType = $reflectionParameter->getType();
@@ -335,7 +220,7 @@ class ClassSchema
                 $this->methods[$methodName]['params'][$parameterName]['type'] = null;
                 $this->methods[$methodName]['params'][$parameterName]['hasDefaultValue'] = $reflectionParameter->isDefaultValueAvailable();
                 $this->methods[$methodName]['params'][$parameterName]['defaultValue'] = null;
-                $this->methods[$methodName]['params'][$parameterName]['ignoreValidation'] = $ignoreValidationParameters !== [] || $ignoreValidationParametersFromAttribute !== [];
+                $this->methods[$methodName]['params'][$parameterName]['ignoreValidation'] = $ignoreValidationAttributes[$parameterName] !== [];
                 $this->methods[$methodName]['params'][$parameterName]['validators'] = [];
 
                 if ($reflectionParameter->isDefaultValueAvailable()) {
@@ -368,62 +253,40 @@ class ClassSchema
                     }
                 }
 
-                $typeDetectedViaDocBlock = false;
-                if ($docComment !== '' && $this->methods[$methodName]['params'][$parameterName]['type'] === null) {
-                    /*
-                     * We create (redundant) instances here in this loop due to the fact that
-                     * we do not want to analyse all doc blocks of all available methods. We
-                     * use this technique only if we couldn't grasp all necessary data via
-                     * reflection.
-                     *
-                     * Also, if we analyze all method doc blocks, we will trigger numerous errors
-                     * due to non PSR-5 compatible tags in the core and in user land code.
-                     *
-                     * Fetching the data type via doc blocks is deprecated and will be removed in the near future.
-                     * Currently, this affects at least fooAction() ActionController methods, which does not
-                     * deprecate non-PHP-type-hinted methods.
-                     */
-                    $params = self::$docBlockFactory->create($docComment)
-                        ->getTagsByName('param');
-
-                    if (isset($params[$parameterPosition])) {
-                        /** @var Param $param */
-                        $param = $params[$parameterPosition];
-                        $this->methods[$methodName]['params'][$parameterName]['type'] = ltrim((string)$param->getType(), '\\');
-                        $typeDetectedViaDocBlock = true;
-                    }
-                }
-
                 // Extbase Validation
-                if (isset($argumentValidators[$parameterName])) {
+                if ($validateAttributes[$parameterName] !== []) {
                     if ($this->methods[$methodName]['params'][$parameterName]['type'] === null) {
                         throw new InvalidTypeHintException(
                             'Missing type information for parameter "$' . $parameterName . '" in ' . $this->className . '->' . $methodName . '(): Use a type hint.',
                             1515075192
                         );
                     }
-                    if ($typeDetectedViaDocBlock) {
-                        $parameterType = $this->methods[$methodName]['params'][$parameterName]['type'];
-                        $errorMessage = <<<MESSAGE
-The type ($parameterType) of parameter \$$parameterName of method $this->className::$methodName() is defined via php DocBlock. Use a proper PHP parameter type hint instead:
-[private|protected|public] function $methodName($parameterType \$$parameterName)
-MESSAGE;
-                        throw new \RuntimeException($errorMessage, 1639224354);
-                    }
 
-                    $this->methods[$methodName]['params'][$parameterName]['validators'] = $argumentValidators[$parameterName];
-                    unset($argumentValidators[$parameterName]);
+                    $this->methods[$methodName]['params'][$parameterName]['validators'] = array_map(
+                        static fn(Attribute\Validate $validator) => [
+                            'name' => $validator->validator,
+                            'options' => $validator->options,
+                            'className' => ValidatorClassNameResolver::resolve($validator->validator),
+                        ],
+                        $validateAttributes[$parameterName],
+                    );
+                    unset($validateAttributes[$parameterName]);
                 }
             }
 
             // Extbase Validation
-            foreach ($argumentValidators as $parameterName => $validators) {
-                $validatorNames = array_column($validators, 'name');
+            foreach ($validateAttributes as $parameterName => $validators) {
+                if ($validators !== []) {
+                    $validatorNames = array_map(
+                        static fn(Attribute\Validate $validate) => $validate->validator,
+                        $validators,
+                    );
 
-                throw new InvalidValidationConfigurationException(
-                    'Invalid validate annotation in ' . $this->className . '->' . $methodName . '(): The following validators have been defined for missing param "$' . $parameterName . '": ' . implode(', ', $validatorNames),
-                    1515073585
-                );
+                    throw new InvalidValidationConfigurationException(
+                        'Invalid #[Validate] attribute in ' . $this->className . '->' . $methodName . '(): The following validators have been defined for missing param "$' . $parameterName . '": ' . implode(', ', $validatorNames),
+                        1515073585
+                    );
+                }
             }
         }
     }

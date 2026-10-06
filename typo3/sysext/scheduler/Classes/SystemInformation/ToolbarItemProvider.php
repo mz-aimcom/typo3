@@ -36,14 +36,16 @@ final class ToolbarItemProvider
     /**
      * Scheduler last run registry information
      */
-    protected array $lastRunInformation = [];
+    private array $lastRunInformation;
 
     /**
      * Gather initial information
      */
-    public function __construct()
-    {
-        $this->lastRunInformation = GeneralUtility::makeInstance(Registry::class)->get('tx_scheduler', 'lastRun', []);
+    public function __construct(
+        private readonly UriBuilder $uriBuilder,
+        Registry $registry,
+    ) {
+        $this->lastRunInformation = $registry->get('tx_scheduler', 'lastRun', []);
     }
 
     #[AsEventListener('scheduler/show-latest-errors')]
@@ -57,13 +59,12 @@ final class ToolbarItemProvider
         $languageService = $this->getLanguageService();
 
         if (!$this->schedulerWasExecuted()) {
-            $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
             // Display system message if the Scheduler has never yet run
-            $moduleIdentifier = 'scheduler_setupcheck';
+            $moduleIdentifier = 'scheduler';
             $systemInformationToolbarItem->addSystemMessage(
                 sprintf(
                     $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:systemmessage.noLastRun'),
-                    (string)$uriBuilder->buildUriFromRoute($moduleIdentifier)
+                    (string)$this->uriBuilder->buildUriFromRoute($moduleIdentifier)
                 ),
                 InformationStatus::WARNING,
                 1,
@@ -80,7 +81,7 @@ final class ToolbarItemProvider
                 $end = DateTimeFactory::createFromTimestamp($this->lastRunInformation['end']);
                 $startDate = $start->format($GLOBALS['TYPO3_CONF_VARS']['SYS']['ddmmyy']);
                 $startTime = $start->format($GLOBALS['TYPO3_CONF_VARS']['SYS']['hhmm']);
-                $duration = (new DateFormatter())->formatDateInterval(
+                $duration = new DateFormatter()->formatDateInterval(
                     $end->diff($start, true),
                     $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
                 );
@@ -88,7 +89,6 @@ final class ToolbarItemProvider
                 $label = 'automatically';
                 if ($this->lastRunInformation['type'] === 'manual') {
                     $label = 'manually';
-                    $severity = InformationStatus::INFO;
                 }
                 $type = $languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.' . $label);
                 $message = sprintf($languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:systeminformation.lastRunValue'), $startDate, $startTime, $duration, $type);

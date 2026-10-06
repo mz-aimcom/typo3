@@ -182,21 +182,30 @@ class PreviewModule extends AbstractModule implements RequestEnricherInterface, 
         $this->clearPreviewSettings($context);
 
         // Modify visibility settings (hidden pages + hidden content)
-        $context->setAspect('visibility', new VisibilityAspect($showHiddenPages, $showHiddenRecords, false, $showScheduledRecords));
+        $context->setAspect(
+            'visibility',
+            VisibilityAspect::create()
+                ->withIncludeHiddenPages($showHiddenPages)
+                ->withIncludeHiddenContent($showHiddenRecords)
+                ->withIncludeScheduledRecords($showScheduledRecords)
+        );
 
         // Simulate date
         $simTime = null;
         if ($simulateDate) {
             $simTime = max($simulateDate, 60);
             $GLOBALS['SIM_EXEC_TIME'] = $simTime;
-            $GLOBALS['SIM_ACCESS_TIME'] = $simTime - $simTime % 60;
             $context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($simTime)));
         }
         // simulate usergroup
         if ($simulateUserGroup) {
             $frontendUser = $request->getAttribute('frontend.user');
             $frontendUser->user[$frontendUser->usergroup_column] = (string)$simulateUserGroup;
-            $frontendUser->userGroups = $this->groupResolver->resolveGroupsForUser($frontendUser->user, 'fe_groups');
+            $frontendUser->userGroups = array_column(
+                $this->groupResolver->resolveGroupsForUser($frontendUser->user, 'fe_groups'),
+                null,
+                'uid'
+            );
             // let's fake having a user with that groups, too
             // This can be removed once #90989 is fixed
             $frontendUser->user['uid'] = PHP_INT_MAX;
@@ -220,9 +229,8 @@ class PreviewModule extends AbstractModule implements RequestEnricherInterface, 
     protected function clearPreviewSettings(Context $context): void
     {
         $GLOBALS['SIM_EXEC_TIME'] = $GLOBALS['EXEC_TIME'];
-        $GLOBALS['SIM_ACCESS_TIME'] = $GLOBALS['ACCESS_TIME'];
         $context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($GLOBALS['SIM_EXEC_TIME'])));
-        $context->setAspect('visibility', new VisibilityAspect());
+        $context->setAspect('visibility', VisibilityAspect::create());
     }
 
     /**
@@ -251,9 +259,7 @@ class PreviewModule extends AbstractModule implements RequestEnricherInterface, 
             $this->cacheManager->flushCachesInGroupByTag('pages', 'pageId_' . $pageId);
             $this->cacheManager->getCache('fluid_template')->flush();
         } catch (NoSuchCacheException|NoSuchCacheGroupException $exception) {
-            if ($this->logger !== null) {
-                $this->logger->error($exception->getMessage(), ['exception' => $exception]);
-            }
+            $this->logger->error($exception->getMessage(), ['exception' => $exception]);
         }
     }
 }

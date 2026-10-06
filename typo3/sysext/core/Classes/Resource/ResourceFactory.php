@@ -16,6 +16,7 @@
 namespace TYPO3\CMS\Core\Resource;
 
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Message\UriInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -27,11 +28,16 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\ApplicationType;
+use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\Resource\Collection\FileCollectionRegistry;
 use TYPO3\CMS\Core\Resource\Exception\FileDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Index\FileIndexRepository;
 use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Publishing\DefaultSystemResourcePublisher;
+use TYPO3\CMS\Core\SystemResource\Publishing\UriGenerationOptions;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
@@ -45,38 +51,10 @@ readonly class ResourceFactory implements SingletonInterface
         protected StorageRepository $storageRepository,
         #[Autowire(service: 'cache.runtime')]
         protected FrontendInterface $runtimeCache,
+        private FileIndexRepository $fileIndexRepository,
+        private LinkService $linkService,
+        private PageRepository $pageRepository,
     ) {}
-
-    /**
-     * Returns the Default Storage
-     *
-     * The Default Storage is considered to be the replacement for the fileadmin/ construct.
-     * It is automatically created with the setting fileadminDir from install tool.
-     * getDefaultStorage->getDefaultFolder() will get you fileadmin/user_upload/ in a standard
-     * TYPO3 installation.
-     *
-     * @internal It is recommended to use the StorageRepository in the future, and this is only kept as backwards-compat layer
-     */
-    public function getDefaultStorage(): ?ResourceStorage
-    {
-        return $this->storageRepository->getDefaultStorage();
-    }
-
-    /**
-     * Creates an instance of the storage from given UID. The $recordData can
-     * be supplied to increase performance.
-     *
-     * @param int|null $uid The uid of the storage to instantiate.
-     * @param array $recordData The record row from database.
-     * @param string|null $fileIdentifier Identifier for a file. Used for auto-detection of a storage, but only if $uid === 0 (Local default storage) is used
-     *
-     * @throws \InvalidArgumentException
-     * @internal It is recommended to use the StorageRepository in the future, and this is only kept as backwards-compat layer
-     */
-    public function getStorageObject($uid, array $recordData = [], ?string &$fileIdentifier = null): ResourceStorage
-    {
-        return $this->storageRepository->getStorageObject($uid, $recordData, $fileIdentifier);
-    }
 
     /**
      * Creates an instance of the collection from given UID. The $recordData can be supplied to increase performance.
@@ -131,28 +109,11 @@ readonly class ResourceFactory implements SingletonInterface
     }
 
     /**
-     * Creates a folder to directly access (a part of) a storage.
-     *
-     * @param ResourceStorage $storage The storage the folder belongs to
-     * @param string $identifier The path to the folder. Might also be a simple unique string, depending on the storage driver.
-     * @param string $name The name of the folder (e.g. the folder name)
-     * @return Folder
-     * @internal it is recommended to access the ResourceStorage object directly and access ->getFolder($identifier) this method is kept for backwards compatibility
-     */
-    public function createFolderObject(ResourceStorage $storage, string $identifier, string $name): Folder
-    {
-        return GeneralUtility::makeInstance(Folder::class, $storage, $identifier, $name);
-    }
-
-    /**
      * Creates an instance of the file given UID. The $fileData can be supplied
      * to increase performance.
      *
      * @param int|string $uid The uid of the file to instantiate. (string is used for the time being as compat-mode)
      * @param array $fileData The record row from database.
-     *
-     * @throws \InvalidArgumentException
-     * @throws Exception\FileDoesNotExistException
      */
     public function getFileObject(int|string $uid, array $fileData = []): File
     {
@@ -161,7 +122,7 @@ readonly class ResourceFactory implements SingletonInterface
         if ($fileObject === null) {
             // Fetches data in case $fileData is empty
             if (empty($fileData)) {
-                $fileData = $this->getFileIndexRepository()->findOneByUid($uid);
+                $fileData = $this->fileIndexRepository->findOneByUid($uid);
                 if ($fileData === false) {
                     throw new FileDoesNotExistException('No file found for given UID: ' . $uid, 1317178604);
                 }
@@ -197,18 +158,69 @@ readonly class ResourceFactory implements SingletonInterface
     }
 
     /**
-     * Gets a file object from storage by file identifier
-     * If the file is outside the process folder, it gets indexed and returned as file object afterward
-     * If the file is within processing folder, the file object will be directly returned
+     * Resolves a loosely typed file source - as it is typically supplied by a template or by user
+     * input - to a File or FileReference.
      *
-     * @internal It is recommended to use the StorageRepository in the future, and this is only kept as backwards-compat layer
+     * In contrast to retrieveFileOrFolderObject() this never returns a folder, and it throws
+     * instead of returning null if the source cannot be resolved.
+     *
+     * $source may be
+     * - a File or FileReference, which is passed through unchanged
+     * - a domain object exposing the resource via getOriginalResource(), e.g. an Extbase FileReference
+     * - a sys_file UID, or a sys_file_reference UID if $treatIdAsReference is set
+     * - a combined identifier, an "EXT:" path or a legacy storage-0 path
+     * - a "t3://file" URN
+     *
+     * @throws \UnexpectedValueException if the source cannot be resolved to a File or FileReference
      */
-    public function getFileObjectByStorageAndIdentifier(ResourceStorage|int $storage, ?string &$fileIdentifier): File|ProcessedFile|null
+    public function resolveFileObject(string|int|object|null $source, bool $treatIdAsReference = false): FileInterface&ProcessableFileInterface
     {
-        if (!($storage instanceof ResourceStorage)) {
-            $storage = $this->storageRepository->getStorageObject($storage, [], $fileIdentifier);
+        if ($source instanceof FileInterface && $source instanceof ProcessableFileInterface) {
+            return $source;
         }
-        return $storage->getFileByIdentifier($fileIdentifier);
+        if (is_object($source)) {
+            if (!($source instanceof FileCarrierInterface)) {
+                throw new \UnexpectedValueException(
+                    'Supplied file must be File or FileReference, ' . get_debug_type($source) . ' given.',
+                    1625585157
+                );
+            }
+            // We have a domain model, so we need to fetch the FAL resource object from there
+            return $source->getOriginalResource();
+        }
+
+        $source = (string)$source;
+        $resolvedFile = $this->resolveFileObjectFromString($source, $treatIdAsReference);
+        if ($resolvedFile instanceof ProcessableFileInterface) {
+            return $resolvedFile;
+        }
+        if ($resolvedFile === null) {
+            throw new \UnexpectedValueException(
+                'Supplied ' . $source . ' could not be resolved to a File or FileReference.',
+                1625585158
+            );
+        }
+        // A FileInterface was found, however only File and FileReference are valid
+        throw new \UnexpectedValueException(
+            'Resolved file object type ' . get_class($resolvedFile) . ' for ' . $source . ' must be File or FileReference.',
+            1382687163
+        );
+    }
+
+    private function resolveFileObjectFromString(string $source, bool $treatIdAsReference): ?FileInterface
+    {
+        if (str_starts_with($source, 't3://file')) {
+            // A t3://file URN is link syntax, so it is resolved by the LinkService
+            $file = $this->linkService->resolveByStringRepresentation($source)['file'] ?? null;
+            return $file instanceof FileInterface ? $file : null;
+        }
+        if (MathUtility::canBeInterpretedAsInteger($source)) {
+            return $treatIdAsReference
+                ? $this->getFileReferenceObject($source)
+                : $this->getFileObject($source);
+        }
+        $resource = $this->retrieveFileOrFolderObject($source);
+        return $resource instanceof FileInterface ? $resource : null;
     }
 
     /**
@@ -248,23 +260,20 @@ readonly class ResourceFactory implements SingletonInterface
                 return $this->getObjectFromCombinedIdentifier($input);
             }
             if ($prefix === 'EXT') {
-                $absoluteFilePath = GeneralUtility::getFileAbsFileName($input);
-                if (empty($absoluteFilePath)) {
-                    return null;
-                }
-                if (str_starts_with($absoluteFilePath, Environment::getPublicPath())) {
-                    $relativePath = PathUtility::stripPathSitePrefix($absoluteFilePath);
-                } else {
-                    try {
-                        // The second parameter needs to be false in order to have getFileObjectFromCombinedIdentifier()
-                        // use a non-absolute web path and detect this properly as FAL fallback storage.
-                        $relativePath = PathUtility::getPublicResourceWebPath($input, false);
-                    } catch (\Throwable $e) {
-                        throw new ResourceDoesNotExistException(sprintf('Tried to access a private resource file "%s" from fallback compatibility storage. This storage only handles public files.', $input), 1633777536);
+                try {
+                    // @todo: We make an "URL" relative to public dir because the fallback storage root
+                    //        is the public dir and in this case file identifier === url
+                    //        this will be resolved once fallback storage is deprecated
+                    //        This should be done asap, because other implementations of SystemResourcePublisherInterface
+                    //        might not evaluate the uriPrefix options
+                    $potentialPathRelativeToPublicDir = (string)$this->getSystemResourceUri($input, null, new UriGenerationOptions(uriPrefix: '/', cacheBusting: false));
+                    if (!file_exists(Environment::getPublicPath() . $potentialPathRelativeToPublicDir)) {
+                        throw new ResourceDoesNotExistException(sprintf('File "%s" does not exist in fallback compatibility storage.', $input), 1760532790);
                     }
+                    return $this->getFileObjectFromCombinedIdentifier($potentialPathRelativeToPublicDir);
+                } catch (SystemResourceException $e) {
+                    throw new ResourceDoesNotExistException(sprintf('Tried to access a private resource file "%s" from fallback compatibility storage. This storage only handles public files.', $input), 1633777536, $e);
                 }
-
-                return $this->getFileObjectFromCombinedIdentifier($relativePath);
             }
             return null;
         }
@@ -281,6 +290,14 @@ readonly class ResourceFactory implements SingletonInterface
             return $this->getFolderObjectFromCombinedIdentifier(ltrim($input, '/'));
         }
         return null;
+    }
+
+    private function getSystemResourceUri(string $resourceIdentifier, ?ServerRequestInterface $request = null, ?UriGenerationOptions $options = null): UriInterface
+    {
+        $resourceFactory = GeneralUtility::makeInstance(SystemResourceFactory::class);
+        $resource = $resourceFactory->createPublicResource($resourceIdentifier);
+        $resourcePublisher = GeneralUtility::makeInstance(DefaultSystemResourcePublisher::class);
+        return $resourcePublisher->generateUri($resource, $request, $options);
     }
 
     /**
@@ -322,6 +339,9 @@ readonly class ResourceFactory implements SingletonInterface
         }
         if (MathUtility::canBeInterpretedAsInteger($storageId)) {
             $storage = $this->storageRepository->findByUid($storageId);
+            if ($storage === null) {
+                throw new ResourceDoesNotExistException('Storage ' . $storageId . ' does not exist', 1762852423);
+            }
             if ($storage->hasFile($objectIdentifier)) {
                 return $storage->getFile($objectIdentifier);
             }
@@ -412,7 +432,7 @@ readonly class ResourceFactory implements SingletonInterface
             && $request instanceof ServerRequestInterface
             && ApplicationType::fromRequest($request)->isFrontend()
         ) {
-            $fileReferenceData = GeneralUtility::makeInstance(PageRepository::class)->checkRecord('sys_file_reference', $uid);
+            $fileReferenceData = $this->pageRepository->checkRecord('sys_file_reference', $uid);
         } else {
             $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_file_reference');
             $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
@@ -428,11 +448,6 @@ readonly class ResourceFactory implements SingletonInterface
                 ->fetchAssociative();
         }
         return $fileReferenceData;
-    }
-
-    protected function getFileIndexRepository(): FileIndexRepository
-    {
-        return GeneralUtility::makeInstance(FileIndexRepository::class);
     }
 
     protected function collectionCacheIdentifier(int $uid): string

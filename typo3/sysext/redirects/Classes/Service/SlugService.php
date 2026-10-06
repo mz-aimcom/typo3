@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Redirects\Service;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Context\Context;
@@ -30,7 +29,6 @@ use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
-use TYPO3\CMS\Core\DataHandling\History\RecordHistoryStore;
 use TYPO3\CMS\Core\DataHandling\Model\CorrelationId;
 use TYPO3\CMS\Core\DataHandling\Model\RecordStateFactory;
 use TYPO3\CMS\Core\DataHandling\SlugHelper;
@@ -40,6 +38,7 @@ use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\HttpUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Redirects\Event\AfterAutoCreateRedirectHasBeenPersistedEvent;
 use TYPO3\CMS\Redirects\Event\ModifyAutoCreateRedirectRecordBeforePersistingEvent;
 use TYPO3\CMS\Redirects\Hooks\DataHandlerSlugUpdateHook;
@@ -49,17 +48,16 @@ use TYPO3\CMS\Redirects\RedirectUpdate\SlugRedirectChangeItemFactory;
 /**
  * @internal Due to some possible refactorings in TYPO3 v10+
  */
-class SlugService implements LoggerAwareInterface
+class SlugService
 {
-    use LoggerAwareTrait;
-
     /**
      * `dechex(1569615472)` (similar to timestamps used with exceptions, but in hex)
      */
-    final public const CORRELATION_ID_IDENTIFIER = '5d8e6e70';
+    final public const string CORRELATION_ID_IDENTIFIER = '5d8e6e70';
 
-    protected CorrelationId|string $correlationIdRedirectCreation = '';
-    protected CorrelationId|string $correlationIdSlugUpdate = '';
+    protected ?CorrelationId $correlationIdRedirectCreation = null;
+    protected ?CorrelationId $correlationIdSlugUpdate = null;
+    protected ?CorrelationId $correlationIdPageUpdate = null;
     protected bool $autoUpdateSlugs = false;
     protected bool $autoCreateRedirects = false;
     protected int $redirectTTL = 0;
@@ -74,6 +72,8 @@ class SlugService implements LoggerAwareInterface
         private readonly EventDispatcherInterface $eventDispatcher,
         private readonly ConnectionPool $connectionPool,
         private readonly TcaSchemaFactory $tcaSchemaFactory,
+        private readonly TemporaryPermissionMutationService $temporaryPermissionMutationService,
+        private readonly LoggerInterface $logger,
     ) {}
 
     public function rebuildSlugsForSlugChange(int $pageId, SlugRedirectChangeItem $changeItem, CorrelationId $correlationId): void
@@ -121,6 +121,7 @@ class SlugService implements LoggerAwareInterface
             $correlationId = $correlationId->withSubject($subject);
         }
 
+        $this->correlationIdPageUpdate = $correlationId;
         $this->correlationIdRedirectCreation = $correlationId->withAspects(self::CORRELATION_ID_IDENTIFIER, 'redirect');
         $this->correlationIdSlugUpdate = $correlationId->withAspects(self::CORRELATION_ID_IDENTIFIER, 'slug');
     }
@@ -146,22 +147,12 @@ class SlugService implements LoggerAwareInterface
                 $this->getTableDefaultValues('sys_redirect'),
                 [
                     'pid' => $storagePid,
-                    'updatedon' => $date->get('timestamp'),
-                    'createdon' => $date->get('timestamp'),
-                    'deleted' => 0,
-                    'disabled' => 0,
-                    'starttime' => 0,
+                    'createdby' => $this->context->getPropertyFromAspect('backend.user', 'id', 0),
                     'endtime' => $this->redirectTTL > 0 ? $endtime->getTimestamp() : 0,
                     'source_host' => $source->getHost(),
                     'source_path' => $source->getPath(),
-                    'is_regexp' => 0,
-                    'force_https' => 0,
-                    'respect_query_parameters' => 0,
                     'target' => $targetLink,
                     'target_statuscode' => $this->httpStatusCode,
-                    'hitcount' => 0,
-                    'lasthiton' => 0,
-                    'disable_hitcount' => 0,
                     'creation_type' => 0,
                 ]
             );
@@ -173,13 +164,38 @@ class SlugService implements LoggerAwareInterface
                     redirectRecord: $record,
                 )
             )->getRedirectRecord();
-            // @todo Use dataHandler to create records
-            $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getConnectionForTable('sys_redirect');
-            $connection->insert('sys_redirect', $record);
-            $id = (int)$connection->lastInsertId();
-            $record['uid'] = $id;
-            $this->getRecordHistoryStore()->addRecord('sys_redirect', $id, $record, $this->correlationIdRedirectCreation);
+
+            // Temporary add permissions to the user to perform the action.
+            // Store if we need to revert those changes after the actions.
+            $addedTableModify = $this->temporaryPermissionMutationService->addTableModify();
+            $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+            $redirectNewId = StringUtility::getUniqueId('NEW');
+            $data = [
+                'sys_redirect' => [
+                    $redirectNewId => $record,
+                ],
+            ];
+            $dataHandler->start($data, [], null, null, $this->correlationIdRedirectCreation);
+            $dataHandler->process_datamap();
+            if ($addedTableModify) {
+                // Revert temporary permissions
+                $this->temporaryPermissionMutationService->removeTableModify();
+            }
+            $record['uid'] = $dataHandler->substNEWwithIDs[$redirectNewId] ?? null;
+
+            if ($dataHandler->errorLog !== [] || $record['uid'] === null) {
+                $this->logger->error(
+                    'Could not create redirect record for source "{host}{path}"',
+                    [
+                        'host' => $source->getHost(),
+                        'path' => $source->getPath(),
+                        'persistedUid' => $record['uid'],
+                        'errorLog' => $dataHandler->errorLog,
+                    ]
+                );
+                continue;
+            }
+
             $this->eventDispatcher->dispatch(
                 new AfterAutoCreateRedirectHasBeenPersistedEvent(
                     slugRedirectChangeItem: $changeItem,
@@ -206,8 +222,8 @@ class SlugService implements LoggerAwareInterface
         $subPageRecords = $this->resolveSubPages($pageId, $languageUid);
         foreach ($subPageRecords as $subPageRecord) {
             $changeItem = $this->slugRedirectChangeItemFactory->create(
-                pageId: (int)$subPageRecord['uid'],
-                original: $subPageRecord
+                (int)$subPageRecord['uid'],
+                $subPageRecord
             );
             if ($changeItem === null) {
                 continue;
@@ -287,6 +303,16 @@ class SlugService implements LoggerAwareInterface
         $schema = $this->tcaSchemaFactory->get('pages');
         $slugHelper = GeneralUtility::makeInstance(SlugHelper::class, 'pages', 'slug', $schema->getField('slug')->getConfiguration());
 
+        // Slug modifiers may build the slug from something else than the parent slug and the own
+        // slug segment, so they have to be applied here as well - the slug is not simply the old
+        // one with an exchanged parent prefix for them.
+        $newSlug = $slugHelper->sanitize($slugHelper->applyPostModifiers(
+            $newSlug,
+            $subPageRecord,
+            (int)$subPageRecord['pid'],
+            trim($newSlugOfParentPage, '/')
+        ));
+
         if (!$slugHelper->isUniqueInSite($newSlug, $state)) {
             $newSlug = $slugHelper->buildSlugForUniqueInSite($newSlug, $state);
         }
@@ -301,8 +327,7 @@ class SlugService implements LoggerAwareInterface
         $data = [];
         $data['pages'][$uid]['slug'] = $newSlug;
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-        $dataHandler->start($data, []);
-        $dataHandler->setCorrelationId($this->correlationIdSlugUpdate);
+        $dataHandler->start($data, [], null, null, $this->correlationIdSlugUpdate);
         $dataHandler->process_datamap();
         $this->enabledHook();
     }
@@ -313,6 +338,7 @@ class SlugService implements LoggerAwareInterface
             'componentName' => 'redirects',
             'eventName' => 'slugChanged',
             'correlations' => [
+                'correlationIdPageUpdate' => (string)$this->correlationIdPageUpdate,
                 'correlationIdSlugUpdate' => (string)$this->correlationIdSlugUpdate,
                 'correlationIdRedirectCreation' => (string)$this->correlationIdRedirectCreation,
             ],
@@ -320,19 +346,6 @@ class SlugService implements LoggerAwareInterface
             'autoCreateRedirects' => (bool)$this->autoCreateRedirects,
         ];
         BackendUtility::setUpdateSignal('redirects:slugChanged', $data);
-    }
-
-    protected function getRecordHistoryStore(): RecordHistoryStore
-    {
-        $backendUser = $this->getBackendUser();
-        return GeneralUtility::makeInstance(
-            RecordHistoryStore::class,
-            RecordHistoryStore::USER_BACKEND,
-            (int)$backendUser->user['uid'],
-            (int)$backendUser->getOriginalUserIdWhenInSwitchUserMode(),
-            $this->context->getPropertyFromAspect('date', 'timestamp'),
-            $backendUser->workspace
-        );
     }
 
     protected function getQueryBuilderForPages(): QueryBuilder
@@ -349,8 +362,8 @@ class SlugService implements LoggerAwareInterface
 
     protected function enabledHook(): void
     {
-        $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_tcemain.php']['processDatamapClass']['redirects'] =
-            DataHandlerSlugUpdateHook::class;
+        $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['t3lib/class.t3lib_tcemain.php']['processDatamapClass']['redirects']
+            = DataHandlerSlugUpdateHook::class;
     }
 
     protected function disableHook(): void
@@ -382,21 +395,20 @@ class SlugService implements LoggerAwareInterface
             }
         }
         $connection = $this->connectionPool->getConnectionForTable($tableName);
-        $table = $connection->getSchemaInformation()->introspectTable($tableName);
-        foreach ($table->getColumns() as $column) {
-            $columnName = $column->getName();
-            if ($columnName === 'uid' || $column->getAutoincrement() === true) {
+        $tableColumnInfos = $connection->getSchemaInformation()->listTableColumnInfos($tableName);
+        foreach ($tableColumnInfos as $columnName => $columnInfo) {
+            if ($columnName === 'uid' || $columnInfo->autoincrement === true) {
                 // Autoincrement fields and therefore the default TYPO3 `uid` column
                 // should be not provided in a data array to ensure the behaviour
                 // kicks correctly in.
                 continue;
             }
             if (array_key_exists($columnName, $defaults)) {
-                // Already having TCA default value, which weigths higher.
+                // Already having TCA default value, which weights higher.
                 continue;
             }
-            $columnDefaultValue = $column->getDefault();
-            if ($columnDefaultValue === null && $column->getNotnull() === false) {
+            $columnDefaultValue = $columnInfo->default;
+            if ($columnDefaultValue === null && $columnInfo->notNull === false) {
                 // No need to set null as default value for a nullable column.
                 continue;
             }

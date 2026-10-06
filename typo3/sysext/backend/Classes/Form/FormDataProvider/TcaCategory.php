@@ -56,8 +56,9 @@ class TcaCategory extends AbstractItemProvider implements FormDataProviderInterf
             }
 
             $fieldConfig = $this->initializeDefaultFieldConfig($fieldConfig);
-            $fieldConfig = $this->parseStartingPointsFromSiteConfiguration($result, $fieldConfig);
             $fieldConfig = $this->overrideConfigFromPageTSconfig($result, $table, $fieldName, $fieldConfig);
+            $fieldConfig = $this->parseStartingPointsFromSiteConfiguration($result, $fieldConfig);
+            $fieldConfig = $this->parseStartingPointsFromMarkers($result, $fieldName, $fieldConfig);
 
             // Prepare the list of currently selected nodes using RelationHandler
             // This is needed to ensure a correct value initialization before the actual tree is loaded
@@ -69,31 +70,35 @@ class TcaCategory extends AbstractItemProvider implements FormDataProviderInterf
             // with the $result[...][config] array.
             $result['processedTca']['columns'][$fieldName] = $fieldConfig;
 
+            // Validate: static items are not supported for category fields
+            $staticItems = $this->sanitizeItemArray($fieldConfig['config']['items'] ?? [], $table, $fieldName);
+            $tsConfigItems = $this->addItemsFromPageTsConfig($result, $fieldName, []);
+            if ($staticItems !== [] || $tsConfigItems !== []) {
+                throw new \RuntimeException(
+                    'Static items are not supported for field ' . $fieldName . ' from table ' . $table . ' with type category',
+                    1627336557
+                );
+            }
+
+            // Always resolve the flat item list from foreign_table with TSconfig filtering applied.
+            // This is needed by TcaColumnsRemoveEmptyRelations to determine if the field has any
+            // selectable items, and is reused below for tree building in the AJAX context.
+            $dynamicItems = $this->addItemsFromForeignTable($result, $fieldName);
+            $dynamicItems = $this->removeItemsByKeepItemsPageTsConfig($result, $fieldName, $dynamicItems);
+            $dynamicItems = $this->removeItemsByRemoveItemsPageTsConfig($result, $fieldName, $dynamicItems);
+
+            // Store flat items for downstream providers (will be overwritten with tree structure during AJAX)
+            $result['processedTca']['columns'][$fieldName]['config']['items'] = $dynamicItems;
+
             // This is usually only executed in an ajax request
             if ($result['selectTreeCompileItems'] ?? false) {
-                // Fetch static items from TCA and TSconfig. Since this is
-                // not supported, throw an exception if something was found.
-                $staticItems = $this->sanitizeItemArray($result['processedTca']['columns'][$fieldName]['config']['items'] ?? [], $table, $fieldName);
-                $tsConfigItems = $this->addItemsFromPageTsConfig($result, $fieldName, []);
-                if ($staticItems !== [] || $tsConfigItems !== []) {
-                    throw new \RuntimeException(
-                        'Static items are not supported for field ' . $fieldName . ' from table ' . $table . ' with type category',
-                        1627336557
-                    );
-                }
-
-                // Fetch the list of all possible "related" items and apply processing
+                // Reuse the already-fetched dynamic items for tree building
                 // @todo: Simplify the construct:
                 //        The entire $treeDataProvider / $treeRenderer / $tree construct should probably
                 //        vanish and the tree processing could happen here in the data provider? Watch
                 //        out for the permission event in the tree construct when doing this.
-                $dynamicItems = $this->addItemsFromForeignTable($result, $fieldName);
-                // Remove items as configured via TsConfig
-                $dynamicItems = $this->removeItemsByKeepItemsPageTsConfig($result, $fieldName, $dynamicItems);
-                $dynamicItems = $this->removeItemsByRemoveItemsPageTsConfig($result, $fieldName, $dynamicItems);
-                // Finally, the only data needed for the tree code are the valid uids of the possible records
                 $uidListOfAllDynamicItems = array_map(intval(...), array_filter(
-                    array_values(array_column($dynamicItems, 'value')),
+                    array_column($dynamicItems, 'value'),
                     static fn($uid) => (int)$uid > 0
                 ));
                 $fullRowsOfDynamicItems = [];
@@ -148,7 +153,7 @@ class TcaCategory extends AbstractItemProvider implements FormDataProviderInterf
         }
 
         if (isset($pageTsConfig['startingPoints'])) {
-            $fieldConfig['config']['treeConfig']['startingPoints'] = implode(',', array_unique(GeneralUtility::intExplode(',', (string)$pageTsConfig['startingPoints'])));
+            $fieldConfig['config']['treeConfig']['startingPoints'] = implode(',', array_unique(GeneralUtility::trimExplode(',', (string)$pageTsConfig['startingPoints'], true)));
         }
         if (isset($pageTsConfig['appearance.']['expandAll'])) {
             $fieldConfig['config']['treeConfig']['appearance']['expandAll'] = (bool)$pageTsConfig['appearance.']['expandAll'];

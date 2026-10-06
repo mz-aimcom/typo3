@@ -28,8 +28,8 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class TotpTest extends UnitTestCase
 {
-    protected string $secret;
-    protected int $timestamp = 1613652061;
+    private string $secret;
+    private int $timestamp = 1613652061;
     protected bool $resetSingletonInstances = true;
 
     protected function setUp(): void
@@ -63,7 +63,7 @@ final class TotpTest extends UnitTestCase
 
         self::assertEquals(
             $expectedTotp,
-            (new Totp($this->secret, ...$arguments))->generateTotp($counter)
+            new Totp($this->secret, ...$arguments)->generateTotp($counter)
         );
     }
 
@@ -76,7 +76,7 @@ final class TotpTest extends UnitTestCase
         GeneralUtility::setSingletonInstance(Context::class, $context);
 
         self::assertTrue(
-            (new Totp($this->secret, ...$arguments))->verifyTotp($totp)
+            new Totp($this->secret, ...$arguments)->verifyTotp($totp)
         );
     }
 

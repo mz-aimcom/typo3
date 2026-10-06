@@ -17,11 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\ViewHelpers;
 
+use TYPO3\CMS\Form\Domain\Model\Renderable\RenderableInterface;
 use TYPO3\CMS\Form\Domain\Model\Renderable\RootRenderableInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
 /**
  * Scope: frontend
+ *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-form-gridcolumnclassautoconfiguration
  */
 final class GridColumnClassAutoConfigurationViewHelper extends AbstractViewHelper
 {
@@ -38,6 +41,11 @@ final class GridColumnClassAutoConfigurationViewHelper extends AbstractViewHelpe
     public function render(): string
     {
         $formElement = $this->arguments['element'];
+
+        if ($formElement instanceof RenderableInterface && !$formElement->isEnabled()) {
+            return '';
+        }
+
         $gridRowElement = $formElement->getParentRenderable();
         $gridRowChildElements = $gridRowElement->getElements();
         $gridViewPortConfiguration = $gridRowElement->getProperties()['gridColumnClassAutoConfiguration'];
@@ -48,6 +56,9 @@ final class GridColumnClassAutoConfigurationViewHelper extends AbstractViewHelpe
         $columnsToCalculate = [];
         $usedColumns = [];
         foreach ($gridRowChildElements as $childElement) {
+            if ($childElement instanceof RenderableInterface && !$childElement->isEnabled()) {
+                continue;
+            }
             if (empty($childElement->getProperties()['gridColumnClassAutoConfiguration'])) {
                 foreach ($gridViewPortConfiguration['viewPorts'] as $viewPortName => $configuration) {
                     $columnsToCalculate[$viewPortName]['elements'] = ($columnsToCalculate[$viewPortName]['elements'] ?? 0) + 1;
@@ -84,9 +95,6 @@ final class GridColumnClassAutoConfigurationViewHelper extends AbstractViewHelpe
 
                 if ($restColumnsToDivide < 1) {
                     $restColumnsToDivide = $gridSize;
-                }
-                if ($restElements < 1) {
-                    $restElements = 1;
                 }
                 $numbersOfColumnsToUse = floor($restColumnsToDivide / $restElements);
             }

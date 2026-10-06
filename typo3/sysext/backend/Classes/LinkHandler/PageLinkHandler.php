@@ -24,9 +24,10 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -50,6 +51,14 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
      */
     protected $linkParts = [];
 
+    protected PageDoktypeRegistry $pageDoktypeRegistry;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->pageDoktypeRegistry = GeneralUtility::makeInstance(PageDoktypeRegistry::class);
+    }
+
     /**
      * Checks if this is the handler for the given link
      *
@@ -65,13 +74,21 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
             return false;
         }
         $data = $linkParts['url'];
+        // Resolve "current" to the actual page ID from the link browser context
+        if (($data['pageuid'] ?? '') === 'current') {
+            $currentPageId = (int)($this->linkBrowser->getParameters()['pid'] ?? 0);
+            if ($currentPageId > 0) {
+                $linkParts['url']['pageuid'] = $currentPageId;
+                $data = $linkParts['url'];
+            }
+        }
         // Check if the page still exists
         if ((int)($data['pageuid'] ?? 0) > 0) {
             $pageRow = BackendUtility::getRecordWSOL('pages', $data['pageuid']);
             if (!$pageRow) {
                 return false;
             }
-        } elseif ($data['pageuid'] ?? '' !== 'current') {
+        } else {
             return false;
         }
 
@@ -87,7 +104,6 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
     public function formatCurrentUrl()
     {
         $lang = $this->getLanguageService();
-        $titleLen = (int)$this->getBackendUser()->uc['titleLen'];
 
         $id = (int)$this->linkParts['url']['pageuid'];
 
@@ -101,7 +117,7 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
 
         $pageTitle = $pageRecord['title'] ?? '';
         return $lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_browse_links.xlf:page')
-            . ($pageTitle ? ' \'' . GeneralUtility::fixed_lgd_cs($pageTitle, $titleLen) . '\'' : '')
+            . ($pageTitle ? ' \'' . BackendUtility::cropToTitleLength($pageTitle) . '\'' : '')
             . ' (' . $idInfo . ')';
     }
 
@@ -111,7 +127,6 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
     public function render(ServerRequestInterface $request): string
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/page-link-handler.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/viewport/resizable-navigation.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/tree/page-browser.js');
         $this->getBackendUser()->initializeWebmountsForElementBrowser();
 
@@ -173,7 +188,7 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
                         ),
                         $queryBuilder->expr()->in(
                             'sys_language_uid',
-                            $queryBuilder->createNamedParameter([$activePageRecord['sys_language_uid'], -1], Connection::PARAM_INT_ARRAY)
+                            $queryBuilder->createNamedParameter([$activePageRecord['sys_language_uid'], LanguageMarker::ALL_LANGUAGES], Connection::PARAM_INT_ARRAY)
                         )
                     )
                 )
@@ -223,7 +238,7 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
 
     /**
      * @param array $values Array of values to include into the parameters or which might influence the parameters
-     * @return string[] Array of parameters which have to be added to URLs
+     * @return array Array of parameters which have to be added to URLs
      */
     public function getUrlParameters(array $values): array
     {
@@ -261,6 +276,9 @@ class PageLinkHandler extends AbstractLinkHandler implements LinkHandlerInterfac
 
     protected function isPageLinkable(array $page): bool
     {
-        return !in_array((int)$page['doktype'], [PageRepository::DOKTYPE_SYSFOLDER, PageRepository::DOKTYPE_SPACER]);
+        return $this->pageDoktypeRegistry->isPageViewable(
+            (int)$page['doktype'],
+            (int)$page['uid']
+        );
     }
 }

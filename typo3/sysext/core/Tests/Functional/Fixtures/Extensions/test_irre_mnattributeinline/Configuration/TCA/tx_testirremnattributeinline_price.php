@@ -44,15 +44,15 @@ return [
             'label' => 'LLL:EXT:test_irre_mnattributeinline/Resources/Private/Language/locallang_db.xlf:tx_testirremnattributeinline__price.price',
             'config' => [
                 'type' => 'number',
-                'format' => 'decimal',
+                'scale' => 2,
                 'size' => 30,
             ],
         ],
     ],
     'types' => [
-        '0' => ['showitem' =>
-            '--div--;LLL:EXT:test_irre_mnattributeinline/Resources/Private/Language/locallang_db.xlf:tabs.general, title, parentid, price,' .
-            '--div--;LLL:EXT:test_irre_mnattributeinline/Resources/Private/Language/locallang_db.xlf:tabs.visibility, sys_language_uid, l18n_parent, l18n_diffsource, hidden, parentid',
+        '0' => ['showitem'
+            => '--div--;LLL:EXT:test_irre_mnattributeinline/Resources/Private/Language/locallang_db.xlf:tabs.general, title, parentid, price,'
+            . '--div--;LLL:EXT:test_irre_mnattributeinline/Resources/Private/Language/locallang_db.xlf:tabs.visibility, sys_language_uid, l18n_parent, l18n_diffsource, hidden, parentid',
         ],
     ],
     'palettes' => [

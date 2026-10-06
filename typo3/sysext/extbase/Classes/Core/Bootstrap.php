@@ -21,6 +21,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Core\Attribute\AsAllowedCallable;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Mvc\Dispatcher;
@@ -29,7 +30,7 @@ use TYPO3\CMS\Extbase\Mvc\Web\RequestBuilder;
 use TYPO3\CMS\Extbase\Persistence\PersistenceManagerInterface;
 use TYPO3\CMS\Extbase\Service\CacheService;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
+use TYPO3\CMS\Frontend\Response\ResponseData;
 
 /**
  * Creates a request and dispatches it to the controller which was specified
@@ -125,6 +126,7 @@ class Bootstrap
      * @param ServerRequestInterface $request the incoming server request
      * @return string $content The processed content
      */
+    #[AsAllowedCallable]
     public function run(string $content, array $configuration, ServerRequestInterface $request): string
     {
         $request = $this->initialize($configuration, $request);
@@ -163,28 +165,26 @@ class Bootstrap
             $this->clearCacheOnError($request);
         }
 
-        // If TypoScriptFrontendController has been properly set up and this is a json response,
-        // we let TypoScriptFrontendController know we have a specific Content-Type.
-        $typoScriptFrontendController = $request->getAttribute('frontend.controller');
-        if ($typoScriptFrontendController instanceof TypoScriptFrontendController && $response->hasHeader('Content-Type')) {
-            $typoScriptFrontendController->setContentType($response->getHeaderLine('Content-Type'));
+        if ($response->hasHeader('Content-Type')) {
+            // Typically used when extbase for instance created a json response.
+            $request->getAttribute('frontend.page.parts')->setHttpContentType($response->getHeaderLine('Content-Type'));
             // Do not send the header directly (see below)
             $response = $response->withoutHeader('Content-Type');
         }
 
-        if (headers_sent() === false) {
+        $responseData = $request->getAttribute('frontend.response.data');
+        if ($responseData instanceof ResponseData) {
             foreach ($response->getHeaders() as $name => $values) {
-                foreach ($values as $value) {
-                    header(sprintf('%s: %s', $name, $value));
-                }
+                $responseData->setHeader($name, $values);
             }
-
-            // Set status code from extbase response
-            // @todo: Remove when ContentObjectRenderer is response aware
+            // @todo: Get rid of this in TYPO3 v15. See todos in ResponseData.
             if ($response->getStatusCode() >= 300) {
-                header('HTTP/' . $response->getProtocolVersion() . ' ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase());
+                $responseData->setProtocolVersion($response->getProtocolVersion());
+                $responseData->setStatusCode($response->getStatusCode());
+                $responseData->setReasonPhrase($response->getReasonPhrase());
             }
         }
+
         $body = $response->getBody();
         $body->rewind();
         $content = $body->getContents();

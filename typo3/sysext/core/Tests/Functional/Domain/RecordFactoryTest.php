@@ -24,6 +24,7 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Domain\Event\RecordCreationEvent;
 use TYPO3\CMS\Core\Domain\Exception\IncompleteRecordException;
+use TYPO3\CMS\Core\Domain\Page;
 use TYPO3\CMS\Core\Domain\Persistence\RecordIdentityMap;
 use TYPO3\CMS\Core\Domain\RawRecord;
 use TYPO3\CMS\Core\Domain\Record;
@@ -48,6 +49,7 @@ final class RecordFactoryTest extends FunctionalTestCase
         $dbRow = BackendUtility::getRecord('pages', 1);
         $subject = $this->get(RecordFactory::class);
         $result = $subject->createFromDatabaseRow('pages', $dbRow);
+        self::assertInstanceOf(Page::class, $result);
         self::assertSame(1, $result->getUid());
         self::assertSame(1, $result->get('uid'));
         self::assertSame(0, $result->getPid());
@@ -59,8 +61,8 @@ final class RecordFactoryTest extends FunctionalTestCase
     {
         $dbRow = BackendUtility::getRecord('pages', 1);
         $subject = $this->get(RecordFactory::class);
-        /** @var Record $result */
         $result = $subject->createFromDatabaseRow('pages', $dbRow);
+        self::assertInstanceOf(Page::class, $result);
         self::assertSame($dbRow, $result->getRawRecord()->toArray());
         self::assertArrayNotHasKey('mount_pid', $result->toArray());
         self::assertArrayNotHasKey('shortcut_mode', $result->toArray());
@@ -109,8 +111,8 @@ final class RecordFactoryTest extends FunctionalTestCase
         $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $context);
         $dbRow = $pageRepository->getPage(3);
         $subject = $this->get(RecordFactory::class);
-        /** @var Record $result */
         $result = $subject->createFromDatabaseRow('pages', $dbRow);
+        self::assertInstanceOf(Page::class, $result);
         self::assertSame(903, $result->getOverlaidUid());
         self::assertSame(903, $result->getComputedProperties()->getLocalizedUid());
         self::assertSame(3, $result->getUid());
@@ -126,8 +128,8 @@ final class RecordFactoryTest extends FunctionalTestCase
         $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $context);
         $dbRow = $pageRepository->getPage(3);
         $subject = $this->get(RecordFactory::class);
-        /** @var Record $result */
         $result = $subject->createFromDatabaseRow('pages', $dbRow);
+        self::assertInstanceOf(Page::class, $result);
         self::assertSame(0, $result->getVersionInfo()->getWorkspaceId());
         self::assertSame(3, $result->getLanguageInfo()->getTranslationParent());
         self::assertSame(1, $result->getLanguageInfo()->getLanguageId());
@@ -210,7 +212,7 @@ final class RecordFactoryTest extends FunctionalTestCase
         $eventListener = $container->get(ListenerProvider::class);
         $eventListener->addListener(RecordCreationEvent::class, 'record-creation-listener');
 
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
+        $pageRepository = $this->get(PageRepository::class);
         $dbRow = $pageRepository->getPage(1);
         self::assertNull($dbRow['customProperty'] ?? null);
 
@@ -253,7 +255,7 @@ final class RecordFactoryTest extends FunctionalTestCase
         $eventListener->addListener(RecordCreationEvent::class, 'record-creation-listener-stop-propagation');
         $eventListener->addListener(RecordCreationEvent::class, 'record-creation-listener-not-executed');
 
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
+        $pageRepository = $this->get(PageRepository::class);
         $dbRow = $pageRepository->getPage(3);
         $subject = $this->get(RecordFactory::class);
         $result = $subject->createFromDatabaseRow('pages', $dbRow);

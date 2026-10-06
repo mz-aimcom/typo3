@@ -19,6 +19,8 @@ namespace TYPO3\CMS\IndexedSearch\Controller;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -28,7 +30,6 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\AllowedMethodsTrait;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -57,6 +58,8 @@ class AdministrationController extends ActionController
         protected readonly IconFactory $iconFactory,
         protected readonly ExtensionConfiguration $extensionConfiguration,
         protected readonly ConnectionPool $connectionPool,
+        protected readonly ComponentFactory $componentFactory,
+        protected readonly UriBuilder $backendUriBuilder,
     ) {}
 
     /**
@@ -69,39 +72,37 @@ class AdministrationController extends ActionController
             'statistic' => [
                 'controller' => 'Administration',
                 'action' => 'statistic',
-                'label' => $languageService->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.menu.statistic'),
+                'label' => $languageService->translate('administration.menu.statistic', 'indexed_search.messages') ?? '',
             ],
             'pages' => [
                 'controller' => 'Administration',
                 'action' => 'pages',
-                'label' => $languageService->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.menu.pages'),
+                'label' => $languageService->translate('administration.menu.pages', 'indexed_search.messages') ?? '',
             ],
             'externalDocuments' => [
                 'controller' => 'Administration',
                 'action' => 'externalDocuments',
-                'label' => $languageService->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.menu.externalDocuments'),
+                'label' => $languageService->translate('administration.menu.externalDocuments', 'indexed_search.messages') ?? '',
             ],
             'index' => [
                 'controller' => 'Administration',
                 'action' => 'index',
-                'label' => $languageService->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.menu.general'),
+                'label' => $languageService->translate('administration.menu.general', 'indexed_search.messages') ?? '',
             ],
         ];
 
         $view = $this->moduleTemplateFactory->create($request);
 
-        $menu = $view->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
+        $menu = $this->componentFactory->createMenu();
         $menu->setIdentifier('IndexedSearchModuleMenu');
         $menu->setLabel(
-            $languageService->sL(
-                'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:moduleMenu.dropdown.label'
-            )
+            $languageService->translate('moduleMenu.dropdown.label', 'backend.messages') ?? ''
         );
 
         $context = '';
         foreach ($menuItems as $menuItemConfig) {
             $isActive = $this->request->getControllerActionName() === $menuItemConfig['action'];
-            $menuItem = $menu->makeMenuItem()
+            $menuItem = $this->componentFactory->createMenuItem()
                 ->setTitle($menuItemConfig['label'])
                 ->setHref($this->uriBuilder->reset()->uriFor($menuItemConfig['action'], [], $menuItemConfig['controller']))
                 ->setActive($isActive);
@@ -111,18 +112,33 @@ class AdministrationController extends ActionController
             }
         }
 
+        $view->addButtonToButtonBar(
+            $this->componentFactory->createBackButton($this->backendUriBuilder->buildUriFromRoute('content_status', ['id' => $this->pageUid]))
+                ->setTitle($this->getLanguageService()->translate('moduleMenu.dropdown.overview', 'backend.messages') ?? '')
+        );
         $view->getDocHeaderComponent()->getMenuRegistry()->addMenu($menu);
         $view->setTitle(
-            $languageService->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab'),
+            $languageService->translate('title', 'indexed_search.module'),
             $context
         );
 
         $permissionClause = $this->getBackendUserAuthentication()->getPagePermsClause(Permission::PAGE_SHOW);
         $pageRecord = BackendUtility::readPageAccess($this->pageUid, $permissionClause);
         if ($pageRecord) {
-            $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+            $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         }
         $view->setFlashMessageQueue($this->getFlashMessageQueue());
+
+        $moduleTitle = $languageService->translate('title', 'indexed_search.module');
+        $shortcutTitle = $context ? $moduleTitle . ': ' . $context : $moduleTitle;
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'manage_search_index',
+            $shortcutTitle,
+            [
+                'id' => $this->pageUid,
+                'action' => $this->request->getControllerActionName(),
+            ]
+        );
 
         return $view;
     }
@@ -227,16 +243,7 @@ class AdministrationController extends ActionController
     protected function statisticDetailsAction(string $pageHash): ResponseInterface
     {
         $view = $this->initializeModuleTemplate($this->request);
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-
-        // Set back button
-        $backButton = $buttonBar
-            ->makeLinkButton()
-            ->setTitle($this->getLanguageService()->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.back'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
-            ->setHref($this->uriBuilder->reset()->uriFor('statistic', [], 'Administration'));
-        $buttonBar->addButton($backButton);
+        $view->addButtonToButtonBar($this->componentFactory->createBackButton($this->uriBuilder->reset()->uriFor('statistic', [], 'Administration')));
 
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable('index_phash');
         $pageHashRow = $queryBuilder
@@ -314,7 +321,7 @@ class AdministrationController extends ActionController
     protected function saveStopwordsAction(string $pageHash, array $stopwords = []): ResponseInterface
     {
         if ($this->getBackendUserAuthentication()->isAdmin()) {
-            if (is_array($stopwords) && !empty($stopwords)) {
+            if ($stopwords !== []) {
                 $this->administrationRepository->saveStopWords($stopwords);
             }
         }
@@ -351,16 +358,12 @@ class AdministrationController extends ActionController
             ->fetchAllAssociative();
 
         $view = $this->initializeModuleTemplate($this->request);
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
 
         // Set back button
-        $backButton = $buttonBar
-            ->makeLinkButton()
-            ->setTitle($this->getLanguageService()->sL('LLL:EXT:indexed_search/Resources/Private/Language/locallang.xlf:administration.back'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL))
-            ->setHref($this->uriBuilder->reset()->uriFor('statisticDetails', ['pageHash' => $pageHash], 'Administration'));
-        $buttonBar->addButton($backButton);
+        $backButton = $this->componentFactory
+            ->createBackButton($this->uriBuilder->reset()->uriFor('statisticDetails', ['pageHash' => $pageHash], 'Administration'))
+            ->setShowLabelText(true);
+        $view->addButtonToButtonBar($backButton);
 
         $view->assignMultiple([
             'extensionConfiguration' => $this->indexerConfig,
@@ -389,7 +392,7 @@ class AdministrationController extends ActionController
         $view = $this->initializeModuleTemplate($this->request);
         $view->assignMultiple([
             'extensionConfiguration' => $this->indexerConfig,
-            'levelTranslations' => explode('|', $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.enterSearchLevels')),
+            'levelTranslations' => explode('|', $this->getLanguageService()->translate('labels.enterSearchLevels', 'core.core') ?? ''),
             'tree' => $tree,
             'pageUid' => $this->pageUid,
             'mode' => $mode,

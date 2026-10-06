@@ -25,7 +25,6 @@ use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Resource\Exception\FileDoesNotExistException;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
@@ -33,11 +32,12 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class ImageManipulationController
+readonly class ImageManipulationController
 {
     public function __construct(
-        protected readonly BackendViewFactory $backendViewFactory,
-        protected readonly HashService $hashService,
+        protected BackendViewFactory $backendViewFactory,
+        protected HashService $hashService,
+        protected ResourceFactory $resourceFactory,
     ) {}
 
     /**
@@ -51,7 +51,7 @@ class ImageManipulationController
             $image = null;
             if (MathUtility::canBeInterpretedAsInteger($fileUid)) {
                 try {
-                    $image = GeneralUtility::makeInstance(ResourceFactory::class)->getFileObject($fileUid);
+                    $image = $this->resourceFactory->getFileObject($fileUid);
                 } catch (FileDoesNotExistException $e) {
                 }
             }

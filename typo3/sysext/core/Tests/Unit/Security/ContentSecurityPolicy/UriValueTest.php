@@ -46,8 +46,8 @@ final class UriValueTest extends UnitTestCase
 
         // expected behavior, falls back to upstream parser´
         // (since e.g. query-param is given, which is not expected here in the scope of CSP with `UriValue`)
-        yield ['www.typo3.org?key=value', '/www.typo3.org?key=value'];
-        yield ['*.typo3.org?key=value', '/%2A.typo3.org?key=value'];
+        yield ['www.typo3.org?key=value', 'www.typo3.org?key=value'];
+        yield ['*.typo3.org?key=value', '%2A.typo3.org?key=value'];
     }
 
     #[DataProvider('uriIsParsedAndSerializedDataProvider')]
@@ -72,7 +72,7 @@ final class UriValueTest extends UnitTestCase
     #[Test]
     public function urisAreEqual(string $a, string $b, bool $expectation): void
     {
-        self::assertSame($expectation, (new UriValue($a))->equals(new UriValue($b)));
+        self::assertSame($expectation, new UriValue($a)->equals(new UriValue($b)));
     }
 
     public static function uriIsCoveredDataProvider(): \Generator
@@ -101,6 +101,6 @@ final class UriValueTest extends UnitTestCase
     #[Test]
     public function uriIsCovered(string $a, string $b, bool $expectation): void
     {
-        self::assertSame($expectation, (new UriValue($a))->covers(new UriValue($b)));
+        self::assertSame($expectation, new UriValue($a)->covers(new UriValue($b)));
     }
 }

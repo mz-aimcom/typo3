@@ -11,19 +11,20 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { html, css, LitElement, type CSSResult, type TemplateResult, nothing } from 'lit';
 import Modal from '@typo3/backend/modal';
 import '@typo3/backend/element/icon-element';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
-import { lll } from '@typo3/core/lit-helper';
 import Notification from '@typo3/backend/notification';
 import Viewport from '@typo3/backend/viewport';
 import RegularEvent from '@typo3/core/event/regular-event';
 import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
 import { RecordUsageStore } from '@typo3/backend/record-usage/record-usage-store';
 import ClientStorage from '@typo3/backend/storage/client';
+import PersistentStorage from '@typo3/backend/storage/persistent';
+import miscLabels from '~labels/core.misc';
 
 type RequestType = 'location' | 'ajax' | 'event' | undefined;
 
@@ -46,6 +47,7 @@ class Item {
     public readonly label: string,
     public readonly description: string,
     public readonly icon: string,
+    public readonly iconOverlay: string | null,
     public readonly url: string | null,
     public readonly requestType: RequestType,
     public readonly defaultValues: Array<any>,
@@ -60,6 +62,7 @@ class Item {
       data.label,
       data.description,
       data.icon,
+      data.iconOverlay,
       data.url ?? null,
       data.requestType ?? 'location',
       data.defaultValues ?? [],
@@ -128,11 +131,12 @@ export class Categories {
   }
 }
 
-interface DataItemInterface {
+export interface DataItemInterface {
   identifier: string;
   label: string;
   description: string;
   icon: string;
+  iconOverlay: string | null;
   url: string | null,
   requestType: RequestType,
   defaultValues: Array<any> | undefined,
@@ -298,7 +302,7 @@ export class NewRecordWizard extends LitElement {
         outline: var(--typo3-outline-width) var(--typo3-outline-style) color-mix(in srgb, var(--typo3-component-active-border-color), transparent 25%);
       }
 
-      .navigation-item:disabled {
+      .navigation-item[disabled] {
         cursor: not-allowed;
         color: var(--typo3-component-disabled-color);
         background: var(--typo3-component-disabled-bg);
@@ -395,8 +399,9 @@ export class NewRecordWizard extends LitElement {
       },
     }
   }) categories: Categories = new Categories([]);
-  @property({ type: String }) searchPlaceholder: string = 'newRecordWizard.filter.placeholder';
-  @property({ type: String }) searchNothingFoundLabel: string = 'newRecordWizard.filter.noResults';
+  @property({ type: String }) searchPlaceholder: string = miscLabels.get('newRecordWizard.filter.placeholder');
+  @property({ type: String }) searchNothingFoundLabel: string = miscLabels.get('newRecordWizard.filter.noResults');
+  @property({ type: String }) userNotAllowedLabel: string = miscLabels.get('newContentElement.filter.userNotAllowed');
   @property({
     type: Boolean,
     converter: booleanConverter
@@ -426,9 +431,15 @@ export class NewRecordWizard extends LitElement {
       filterField.focus();
     }
 
+    const displayRecentlyUsed = PersistentStorage.isset('displayRecentlyUsed')
+      ? Boolean(JSON.parse(PersistentStorage.get('displayRecentlyUsed')))
+      : true;
+
     if (this.storeName) {
       this.recordUsageStore = new RecordUsageStore(this.storeName);
-      this.addRecentlyUsedCategory();
+      if (displayRecentlyUsed) {
+        this.addRecentlyUsedCategory();
+      }
     }
     this.selectAvailableCategory();
   }
@@ -459,7 +470,7 @@ export class NewRecordWizard extends LitElement {
     if (recentlyUsedItems.length > 0) {
       const recentlyUsedCategory = new Category(
         'recently-used',
-        this.getLanguageLabel('newRecordWizard.recentlyUsed'),
+        miscLabels.get('newRecordWizard.recentlyUsed'),
         recentlyUsedItems,
         'actions-history',
         true
@@ -467,15 +478,6 @@ export class NewRecordWizard extends LitElement {
 
       this.categories.items.unshift(recentlyUsedCategory);
     }
-  }
-
-  protected getLanguageLabel(label: string): string {
-    const languageLabel = lll(label);
-    if (languageLabel !== '') {
-      return languageLabel;
-    }
-
-    return label;
   }
 
   protected selectAvailableCategory(): void {
@@ -498,9 +500,14 @@ export class NewRecordWizard extends LitElement {
     }
 
     this.messages = [];
-    if (this.selectedCategory === null) {
+    if (this.categories.items.length === 0) {
       this.messages = [{
-        message: this.getLanguageLabel(this.searchNothingFoundLabel),
+        message: this.userNotAllowedLabel,
+        severity: 'info'
+      }];
+    } else if (this.selectedCategory === null) {
+      this.messages = [{
+        message: this.searchNothingFoundLabel,
         severity: 'info'
       }];
     }
@@ -565,7 +572,7 @@ export class NewRecordWizard extends LitElement {
           .value="${this.searchTerm}"
           @input="${(event: InputEvent): void => { this.filter((<HTMLInputElement>event.target).value); }}"
           @keydown="${(event: KeyboardEvent): void => { if (event.key === KeyTypesEnum.ESCAPE) { event.stopImmediatePropagation(); this.filter(''); } }}"
-          placeholder="${this.getLanguageLabel(this.searchPlaceholder)}"
+          placeholder=${this.searchPlaceholder}
         />
       </form>
     `;
@@ -682,7 +689,7 @@ export class NewRecordWizard extends LitElement {
         @click="${(event: PointerEvent): void => { event.preventDefault(); this.handleItemClick(item); }}"
       >
         <div class="item-icon">
-          <typo3-backend-icon identifier="${item.icon || 'empty-empty'}" size="medium"></typo3-backend-icon>
+          <typo3-backend-icon identifier="${item.icon || 'empty-empty'}" overlay="${item.iconOverlay}" size="medium"></typo3-backend-icon>
         </div>
         <div class="item-body">
           <div class="item-body-label">${item.label}</div>
@@ -701,12 +708,15 @@ export class NewRecordWizard extends LitElement {
 
     if (item.requestType === 'event') {
       const event = new CustomEvent(item.event, {
-        detail: {
-          item: item
-        }
+        detail: { item: item },
+        cancelable: true,
+        bubbles: true,
+        composed: true,
       });
       this.dispatchEvent(event);
-      Modal.dismiss();
+      if (!event.defaultPrevented) {
+        Modal.dismiss();
+      }
       return;
     }
 
@@ -715,7 +725,7 @@ export class NewRecordWizard extends LitElement {
     }
 
     if (item.requestType === 'location') {
-      Viewport.ContentContainer.setUrl(item.url);
+      Viewport.ContentContainer.setUrl(item.url.replace(/_CURRENT_MODULE_/g, top.TYPO3.ModuleMenu.App.getCurrentModule()));
       Modal.dismiss();
       return;
     }

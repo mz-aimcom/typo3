@@ -17,7 +17,6 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Functional\Property;
 
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -45,10 +44,9 @@ final class PropertyMapperTest extends FunctionalTestCase
     ];
 
     #[Test]
-    #[DoesNotPerformAssertions]
     public function convertCreatesAPropertyMappingConfigurationIfNotGiven(): void
     {
-        $this->get(PropertyMapper::class)->convert('string', 'string');
+        self::assertSame('string', $this->get(PropertyMapper::class)->convert('string', 'string'));
     }
 
     #[Test]
@@ -65,7 +63,7 @@ final class PropertyMapperTest extends FunctionalTestCase
     {
         $this->expectException(TargetNotFoundException::class);
         $this->expectExceptionCode(1297933823);
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $configurationManager = $this->get(ConfigurationManagerInterface::class);
         $configurationManager->setRequest($request);
         $propertyMapper = $this->get(PropertyMapper::class);
@@ -108,7 +106,7 @@ final class PropertyMapperTest extends FunctionalTestCase
         $this->expectExceptionCode(1297759968);
         $this->expectExceptionMessage('There exist at least two converters which handle the conversion to an interface with priority "10"');
 
-        $counter = new class () implements ExtendedCountableInterface {
+        $counter = new class implements ExtendedCountableInterface {
             public function count(): int
             {
                 return 1;
@@ -135,7 +133,7 @@ final class PropertyMapperTest extends FunctionalTestCase
     #[Test]
     public function findTypeConverterReturnsTheConverterFromThePropertyMappingConfiguration(): void
     {
-        $class = new class () extends IntegerConverter {
+        $class = new class extends IntegerConverter {
             public function convertFrom($source, string $targetType, array $convertedChildProperties = [], ?PropertyMappingConfigurationInterface $configuration = null): int
             {
                 return 1575648246;
@@ -214,7 +212,6 @@ final class PropertyMapperTest extends FunctionalTestCase
         $propertyMappingConfiguration->allowAllProperties();
 
         $propertyMapper = $this->get(PropertyMapper::class);
-        /** @var Cat $result */
         $result = $propertyMapper->convert(
             $source,
             Cat::class,
@@ -236,7 +233,6 @@ final class PropertyMapperTest extends FunctionalTestCase
         $propertyMappingConfiguration->skipProperties('color');
 
         $propertyMapper = $this->get(PropertyMapper::class);
-        /** @var Cat $result */
         $result = $propertyMapper->convert(
             $source,
             Cat::class,
@@ -281,7 +277,6 @@ final class PropertyMapperTest extends FunctionalTestCase
         $propertyMappingConfiguration->skipUnknownProperties();
 
         $propertyMapper = $this->get(PropertyMapper::class);
-        /** @var Cat $result */
         $result = $propertyMapper->convert(
             $source,
             Cat::class,

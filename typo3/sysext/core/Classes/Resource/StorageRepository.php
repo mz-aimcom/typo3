@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\Resource;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -26,13 +27,13 @@ use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
 use TYPO3\CMS\Core\Resource\Driver\DriverRegistry;
 use TYPO3\CMS\Core\Resource\Event\AfterResourceStorageInitializationEvent;
 use TYPO3\CMS\Core\Resource\Event\BeforeResourceStorageInitializationEvent;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 
 /**
  * Repository for accessing the file storages
  */
+#[Autoconfigure(public: true)]
 class StorageRepository
 {
     /**
@@ -55,7 +56,6 @@ class StorageRepository
         protected readonly ConnectionPool $connectionPool,
         protected readonly DriverRegistry $driverRegistry,
         protected readonly FlexFormTools $flexFormTools,
-        protected readonly FlexFormService $flexFormService,
         protected readonly LoggerInterface $logger,
     ) {}
 
@@ -73,6 +73,24 @@ class StorageRepository
         foreach ($allStorages as $storage) {
             if ($storage->isDefault()) {
                 return $storage;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the uid of the default storage without instantiating any storage object.
+     * As with all other lookups of this repository, the default local storage is created
+     * if no storage record exists yet.
+     *
+     * @internal Needed while file mounts are resolved, as instantiating a storage applies them.
+     */
+    public function getDefaultStorageUid(): ?int
+    {
+        $this->initializeLocalCache();
+        foreach ($this->storageRowCache as $uid => $storageRow) {
+            if (!empty($storageRow['is_default'])) {
+                return $uid;
             }
         }
         return null;
@@ -293,12 +311,14 @@ class StorageRepository
      * Creates an instance of the storage from given UID. The $recordData can
      * be supplied to increase performance.
      *
-     * @param int<0, max> $uid The uid of the storage to instantiate.
+     * @param int<0, max>|string $uid The uid of the storage to instantiate.
      * @param array $recordData<string, mixed> The record row from database.
      * @param non-empty-string|null $fileIdentifier Identifier for a file. Used for auto-detection of a storage, but only if $uid === 0 (Local default storage) is used
+     * @param-out string $fileIdentifier
      */
-    public function getStorageObject(int $uid, array $recordData = [], ?string &$fileIdentifier = null): ResourceStorage
+    public function getStorageObject(int|string $uid, array $recordData = [], ?string &$fileIdentifier = null): ResourceStorage
     {
+        $uid = (int)$uid;
         if ($uid === 0 && $fileIdentifier !== null) {
             $uid = $this->findBestMatchingStorageByLocalPath($fileIdentifier);
         }
@@ -346,11 +366,12 @@ class StorageRepository
      * If no match is found, uid 0 is returned which is a fallback storage pointing to fileadmin in public web path.
      *
      * The file identifier is adapted accordingly to match the new storage's base path.
-     *
+     * @internal absolutely do not call this method publicly, not even in TYPO3 core. It must only be used for legacy resource resolving
      * @param non-empty-string $localPath
+     * @param-out string $localPath
      * @return int<0, max>
      */
-    protected function findBestMatchingStorageByLocalPath(string &$localPath): int
+    public function findBestMatchingStorageByLocalPath(string &$localPath): int
     {
         if ($this->localDriverStorageCache === null) {
             $this->initializeLocalStorageCache();
@@ -446,7 +467,7 @@ class StorageRepository
     protected function convertFlexFormDataToConfigurationArray(string $flexFormData): array
     {
         if ($flexFormData) {
-            return $this->flexFormService->convertFlexFormContentToArray($flexFormData);
+            return $this->flexFormTools->convertFlexFormContentToArray($flexFormData);
         }
         return [];
     }

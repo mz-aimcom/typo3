@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
 
+use TYPO3\CMS\Backend\View\PageLayoutContext;
+
 /**
  * Grid Row
  *
@@ -25,18 +27,27 @@ namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
  *
  * Accessed in Fluid templates.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class GridRow extends AbstractGridObject
+class GridRow
 {
     /**
      * @var GridColumn[]
      */
     protected array $columns = [];
 
+    public function __construct(
+        protected readonly PageLayoutContext $context,
+    ) {}
+
+    public function getContext(): PageLayoutContext
+    {
+        return $this->context;
+    }
+
     public function addColumn(GridColumn $column): void
     {
-        $this->columns[$column->getColumnNumber()] = $column;
+        $this->columns[$column->getColumnNumber() ?? ''] = $column;
     }
 
     /**

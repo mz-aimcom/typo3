@@ -32,7 +32,7 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
  */
 final class WarningsForAboutModule
 {
-    private string $reportsModuleName = 'system_reports';
+    private string $reportsModuleName = 'system_reports_status';
 
     public function __construct(
         private readonly Registry $registry,
@@ -58,12 +58,13 @@ final class WarningsForAboutModule
         }
         // Display a message that there's something wrong and that
         // the administrator should take a look at the detailed status report
+        $severity = ContextualFeedbackSeverity::tryFrom((int)$highestSeverity) ?? ContextualFeedbackSeverity::ERROR;
         $event->addMessage(new FlashMessage(sprintf(
             $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_problemNotification'),
             '<a href="#" data-dispatch-action="TYPO3.ModuleMenu.showModule" '
             . 'data-dispatch-args-list="' . $this->reportsModuleName . '">',
             '</a>'
-        )));
+        ), '', $severity));
     }
 
     private function getLanguageService(): LanguageService

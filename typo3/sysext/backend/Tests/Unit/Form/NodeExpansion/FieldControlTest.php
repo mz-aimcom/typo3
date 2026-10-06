@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\NodeExpansion;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\AbstractNode;
 use TYPO3\CMS\Backend\Form\NodeExpansion\FieldControl;
@@ -28,6 +29,7 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Service\DependencyOrderingService;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class FieldControlTest extends UnitTestCase
 {
     #[Test]
@@ -37,13 +39,13 @@ final class FieldControlTest extends UnitTestCase
         $iconMock = $this->createMock(Icon::class);
         $iconMock->expects($this->atLeastOnce())->method('setTitle')->willReturn($iconMock);
         $iconMock->expects($this->atLeastOnce())->method('render')->willReturn('');
-        $iconFactoryMock->expects($this->atLeastOnce())->method('getIcon')->with(self::anything())->willReturn($iconMock);
+        $iconFactoryMock->expects($this->atLeastOnce())->method('getIcon')->willReturn($iconMock);
 
-        $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceMock->method('sL')->with(self::anything())->willReturnArgument(0);
+        $languageServiceMock = self::createStub(LanguageService::class);
+        $languageServiceMock->method('sL')->willReturnArgument(0);
         $GLOBALS['LANG'] = $languageServiceMock;
 
-        $nodeFactoryMock = $this->createMock(NodeFactory::class);
+        $nodeFactoryMock = self::createStub(NodeFactory::class);
         $data = [
             'renderData' => [
                 'fieldControl' => [
@@ -58,7 +60,7 @@ final class FieldControlTest extends UnitTestCase
             ],
         ];
 
-        $aControlMock = $this->createMock(AbstractNode::class);
+        $aControlMock = self::createStub(AbstractNode::class);
         $aControlMock->method('render')->willReturn(
             [
                 'iconIdentifier' => 'actions-open',
@@ -73,7 +75,7 @@ final class FieldControlTest extends UnitTestCase
         $aControlNodeFactoryInput['renderData']['fieldControlOptions'] = [];
         $aControlNodeFactoryInput['renderType'] = 'aControl';
 
-        $anotherControlMock = $this->createMock(AbstractNode::class);
+        $anotherControlMock = self::createStub(AbstractNode::class);
         $anotherControlMock->method('render')->willReturn(
             [
                 'iconIdentifier' => 'actions-close',
@@ -99,7 +101,6 @@ final class FieldControlTest extends UnitTestCase
         });
 
         $expected = [
-            'additionalHiddenFields' => [],
             'additionalInlineLanguageLabelFiles' => [],
             'stylesheetFiles' => [],
             'javaScriptModules' => [

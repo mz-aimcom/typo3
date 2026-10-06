@@ -23,7 +23,7 @@ use TYPO3\CMS\Backend\Form\FormDataProvider\TcaCategory;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -60,10 +60,11 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
+        $input = $this->addTcaSchemata($input);
         // We expect no change to the input data
         $expected = $input;
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $this->createSubject()->addData($input));
     }
 
     #[Test]
@@ -89,10 +90,11 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
+        $input = $this->addTcaSchemata($input);
         // We expect no change to the input data
         $expected = $input;
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $this->createSubject()->addData($input));
     }
 
     #[Test]
@@ -113,8 +115,18 @@ final class TcaCategoryTest extends FunctionalTestCase
                     ],
                 ],
             ],
+            'rootline' => [],
+            'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
 
+        $result = $this->createSubject()->addData($input);
+
+        // Verify items are populated (flat item list from foreign table)
+        self::assertNotEmpty($result['processedTca']['columns']['categories']['config']['items']);
+
+        // Compare structural result without items (tested separately in AJAX tests)
+        unset($result['processedTca']['columns']['categories']['config']['items']);
         $expected = $input;
         $expected['databaseRow']['categories'] = ['2'];
         $expected['processedTca']['columns']['categories']['config']['treeConfig'] = [
@@ -126,7 +138,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
@@ -164,7 +176,14 @@ final class TcaCategoryTest extends FunctionalTestCase
                     ],
                 ],
             ],
+            'rootline' => [],
+            'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
+
+        $result = $this->createSubject()->addData($input);
+        self::assertNotEmpty($result['processedTca']['columns']['categories']['config']['items']);
+        unset($result['processedTca']['columns']['categories']['config']['items']);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = ['2'];
@@ -178,7 +197,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $result);
     }
 
     public static function addDataOverridesDefaultFieldConfigurationBySiteConfigDataProvider(): array
@@ -242,7 +261,13 @@ final class TcaCategoryTest extends FunctionalTestCase
                 ],
             ],
             'site' => $site,
+            'rootline' => [],
         ];
+        $input = $this->addTcaSchemata($input);
+
+        $result = $this->createSubject()->addData($input);
+        self::assertNotEmpty($result['processedTca']['columns']['categories']['config']['items']);
+        unset($result['processedTca']['columns']['categories']['config']['items']);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = ['2'];
@@ -256,7 +281,134 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $result);
+    }
+
+    public static function addDataResolvesMarkersInStartingPointsDataProvider(): array
+    {
+        return [
+            'current pid' => [
+                'inputStartingPoints' => '###CURRENT_PID###',
+                'expectedStartingPoints' => '89',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+            'site root from rootline' => [
+                'inputStartingPoints' => '###SITEROOT###',
+                'expectedStartingPoints' => '5',
+                'rootline' => [['uid' => 89, 'is_siteroot' => 0], ['uid' => 5, 'is_siteroot' => 1]],
+                'pageTsConfig' => [],
+            ],
+            'page tsconfig id' => [
+                'inputStartingPoints' => '###PAGE_TSCONFIG_ID###',
+                'expectedStartingPoints' => '13',
+                'rootline' => [],
+                'pageTsConfig' => ['PAGE_TSCONFIG_ID' => '13'],
+            ],
+            'page tsconfig idlist' => [
+                'inputStartingPoints' => '###PAGE_TSCONFIG_IDLIST###',
+                'expectedStartingPoints' => '13,14',
+                'rootline' => [],
+                'pageTsConfig' => ['PAGE_TSCONFIG_IDLIST' => '13, 14, invalid'],
+            ],
+            'unresolved markers are removed' => [
+                'inputStartingPoints' => '42,###PAGE_TSCONFIG_ID###,###SITEROOT###,12',
+                'expectedStartingPoints' => '42,12',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+            'marker combined with site configuration marker' => [
+                'inputStartingPoints' => '###CURRENT_PID###,###SITE:categories.contentCategory###',
+                'expectedStartingPoints' => '89,4711',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+        ];
+    }
+
+    #[DataProvider('addDataResolvesMarkersInStartingPointsDataProvider')]
+    #[Test]
+    public function addDataResolvesMarkersInStartingPoints(string $inputStartingPoints, string $expectedStartingPoints, array $rootline, array $pageTsConfig): void
+    {
+        $input = [
+            'command' => 'edit',
+            'tableName' => 'tt_content',
+            'effectivePid' => 89,
+            'databaseRow' => [
+                'uid' => 298,
+                'categories' => '2',
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'categories' => [
+                        'config' => $this->getFieldConfiguration([
+                            'type' => 'category',
+                            'treeConfig' => [
+                                'startingPoints' => $inputStartingPoints,
+                            ],
+                        ]),
+                    ],
+                ],
+            ],
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'tt_content.' => [
+                        'categories.' => $pageTsConfig,
+                    ],
+                ],
+            ],
+            'site' => new Site('some-site', 1, ['rootPageId' => 1, 'categories' => ['contentCategory' => 4711]]),
+            'rootline' => $rootline,
+        ];
+
+        $result = $this->createSubject()->addData($this->addTcaSchemata($input));
+
+        self::assertSame($expectedStartingPoints, $result['processedTca']['columns']['categories']['config']['treeConfig']['startingPoints']);
+    }
+
+    #[Test]
+    public function addDataResolvesMarkersInStartingPointsOverriddenByPageTsConfig(): void
+    {
+        $input = [
+            'command' => 'edit',
+            'tableName' => 'tt_content',
+            'effectivePid' => 89,
+            'databaseRow' => [
+                'uid' => 298,
+                'categories' => '2',
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'categories' => [
+                        'config' => $this->getFieldConfiguration([
+                            'type' => 'category',
+                            'treeConfig' => [
+                                'startingPoints' => '42',
+                            ],
+                        ]),
+                    ],
+                ],
+            ],
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'tt_content.' => [
+                        'categories.' => [
+                            'config.' => [
+                                'treeConfig.' => [
+                                    'startingPoints' => '###CURRENT_PID###,###SITE:categories.contentCategory###',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'site' => new Site('some-site', 1, ['rootPageId' => 1, 'categories' => ['contentCategory' => 4711]]),
+            'rootline' => [],
+        ];
+
+        $result = $this->createSubject()->addData($this->addTcaSchemata($input));
+
+        self::assertSame('89,4711', $result['processedTca']['columns']['categories']['config']['treeConfig']['startingPoints']);
     }
 
     #[Test]
@@ -277,7 +429,14 @@ final class TcaCategoryTest extends FunctionalTestCase
                     ],
                 ],
             ],
+            'rootline' => [],
+            'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
+
+        $result = $this->createSubject()->addData($input);
+        self::assertNotEmpty($result['processedTca']['columns']['categories']['config']['items']);
+        unset($result['processedTca']['columns']['categories']['config']['items']);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = [
@@ -293,7 +452,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             ],
         ];
 
-        self::assertEquals($expected, (new TcaCategory())->addData($input));
+        self::assertEquals($expected, $result);
     }
 
     #[Test]
@@ -329,7 +488,7 @@ final class TcaCategoryTest extends FunctionalTestCase
         $this->expectExceptionCode(1627336557);
         $this->expectException(\RuntimeException::class);
 
-        (new TcaCategory())->addData($input);
+        $this->createSubject()->addData($input);
     }
 
     #[Test]
@@ -357,6 +516,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             'rootline' => [],
             'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = ['31'];
@@ -371,11 +531,7 @@ final class TcaCategoryTest extends FunctionalTestCase
         // Expect fetched category items
         $expected['processedTca']['columns']['categories']['config']['items'] = $this->getExpectedCategoryItems([31]);
 
-        $category = new TcaCategory();
-        $category->injectConnectionPool($this->get(ConnectionPool::class));
-        $category->injectIconFactory($this->get(IconFactory::class));
-        $category->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        self::assertEquals($expected, $category->addData($input));
+        self::assertEquals($expected, $this->createSubject()->addData($input));
     }
 
     #[Test]
@@ -419,6 +575,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             'rootline' => [],
             'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = [
@@ -443,11 +600,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             $expected['processedTca']['columns']['categories']['config']['items']
         );
 
-        $category = new TcaCategory();
-        $category->injectConnectionPool($this->get(ConnectionPool::class));
-        $category->injectIconFactory($this->get(IconFactory::class));
-        $category->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        self::assertEquals($expected, $category->addData($input));
+        self::assertEquals($expected, $this->createSubject()->addData($input));
     }
 
     #[Test]
@@ -481,6 +634,7 @@ final class TcaCategoryTest extends FunctionalTestCase
             'rootline' => [],
             'site' => null,
         ];
+        $input = $this->addTcaSchemata($input);
 
         $expected = $input;
         $expected['databaseRow']['categories'] = [
@@ -505,18 +659,35 @@ final class TcaCategoryTest extends FunctionalTestCase
             $expected['processedTca']['columns']['categories']['config']['items']
         );
 
+        self::assertEquals($expected, $this->createSubject()->addData($input));
+    }
+
+    private function createSubject(): TcaCategory
+    {
         $category = new TcaCategory();
         $category->injectConnectionPool($this->get(ConnectionPool::class));
         $category->injectIconFactory($this->get(IconFactory::class));
-        $category->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        self::assertEquals($expected, $category->addData($input));
+        return $category;
+    }
+
+    private function addTcaSchemata(array $result): array
+    {
+        if (isset($result['tcaSchemata'])) {
+            return $result;
+        }
+        $tca = $result['fullTca'] ?? $GLOBALS['TCA'];
+        if (!isset($tca[$result['tableName']]) && isset($result['processedTca'])) {
+            $tca[$result['tableName']] = $result['processedTca'];
+        }
+        $result['tcaSchemata'] = $this->get(TcaSchemaBuilder::class)->buildFromStructure($tca);
+        return $result;
     }
 
     /**
      * This adds the default category configuration as
      * done by TcaPreparation->configureCategoryRelations
      */
-    protected function getFieldConfiguration(array $input): array
+    private function getFieldConfiguration(array $input): array
     {
         $default = [
             'relationship' => 'oneToOne',
@@ -545,7 +716,7 @@ final class TcaCategoryTest extends FunctionalTestCase
      *
      * @return array[]
      */
-    protected function getExpectedCategoryItems(array $checked = []): array
+    private function getExpectedCategoryItems(array $checked = []): array
     {
         return [
             [

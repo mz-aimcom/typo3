@@ -1,0 +1,48 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:be="http://typo3.org/ns/TYPO3/CMS/Backend/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+    <f:asset.module identifier="@typo3/backend/modal.js"/>
+    <f:asset.module identifier="@typo3/backend/multi-record-selection.js"/>
+    <f:asset.module identifier="@typo3/backend/element/progress-bar-element.js"/>
+    <f:asset.module identifier="@typo3/backend/element/status-indicator-element.js"/>
+    <f:asset.module identifier="@typo3/scheduler/scheduler.js"/>
+    <f:asset.module identifier="@typo3/scheduler/scheduler-sortable-groups.js"/>
+    <f:asset.module identifier="@typo3/scheduler/scheduler-add-group.js"/>
+
+    <h1><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.scheduler" /></h1>
+    <f:if condition="{groups} || {errorClasses}">
+        <f:then>
+            <f:render partial="TaskList" arguments="{_all}" />
+        </f:then>
+        <f:else>
+            <f:be.infobox state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}" title="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.noTasks')}">
+                <f:if condition="{hasAvailableTaskTypes}">
+                    <f:then>
+                        <p><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.noTasks.createNew"/></p>
+                        <typo3-scheduler-new-task-wizard-button class="btn btn-primary" url="{addTaskUrl}" subject="{f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}">
+                            <core:icon identifier="actions-plus" size="small" /> {f:translate(key: 'LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:function.add')}
+                        </typo3-scheduler-new-task-wizard-button>
+                    </f:then>
+                    <f:else>
+                        <p><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:msg.noTasks.nonAvailable"/></p>
+                    </f:else>
+                </f:if>
+            </f:be.infobox>
+        </f:else>
+    </f:if>
+
+    <f:if condition="{groupsWithoutTasks}">
+        <h2><f:translate key="LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.group.unused" /></h2>
+        <f:render partial="GroupUnusedList" arguments="{_all}" />
+    </f:if>
+
+    <f:render partial="ServerTime" arguments="{dateFormat: dateFormat}" />
+</f:section>
+
+</html>

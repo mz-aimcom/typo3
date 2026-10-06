@@ -151,6 +151,58 @@ final class GeneratorFrontend extends AbstractGenerator
                     'pid' => $newIdOfTemplateFolder,
                 ],
             ];
+
+            // Demo page for backend layout column content type restrictions
+            // ("allowedContentTypes" / "disallowedContentTypes"). Content elements
+            // can only be created, pasted or dropped where the target column allows
+            // the given CType.
+            $newIdOfContentRestrictionsPage = StringUtility::getUniqueId('NEW');
+            $data['pages'][$newIdOfContentRestrictionsPage] = [
+                'title' => 'content_restrictions',
+                'tx_styleguide_containsdemo' => 'tx_styleguide_frontend',
+                'hidden' => 0,
+                'pid' => $newIdOfEntryPage,
+                'backend_layout' => 'pagets__StyleguideContentRestrictions',
+            ];
+            // Ready-to-test drag/copy sources in the unrestricted column (colPos 0),
+            // one per relevant CType. Grab one and try to drag or paste it into the
+            // "allowed" (colPos 1) or "disallowed" (colPos 2) column to see which
+            // target is offered.
+            //   colPos 1: allowedContentTypes = header, text, textmedia
+            //   colPos 2: disallowedContentTypes = image, html, textmedia
+            $restrictionSources = [
+                ['CType' => 'header', 'header' => 'Header — allowed in col 1 and col 2'],
+                ['CType' => 'text', 'header' => 'Text — allowed in col 1 and col 2', 'bodytext' => '<p>Drag or copy me into either restricted column.</p>'],
+                ['CType' => 'textmedia', 'header' => 'Text & Media — allowed in col 1, blocked in col 2', 'bodytext' => '<p>Accepted by the allowed column, rejected by the disallowed column.</p>'],
+                ['CType' => 'image', 'header' => 'Image — blocked in col 1 and col 2'],
+                ['CType' => 'html', 'header' => 'HTML — blocked in col 1 and col 2', 'bodytext' => '<p>Raw HTML element.</p>'],
+            ];
+            foreach ($restrictionSources as $source) {
+                $newIdOfRestrictionSource = StringUtility::getUniqueId('NEW');
+                $data['tt_content'][$newIdOfRestrictionSource] = array_merge($source, [
+                    'colPos' => 0,
+                    'pid' => $newIdOfContentRestrictionsPage,
+                    'tx_styleguide_containsdemo' => 'tx_styleguide_frontend',
+                ]);
+            }
+            $newIdOfRestrictionsAllowedInfo = StringUtility::getUniqueId('NEW');
+            $data['tt_content'][$newIdOfRestrictionsAllowedInfo] = [
+                'header' => 'Allowed column: only header, text, textmedia',
+                'CType' => 'text',
+                'bodytext' => '<p>Only these types are offered here. Dragging the Image or HTML source from the left shows no drop zone in this column, and no paste button appears when they are on the clipboard.</p>',
+                'colPos' => 1,
+                'pid' => $newIdOfContentRestrictionsPage,
+                'tx_styleguide_containsdemo' => 'tx_styleguide_frontend',
+            ];
+            $newIdOfRestrictionsDisallowedInfo = StringUtility::getUniqueId('NEW');
+            $data['tt_content'][$newIdOfRestrictionsDisallowedInfo] = [
+                'header' => 'Disallowed column: no image, html, textmedia',
+                'CType' => 'text',
+                'bodytext' => '<p>Everything except these three types may be placed here. Dragging the Text & Media source from the left offers no drop zone in this column.</p>',
+                'colPos' => 2,
+                'pid' => $newIdOfContentRestrictionsPage,
+                'tx_styleguide_containsdemo' => 'tx_styleguide_frontend',
+            ];
         } else {
             $newIdOfRootTsTemplate = StringUtility::getUniqueId('NEW');
             $data['sys_template'] = [
@@ -222,6 +274,8 @@ final class GeneratorFrontend extends AbstractGenerator
         $this->populateTtContentPages();
         $this->populateTtContentRecords();
         $this->populateFeUserAndGroup();
+
+        $this->clearAllCachesOnCli();
     }
 
     public function delete(): void
@@ -250,6 +304,7 @@ final class GeneratorFrontend extends AbstractGenerator
         }
         // Delete records data
         $this->executeDataHandler([], $commands);
+        $this->clearAllCachesOnCli();
 
         // Delete created files
         $this->deleteFalFolder('styleguide_frontend');
@@ -260,7 +315,7 @@ final class GeneratorFrontend extends AbstractGenerator
      *
      * @return array
      */
-    protected function getElementContent(): array
+    private function getElementContent(): array
     {
         return [
             'bullets' => [
@@ -478,7 +533,7 @@ final class GeneratorFrontend extends AbstractGenerator
     /**
      * Append file reference to existing content elements
      */
-    protected function populateSysFileReference(): void
+    private function populateSysFileReference(): void
     {
         $files = $this->recordFinder->findDemoFileObjects('styleguide_frontend');
 
@@ -514,7 +569,7 @@ final class GeneratorFrontend extends AbstractGenerator
     /**
      * Append PIDs to tt_content field for menu_* ctype
      */
-    protected function populateTtContentPages(string $field = 'pages', int $count = 5): void
+    private function populateTtContentPages(string $field = 'pages', int $count = 5): void
     {
         $pages = $this->recordFinder->findUidsOfFrontendPages();
         $contentElements = $this->recordFinder->findTtContent(['menu_pages', 'menu_subpages', 'menu_section', 'menu_abstract', 'menu_recently_updated', 'menu_section_pages', 'menu_sitemap_pages']);
@@ -534,7 +589,7 @@ final class GeneratorFrontend extends AbstractGenerator
      *
      * @param string $field
      */
-    protected function populateTtContentRecords(string $field = 'records'): void
+    private function populateTtContentRecords(string $field = 'records'): void
     {
         $shortcutToElement = $this->recordFinder->findTtContent(['text'])[0]['uid'];
         $contentElements = $this->recordFinder->findTtContent(['shortcut']);

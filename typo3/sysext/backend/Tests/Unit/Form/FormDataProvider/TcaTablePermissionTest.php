@@ -17,11 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataProvider\TcaTablePermission;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Schema\FieldTypeFactory;
+use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\SchemaCollection;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TcaTablePermissionTest extends UnitTestCase
 {
     #[Test]
@@ -29,7 +36,7 @@ final class TcaTablePermissionTest extends UnitTestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1720028589);
-        (new TcaTablePermission())->addData([
+        new TcaTablePermission()->addData([
             'command' => 'new',
             'tableName' => 'aTable',
             'databaseRow' => [
@@ -47,6 +54,7 @@ final class TcaTablePermissionTest extends UnitTestCase
                     ],
                 ],
             ],
+            'tcaSchemata' => new SchemaCollection([]),
         ]);
     }
 
@@ -198,7 +206,18 @@ final class TcaTablePermissionTest extends UnitTestCase
     #[Test]
     public function addDataDoesHandleTablePermissionsRecords(array $input, array $expected): void
     {
-        $GLOBALS['TCA']['aTable']['columns']['bField'] = [];
-        self::assertSame($expected, (new TcaTablePermission())->addData($input));
+        $GLOBALS['TCA']['aTable']['columns']['bField'] = ['config' => ['type' => 'passthrough']];
+        $input['tcaSchemata'] = $this->getSchemaCollection($GLOBALS['TCA']);
+        $expected['tcaSchemata'] = $input['tcaSchemata'];
+        self::assertSame($expected, new TcaTablePermission()->addData($input));
+    }
+
+    private function getSchemaCollection(array $tca): SchemaCollection
+    {
+        $tcaSchemaFactory = new TcaSchemaBuilder(
+            new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+            new FieldTypeFactory()
+        );
+        return $tcaSchemaFactory->buildFromStructure($tca);
     }
 }

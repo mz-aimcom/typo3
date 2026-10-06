@@ -21,6 +21,9 @@ use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
+use TYPO3\CMS\Backend\View\RecordIdentityRenderer;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
@@ -42,16 +45,23 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * Accessed from Fluid templates - generated from within BackendLayout when
  * "page" module is in "languages" mode.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class LanguageColumn extends AbstractGridObject
+class LanguageColumn
 {
+    protected readonly IconFactory $iconFactory;
+
     public function __construct(
-        protected PageLayoutContext $context,
+        protected readonly PageLayoutContext $context,
         protected readonly Grid $grid,
         protected readonly array $translationInfo
     ) {
-        parent::__construct($context);
+        $this->iconFactory = GeneralUtility::makeInstance(IconFactory::class);
+    }
+
+    public function getContext(): PageLayoutContext
+    {
+        return $this->context;
     }
 
     public function getGrid(): Grid
@@ -91,22 +101,48 @@ class LanguageColumn extends AbstractGridObject
             && $this->getBackendUser()->checkLanguageAccess($this->context->getSiteLanguage());
     }
 
+    public function getPageRecordUid(): int
+    {
+        return $this->context->getLocalizedPageRecord()['uid'] ?? $this->context->getPageRecord()['uid'];
+    }
+
+    public function getPageRecord(): array
+    {
+        return $this->context->getLocalizedPageRecord() ?: $this->context->getPageRecord();
+    }
+
+    public function getRecordIdentity(): string
+    {
+        return GeneralUtility::makeInstance(RecordIdentityRenderer::class)->render('pages', $this->getPageRecord());
+    }
+
     public function getPageEditUrl(): string
     {
-        $pageRecordUid = $this->context->getLocalizedPageRecord()['uid'] ?? $this->context->getPageRecord()['uid'];
+        return (string)GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute('record_edit_contextual', $this->getPageEditUrlParameters());
+    }
+
+    public function getFullPageEditUrl(): string
+    {
+        return (string)GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute('record_edit', $this->getPageEditUrlParameters());
+    }
+
+    private function getPageEditUrlParameters(): array
+    {
+        $pageRecordUid = $this->getPageRecordUid();
         $urlParameters = [
             'edit' => [
                 'pages' => [
                     $pageRecordUid => 'edit',
                 ],
             ],
-            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+            'module' => 'web_layout',
+            'returnUrl' => $this->context->getReturnUrl(),
         ];
         // Disallow manual adjustment of the language field for pages
         if (($languageField = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages')->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()) !== '') {
             $urlParameters['overrideVals']['pages'][$languageField] = $this->context->getSiteLanguage()->getLanguageId();
         }
-        return (string)GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute('record_edit', $urlParameters);
+        return $urlParameters;
     }
 
     public function getAllowViewPage(): bool
@@ -122,5 +158,10 @@ class LanguageColumn extends AbstractGridObject
             ->withRootLine(BackendUtility::BEgetRootLine($pageId))
             ->withLanguage($languageId)
             ->serializeDispatcherAttributes();
+    }
+
+    protected function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
     }
 }

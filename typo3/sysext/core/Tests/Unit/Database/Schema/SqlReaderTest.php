@@ -31,11 +31,11 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getStatementArraySplitsStatements(): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getStatementArray(
-            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
+            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
         );
         self::assertCount(2, $result);
         self::assertStringStartsWith('CREATE TABLE', $result[0]);
@@ -45,11 +45,11 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getStatementArrayFiltersStatements(): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getStatementArray(
-            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) VALUES(1);',
+            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) VALUES(1);',
             '^CREATE TABLE'
         );
         self::assertCount(1, $result);
@@ -59,11 +59,11 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getInsertStatementArrayResult(): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getInsertStatementArray(
-            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
+            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
         );
 
         self::assertCount(1, $result);
@@ -73,13 +73,13 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getInsertStatementArrayResultWithNewline(): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getInsertStatementArray(
-            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) ' .
-            LF .
-            'VALUES(1);'
+            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) '
+            . LF
+            . 'VALUES(1);'
         );
 
         self::assertCount(1, $result);
@@ -89,11 +89,11 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getCreateTableStatementArrayResult(): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getCreateTableStatementArray(
-            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
+            'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
         );
         self::assertCount(1, $result);
         self::assertStringStartsWith('CREATE TABLE', array_pop($result));
@@ -103,11 +103,11 @@ final class SqlReaderTest extends UnitTestCase
     #[Test]
     public function getCreateTableStatementArrayResultWithComment(string $comment): void
     {
-        $subject = new SqlReader(new NoopEventDispatcher(), $this->createMock(PackageManager::class));
+        $subject = new SqlReader(new NoopEventDispatcher(), self::createStub(PackageManager::class));
         $result = $subject->getCreateTableStatementArray(
-            $comment . LF . 'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');' .
-            LF .
-            'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
+            $comment . LF . 'CREATE TABLE aTestTable(' . LF . '  aTestField INT(11)' . LF . ');'
+            . LF
+            . 'INSERT INTO aTestTable(`aTestField`) VALUES(1);'
         );
         self::assertCount(1, $result);
         self::assertStringStartsWith('CREATE TABLE', array_pop($result));

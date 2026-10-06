@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Tests\Unit\Parser;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
@@ -24,6 +25,7 @@ use TYPO3\CMS\Extensionmanager\Parser\ExtensionXmlParser;
 use TYPO3\CMS\Extensionmanager\Tests\Unit\Fixtures\ExtensionXmlParserObserverFixture;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ExtensionXmlParserTest extends UnitTestCase
 {
     #[DataProvider('isValidVersionNumberDataProvider')]
@@ -116,6 +118,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'authorcompany' => 'The Georg Company',
                 'lastuploaddate' => 1215424196,
                 't3xfilemd5' => '8b2bcd42d41f54564b150d3d1ed33030',
+                'artifactsha256' => 'd6f2c3b1a49e0f7c5b8d2e1a0c9b8a7d6e5f4c3b2a1908f7e6d5c4b3a2918070',
                 'state' => 'stable',
                 'reviewstate' => 0,
                 'category' => 'plugin',
@@ -125,6 +128,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'documentationlink' => 'https://docs.typo3.org/typo3cms/extensions/news',
                 'distributionimage' => '',
                 'distributionwelcomeimage' => '',
+                'composername' => 'georgringer/news',
             ],
             1 => [
                 'extkey' => 'news',
@@ -138,6 +142,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'authorcompany' => 'The Georg Company',
                 'lastuploaddate' => 1215424196,
                 't3xfilemd5' => '8b2bcd42d41f54564b150d3d1ed33030',
+                'artifactsha256' => '',
                 'state' => 'beta',
                 'reviewstate' => 0,
                 'category' => 'plugin',
@@ -147,6 +152,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'documentationlink' => 'https://docs.typo3.org/typo3cms/extensions/news',
                 'distributionimage' => '',
                 'distributionwelcomeimage' => '',
+                'composername' => 'georgringer/news',
             ],
             2 => [
                 'extkey' => 'fake-news',
@@ -160,6 +166,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'authorcompany' => 'Starship Fakeprice',
                 'lastuploaddate' => 1215424196,
                 't3xfilemd5' => '8b2bcd42d41f54564b150d3d1ed33030',
+                'artifactsha256' => '',
                 'state' => 'stable',
                 'reviewstate' => 0,
                 'category' => 'plugin',
@@ -169,6 +176,7 @@ final class ExtensionXmlParserTest extends UnitTestCase
                 'documentationlink' => 'https://docs.typo3.org/typo3cms/extensions/news',
                 'distributionimage' => '',
                 'distributionwelcomeimage' => '',
+                'composername' => '',
             ],
         ];
 

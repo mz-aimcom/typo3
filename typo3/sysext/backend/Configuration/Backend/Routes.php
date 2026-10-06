@@ -10,14 +10,15 @@ use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessLifetime;
  * Please note that this setup is preliminary until all core use-cases are set up here.
  * Especially some more properties regarding modules will be added until TYPO3 CMS 7 LTS, and might change.
  *
- * Currently the "access" property is only used so no token creation + validation is made,
- * but will be extended further.
+ * The "access" property declares who can reach a route, see \TYPO3\CMS\Backend\Routing\RouteAccess.
  */
 return [
     // Login screen of the TYPO3 Backend
     'login' => [
         'path' => '/login',
-        'access' => 'public',
+        'access' => 'anonymous',
+        // Refresh cross-site requests in order to obtain our SameSite=strict cookie
+        'referrer' => 'refresh-cross-site',
         'target' => Controller\LoginController::class . '::formAction',
     ],
 
@@ -31,7 +32,7 @@ return [
     // IFrame dummy-url for browser-history state tracking of web component backend modules
     'state-tracker' => [
         'path' => '/state-tracker',
-        'access' => 'public',
+        'access' => 'authenticated-without-token',
         'target' => Controller\StateTrackerController::class . '::mainAction',
     ],
 
@@ -43,24 +44,24 @@ return [
     // Show the password forgotten form for entering the email
     'password_forget' => [
         'path' => '/login/password-reset/forget',
-        'access' => 'public',
+        'access' => 'anonymous',
         'target' => Controller\ResetPasswordController::class . '::forgetPasswordFormAction',
     ],
     // Send out the password reset email
     'password_forget_initiate_reset' => [
         'path' => '/login/password-reset/initiate-reset',
-        'access' => 'public',
+        'access' => 'anonymous',
         'methods' => ['POST'],
         'target' => Controller\ResetPasswordController::class . '::initiatePasswordResetAction',
     ],
     'password_reset_validate' => [
         'path' => '/login/password-reset/validate',
-        'access' => 'public',
+        'access' => 'anonymous',
         'target' => Controller\ResetPasswordController::class . '::passwordResetAction',
     ],
     'password_reset_finish' => [
         'path' => '/login/password-reset/finish',
-        'access' => 'public',
+        'access' => 'anonymous',
         'methods' => ['POST'],
         'target' => Controller\ResetPasswordController::class . '::passwordResetFinishAction',
     ],
@@ -80,14 +81,14 @@ return [
     // Register login frameset
     'login_frameset' => [
         'path' => '/login/frame',
-        'access' => 'public',
+        'access' => 'anonymous',
         'target' => Controller\LoginController::class . '::refreshAction',
     ],
 
     // Fetch RequestToken via AJAX
     'login_request_token' => [
         'path' => '/login/request-token',
-        'access' => 'public',
+        'access' => 'anonymous',
         'methods' => ['POST'],
         'target' => Controller\LoginController::class . '::requestTokenAction',
     ],
@@ -154,7 +155,7 @@ return [
     ],
 
     /** DB Records-related routes */
-    // Record download in list module
+    // Record download in records module
     'record_download' => [
         'path' => '/record/download',
         'methods' => ['POST'],
@@ -171,17 +172,6 @@ return [
     'db_new' => [
         'path' => '/record/new',
         'target' => Controller\NewRecordController::class . '::mainAction',
-        'redirect' => [
-            'enable' => true,
-            'parameters' => [
-                'id' => true,
-            ],
-        ],
-    ],
-
-    'db_new_pages' => [
-        'path' => '/record/new-page',
-        'target' => Controller\NewRecordController::class . '::newPageAction',
         'redirect' => [
             'enable' => true,
             'parameters' => [
@@ -272,9 +262,20 @@ return [
             'enable' => true,
             'parameters' => [
                 'edit' => true,
+                'defVals' => true,
                 'columnsOnly' => true,
+                'module' => true,
             ],
         ],
+        'options' => [
+            'requestPageContext' => true,
+        ],
+    ],
+
+    // Lightweight contextual edit form for the context panel
+    'record_edit_contextual' => [
+        'path' => '/record/edit/contextual',
+        'target' => Controller\ContextualRecordEditController::class . '::mainAction',
     ],
 
     // Image processing
@@ -295,5 +296,13 @@ return [
         'path' => '/resource/request-thumbnail',
         'methods' => ['GET'],
         'target' => Controller\Resource\ResourceController::class . '::requestThumbnailAction',
+    ],
+
+    // Language domain
+    'language_domain' => [
+        'path' => '/language/domain/{locale}/{cacheBustInfix}/{domain}',
+        'methods' => ['GET'],
+        'target' => Controller\JavaScriptLanguageDomainController::class . '::getLanguageDomainAction',
+        'access' => 'authenticated-without-token',
     ],
 ];

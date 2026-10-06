@@ -33,14 +33,17 @@
     --typo3-panel-border-radius-bottom: var(--typo3-panel-border-radius);
     --typo3-panel-border-radius-inner-top: max(0px, calc(var(--typo3-panel-border-radius-top) - var(--typo3-panel-border-width)));
     --typo3-panel-border-radius-inner-bottom: max(0px, calc(var(--typo3-panel-border-radius-bottom) - var(--typo3-panel-border-width)));
-    --typo3-panel-padding-y: .75rem;
+    --typo3-panel-padding-y: 1rem;
     --typo3-panel-padding-x: 1rem;
-    --typo3-panel-sm-padding-y: .5rem;
+    --typo3-panel-sm-padding-y: .75rem;
     --typo3-panel-sm-padding-x: .75rem;
+    --typo3-panel-header-padding-y: calc(var(--typo3-panel-padding-y) * .75);
+    --typo3-panel-header-padding-x: var(--typo3-panel-padding-x);
     --typo3-panel-header-bg: var(--typo3-surface-container-low);
     --typo3-panel-header-color: var(--typo3-text-color-base);
     --typo3-panel-box-shadow: var(--typo3-component-box-shadow);
     --typo3-panel-progress-bg: var(--typo3-state-primary-bg);
+    --typo3-panel-progress-height: 3px;
 
     @each $state in $base-variants {
         --typo3-panel-#{$state}-header-color: var(--typo3-surface-container-#{$state}-text);
@@ -60,17 +63,51 @@
     margin-block-end: var(--typo3-spacing);
     position: relative;
 
+    //
+    // Embedded elements
+    // Elements placed directly inside panels without a panel-body wrapper
+    //
     > .table-fit,
-    .panel-collapse > .table-fit {
-        box-shadow: none;
+    .panel-collapse > .table-fit,
+    .panel-collapse > form > .table-fit {
+        margin: 0;
+        border: none;
         border-radius: 0;
-        border-left: 0;
-        border-right: 0;
-        border-bottom: 0;
-        margin-bottom: 0;
+        box-shadow: none;
     }
 
-    > .table-fit:last-child {
+    > .alert,
+    .panel-collapse > .alert {
+        --typo3-alert-margin-bottom: 0;
+        --typo3-alert-border-width: 0;
+        --typo3-alert-border-radius: 0;
+    }
+
+    > .form-section,
+    .panel-collapse > .form-section {
+        --typo3-form-section-padding-y: var(--typo3-panel-padding-y);
+        --typo3-form-section-padding-x: var(--typo3-panel-padding-x);
+    }
+
+    > .tab-wrapper,
+    .panel-collapse > .tab-wrapper {
+        padding: var(--typo3-panel-padding-y) var(--typo3-panel-padding-x);
+    }
+
+    > .table-fit:first-child,
+    > .alert:first-child {
+        border-top: 0;
+        border-start-start-radius: var(--typo3-panel-border-radius-inner-bottom);
+        border-start-end-radius: var(--typo3-panel-border-radius-inner-bottom);
+    }
+
+    > .table-fit:last-child,
+    > .alert:last-child,
+    :not(.panel-group) > & > .panel-collapse > .table-fit:last-child,
+    :not(.panel-group) > & > .panel-collapse > .alert:last-child,
+    .panel-collapse > form > .table-fit:last-child,
+    &:last-child .panel-collapse > .table-fit:last-child,
+    &:last-child .panel-collapse > .alert:last-child {
         border-end-start-radius: var(--typo3-panel-border-radius-inner-bottom);
         border-end-end-radius: var(--typo3-panel-border-radius-inner-bottom);
     }
@@ -109,12 +146,16 @@
     position: absolute;
     top: 0;
     inset-inline-start: 0;
-    height: 3px;
+    height: max(calc(2 * var(--typo3-panel-border-radius-inner-top)), var(--typo3-panel-progress-height));
     width: 100%;
     z-index: 1;
     background-color: transparent;
     overflow: hidden;
     border-radius: var(--typo3-panel-border-radius-inner-top) var(--typo3-panel-border-radius-inner-top) 0 0;
+    mask-image: linear-gradient(to bottom, #000 0, #000 var(--typo3-panel-progress-height), transparent var(--typo3-panel-progress-height));
+    mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+    user-select: none;
 
     .panel-progress-bar {
         display: block;
@@ -126,6 +167,27 @@
 .panel-has-progress {
     > .panel-progress {
         display: block;
+    }
+}
+
+//
+// Progress Component
+// <typo3-backend-progress-bar>
+//
+.panel {
+    > typo3-backend-progress-bar {
+        --progress-border-radius: var(--typo3-panel-border-radius-inner-top) var(--typo3-panel-border-radius-inner-top) 0 0;
+        --progress-bar-height: max(calc(2 * var(--typo3-panel-border-radius-inner-top)), var(--typo3-panel-progress-height));
+        position: absolute;
+        top: 0;
+        inset-inline-start: 0;
+        width: 100%;
+        z-index: 2;
+        overflow: hidden;
+        mask-image: linear-gradient(to bottom, #000 0, #000 var(--typo3-panel-progress-height), transparent var(--typo3-panel-progress-height));
+        mask-size: 100% 100%;
+        mask-repeat: no-repeat;
+        user-select: none;
     }
 }
 
@@ -142,6 +204,7 @@
     background: transparent;
     border: none;
     flex-grow: 1;
+    min-width: 0;
     width: 100%;
 
     &:after {
@@ -158,17 +221,18 @@
 // Heading
 //
 .panel-heading {
+    container-type: inline-size;
     font-size: var(--typo3-font-size);
     font-weight: normal;
     position: relative;
     color: var(--typo3-panel-header-color);
     background-color: var(--typo3-panel-header-bg);
-    padding: var(--typo3-panel-padding-y) var(--typo3-panel-padding-x);
+    padding: var(--typo3-panel-header-padding-y) var(--typo3-panel-header-padding-x);
     border-radius: var(--typo3-panel-border-radius-inner-top) var(--typo3-panel-border-radius-inner-top) var(--typo3-panel-border-radius-inner-bottom) var(--typo3-panel-border-radius-inner-bottom);
     outline-offset: 0;
     margin: 0;
 
-    &:not(:last-child):not(.collapsed):not(:has(.collapsed)):not(:has(+ .collapse)) {
+    &:not(:last-child, .collapsed, :has(.collapsed), :has(+ .collapse:not(.show)), :has(+ .collapsing), :has(.panel-button[aria-expanded="false"])) {
         --typo3-panel-border-radius-inner-bottom: 0;
     }
 
@@ -182,12 +246,14 @@
     }
 
     .caret {
+        width: var(--icon-size-small);
+        flex-shrink: 0;
         --typo3-caret-color: var(--typo3-panel-header-color);
     }
 
     &.collapsed,
     &:has(.collapsed),
-    &:has(.form-irre-header-button[aria-expanded="false"]) {
+    &:has(.panel-button[aria-expanded="false"]) {
         .caret {
             --typo3-caret-rotation: calc(-90deg * var(--typo3-position-modifier));
         }
@@ -211,11 +277,25 @@
     }
 }
 
+@container (max-width: 500px) {
+    .panel-heading-row {
+        flex-wrap: wrap;
+
+        .panel-button {
+            flex-basis: 100%;
+        }
+
+        .panel-actions {
+            padding-inline-start: calc(var(--icon-size-small) + .25rem);
+        }
+    }
+}
+
 .panel-heading-column {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: .5rem;
+    gap: .75rem;
 }
 
 //
@@ -229,9 +309,22 @@
 //
 .panel-title {
     font-size: var(--typo3-font-size);
+    line-height: 1.2;
     margin-top: 0;
     margin-bottom: 0;
     flex-grow: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-meta {
+    display: block;
+    font-size: var(--typo3-font-size-small);
+    font-weight: normal;
+    color: var(--typo3-text-color-variant);
+    line-height: 1.2;
 }
 
 .panel-heading:has([data-bs-toggle="collapse"]:hover) {
@@ -248,11 +341,35 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    flex-shrink: 0;
+}
+
+.panel-thumbnail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 60px;
+    height: 45px;
+    overflow: hidden;
+    margin-inline-end: .25rem;
+
+    > img {
+        border-radius: 4px;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 100%;
+    }
 }
 
 .panel-actions {
+    position: relative;
+    z-index: 1;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
+    justify-content: end;
     flex-wrap: wrap;
     gap: .25rem;
 }
@@ -292,8 +409,7 @@
 // Collapse
 //
 .panel-collapse {
-    overflow: hidden;
-
+    .form-section:not(.hide):not(:has(~ .form-section:not(.hide))), // hack for FormEngine sections
     &:last-child {
         border-end-start-radius: var(--typo3-panel-border-radius-inner-bottom);
         border-end-end-radius: var(--typo3-panel-border-radius-inner-bottom);
@@ -355,16 +471,6 @@
 }
 
 //
-// Collapse
-//
-.panel-collapsed {
-    .panel-collapse {
-        display: none;
-        visibility: hidden;
-    }
-}
-
-//
 // Colors
 //
 @each $variant in $base-variants {
@@ -393,6 +499,23 @@
 
 .panel-breaking {
     @extend .panel-danger;
+}
+
+//
+// Hidden and Placeholder States
+//
+.panel-hidden,
+.panel-placeholder {
+    > .panel-heading {
+        background-color: transparent;
+    }
+    opacity: .5;
+    border-style: dashed;
+
+    &:hover,
+    &:focus-within {
+        opacity: 1;
+    }
 }
 
 //
@@ -441,39 +564,4 @@
 .panel-heading {
     transition: all .2s ease-in-out;
     transition-property: box-shadow, border, border-radius, transform;
-}
-
-//
-// LEGACY
-// This section is responsible for a lot of small corrections
-// that need to be resolved and removed in future patches
-//
-.panel,
-.panel-collapse {
-    > .alert {
-        margin: 0;
-        border: none;
-        border-top: var(--typo3-panel-border-width) solid var(--typo3-panel-border-color);
-        --typo3-alert-border-radius: 0;
-    }
-
-    > .form-section,
-    > .tab-content > .form-section,
-    > .tab-content > .tab-pane > .form-section,
-    > [role="tabpanel"] > .tab-content > .form-section,
-    > [role="tabpanel"] > .tab-content > .tab-pane > .form-section {
-        border-inline-start: 0;
-        border-inline-end: 0;
-        border-bottom: 0;
-    }
-
-    > [role="tabpanel"] > .nav-tabs,
-    > .nav-tabs {
-        border-top: 1px solid var(--typo3-panel-border-color);
-        padding-top: 8px;
-
-        > li {
-            margin-inline-start: -1px;
-        }
-    }
 }

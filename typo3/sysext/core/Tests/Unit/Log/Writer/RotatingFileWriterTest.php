@@ -30,32 +30,25 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class RotatingFileWriterTest extends UnitTestCase
 {
-    protected string $logFileDirectory = 'Log';
-    protected string $logFileName = 'test.log';
-    protected string $testRoot;
+    private string $logFileDirectory = 'Log';
+    private string $logFileName = 'test.log';
+    private string $testRoot;
     protected bool $resetSingletonInstances = true;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->testRoot = Environment::getVarPath() . '/tests/';
+        // The unique sub directory keeps the files of other test cases, which use
+        // the same root, out of the cleanup below.
+        $this->testRoot = Environment::getVarPath() . '/tests/' . StringUtility::getUniqueId('rotatingFileWriter_') . '/';
         GeneralUtility::mkdir_deep($this->testRoot . $this->logFileDirectory);
         $this->testFilesToDelete[] = $this->testRoot;
-    }
-
-    protected function createWriter(string $prependName = ''): RotatingFileWriter
-    {
-        $logFileName = $this->getDefaultFileName($prependName);
-        if (file_exists($logFileName)) {
-            unlink($logFileName);
-        }
-        return new RotatingFileWriter(['logFile' => $logFileName]);
     }
 
     /**
      * @return non-empty-string
      */
-    protected function getDefaultFileName(string $prependName = ''): string
+    private function getDefaultFileName(string $prependName = ''): string
     {
         return $this->testRoot . $this->logFileDirectory . '/' . $prependName . $this->logFileName;
     }
@@ -67,7 +60,7 @@ final class RotatingFileWriterTest extends UnitTestCase
 
         touch($logFileName);
 
-        $writer = $this->createWriter();
+        $writer = new RotatingFileWriter(['logFile' => $logFileName]);
         $simpleRecord = new LogRecord(StringUtility::getUniqueId('test.core.log.rotatingFileWriter.simpleRecord.'), LogLevel::INFO, 'test record');
         $writer->writeLog($simpleRecord);
 
@@ -106,7 +99,7 @@ final class RotatingFileWriterTest extends UnitTestCase
     public function writingLogWithLatestRotationInTimeFrameDoesNotRotate(Interval $interval): void
     {
         $testingTolerance = 100;
-        $rotationDate = (new \DateTime('@' . (time() + $testingTolerance)))
+        $rotationDate = new \DateTime('@' . (time() + $testingTolerance))
             ->sub(new \DateInterval($interval->getDateInterval()))
             ->format('YmdHis');
         $logFileName = $this->getDefaultFileName();
@@ -190,5 +183,36 @@ final class RotatingFileWriterTest extends UnitTestCase
         $writer->writeLog($simpleRecord);
 
         self::assertFileDoesNotExist($logFileName . '.20230607093215');
+    }
+
+    #[Test]
+    public function zeroMaxFilesKeepsAllFiles(): void
+    {
+        $logFileName = $this->getDefaultFileName();
+
+        $expectedLogFiles = [
+            $logFileName,
+            $logFileName . '.20230609093215',
+            $logFileName . '.20230608093215',
+            $logFileName . '.20230607093215',
+            $logFileName . '.20230606093215',
+        ];
+
+        foreach ($expectedLogFiles as $expectedLogFile) {
+            file_put_contents($expectedLogFile, 'fooo');
+        }
+
+        $writer = new RotatingFileWriter([
+            'interval' => Interval::DAILY,
+            'logFile' => $logFileName,
+            'maxFiles' => 0,
+        ]);
+
+        $simpleRecord = new LogRecord(StringUtility::getUniqueId('test.core.log.rotatingFileWriter.simpleRecord.'), LogLevel::INFO, 'test record');
+        $writer->writeLog($simpleRecord);
+
+        foreach ($expectedLogFiles as $expectedLogFile) {
+            self::assertFileExists($expectedLogFile);
+        }
     }
 }

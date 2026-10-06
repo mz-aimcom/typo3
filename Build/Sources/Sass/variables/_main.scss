@@ -11,19 +11,31 @@
 // TYPO3
 // =====
 //
-$natural-base: #000;
-$neutral-shades: (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100);
-$base-colors: (
-    'blue': #205eb5,
-    'purple': #5e4db2,
-    'teal': #abdced,
-    'green': #247554,
-    'magenta': #c6398f,
-    'yellow': #fc3,
-    'orange': #ee6d11,
-    'red': #d13a2e,
+$neutral-base: #000;
+$neutral-shades: (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 15, 16, 18, 20, 22, 25, 28, 30, 35, 40, 45, 50, 55, 60, 65, 70, 72, 74, 75, 76, 78, 80, 82, 84, 85, 86, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100);
+$state-colors: (
+    'primary': #205eb5,
+    'secondary': #737373,
+    'info': #abdced,
+    'success': #2a9960,
+    'warning': #e0a810,
+    'danger': #d64545,
+    'notice': #737373,
 );
-$base-shades: (3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 96, 97);
+$state-shades: (1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 96, 97, 98, 99);
+$base-colors: (
+    'red': #d64545,
+    'orange': #f28522,
+    'yellow': #e0a810,
+    'lime': #7cb518,
+    'green': #2a9960,
+    'teal': #2aa89c,
+    'blue': #3085d6,
+    'indigo': #5563c4,
+    'purple': #7c5ac4,
+    'magenta': #d4458c,
+);
+$base-shades: (1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 96, 97, 98, 99);
 $base-variants: (
     'primary',
     'secondary',
@@ -109,10 +121,11 @@ $font-size-root: 1rem;
 $font-size-base: .75rem;
 $font-size-large: 1rem;
 $font-size-small: .6875rem;
-$h1-font-size: 28px;
-$h2-font-size: 20px;
-$h3-font-size: 16px;
-$h4-font-size: 14px;
+$h1-font-size: 1.5rem;
+$h2-font-size: 1.25rem;
+$h3-font-size: 1rem;
+$h4-font-size: .875rem;
+$h5-font-size: .75rem;
 
 // Spacings
 $headings-margin-bottom: calc(var(--typo3-spacing) / 2);
@@ -133,37 +146,6 @@ $border-radius: .125rem;
 $border-radius-sm: $border-radius;
 $border-radius-lg: $border-radius;
 
-// Tables
-$table-bg: $white;
-$table-border-color: $gray-400;
-$table-bg-scale: -85%;
-$table-striped-bg-factor: .025;
-$table-hover-bg-factor: .035;
-$table-active-bg-factor: .045;
-$table-border-factor: .1;
-
-// Navbar
-$navbar-height: 45px;
-$navbar-default-bg: #f8f8f8;
-$navbar-default-link-hover-bg: darken($navbar-default-bg, 5%);
-$navbar-default-link-active-bg: darken($navbar-default-bg, 10%);
-$navbar-default-link-disabled-bg: darken($navbar-default-bg, 15%);
-$navbar-inverse-color: #999;
-$navbar-inverse-bg: #111;
-$navbar-inverse-border: none;
-$navbar-inverse-link-color: #ddd;
-$navbar-inverse-link-bg: lighten($navbar-inverse-bg, 7.5%);  // TYPO3 SPECIFIC
-$navbar-inverse-link-hover-color: rgb(200, 200, 200);
-$navbar-inverse-link-hover-bg: rgb(50, 50, 50);
-$navbar-inverse-link-active-color: #fff;
-$navbar-inverse-link-active-bg: $navbar-inverse-link-hover-bg;
-$navbar-inverse-link-disabled-color: darken($navbar-inverse-color, 30%);
-$navbar-inverse-link-disabled-bg: darken($navbar-inverse-bg, 20%);
-
-// Panels
-$panel-default-border: #ccc;
-$panel-default-heading-bg: #ddd;
-
 // Type
 $hr-border: #7a7a7a;
 $hr-opacity: 1;
@@ -171,13 +153,7 @@ $hr-opacity: 1;
 // Popover
 $popover-box-shadow: var(--typo3-component-box-shadow-flyout);
 
-// Card
-$card-cap-bg: transparent;
-
-// Overwrite Progress bar background color
-$progress-bg: #dedede;
-$progress-height: 1.25rem;
-$progress-font-size: $font-size-base * .9;
+// Utilities
 $utilities: (
     "float": (
         property: float,
@@ -198,8 +174,36 @@ $utilities: (
             center: center,
         )
     ),
-    // disable bootstrap color utilities
+    // disable bootstrap utilities
     "color": (),
+    "opacity": (),
     "text-color": (),
     "text-opacity": (),
+    "overflow": (),
+    "overflow-x": (),
+    "overflow-y": (),
+    "object-fit": (),
+    "order": (),
+    "border-opacity": (),
+    "column-gap": (),
+    "align": (),
+    "shadow": (),
+    "focus-ring": (),
+    "position": (),
+    "top": (),
+    "start": (),
+    "end": (),
+    "bottom": (),
+    "translate-middle": (),
+    "rounded": (),
+    "rounded-top": (),
+    "rounded-start": (),
+    "rounded-end": (),
+    "rounded-bottom": (),
+    "link-opacity": (),
+    "link-offset": (),
+    "link-underline-opacity": (),
+    "user-select": (),
+    "pointer-events": (),
+    "z-index": (),
 );

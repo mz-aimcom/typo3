@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\LinkHandling;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\LinkHandling\FolderLinkHandler;
@@ -26,6 +27,7 @@ use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FolderLinkHandlerTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -66,11 +68,9 @@ final class FolderLinkHandlerTest extends UnitTestCase
      */
     #[DataProvider('resolveParametersForFilesDataProvider')]
     #[Test]
-    public function resolveFileReferencesToSplitParameters(array $input, array $expected): void
+    public function resolveFileReferencesToSplitParameters(array $input, array $expected, string $_): void
     {
-        $storage = $this->getMockBuilder(ResourceStorage::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $storage = self::createStub(ResourceStorage::class);
 
         $factory = $this->getMockBuilder(ResourceFactory::class)
             ->disableOriginalConstructor()
@@ -102,9 +102,7 @@ final class FolderLinkHandlerTest extends UnitTestCase
 
         $folderObject->method('getCombinedIdentifier')->willReturn($parameters['folder']);
         $folderData = explode(':', $parameters['folder']);
-        $storage = $this->getMockBuilder(ResourceStorage::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $storage = self::createStub(ResourceStorage::class);
         $storage->method('getUid')->willReturn((int)$folderData[0]);
         $folderObject->method('getStorage')->willReturn($storage);
         $folderObject->method('getIdentifier')->willReturn($folderData[1]);

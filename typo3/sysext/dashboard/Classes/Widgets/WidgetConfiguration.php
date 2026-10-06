@@ -17,26 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Dashboard\Widgets;
 
-class WidgetConfiguration implements WidgetConfigurationInterface
+readonly class WidgetConfiguration implements WidgetConfigurationInterface
 {
     /**
      * @throws \InvalidArgumentException If non valid parameters were provided.
      */
     public function __construct(
-        private readonly string $identifier,
-        private readonly string $serviceName,
-        private readonly array $groupNames,
-        private readonly string $title,
-        private readonly string $description,
-        private readonly string $iconIdentifier,
-        private readonly string $height,
-        private readonly string $width
+        private string $identifier,
+        private string $serviceName,
+        private array $groupNames,
+        private string $title,
+        private string $description,
+        private string $iconIdentifier,
+        private string $height,
+        private string $width,
+        private bool $adminOnly = false,
     ) {
         $allowedSizes = ['small', 'medium', 'large'];
         if (!in_array($height, $allowedSizes, true)) {
             throw new \InvalidArgumentException('Height of widgets has to be small, medium or large', 1584778196);
         }
-        if (!in_array($height, $allowedSizes, true)) {
+        if (!in_array($width, $allowedSizes, true)) {
             throw new \InvalidArgumentException('Width of widgets has to be small, medium or large', 1585249769);
         }
     }
@@ -79,5 +80,10 @@ class WidgetConfiguration implements WidgetConfigurationInterface
     public function getWidth(): string
     {
         return $this->width;
+    }
+
+    public function isAdminOnly(): bool
+    {
+        return $this->adminOnly;
     }
 }

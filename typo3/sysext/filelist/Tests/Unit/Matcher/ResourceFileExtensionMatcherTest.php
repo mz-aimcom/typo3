@@ -25,12 +25,12 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ResourceFileExtensionMatcherTest extends UnitTestCase
 {
-    protected ResourceStorage $storage;
+    private ResourceStorage $storage;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->storage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
+        $this->storage = self::createStub(ResourceStorage::class);
     }
 
     #[Test]
@@ -67,7 +67,7 @@ final class ResourceFileExtensionMatcherTest extends UnitTestCase
         self::assertFalse($matcher->match($this->getFile('png')));
     }
 
-    protected function getFile(string $extension): File
+    private function getFile(string $extension): File
     {
         return new File(['identifier' => $extension . '-file', 'name' => 'file.' . $extension], $this->storage);
     }

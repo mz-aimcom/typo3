@@ -87,19 +87,19 @@ final class FileLinkHandlerTest extends UnitTestCase
      */
     #[DataProvider('resolveParametersForFilesDataProvider')]
     #[Test]
-    public function resolveFileReferencesToSplitParameters(array $input, array $expected): void
+    public function resolveFileReferencesToSplitParameters(array $input, array $expected, string $_): void
     {
-        $storage = $this->getMockBuilder(ResourceStorage::class)
-            ->disableOriginalConstructor()
-            ->getMock();
-        $factory = $this->getMockBuilder(ResourceFactory::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $storage = self::createStub(ResourceStorage::class);
+        $factory = self::createStub(ResourceFactory::class);
 
         // fake methods to return proper objects
         $fileObject = new File(['identifier' => 'fileadmin/deep/down.jpg', 'name' => 'down.jpg'], $storage);
-        $factory->method('getFileObject')->with($expected['file'])->willReturn($fileObject);
-        $factory->method('getFileObjectFromCombinedIdentifier')->with($expected['file'])->willReturn($fileObject);
+        $returnFileObject = static function (int|string $file) use ($expected, $fileObject): File {
+            self::assertEquals($expected['file'], $file);
+            return $fileObject;
+        };
+        $factory->method('getFileObject')->willReturnCallback($returnFileObject);
+        $factory->method('getFileObjectFromCombinedIdentifier')->willReturnCallback($returnFileObject);
         $expected['file'] = $fileObject;
         GeneralUtility::setSingletonInstance(ResourceFactory::class, $factory);
 

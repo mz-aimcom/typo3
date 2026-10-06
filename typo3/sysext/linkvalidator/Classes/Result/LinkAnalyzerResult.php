@@ -74,7 +74,7 @@ class LinkAnalyzerResult
         string $languages = ''
     ): self {
         $rootLineHidden = $this->pagesRepository->doesRootLineContainHiddenPages($pageRow);
-        $checkHidden = $modTSconfig['checkhidden'] === 1;
+        $checkHidden = (bool)($modTSconfig['checkhidden'] ?? false);
 
         if ($rootLineHidden && !$checkHidden) {
             return $this;
@@ -103,7 +103,11 @@ class LinkAnalyzerResult
             $languageIds
         );
 
-        $pageIds = array_merge($pageIds, $pageTranslations);
+        if ($languageIds === [] || in_array(0, $languageIds, true)) {
+            $pageIds = array_merge($pageIds, $pageTranslations);
+        } else {
+            $pageIds = $pageTranslations;
+        }
 
         $this->linkAnalyzer->init($searchFields, $pageIds, $modTSconfig);
         $this->oldBrokenLinkCounts = $this->linkAnalyzer->getLinkCounts();
@@ -215,8 +219,8 @@ class LinkAnalyzerResult
             try {
                 $site = $this->siteFinder->getSiteByPageId((int)$brokenLink['real_pid']);
                 $languageCode = $site->getLanguageById((int)$brokenLink['language'])->getLocale()->getLanguageCode();
-            } catch (SiteNotFoundException | \InvalidArgumentException $e) {
-                $languageCode = 'default';
+            } catch (SiteNotFoundException|\InvalidArgumentException $e) {
+                $languageCode = 'en';
             }
             if ($pageRecord !== null) {
                 $brokenLink['page_record'] = $pageRecord;

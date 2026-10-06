@@ -15,11 +15,14 @@
 
 namespace TYPO3\CMS\Frontend\ContentObject;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Database\RelationHandler;
+use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\Category\Collection\CategoryCollection;
+use TYPO3\CMS\Frontend\ContentObject\Event\AfterRecordIsRenderedEvent;
 
 /**
  * Contains RECORDS class object.
@@ -40,12 +43,16 @@ class RecordsContentObject extends AbstractContentObject
      */
     protected $data = [];
 
-    public function __construct(protected readonly TimeTracker $timeTracker) {}
+    public function __construct(
+        protected readonly TimeTracker $timeTracker,
+        protected readonly EventDispatcherInterface $eventDispatcher,
+        protected readonly RecordFactory $recordFactory,
+    ) {}
 
     /**
      * Rendering the cObject, RECORDS
      *
-     * @param array $conf Array of TypoScript properties
+     * @param mixed $conf Array of TypoScript properties (marked as "mixed" currently because we don't know what we're receiving)
      * @return string Output
      */
     public function render($conf = [])
@@ -53,18 +60,8 @@ class RecordsContentObject extends AbstractContentObject
         // Reset items and data
         $this->itemArray = [];
         $this->data = [];
-        $frontendController = $this->getTypoScriptFrontendController();
 
         $theValue = '';
-        $originalRec = $frontendController->currentRecord;
-        // If the currentRecord is set, we register that this record has invoked this function.
-        // It should not be allowed to do this again then.
-        if ($originalRec) {
-            if (!($frontendController->recordRegister[$originalRec] ?? false)) {
-                $frontendController->recordRegister[$originalRec] = 0;
-            }
-            ++$frontendController->recordRegister[$originalRec];
-        }
 
         $tables = (string)$this->cObj->stdWrapValue('tables', $conf ?? []);
         if ($tables !== '') {
@@ -89,17 +86,16 @@ class RecordsContentObject extends AbstractContentObject
                 $this->collectRecordsFromCategories($categories, $tablesArray, $relationField);
             }
             if (!empty($this->itemArray)) {
-                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $frontendController);
+                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
                 $cObj->setParent($this->cObj->data, $this->cObj->currentRecord);
-                $this->cObj->currentRecordNumber = 0;
                 $pageRepository = $this->getPageRepository();
                 foreach ($this->itemArray as $val) {
                     $row = $this->data[$val['table']][$val['id']] ?? null;
-                    if ($row === null) {
+                    if (!is_array($row)) {
                         continue;
                     }
                     // Perform overlays if necessary (records coming from category collections are already overlaid)
-                    if ($source) {
+                    if ($source !== '') {
                         // Versioning preview
                         $pageRepository->versionOL($val['table'], $row);
                         // Language overlay
@@ -108,20 +104,17 @@ class RecordsContentObject extends AbstractContentObject
                         }
                     }
                     // Might be unset during the overlay process
-                    if (is_array($row)
-                        && $this->isRecordsPageAccessible($val['table'], $row, $conf ?? [])
-                        && !($frontendController->recordRegister[$val['table'] . ':' . $val['id']] ?? false)
-                    ) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    if ($this->isRecordsPageAccessible($val['table'], $row, $conf)) {
                         $renderObjName = ($conf['conf.'][$val['table']] ?? false) ? $conf['conf.'][$val['table']] : '<' . $val['table'];
                         $renderObjKey = ($conf['conf.'][$val['table']] ?? false) ? 'conf.' . $val['table'] : '';
                         $renderObjConf = ($conf['conf.'][$val['table'] . '.'] ?? false) ? $conf['conf.'][$val['table'] . '.'] : [];
-                        $this->cObj->currentRecordNumber++;
-                        $cObj->parentRecordNumber = $this->cObj->currentRecordNumber;
-                        $frontendController->currentRecord = $val['table'] . ':' . $val['id'];
                         $this->cObj->lastChanged($row['tstamp'] ?? 0);
                         $cObj->setRequest($this->request);
                         $cObj->start($row, $val['table']);
-                        $tmpValue = $cObj->cObjGetSingle($renderObjName, $renderObjConf, $renderObjKey);
+                        $tmpValue = $this->dispatchAfterRecordIsRenderedEvent($cObj->cObjGetSingle($renderObjName, $renderObjConf, $renderObjKey), $val['table'], $row);
                         $theValue .= $tmpValue;
                     }
                 }
@@ -133,11 +126,6 @@ class RecordsContentObject extends AbstractContentObject
         }
         if (isset($conf['stdWrap.'])) {
             $theValue = $this->cObj->stdWrap($theValue, $conf['stdWrap.']);
-        }
-        // Restore
-        $frontendController->currentRecord = $originalRec;
-        if ($originalRec) {
-            --$frontendController->recordRegister[$originalRec];
         }
         return $theValue;
     }
@@ -239,5 +227,21 @@ class RecordsContentObject extends AbstractContentObject
                 }
             }
         }
+    }
+
+    private function dispatchAfterRecordIsRenderedEvent(string $content, string $table, array $row): string
+    {
+        try {
+            $record = $this->recordFactory->createResolvedRecordFromDatabaseRow($table, $row);
+        } catch (\Exception) {
+            try {
+                // e.g. a custom "selectFields" omitting system fields prevents resolving
+                $record = $this->recordFactory->createRawRecord($table, $row);
+            } catch (\Exception) {
+                // e.g. tables without TCA or rows lacking the type field must still render
+                return $content;
+            }
+        }
+        return $this->eventDispatcher->dispatch(new AfterRecordIsRenderedEvent($content, $record, $this->request))->getRenderedRecord();
     }
 }

@@ -30,7 +30,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function intProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('int')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -40,7 +40,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function floatProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('float')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -50,7 +50,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function boolProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('bool')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -60,7 +60,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function objectProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('object')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -70,7 +70,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function arrayProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('array')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -80,7 +80,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function mixedProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('mixed')->getTypes();
 
         self::assertCount(0, $propertyTypes);
@@ -89,7 +89,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function nullableIntProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('nullableInt')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -101,14 +101,16 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function listWithSquareBracketsSyntaxProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('listWithSquareBracketsSyntax')->getTypes();
 
         self::assertTrue($propertyTypes[0]->isCollection());
         self::assertSame('array', $propertyTypes[0]->getBuiltinType());
 
-        self::assertCount(1, $propertyTypes[0]->getCollectionKeyTypes());
+        // "string[]" does not promise integer keys, only "list<string>" does
+        self::assertCount(2, $propertyTypes[0]->getCollectionKeyTypes());
         self::assertSame('int', $propertyTypes[0]->getCollectionKeyTypes()[0]->getBuiltinType());
+        self::assertSame('string', $propertyTypes[0]->getCollectionKeyTypes()[1]->getBuiltinType());
 
         self::assertCount(1, $propertyTypes[0]->getCollectionValueTypes());
         self::assertSame('string', $propertyTypes[0]->getCollectionValueTypes()[0]->getBuiltinType());
@@ -117,15 +119,17 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function listWithArraySyntaxWithoutKeyValueTypeProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('listWithArraySyntaxWithoutKeyValueType')->getTypes();
 
         self::assertCount(1, $propertyTypes);
         self::assertTrue($propertyTypes[0]->isCollection());
         self::assertSame('array', $propertyTypes[0]->getBuiltinType());
 
-        self::assertCount(1, $propertyTypes[0]->getCollectionKeyTypes());
+        // "array<string>" does not promise integer keys, only "list<string>" does
+        self::assertCount(2, $propertyTypes[0]->getCollectionKeyTypes());
         self::assertSame('int', $propertyTypes[0]->getCollectionKeyTypes()[0]->getBuiltinType());
+        self::assertSame('string', $propertyTypes[0]->getCollectionKeyTypes()[1]->getBuiltinType());
 
         self::assertCount(1, $propertyTypes[0]->getCollectionValueTypes());
         self::assertSame('string', $propertyTypes[0]->getCollectionValueTypes()[0]->getBuiltinType());
@@ -134,7 +138,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function listWithArraySyntaxWithKeyValueTypeProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('listWithArraySyntaxWithKeyValueType')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -149,9 +153,27 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     }
 
     #[Test]
+    public function listWithListSyntaxProperty(): void
+    {
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
+            ->getProperty('listWithListSyntax')->getTypes();
+
+        self::assertCount(1, $propertyTypes);
+        self::assertTrue($propertyTypes[0]->isCollection());
+        self::assertSame('array', $propertyTypes[0]->getBuiltinType());
+
+        // "list<string>" is the only notation promising integer keys
+        self::assertCount(1, $propertyTypes[0]->getCollectionKeyTypes());
+        self::assertSame('int', $propertyTypes[0]->getCollectionKeyTypes()[0]->getBuiltinType());
+
+        self::assertCount(1, $propertyTypes[0]->getCollectionValueTypes());
+        self::assertSame('string', $propertyTypes[0]->getCollectionValueTypes()[0]->getBuiltinType());
+    }
+
+    #[Test]
     public function objectStorageWithArraySyntaxWithoutKeyValueTypeProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('objectStorageWithArraySyntaxWithoutKeyValueType')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -160,8 +182,8 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
         self::assertSame(ObjectStorage::class, $propertyTypes[0]->getClassName());
 
         self::assertCount(2, $propertyTypes[0]->getCollectionKeyTypes());
-        self::assertSame('string', $propertyTypes[0]->getCollectionKeyTypes()[0]->getBuiltinType());
-        self::assertSame('int', $propertyTypes[0]->getCollectionKeyTypes()[1]->getBuiltinType());
+        self::assertSame('int', $propertyTypes[0]->getCollectionKeyTypes()[0]->getBuiltinType());
+        self::assertSame('string', $propertyTypes[0]->getCollectionKeyTypes()[1]->getBuiltinType());
 
         self::assertCount(1, $propertyTypes[0]->getCollectionValueTypes());
         self::assertSame('object', $propertyTypes[0]->getCollectionValueTypes()[0]->getBuiltinType());
@@ -172,28 +194,28 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function intOrStringProperty(): void
     {
-        $property = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $property = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('intOrString');
         $propertyTypes = $property->getTypes();
 
         self::assertCount(2, $propertyTypes);
-        self::assertSame('string', $propertyTypes[0]->getBuiltinType());
-        self::assertSame('int', $propertyTypes[1]->getBuiltinType());
+        self::assertSame('int', $propertyTypes[0]->getBuiltinType());
+        self::assertSame('string', $propertyTypes[1]->getBuiltinType());
         self::assertFalse($propertyTypes[0]->isNullable());
         self::assertFalse($propertyTypes[1]->isNullable());
         self::assertFalse($propertyTypes[1]->isNullable());
-        self::assertSame('string', $property->getPrimaryType()?->getBuiltinType());
+        self::assertSame('int', $property->getPrimaryType()?->getBuiltinType());
     }
 
     #[Test]
     public function nullableIntOrStringProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('nullableIntOrString')->getTypes();
 
         self::assertCount(2, $propertyTypes);
-        self::assertSame('string', $propertyTypes[0]->getBuiltinType());
-        self::assertSame('int', $propertyTypes[1]->getBuiltinType());
+        self::assertSame('int', $propertyTypes[0]->getBuiltinType());
+        self::assertSame('string', $propertyTypes[1]->getBuiltinType());
         self::assertTrue($propertyTypes[0]->isNullable());
         self::assertTrue($propertyTypes[1]->isNullable());
     }
@@ -201,7 +223,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function concreteEntityOrLazyLoadingProxyProperty(): void
     {
-        $property = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $property = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('concreteEntityOrLazyLoadingProxy');
         $propertyTypes = $property->getTypes();
 
@@ -214,7 +236,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function objectStorageProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('objectStorage')->getTypes();
 
         self::assertCount(1, $propertyTypes);
@@ -225,7 +247,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function lazyObjectStorage(): void
     {
-        $property = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $property = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('lazyObjectStorage');
         $propertyTypes = $property->getTypes();
 
@@ -239,7 +261,7 @@ final class PropertyWithTypeDeclarationsTest extends UnitTestCase
     #[Test]
     public function arrayAccessAndTraversableProperty(): void
     {
-        $propertyTypes = (new ClassSchema(DummyEntityWithTypeDeclarations::class))
+        $propertyTypes = new ClassSchema(DummyEntityWithTypeDeclarations::class)
             ->getProperty('arrayAccessAndTraversable')->getTypes();
 
         self::assertCount(2, $propertyTypes);

@@ -17,13 +17,32 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Persistence\Generic;
 
+use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
+use TYPO3\CMS\Core\Http\ApplicationType;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
 
 /**
  * Query settings, reflects the settings unique to TYPO3 CMS.
+ *
+ * The settings stored in this class are used by Extbase's persistence layer to control which data
+ * is retrieved from the database.
+ * It is possible for each Query to have a dedicated Typo3QuerySettings object, but those settings
+ * are not adhered to when reconstituting relations of entity objects. There a completely new
+ * Typo3QuerySettings object is used, with default settings applied.
+ * While this alone already may cause unexpected behavior, it is even worse when considering
+ * the contexts of TYPO3: Frontend, backend and CLI.
+ * Due to the nature of TYPO3, the enable-fields must be ignored in backend context, as an editor
+ * needs to see all records, regardless whether those are publicly (frontend) visible or not.
+ * This class has therefore the responsitiblity to provide different defaults, depending on the context.
+ * Unfortunately, the only way to determine the current context is by relying on the **global** request object.
+ *
+ * @todo: Future improvements should split this class into dedicated classes for backend, frontend (and possibly CLI) context.
+ *        Furthermore, it must be re-evaluated if the object reconstitution within DataMapper should actually inherit
+ *        the query settings the initial query was based upon.
  */
 #[Autoconfigure(public: true, shared: false)]
 class Typo3QuerySettings implements QuerySettingsInterface
@@ -75,6 +94,12 @@ class Typo3QuerySettings implements QuerySettingsInterface
         $this->context = clone $context;
         $this->configurationManager = $configurationManager;
         $this->languageAspect = $this->context->getAspect('language');
+        // see note in class' phpdoc about this condition
+        if (($GLOBALS['TYPO3_REQUEST'] ?? null) instanceof ServerRequestInterface
+            && ApplicationType::fromRequest($GLOBALS['TYPO3_REQUEST'])->isBackend()
+        ) {
+            $this->setIgnoreEnableFields(true);
+        }
     }
 
     /**
@@ -212,5 +237,36 @@ class Typo3QuerySettings implements QuerySettingsInterface
     public function getIncludeDeleted(): bool
     {
         return $this->includeDeleted;
+    }
+
+    /**
+     * Only the settings themselves are serialized. The injected services are runtime
+     * dependencies and would otherwise drag the whole DI container into the payload.
+     *
+     * @internal only to be used within Extbase, not part of TYPO3 Core API.
+     */
+    public function __sleep(): array
+    {
+        return [
+            'respectStoragePage',
+            'storagePageIds',
+            'ignoreEnableFields',
+            'enableFieldsToBeIgnored',
+            'includeDeleted',
+            'respectSysLanguage',
+            'languageAspect',
+        ];
+    }
+
+    /**
+     * Restores the runtime dependencies stripped by __sleep().
+     *
+     * @internal only to be used within Extbase, not part of TYPO3 Core API.
+     */
+    public function __wakeup(): void
+    {
+        // QuerySettings should always keep its own Context, see __construct()
+        $this->context = clone GeneralUtility::makeInstance(Context::class);
+        $this->configurationManager = GeneralUtility::makeInstance(ConfigurationManagerInterface::class);
     }
 }

@@ -28,7 +28,7 @@ class VariablesContext implements Applicable
 
     public static function create(Variables $variables): self
     {
-        return new static($variables);
+        return new self($variables);
     }
 
     private function __construct(Variables $variables)
@@ -49,7 +49,7 @@ class VariablesContext implements Applicable
         $missingApplicables = array_udiff(
             $this->requiredApplicables,
             $applicables,
-            [$this, 'compareApplicables']
+            $this->compareApplicables(...)
         );
         return count($missingApplicables) === 0;
     }

@@ -18,13 +18,15 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\ViewHelpers;
 
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
+use TYPO3\CMS\Core\Resource\FileCarrierInterface;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileReference;
+use TYPO3\CMS\Core\Resource\ProcessableFileInterface;
+use TYPO3\CMS\Core\Resource\ProcessedFile;
 use TYPO3\CMS\Core\Resource\Rendering\RendererRegistry;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Service\ImageService;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to render a given media file (audio/video/images) with the correct HTML tag.
@@ -48,6 +50,12 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
      */
     protected $tagName = 'img';
 
+    public function __construct(
+        private readonly RendererRegistry $rendererRegistry,
+    ) {
+        parent::__construct();
+    }
+
     public function initializeArguments(): void
     {
         parent::initializeArguments();
@@ -63,9 +71,6 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
 
     /**
      * Render a given media file.
-     *
-     * @throws \UnexpectedValueException
-     * @throws Exception
      */
     public function render(): string
     {
@@ -75,27 +80,30 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
         $height = ($this->arguments['height'] ?? 0);
 
         // get Resource Object (non ExtBase version)
-        if (is_callable([$file, 'getOriginalResource'])) {
+        if ($file instanceof FileCarrierInterface) {
             // We have a domain model, so we need to fetch the FAL resource object from there
             $file = $file->getOriginalResource();
         }
 
         if (!$file instanceof FileInterface) {
-            throw new \UnexpectedValueException('Supplied file object type ' . get_class($file) . ' must be FileInterface.', 1454252193);
+            throw new InvalidArgumentValueException('Supplied file object type ' . get_class($file) . ' must be FileInterface.', 1454252193);
         }
 
         if ((string)($this->arguments['fileExtension'] ?? '') && !GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], (string)$this->arguments['fileExtension'])) {
-            throw new Exception(
+            throw new InvalidArgumentValueException(
                 'The extension ' . $this->arguments['fileExtension'] . ' is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\']'
                 . ' as a valid image file extension and can not be processed.',
                 1619030957
             );
         }
 
-        $fileRenderer = GeneralUtility::makeInstance(RendererRegistry::class)->getRenderer($file);
+        $fileRenderer = $this->rendererRegistry->getRenderer($file);
 
         // Fallback to image when no renderer is found
         if ($fileRenderer === null) {
+            if (!$file instanceof ProcessableFileInterface) {
+                throw new InvalidArgumentValueException('Supplied file object type ' . get_class($file) . ' can not be processed as an image.', 1454252194);
+            }
             return $this->renderImage($file, $width, $height, $this->arguments['fileExtension'] ?? null);
         }
         $arguments = [];
@@ -116,7 +124,7 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
      * @param string $height
      * @return string Rendered img tag
      */
-    private function renderImage(FileInterface $image, $width, $height, ?string $fileExtension): string
+    private function renderImage(FileInterface&ProcessableFileInterface $image, $width, $height, ?string $fileExtension): string
     {
         $cropVariant = (string)(($this->arguments['cropVariant'] ?? '') ?: 'default');
         $cropString = $image instanceof FileReference ? $image->getProperty('crop') : '';
@@ -130,14 +138,13 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
         if (!empty($fileExtension)) {
             $processingInstructions['fileExtension'] = $fileExtension;
         }
-        $imageService = $this->getImageService();
-        $processedImage = $imageService->applyProcessingInstructions($image, $processingInstructions);
-        $imageUri = $imageService->getImageUri($processedImage);
+        $processedImage = $image->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, $processingInstructions);
+        $imageUri = (string)$processedImage->getPublicUrl();
 
         if (!$this->tag->hasAttribute('data-focus-area')) {
             $focusArea = $cropVariantCollection->getFocusArea($cropVariant);
             if (!$focusArea->isEmpty()) {
-                $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($image));
+                $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($processedImage));
             }
         }
         $this->tag->addAttribute('src', $imageUri);
@@ -155,17 +162,12 @@ final class MediaViewHelper extends AbstractTagBasedViewHelper
 
         // The alt-attribute is mandatory to have valid html-code, therefore add it even if it is empty
         if (empty($this->additionalArguments['alt'])) {
-            $this->tag->addAttribute('alt', $alt);
+            $this->tag->addAttribute('alt', $alt ?? '');
         }
         if (empty($this->additionalArguments['title']) && !empty($title)) {
             $this->tag->addAttribute('title', $title);
         }
 
         return $this->tag->render();
-    }
-
-    private function getImageService(): ImageService
-    {
-        return GeneralUtility::makeInstance(ImageService::class);
     }
 }

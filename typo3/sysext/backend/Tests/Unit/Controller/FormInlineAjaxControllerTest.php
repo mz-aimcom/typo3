@@ -17,16 +17,28 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\FormInlineAjaxController;
 use TYPO3\CMS\Backend\Form\FormDataCompiler;
 use TYPO3\CMS\Backend\Form\InlineStackProcessor;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Schema\FieldTypeFactory;
+use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class FormInlineAjaxControllerTest extends UnitTestCase
 {
     protected function setUp(): void
@@ -38,165 +50,183 @@ final class FormInlineAjaxControllerTest extends UnitTestCase
     #[Test]
     public function createActionThrowsExceptionIfContextIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => '',
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => '',
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751361);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->createAction($request);
     }
 
     #[Test]
     public function createActionThrowsExceptionIfContextConfigSectionIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode([ 'config' => '' ]),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode([ 'config' => '' ]),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751362);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->createAction($request);
     }
 
     #[Test]
     public function createActionThrowsExceptionIfContextConfigSectionDoesNotValidate(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode(
-                        [
-                            'config' => json_encode([
-                                'type' => 'inline',
-                            ]),
-                            'hmac' => 'anInvalidHash',
-                        ]
-                    ),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode(
+                            [
+                                'config' => json_encode([
+                                    'type' => 'inline',
+                                ]),
+                                'hmac' => 'anInvalidHash',
+                            ]
+                        ),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751363);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->createAction($request);
     }
 
     #[Test]
     public function detailsActionThrowsExceptionIfContextIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => '',
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => '',
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751361);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->detailsAction($request);
     }
 
     #[Test]
     public function detailsActionThrowsExceptionIfContextConfigSectionIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode([ 'config' => '' ]),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode([ 'config' => '' ]),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751362);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->detailsAction($request);
     }
 
     #[Test]
     public function detailsActionThrowsExceptionIfContextConfigSectionDoesNotValidate(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode(
-                        [
-                            'config' => json_encode([
-                                'type' => 'inline',
-                            ]),
-                            'hmac' => 'anInvalidHash',
-                        ]
-                    ),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode(
+                            [
+                                'config' => json_encode([
+                                    'type' => 'inline',
+                                ]),
+                                'hmac' => 'anInvalidHash',
+                            ]
+                        ),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751363);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->detailsAction($request);
     }
 
     #[Test]
     public function synchronizeLocalizeActionThrowsExceptionIfContextIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => '',
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => '',
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751361);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->synchronizeLocalizeAction($request);
     }
 
     #[Test]
     public function synchronizeLocalizeActionThrowsExceptionIfContextConfigSectionIsEmpty(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode([ 'config' => '' ]),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode([ 'config' => '' ]),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751362);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->synchronizeLocalizeAction($request);
     }
 
     #[Test]
     public function synchronizeLocalizeActionThrowsExceptionIfContextConfigSectionDoesNotValidate(): void
     {
-        $request = (new ServerRequest())->withQueryParams(
-            [
-                'ajax' => [
-                    'context' => json_encode(
-                        [
-                            'config' => json_encode([
-                                'type' => 'inline',
-                            ]),
-                            'hmac' => 'anInvalidHash',
-                        ]
-                    ),
-                ],
-            ]
-        );
+        $request = new ServerRequest()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withQueryParams(
+                [
+                    'ajax' => [
+                        'context' => json_encode(
+                            [
+                                'config' => json_encode([
+                                    'type' => 'inline',
+                                ]),
+                                'hmac' => 'anInvalidHash',
+                            ]
+                        ),
+                    ],
+                ]
+            );
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1489751363);
-        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), $this->createMock(InlineStackProcessor::class));
+        $subject = new FormInlineAjaxController(new FormDataCompiler(), new HashService(), new NodeFactory(), self::createStub(InlineStackProcessor::class), $this->getTcaSchemaFactory(), new FlashMessageService());
         $subject->synchronizeLocalizeAction($request);
     }
 
@@ -207,7 +237,7 @@ final class FormInlineAjaxControllerTest extends UnitTestCase
     #[Test]
     public function getInlineExpandCollapseStateArraySwitchesToFallbackIfTheBackendUserDoesNotHaveAnUCInlineViewProperty(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser = self::createStub(BackendUserAuthentication::class);
 
         $mockObject = $this->getAccessibleMock(
             FormInlineAjaxController::class,
@@ -229,7 +259,7 @@ final class FormInlineAjaxControllerTest extends UnitTestCase
     #[Test]
     public function getInlineExpandCollapseStateArrayWillUnserializeUCInlineViewPropertyAsAnArrayWithData(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser = self::createStub(BackendUserAuthentication::class);
         $backendUser->uc = ['inlineView' => json_encode(['foo' => 'bar'])];
 
         $mockObject = $this->getAccessibleMock(
@@ -243,5 +273,19 @@ final class FormInlineAjaxControllerTest extends UnitTestCase
         $result = $mockObject->_call('getInlineExpandCollapseStateArray');
 
         self::assertNotEmpty($result);
+    }
+
+    private function getTcaSchemaFactory(): TcaSchemaFactory
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atMost(PHP_INT_MAX))->method('has')->with(self::isString())->willReturn(false);
+        return new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
     }
 }

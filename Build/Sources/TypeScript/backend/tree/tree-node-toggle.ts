@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { html, LitElement, type TemplateResult } from 'lit';
 import '@typo3/backend/element/icon-element';
 
@@ -20,7 +20,7 @@ export default class TreeNodeToggle extends LitElement {
   @property({ type: String, reflect: true, attribute: 'aria-expanded' }) expanded: string = 'false';
 
   protected override render(): TemplateResult | symbol {
-    return html`<typo3-backend-icon size="small" identifier="${this.expanded === 'true' ? 'actions-chevron-down' : 'actions-chevron-right'}"></typo3-backend-icon>`;
+    return html`<typo3-backend-icon size="small" identifier="${this.expanded === 'true' ? 'actions-chevron-down' : 'actions-chevron-end'}"></typo3-backend-icon>`;
   }
 }
 

@@ -24,7 +24,6 @@ use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Context\LanguageAspectFactory;
-use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Routing\PageArguments;
@@ -39,9 +38,12 @@ use TYPO3\CMS\Frontend\Page\PageAccessFailureReasons;
  * used when simulating / previewing pages or content through query params when
  * previewing access or time restricted content via for example backend preview links
  */
-class PreviewSimulator implements MiddlewareInterface
+readonly class PreviewSimulator implements MiddlewareInterface
 {
-    public function __construct(protected readonly Context $context) {}
+    public function __construct(
+        protected Context $context,
+        protected PageRepository $pageRepository,
+    ) {}
 
     /**
      * Evaluates preview settings if a backend user is logged in
@@ -79,8 +81,7 @@ class PreviewSimulator implements MiddlewareInterface
             $this->context->setAspect('frontend.preview', new PreviewAspect($isPreview));
 
             if ($showHiddenPages || $rootlineRequiresPreviewFlag) {
-                $newAspect = new VisibilityAspect(true, $visibilityAspect->includeHiddenContent(), $visibilityAspect->includeDeletedRecords(), $visibilityAspect->includeScheduledRecords());
-                $this->context->setAspect('visibility', $newAspect);
+                $this->context->setAspect('visibility', $visibilityAspect->withIncludeHiddenPages(true));
             }
         }
 
@@ -94,7 +95,6 @@ class PreviewSimulator implements MiddlewareInterface
     protected function checkIfRootlineRequiresPreview(int $pageId): bool
     {
         $rootlineUtility = GeneralUtility::makeInstance(RootlineUtility::class, $pageId, '', $this->context);
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $this->context);
         $groupRestricted = false;
         $timeRestricted = false;
         $hidden = false;
@@ -116,7 +116,7 @@ class PreviewSimulator implements MiddlewareInterface
             }
         } catch (\Exception) {
             // if the rootline cannot be resolved (404 because of delete placeholder in workspaces for example)
-            // we do not want to fail here but rather continue handling the request to trigger the TSFE 404 handling
+            // we do not want to fail here but rather continue handling the request to trigger the middleware 404 handling
         }
         return $groupRestricted || $timeRestricted || $hidden;
     }
@@ -126,16 +126,15 @@ class PreviewSimulator implements MiddlewareInterface
      */
     protected function checkIfPageIsHidden(int $pageId, ServerRequestInterface $request): bool
     {
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class, $this->context);
         $site = $request->getAttribute('site', null);
         // always check both the page in the requested language and the page in the default language, as due to the
         // overlay handling, a hidden default page will require setting the preview flag to allow previewing of the
         // translation
         $languageAspectFromRequest = LanguageAspectFactory::createFromSiteLanguage($request->getAttribute('language', $site->getDefaultLanguage()));
-        $pageIsHidden = $pageRepository->checkIfPageIsHidden($pageId, $languageAspectFromRequest);
+        $pageIsHidden = $this->pageRepository->checkIfPageIsHidden($pageId, $languageAspectFromRequest);
 
         if ($languageAspectFromRequest->getId() > 0) {
-            $pageIsHidden = $pageIsHidden || $pageRepository->checkIfPageIsHidden(
+            $pageIsHidden = $pageIsHidden || $this->pageRepository->checkIfPageIsHidden(
                 $pageId,
                 LanguageAspectFactory::createFromSiteLanguage($site->getDefaultLanguage())
             );
@@ -146,7 +145,7 @@ class PreviewSimulator implements MiddlewareInterface
     /**
      * Simulate dates for preview functionality
      * When previewing a time restricted page from the backend, the parameter ADMCMD_simTime it added containing
-     * a timestamp with the time to preview. The globals 'SIM_EXEC_TIME' and 'SIM_ACCESS_TIME' and the 'DateTimeAspect'
+     * a timestamp with the time to preview. The global 'SIM_EXEC_TIME' and the 'DateTimeAspect'
      * are used to simulate rendering at that point in time.
      * Ideally the global access is removed in future versions.
      * This functionality needs to be loaded after BackendAuthenticator as it is only relevant for
@@ -160,7 +159,6 @@ class PreviewSimulator implements MiddlewareInterface
         }
 
         $GLOBALS['SIM_EXEC_TIME'] = $queryTime;
-        $GLOBALS['SIM_ACCESS_TIME'] = $queryTime - $queryTime % 60;
         $this->context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($queryTime)));
         return true;
     }

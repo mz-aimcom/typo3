@@ -33,13 +33,15 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class MimeTypeValidatorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $coreExtensionsToLoad = ['form'];
 
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $GLOBALS['TYPO3_REQUEST'] = $request;
         mkdir($this->instancePath . '/tmp');
         file_put_contents($this->instancePath . '/tmp/file.exe', "MZ\x90\x00\x03\x00");
@@ -83,8 +85,8 @@ final class MimeTypeValidatorTest extends FunctionalTestCase
         $options = ['allowedMimeTypes' => ['image/jpeg']];
         $validator = new MimeTypeValidator();
         $validator->setOptions($options);
-        $mockedStorage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
-        $file = new File(['name' => 'foo', 'identifier' => '/foo', 'mime_type' => 'image/png'], $mockedStorage);
+        $storageStub = self::createStub(ResourceStorage::class);
+        $file = new File(['name' => 'foo', 'identifier' => '/foo', 'mime_type' => 'image/png'], $storageStub);
         self::assertTrue($validator->validate($file)->hasErrors());
     }
 
@@ -125,12 +127,12 @@ final class MimeTypeValidatorTest extends FunctionalTestCase
         $options = ['allowedMimeTypes' => $allowedMimeTypes];
         $validator = new MimeTypeValidator();
         $validator->setOptions($options);
-        $mockedStorage = $this->getMockBuilder(ResourceStorage::class)->disableOriginalConstructor()->getMock();
+        $storageStub = self::createStub(ResourceStorage::class);
         $file = new File([
             'name' => $fileName,
             'identifier' => '/folder/' . $fileName,
             'mime_type' => $fileMimeType,
-        ], $mockedStorage);
+        ], $storageStub);
         $result = $validator->validate($file);
         self::assertSame($isValid, !$result->hasErrors());
     }
@@ -204,7 +206,7 @@ final class MimeTypeValidatorTest extends FunctionalTestCase
 
         $resource = new PseudoFile($uploadData);
         $result = $validator->validate($resource);
-        $errorCodes = array_map([$this, 'resolveErrorCode'], $result->getErrors());
+        $errorCodes = array_map($this->resolveErrorCode(...), $result->getErrors());
         self::assertSame($expectedErrorCodes, $errorCodes);
     }
 

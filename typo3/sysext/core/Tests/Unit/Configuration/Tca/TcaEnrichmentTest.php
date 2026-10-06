@@ -37,7 +37,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         ];
         $expected = $tca;
         $expected['aTable']['columns']['myDisableField'] = [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.enabled',
+            'label' => 'core.db.general:enabled',
             'exclude' => true,
             'config' => [
                 'type' => 'check',
@@ -51,7 +51,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -72,7 +72,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -90,13 +90,13 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = $tca;
         $expected['aTable']['columns']['myStarttimeField'] = [
             'exclude' => true,
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.starttime',
+            'label' => 'core.db.general:starttime',
             'config' => [
                 'type' => 'datetime',
                 'default' => 0,
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -117,7 +117,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -135,7 +135,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = $tca;
         $expected['aTable']['columns']['myEndtimeField'] = [
             'exclude' => true,
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.endtime',
+            'label' => 'core.db.general:endtime',
             'config' => [
                 'type' => 'datetime',
                 'default' => 0,
@@ -144,7 +144,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -165,7 +165,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -183,7 +183,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = $tca;
         $expected['aTable']['columns']['myFeGroupField'] = [
             'exclude' => true,
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.fe_group',
+            'label' => 'core.db.general:fe_group',
             'config' => [
                 'type' => 'select',
                 'renderType' => 'selectMultipleSideBySide',
@@ -191,15 +191,15 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'maxitems' => 20,
                 'items' => [
                     [
-                        'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.hide_at_login',
+                        'label' => 'core.db.general:fe_group.hide_at_login',
                         'value' => -1,
                     ],
                     [
-                        'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.any_login',
+                        'label' => 'core.db.general:fe_group.any_login',
                         'value' => -2,
                     ],
                     [
-                        'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.usergroups',
+                        'label' => 'core.db.general:fe_group.usergroups',
                         'value' => '--div--',
                     ],
                 ],
@@ -207,7 +207,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'foreign_table' => 'fe_groups',
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -228,7 +228,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -244,13 +244,13 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = $tca;
         $expected['aTable']['columns']['myEditLockField'] = [
             'displayCond' => 'HIDE_FOR_NON_ADMINS',
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:editlock',
+            'label' => 'core.db.general:editlock',
             'config' => [
                 'type' => 'check',
                 'renderType' => 'checkboxToggle',
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -269,7 +269,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -285,7 +285,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = $tca;
         $expected['aTable']['columns']['myDescriptionField'] = [
             'exclude' => true,
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.description',
+            'label' => 'core.db.general:description',
             'config' => [
                 'type' => 'text',
                 'rows' => 5,
@@ -293,7 +293,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'max' => 2000,
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -312,7 +312,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -327,12 +327,12 @@ final class TcaEnrichmentTest extends UnitTestCase
         ];
         $expected = [
             'exclude' => true,
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.language',
+            'label' => 'core.db.general:language',
             'config' => [
                 'type' => 'language',
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca)['aTable']['columns']['myLanguageField']);
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca)['aTable']['columns']['myLanguageField']);
     }
 
     #[Test]
@@ -353,7 +353,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = [
             'foo' => 'iAmBrokenButStillKept',
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca)['aTable']['columns']['myLanguageField']);
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca)['aTable']['columns']['myLanguageField']);
     }
 
     #[Test]
@@ -366,7 +366,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame('l10n_parent', (new TcaEnrichment())->enrich($tca)['aTable']['ctrl']['transOrigPointerField']);
+        self::assertSame('l10n_parent', new TcaEnrichment()->enrich($tca)['aTable']['ctrl']['transOrigPointerField']);
     }
 
     #[Test]
@@ -380,7 +380,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 ],
             ],
         ];
-        self::assertSame('myTransOrigPointerField', (new TcaEnrichment())->enrich($tca)['aTable']['ctrl']['transOrigPointerField']);
+        self::assertSame('myTransOrigPointerField', new TcaEnrichment()->enrich($tca)['aTable']['ctrl']['transOrigPointerField']);
     }
 
     #[Test]
@@ -396,7 +396,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         ];
         $expected = [
             'displayCond' => 'FIELD:myLanguageField:>:0',
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_general.xlf:LGL.l18n_parent',
+            'label' => 'core.db.general:l18n_parent',
             'config' => [
                 'type' => 'select',
                 'renderType' => 'selectSingle',
@@ -411,7 +411,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'default' => 0,
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca)['aTable']['columns']['myTransOrigPointerField']);
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca)['aTable']['columns']['myTransOrigPointerField']);
     }
 
     #[Test]
@@ -433,7 +433,7 @@ final class TcaEnrichmentTest extends UnitTestCase
         $expected = [
             'foo' => 'iAmBrokenButStillKept',
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca)['aTable']['columns']['myTransOrigPointerField']);
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca)['aTable']['columns']['myTransOrigPointerField']);
     }
 
     #[Test]
@@ -453,7 +453,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'default' => '',
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -472,7 +472,7 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -491,7 +491,7 @@ final class TcaEnrichmentTest extends UnitTestCase
                 'type' => 'passthrough',
             ],
         ];
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 
     #[Test]
@@ -510,6 +510,6 @@ final class TcaEnrichmentTest extends UnitTestCase
             ],
         ];
         $expected = $tca;
-        self::assertSame($expected, (new TcaEnrichment())->enrich($tca));
+        self::assertSame($expected, new TcaEnrichment()->enrich($tca));
     }
 }

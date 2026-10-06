@@ -31,8 +31,6 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * ```
  * $normalizedParams = $request->getAttribute('normalizedParams')
  * ```
- *
- * This class substitutes the old GeneralUtility::getIndpEnv() method.
  */
 class NormalizedParams
 {
@@ -44,15 +42,13 @@ class NormalizedParams
      * - www.domain.com
      * - www.domain.com:443
      * - 192.168.1.42:80
-     *
-     * @var string
      */
-    protected $httpHost = '';
+    protected string $httpHost = '';
 
     /**
-     * @var bool True if request has been done via HTTPS
+     * True if request has been done via HTTPS
      */
-    protected $isHttps = false;
+    protected bool $isHttps = false;
 
     /**
      * Sanitized HTTP_HOST with protocol
@@ -60,27 +56,21 @@ class NormalizedParams
      * scheme://host[:port]
      *
      * - https://www.domain.com
-     *
-     * @var string
      */
-    protected $requestHost = '';
+    protected string $requestHost = '';
 
     /**
      * Host / domain part of HTTP_HOST, no port, no protocol
      *
      * - www.domain.com
      * - 192.168.1.42
-     *
-     * @var string
      */
-    protected $requestHostOnly = '';
+    protected string $requestHostOnly = '';
 
     /**
      * Port of HTTP_HOST if given
-     *
-     * @var int
      */
-    protected $requestPort = 0;
+    protected int $requestPort = 0;
 
     /**
      * Entry script path of URI, without domain and without query parameters, with leading /
@@ -89,10 +79,8 @@ class NormalizedParams
      *
      * - /index.php
      * - /typo3/index.php
-     *
-     * @var string
      */
-    protected $scriptName = '';
+    protected string $scriptName = '';
 
     /**
      * REQUEST URI without domain and scheme, with trailing slash
@@ -101,10 +89,8 @@ class NormalizedParams
      *
      * - /some/path?p1=parameter1&p2[key]=value
      * - /typo3/some/path?p1=parameter1&p2[key]=value
-     *
-     * @var string
      */
-    protected $requestUri = '';
+    protected string $requestUri = '';
 
     /**
      * REQUEST URI with scheme, host, port, path and query
@@ -113,10 +99,8 @@ class NormalizedParams
      *
      * - http://www.domain.com/some/path?p1=parameter1&p2[key]=value
      * - http://www.domain.com/typo3/some/path?id=42
-     *
-     * @var string
      */
-    protected $requestUrl = '';
+    protected string $requestUrl = '';
 
     /**
      * REQUEST URI with scheme, host, port and path, but *without* query part
@@ -125,10 +109,8 @@ class NormalizedParams
      *
      * - http://www.domain.com/index.php
      * - http://www.domain.com/typo3/index.php
-     *
-     * @var string
      */
-    protected $requestScript = '';
+    protected string $requestScript = '';
 
     /**
      * Full Uri with path, but without script name and query parts
@@ -137,43 +119,33 @@ class NormalizedParams
      *
      * - http://www.domain.com/
      * - http://www.domain.com/typo3/
-     *
-     * @var string
      */
-    protected $requestDir = '';
+    protected string $requestDir = '';
 
     /**
      * True if request via a reverse proxy is detected
-     *
-     * @var bool
      */
-    protected $isBehindReverseProxy = false;
+    protected bool $isBehindReverseProxy = false;
 
     /**
      * IPv4 or IPv6 address of remote client with resolved proxy setup
-     *
-     * @var string
      */
-    protected $remoteAddress = '';
+    protected string $remoteAddress = '';
 
     /**
      * Absolute server path to entry script on server filesystem
      *
      * - /var/www/index.php
      * - /var/www/typo3/index.php
-     *
-     * @var string
      */
-    protected $scriptFilename = '';
+    protected string $scriptFilename = '';
 
     /**
      * Absolute server path to web document root without trailing slash
      *
      * - /var/www
-     *
-     * @var string
      */
-    protected $documentRoot = '';
+    protected string $documentRoot = '';
 
     /**
      * Website frontend URL.
@@ -184,20 +156,16 @@ class NormalizedParams
      *
      * - https://www.domain.com/
      * - https://www.domain.com/some/sub/dir/
-     *
-     * @var string
      */
-    protected $siteUrl = '';
+    protected string $siteUrl = '';
 
     /**
      * Path part to frontend, no domain, no protocol
      *
      * - /
      * - /some/sub/dir/
-     *
-     * @var string
      */
-    protected $sitePath = '';
+    protected string $sitePath = '';
 
     /**
      * Path to script, without sub path if TYPO3 is running in sub directory, without trailing slash
@@ -205,10 +173,8 @@ class NormalizedParams
      * - index.php?id=42
      * - /some/path?id=42
      * - typo3/some/path?id=411
-     *
-     * @var string
      */
-    protected $siteScript = '';
+    protected string $siteScript = '';
 
     /**
      * Entry script path of URI, without domain and without query parameters, with leading /
@@ -216,10 +182,8 @@ class NormalizedParams
      * Will be deprecated later, use $scriptName instead as more reliable solution.
      *
      * [path_script]
-     *
-     * @var string
      */
-    protected $pathInfo = '';
+    protected string $pathInfo = '';
 
     /**
      * HTTP_REFERER
@@ -228,50 +192,40 @@ class NormalizedParams
      * scheme://host[:[port]][path]
      *
      * - https://www.domain.com/typo3/module/web/layout?id=42
-     *
-     * @var string
      */
-    protected $httpReferer = '';
+    protected string $httpReferer = '';
 
     /**
      * HTTP_USER_AGENT
      * Will be deprecated later, use $request->getServerParams()['HTTP_USER_AGENT'] instead
      *
      * - Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36
-     *
-     * @var string
      */
-    protected $httpUserAgent = '';
+    protected string $httpUserAgent = '';
 
     /**
      * HTTP_ACCEPT_ENCODING
      * Will be deprecated later, use $request->getServerParams()['HTTP_ACCEPT_ENCODING'] instead
      *
      * - gzip, deflate
-     *
-     * @var string
      */
-    protected $httpAcceptEncoding = '';
+    protected string $httpAcceptEncoding = '';
 
     /**
      * HTTP_ACCEPT_LANGUAGE
      * Will be deprecated later, use $request->getServerParams()['HTTP_ACCEPT_LANGUAGE'] instead
      *
      * - de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7
-     *
-     * @var string
      */
-    protected $httpAcceptLanguage = '';
+    protected string $httpAcceptLanguage = '';
 
     /**
      * REMOTE_HOST Resolved host name of REMOTE_ADDR if configured in web server
      * Will be deprecated later, use $request->getServerParams()['REMOTE_HOST'] instead
      *
      * - www.clientDomain.com
-     *
-     * @var string
      */
-    protected $remoteHost = '';
+    protected string $remoteHost = '';
 
     /**
      * QUERY_STRING
@@ -280,10 +234,8 @@ class NormalizedParams
      * [query]
      *
      * - id=42&foo=bar
-     *
-     * @var string
      */
-    protected $queryString = '';
+    protected string $queryString = '';
 
     /**
      * Constructor calculates all values by incoming variables.
@@ -343,6 +295,35 @@ class NormalizedParams
         $this->httpAcceptLanguage = $serverParams['HTTP_ACCEPT_LANGUAGE'] ?? '';
         $this->remoteHost = $serverParams['REMOTE_HOST'] ?? '';
         $this->queryString = $serverParams['QUERY_STRING'] ?? '';
+    }
+
+    /**
+     * Factory method, to allow TYPO3 to handle configuration options directly.
+     *
+     * @param array $serverParams - could be fulfilled by $_SERVER (on web requests)
+     * @internal framework method. Not part of TYPO3 API.
+     */
+    public static function createFromServerParams(array $serverParams, ?array $systemConfiguration = null): self
+    {
+        return new NormalizedParams(
+            $serverParams,
+            $systemConfiguration ?? $GLOBALS['TYPO3_CONF_VARS']['SYS'],
+            Environment::getCurrentScript(),
+            Environment::getPublicPath()
+        );
+    }
+
+    /**
+     * Factory method for creating normalized params from a PSR-7 server request object
+     *
+     * @internal framework method. Not part of TYPO3 API.
+     */
+    public static function createFromRequest(ServerRequestInterface $request, ?array $systemConfiguration = null): self
+    {
+        return static::createFromServerParams(
+            $request->getServerParams(),
+            $systemConfiguration ?? $GLOBALS['TYPO3_CONF_VARS']['SYS']
+        );
     }
 
     private static function encodeFileSystemPathComponentForUrlPath(string $path): string
@@ -581,8 +562,8 @@ class NormalizedParams
                 // Default if reverseProxyHeaderMultiValue is not set or set to 'none', instead of 'first' / 'last' is to
                 // ignore $serverParams['HTTP_X_FORWARDED_HOST']
                 // @todo: Maybe this default is stupid: Both SYS/reverseProxyIP hand SYS/reverseProxyHeaderMultiValue have to
-                // @todo: be configured for a working setup. It would be easier to only configure SYS/reverseProxyIP and fall
-                // @todo: back to "first" if SYS/reverseProxyHeaderMultiValue is not set.
+                //        be configured for a working setup. It would be easier to only configure SYS/reverseProxyIP and fall
+                //        back to "first" if SYS/reverseProxyHeaderMultiValue is not set.
                 if ($configuredReverseProxyHeaderMultiValue === 'last') {
                     $xForwardedHost = array_pop($xForwardedHostArray);
                 } elseif ($configuredReverseProxyHeaderMultiValue === 'first') {
@@ -804,14 +785,14 @@ class NormalizedParams
         $scriptFilenameArray = explode('/', strrev($scriptFilename));
         $path = [];
         foreach ($scriptNameArray as $segmentNumber => $segment) {
-            if ((string)$scriptFilenameArray[$segmentNumber] === (string)$segment) {
+            if ($scriptFilenameArray[$segmentNumber] === (string)$segment) {
                 $path[] = $segment;
             } else {
                 break;
             }
         }
         $commonEnd = strrev(implode('/', $path));
-        if ((string)$commonEnd !== '') {
+        if ($commonEnd !== '') {
             $webDocRoot = substr($scriptFilename, 0, -(strlen($commonEnd) + 1));
         }
         return $webDocRoot;
@@ -828,7 +809,7 @@ class NormalizedParams
     protected static function determineSiteUrl(string $requestDir, string $pathThisScript, string $pathSite): string
     {
         $pathThisScriptDir = substr(dirname($pathThisScript), strlen($pathSite)) . '/';
-        $siteUrl = (string)substr($requestDir, 0, -strlen($pathThisScriptDir));
+        $siteUrl = substr($requestDir, 0, -strlen($pathThisScriptDir));
 
         return rtrim($siteUrl, '/') . '/';
     }
@@ -841,7 +822,7 @@ class NormalizedParams
      */
     protected static function determineSitePath(string $requestHost, string $siteUrl): string
     {
-        return (string)substr($siteUrl, strlen($requestHost));
+        return substr($siteUrl, strlen($requestHost));
     }
 
     /**
@@ -849,37 +830,6 @@ class NormalizedParams
      */
     protected static function determineSiteScript(string $requestUrl, string $siteUrl): string
     {
-        return (string)substr($requestUrl, strlen($siteUrl));
-    }
-
-    /**
-     * Factory method, to allow TYPO3 to handle configuration options directly.
-     *
-     * @param array $serverParams - could be fulfilled by $_SERVER (on web requests)
-     * @param array|null $systemConfiguration
-     * @return static
-     */
-    public static function createFromServerParams(array $serverParams, ?array $systemConfiguration = null): self
-    {
-        return new NormalizedParams(
-            $serverParams,
-            $systemConfiguration ?? $GLOBALS['TYPO3_CONF_VARS']['SYS'],
-            Environment::getCurrentScript(),
-            Environment::getPublicPath()
-        );
-    }
-
-    /**
-     * Factory method for creating normalized params from a PSR-7 server request object
-     *
-     * @param array|null $systemConfiguration
-     * @return static
-     */
-    public static function createFromRequest(ServerRequestInterface $request, ?array $systemConfiguration = null): self
-    {
-        return static::createFromServerParams(
-            $request->getServerParams(),
-            $systemConfiguration ?? $GLOBALS['TYPO3_CONF_VARS']['SYS']
-        );
+        return substr($requestUrl, strlen($siteUrl));
     }
 }

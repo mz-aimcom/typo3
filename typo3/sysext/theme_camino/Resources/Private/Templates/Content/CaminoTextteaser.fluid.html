@@ -1,0 +1,40 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Content/Default"/>
+
+<f:section name="Configuration">
+    <f:variable name="inlineElement" value="1"/>
+</f:section>
+
+<f:section name="Header"/>
+
+<f:section name="Main">
+    <f:switch expression="{record.frame_class}">
+        <f:case value="bg-10"><f:variable name="frame" value="bg-10"/></f:case>
+        <f:case value="bg-80"><f:variable name="frame" value="bg-80"/></f:case>
+        <f:case value="bg-100"><f:variable name="frame" value="bg-100"/></f:case>
+        <f:defaultCase>
+            <f:variable name="frame" value="bg-10"/>
+        </f:defaultCase>
+    </f:switch>
+
+    <div class="textteaser textteaser--{frame}">
+        <div class="textteaser__content">
+            <f:render partial="Components/Intro" arguments="{
+                header: '{f:render.text(record: record, field: \'header\')}',
+                subheader: '{f:render.text(record: record, field: \'subheader\')}',
+                headertag: record.header_layout,
+                layout: record.tx_themecamino_header_style,
+                text: '{f:render.text(record: record, field: \'bodytext\')}',
+                link: record.tx_themecamino_link,
+                label: '{f:render.text(record: record, field: \'tx_themecamino_link_label\')}',
+                icon: record.tx_themecamino_link_icon,
+            }"/>
+        </div>
+    </div>
+</f:section>
+
+</html>

@@ -22,7 +22,9 @@ use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Exception\Page\RootLineException;
 use TYPO3\CMS\Core\Html\HtmlParser;
+use TYPO3\CMS\Core\Pagination\PaginationInterface;
 use TYPO3\CMS\Core\Pagination\SimplePagination;
+use TYPO3\CMS\Core\Pagination\SlidingWindowPagination;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
@@ -36,12 +38,14 @@ use TYPO3\CMS\Frontend\Typolink\LinkFactory;
 use TYPO3\CMS\Frontend\Typolink\LinkResult;
 use TYPO3\CMS\Frontend\Typolink\LinkResultInterface;
 use TYPO3\CMS\IndexedSearch\Domain\Repository\IndexSearchRepository;
+use TYPO3\CMS\IndexedSearch\Event\AfterSearchResultSetsAreGeneratedEvent;
 use TYPO3\CMS\IndexedSearch\Lexer;
 use TYPO3\CMS\IndexedSearch\Pagination\SlicePaginator;
 use TYPO3\CMS\IndexedSearch\Type\DefaultOperand;
 use TYPO3\CMS\IndexedSearch\Type\GroupOption;
 use TYPO3\CMS\IndexedSearch\Type\IndexingConfiguration;
 use TYPO3\CMS\IndexedSearch\Type\MediaType;
+use TYPO3\CMS\IndexedSearch\Type\PaginationType;
 use TYPO3\CMS\IndexedSearch\Type\SearchType;
 use TYPO3\CMS\IndexedSearch\Type\SectionType;
 use TYPO3\CMS\IndexedSearch\Utility\IndexedSearchUtility;
@@ -95,6 +99,7 @@ class SearchController extends ActionController
         private readonly TypoScriptService $typoScriptService,
         private readonly Lexer $lexer,
         private readonly LinkFactory $linkFactory,
+        private readonly PageRepository $pageRepository,
     ) {}
 
     /**
@@ -102,10 +107,6 @@ class SearchController extends ActionController
      */
     protected function initialize(array $searchData = []): array
     {
-        if (!is_array($searchData)) {
-            $searchData = [];
-        }
-
         // Sets availableResultsNumbers - has to be called before request settings are read to avoid DoS attack
         $this->availableResultsNumbers = array_filter(GeneralUtility::intExplode(',', (string)($this->settings['blind']['numberOfResults'] ?? '')));
 
@@ -116,10 +117,7 @@ class SearchController extends ActionController
 
         $this->loadSettings();
 
-        // setting default values
-        if (is_array($this->settings['defaultOptions'])) {
-            $searchData = array_merge($this->settings['defaultOptions'], $searchData);
-        }
+        $searchData = $this->applyDefaultOptions($searchData);
         // Hand in the current site language as languageUid
         $searchData['languageUid'] = $this->context->getPropertyFromAspect('language', 'id', 0);
 
@@ -159,6 +157,14 @@ class SearchController extends ActionController
         // $this->searchData is used in $this->getSearchWords
         $this->searchWords = $this->getSearchWords($searchData, (bool)$searchData['defaultOperand']);
 
+        return $searchData;
+    }
+
+    protected function applyDefaultOptions(array $searchData): array
+    {
+        if (is_array($this->settings['defaultOptions'] ?? null)) {
+            return array_merge($this->settings['defaultOptions'], $searchData);
+        }
         return $searchData;
     }
 
@@ -213,16 +219,31 @@ class SearchController extends ActionController
                     $resultsets[$freeIndexUid]['categoryTitle'] = $categoryTitle;
                 }
             }
-            // Write search statistics
-            $pageId = $this->request->getAttribute('frontend.page.information')->getId();
-            $this->searchRepository->writeSearchStat($pageId, $this->searchWords ?: []);
         }
-        $this->view->assign('resultsets', $resultsets);
+        // Write search statistics
+        $pageId = $this->request->getAttribute('frontend.page.information')->getId();
+        $this->searchRepository->writeSearchStat($pageId, $this->searchWords ?: []);
         $this->view->assign('searchParams', $searchData);
         $this->view->assign('firstRow', $this->firstRow);
-        $this->view->assign('searchWords', array_map([$this, 'addOperatorLabel'], $this->searchWords));
-
+        $this->view->assign('searchWords', array_map($this->addOperatorLabel(...), $this->searchWords));
+        $resultSets = $this->dispatchAfterSearchResultSetsAreGeneratedEvent($resultsets, $searchData, $this->searchWords);
+        $this->view->assign('resultsets', $resultSets);
         return $this->htmlResponse();
+    }
+
+    /**
+     * Dispatches an event for modifying complete search result sets after search execution.
+     *
+     * @param array<string|int, array<string, mixed>> $resultSets Search result sets keyed by free index UID
+     * @param array<string, mixed> $searchData Search input and resolved search configuration
+     * @param array<int, array<string, mixed>> $searchWords Parsed search words
+     * @return array<string|int, array<string, mixed>> Potentially modified search result sets
+     */
+    protected function dispatchAfterSearchResultSetsAreGeneratedEvent(array $resultSets, array $searchData, array $searchWords): array
+    {
+        $event = new AfterSearchResultSetsAreGeneratedEvent($resultSets, $searchData, $searchWords, $this->view, $this->request);
+        $this->eventDispatcher->dispatch($event);
+        return $event->getResultSets();
     }
 
     /****************************************
@@ -259,14 +280,7 @@ class SearchController extends ActionController
                 }
             }
 
-            $pointer = (int)($searchData['pointer'] ?? 0);
-            $paginator = new SlicePaginator(
-                $result['rows'],
-                $pointer + 1,
-                $resultData['count'],
-                $searchData['numberOfResults'],
-            );
-            $result['pagination'] = new SimplePagination($paginator);
+            $result['pagination'] = $this->buildPagination($searchData, $result['rows'], $resultData['count']);
         }
         // Print a message telling which words in which sections we searched for
         if (str_starts_with($searchData['sections'], 'rl')) {
@@ -390,6 +404,7 @@ class SearchController extends ActionController
         }
         $title = $resultData['item_title'] . ($resultData['titleaddition'] ?? '');
         $title = GeneralUtility::fixed_lgd_cs($title, (int)$this->settings['results.']['titleCropAfter'], $this->settings['results.']['titleCropSignifier']);
+        $title = htmlspecialchars($title);
         // If external media, link to the media-file instead.
         if ($row['item_type']) {
             if ($row['show_resume']) {
@@ -397,7 +412,7 @@ class SearchController extends ActionController
                 if ($typoScriptConfigArray['fileTarget'] ?? false) {
                     $targetAttribute = ' target="' . htmlspecialchars($typoScriptConfigArray['fileTarget']) . '"';
                 }
-                $title = '<a href="' . htmlspecialchars($row['data_filename']) . '"' . $targetAttribute . '>' . htmlspecialchars($title) . '</a>';
+                $title = '<a href="' . htmlspecialchars($row['data_filename']) . '"' . $targetAttribute . '>' . $title . '</a>';
             } else {
                 // Suspicious, so linking to page instead...
                 $copiedRow = $row;
@@ -438,7 +453,7 @@ class SearchController extends ActionController
 
             // check if the access is restricted
             if (is_array($this->requiredFrontendUsergroups[$pathId]) && !empty($this->requiredFrontendUsergroups[$pathId])) {
-                $lockedIcon = PathUtility::getPublicResourceWebPath('EXT:indexed_search/Resources/Public/Icons/FileTypes/locked.gif');
+                $lockedIcon = (string)PathUtility::getSystemResourceUri('EXT:indexed_search/Resources/Public/Icons/FileTypes/locked.gif');
                 $resultData['access'] = '<img src="' . htmlspecialchars($lockedIcon) . '"'
                     . ' width="12" height="15" vspace="5" title="'
                     . sprintf(LocalizationUtility::translate('result.memberGroups', 'IndexedSearch') ?? '', implode(',', array_unique($this->requiredFrontendUsergroups[$pathId])))
@@ -809,6 +824,9 @@ class SearchController extends ActionController
      */
     protected function getAllAvailableIndexConfigurationsOptions(): array
     {
+        if ($this->settings['blind']['freeIndexUid'] ?? false) {
+            return [];
+        }
         foreach ([IndexingConfiguration::ALL_MIXED, IndexingConfiguration::ALL_CATEGORIZED, IndexingConfiguration::PAGES] as $indexingConfiguration) {
             $value = $indexingConfiguration->value;
             $allOptions[$value] = LocalizationUtility::translate('indexingConfigurations.' . $value, 'IndexedSearch');
@@ -972,11 +990,10 @@ class SearchController extends ActionController
      */
     protected function getMenuOfPages(int $pageUid): array
     {
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
         if ($this->settings['displayLevelxAllTypes']) {
-            return $pageRepository->getMenuForPages([$pageUid]);
+            return $this->pageRepository->getMenuForPages([$pageUid]);
         }
-        return $pageRepository->getMenu($pageUid);
+        return $this->pageRepository->getMenu($pageUid);
     }
 
     /**
@@ -1142,12 +1159,48 @@ class SearchController extends ActionController
     }
 
     /**
+     * Build pagination object based on the configured implementation.
+     *
+     * @param array<string, mixed> $searchData Search input and resolved search configuration
+     * @param array<int, array<string, mixed>> $rows Search result rows for the current page
+     */
+    protected function buildPagination(array $searchData, array $rows, int $count): PaginationInterface
+    {
+        $pointer = (int)($searchData['pointer'] ?? 0);
+        $paginator = new SlicePaginator(
+            $rows,
+            $pointer + 1,
+            $count,
+            $searchData['numberOfResults'],
+        );
+
+        return match ($this->getPaginationType()) {
+            PaginationType::SIMPLE => new SimplePagination($paginator),
+            PaginationType::SLIDING_WINDOW => new SlidingWindowPagination(
+                $paginator,
+                MathUtility::forceIntegerInRange(
+                    (int)($this->settings['page_links'] ?? 10),
+                    1,
+                    1000,
+                    10
+                )
+            ),
+        };
+    }
+
+    protected function getPaginationType(): PaginationType
+    {
+        return PaginationType::tryFrom((string)($this->settings['pagination_type'] ?? PaginationType::SIMPLE->value))
+            ?? PaginationType::SIMPLE;
+    }
+
+    /**
      * Returns number of results to display
      */
     protected function getNumberOfResults(int $numberOfResults): int
     {
-        return in_array($numberOfResults, $this->availableResultsNumbers, true) ?
-            $numberOfResults : $this->defaultResultNumber;
+        return in_array($numberOfResults, $this->availableResultsNumbers, true)
+            ? $numberOfResults : $this->defaultResultNumber;
     }
 
     /**

@@ -25,9 +25,12 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * This is the central point to retrieve modules from the ModuleRegistry, while
  * performing the necessary access checks, which ModuleRegistry does not deal with.
  */
-class ModuleProvider
+readonly class ModuleProvider
 {
-    public function __construct(protected readonly ModuleRegistry $moduleRegistry) {}
+    public function __construct(
+        protected ModuleRegistry $moduleRegistry,
+        protected ModuleAccessGateRegistry $gateRegistry,
+    ) {}
 
     /**
      * Simple wrapper for the registry, which just checks if a
@@ -50,12 +53,8 @@ class ModuleProvider
             || $this->accessGranted($identifier, $user, $respectWorkspaceRestrictions)
         ) {
             $module = $this->moduleRegistry->getModule($identifier);
-            if ($module->hasSubModules()) {
-                foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
-                    if ($user !== null && !$this->accessGranted($subModuleIdentifier, $user, $respectWorkspaceRestrictions)) {
-                        $module->removeSubModule($subModuleIdentifier);
-                    }
-                }
+            if ($user !== null) {
+                $this->filterInaccessibleSubModules($module, $user, $respectWorkspaceRestrictions);
             }
             return $module;
         }
@@ -88,10 +87,8 @@ class ModuleProvider
                 unset($availableModules[$identifier]);
                 continue;
             }
-            foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
-                if ($user !== null && !$this->accessGranted($subModuleIdentifier, $user, $respectWorkspaceRestrictions)) {
-                    $module->removeSubModule($subModuleIdentifier);
-                }
+            if ($user !== null) {
+                $this->filterInaccessibleSubModules($module, $user, $respectWorkspaceRestrictions);
             }
         }
 
@@ -121,13 +118,7 @@ class ModuleProvider
         if ($menuItem->isStandalone()) {
             return $menuItem;
         }
-        foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
-            if (in_array($subModuleIdentifier, $hideModules, true)) {
-                continue;
-            }
-            $subMenuItem = new MenuModule(clone $subModule);
-            $menuItem->addSubModule($subMenuItem);
-        }
+        $this->buildMenuModuleRecursively($menuItem, $module, $hideModules, $user, $respectWorkspaceRestrictions);
         if (!$menuItem->hasSubModules()) {
             // In case the main module does not have any submodules, unset it again
             return null;
@@ -147,7 +138,7 @@ class ModuleProvider
         bool $respectWorkspaceRestrictions = true
     ): array {
         $moduleMenuItems = [];
-        $moduleMenuState = json_decode($user->uc['modulemenu'] ?? '{}', true);
+        $moduleMenuState = $this->getModuleMenuState($user);
 
         // Before preparing the modules for the menu, check if we need to hide some of them (defined in TSconfig)
         $hideModules = GeneralUtility::trimExplode(',', $user->getTSConfig()['options.']['hideModules'] ?? '', true);
@@ -166,15 +157,7 @@ class ModuleProvider
             if ($menuItem->isStandalone()) {
                 continue;
             }
-            foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
-                if (in_array($subModuleIdentifier, $hideModules, true)
-                    || !($subModule->getAppearance()['renderInModuleMenu'] ?? true)
-                ) {
-                    continue;
-                }
-                $subMenuItem = new MenuModule(clone $subModule);
-                $menuItem->addSubModule($subMenuItem);
-            }
+            $this->buildMenuModuleRecursively($menuItem, $module, $hideModules, $user, $respectWorkspaceRestrictions, true);
             if (!$menuItem->hasSubModules()) {
                 // In case the main module does not have any submodules, unset it again
                 unset($moduleMenuItems[$identifier]);
@@ -221,24 +204,8 @@ class ModuleProvider
             return true;
         }
 
-        // Check if this module is only allowed by system maintainers (= admins who are in the list of system maintainers)
-        if ($moduleAccess === BackendUserAuthentication::ROLE_SYSTEMMAINTAINER) {
-            return $user->isSystemMaintainer();
-        }
-
-        // Check if this module is only allowed by admins
-        if ($moduleAccess === 'admin') {
-            return $user->isAdmin();
-        }
-
-        // This checks if a user is permitted to access the module as admin
-        if ($user->isAdmin()) {
-            return true;
-        }
-
-        // This checks if the user is having necessary module access permissions by either identifier or alias
-        if ($this->checkModuleAccess($user, $identifier)) {
-            return true;
+        if ($this->gateRegistry->has($moduleAccess)) {
+            return $this->gateRegistry->get($moduleAccess)->decide($module, $user) === ModuleAccessResult::Granted;
         }
 
         return false;
@@ -272,16 +239,91 @@ class ModuleProvider
     }
 
     /**
-     * Check if user has access to module based on the identifier or an alias for the identifier
+     * Recursively removes inaccessible submodules from a module at any depth
      */
-    protected function checkModuleAccess(BackendUserAuthentication $user, string $identifier): bool
-    {
-        if ($user->check('modules', $identifier)) {
-            return true;
+    protected function filterInaccessibleSubModules(
+        ModuleInterface $module,
+        BackendUserAuthentication $user,
+        bool $respectWorkspaceRestrictions
+    ): void {
+        if (!$module->hasSubModules()) {
+            return;
         }
 
-        $alias = array_search($identifier, $this->moduleRegistry->getModuleAliases(), true);
+        foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
+            if (!$this->accessGranted($subModuleIdentifier, $user, $respectWorkspaceRestrictions)) {
+                $module->removeSubModule($subModuleIdentifier);
+            } else {
+                $this->filterInaccessibleSubModules($subModule, $user, $respectWorkspaceRestrictions);
+            }
+        }
+    }
 
-        return $alias !== false && $user->check('modules', $alias);
+    /**
+     * Recursively builds menu module structure, checking access, TSConfig hideModules,
+     * and optionally renderInModuleMenu appearance setting at all nesting levels
+     */
+    protected function buildMenuModuleRecursively(
+        MenuModule $menuItem,
+        ModuleInterface $module,
+        array $hideModules,
+        BackendUserAuthentication $user,
+        bool $respectWorkspaceRestrictions,
+        bool $checkRenderInModuleMenu = false
+    ): void {
+        $moduleMenuState = $this->getModuleMenuState($user);
+        foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
+            if (in_array($subModuleIdentifier, $hideModules, true)
+                || ($checkRenderInModuleMenu && !($subModule->getAppearance()['renderInModuleMenu'] ?? true))
+            ) {
+                continue;
+            }
+            // Skip submodules that depend on their own submodules if they don't have any accessible ones
+            if (($subModule->getAppearance()['dependsOnSubmodules'] ?? false)
+                && !$this->hasAccessibleSubModules($subModule, $hideModules, $user, $respectWorkspaceRestrictions, $checkRenderInModuleMenu)
+            ) {
+                continue;
+            }
+            $subMenuItem = new MenuModule(clone $subModule, isset($moduleMenuState[$subModuleIdentifier]));
+            $menuItem->addSubModule($subMenuItem);
+            // Recursively build deeper levels
+            if ($subModule->hasSubModules()) {
+                $this->buildMenuModuleRecursively($subMenuItem, $subModule, $hideModules, $user, $respectWorkspaceRestrictions, $checkRenderInModuleMenu);
+            }
+        }
+    }
+
+    /**
+     * Check if a module has at least one accessible submodule at any depth
+     */
+    protected function hasAccessibleSubModules(
+        ModuleInterface $module,
+        array $hideModules,
+        BackendUserAuthentication $user,
+        bool $respectWorkspaceRestrictions,
+        bool $checkRenderInModuleMenu = false
+    ): bool {
+        foreach ($module->getSubModules() as $subModuleIdentifier => $subModule) {
+            if (in_array($subModuleIdentifier, $hideModules, true)
+                || ($checkRenderInModuleMenu && !($subModule->getAppearance()['renderInModuleMenu'] ?? true))
+                || !$this->accessGranted($subModuleIdentifier, $user, $respectWorkspaceRestrictions)
+            ) {
+                continue;
+            }
+            // If this submodule is accessible, return true
+            if (!($subModule->getAppearance()['dependsOnSubmodules'] ?? false)) {
+                return true;
+            }
+            // If it depends on submodules, check recursively
+            if ($this->hasAccessibleSubModules($subModule, $hideModules, $user, $respectWorkspaceRestrictions, $checkRenderInModuleMenu)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    protected function getModuleMenuState(BackendUserAuthentication $user): array
+    {
+        return json_decode($user->uc['modulemenu'] ?? '{}', true);
     }
 }

@@ -32,16 +32,12 @@ class MatchedRoute
 
     public function withPathMatches(array $pathMatches): self
     {
-        $target = clone $this;
-        $target->pathMatches = $pathMatches;
-        return $target;
+        return clone($this, ['pathMatches' => $pathMatches]);
     }
 
     public function withHostMatches(array $hostMatches): self
     {
-        $target = clone $this;
-        $target->hostMatches = $hostMatches;
-        return $target;
+        return clone($this, ['hostMatches' => $hostMatches]);
     }
 
     public function getRoute(): SymfonyRoute
@@ -74,7 +70,7 @@ class MatchedRoute
         }
         // otherwise, find length of complete match that does not contain tail
         // example: complete: `/french/other`, tail: `/other` -> `strlen` of `/french`
-        return strpos($completeMatch, $tailMatch);
+        return strrpos($completeMatch, $tailMatch);
     }
 
     public function getSiteIdentifier(): string

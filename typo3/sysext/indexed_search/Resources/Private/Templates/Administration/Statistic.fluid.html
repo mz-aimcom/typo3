@@ -1,0 +1,200 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+    xmlns:is="http://typo3.org/ns/TYPO3/CMS/IndexedSearch/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+    <h1><f:translate domain="indexed_search.messages" key="administration.statistic.headline" /></h1>
+    <f:if condition="{tree}">
+        <f:then>
+            <f:form name="statistic" action="statistic" arguments="{id:pageUid}">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="mode" class="form-label">
+                            <f:translate domain="indexed_search.messages" key="administration.moduleFunctions.mode" />
+                        </label>
+                        <f:form.select class="form-select" id="mode" name="mode" options="{
+                            overview:'{f:translate(key:\'administration.statistics.view.overview\')}',
+                            content:'{f:translate(key:\'administration.statistics.view.content\')}'
+                            }" value="{mode}" additionalAttributes="{data-global-event='change', data-action-submit: '$form'}" />
+                    </div>
+                    <div class="form-group">
+                        <label for="depth" class="form-label">
+                            <f:translate domain="indexed_search.messages" key="administration.moduleFunctions.depth" />
+                        </label>
+                        <f:form.select class="form-select" id="depth" name="depth" options="{levelTranslations}" value="{depth}" additionalAttributes="{data-global-event='change', data-action-submit: '$form'}" />
+                    </div>
+                </div>
+            </f:form>
+            <div class="table-fit" tabindex="0">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th class="col-title-flexible">
+                                <f:translate domain="indexed_search.messages" key="field.pageTitle" />
+                            </th>
+                            <th class="col-title-flexible">
+                                <f:translate domain="indexed_search.messages" key="field.fileName" />
+                            </th>
+                            <f:switch expression="{mode}">
+                                <f:case value="content">
+                                    <th class="col-title-flexible">
+                                        <f:translate domain="indexed_search.messages" key="field.content" />
+                                    </th>
+                                    <f:if condition="{extensionConfiguration.useMysqlFulltext} == false">
+                                        <th class="col-title-flexible">
+                                            <f:translate domain="indexed_search.messages" key="field.words" />
+                                        </th>
+                                    </f:if>
+                                </f:case>
+                                <f:defaultCase>
+                                    <f:if condition="{extensionConfiguration.useMysqlFulltext} == false">
+                                        <th class="col-min">
+                                            <f:translate domain="indexed_search.messages" key="field.wordCount" />
+                                        </th>
+                                    </f:if>
+                                    <th class="col-min">
+                                        <f:translate domain="indexed_search.messages" key="field.fileSize" />
+                                    </th>
+                                    <th class="col-datetime">
+                                        <f:translate domain="indexed_search.messages" key="field.indexed" />
+                                    </th>
+                                </f:defaultCase>
+                            </f:switch>
+                            <th class="col-control">
+                                <span class="visually-hidden">{f:translate(key: 'labels._CONTROL_', domain: 'core.core')}</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <f:for each="{tree}" as="line">
+                            <f:if condition="{line.lines}">
+                                <f:then>
+                                    <f:for each="{line.lines}" as="l" iteration="i">
+                                        <tr>
+                                            <td class="col-title-flexible">
+                                                <div class="treeline-container">
+                                                    <f:if condition="{i.index} == 0">
+                                                        <f:then>
+                                                                {line.depthData -> f:format.raw()}{line.HTML -> f:format.raw()}
+                                                                <f:if condition="{line.icon}">{line.icon -> f:format.raw()}</f:if>
+                                                                <span class="treeline-label">{line.row.title}</span>
+                                                        </f:then>
+                                                        <f:else>
+                                                            {line.depthData -> f:format.raw()}
+                                                            <span class="visually-hidden">
+                                                                <f:if condition="{line.icon}">{line.icon -> f:format.raw()}</f:if>
+                                                                <span class="treeline-label">{line.row.title}</span>
+                                                            </span>
+                                                        </f:else>
+                                                    </f:if>
+                                                </div>
+                                            </td>
+                                            <td class="col-title-flexible">
+                                                <f:image src="{l.icon}" />
+                                                <f:format.crop maxCharacters="{backendUserTitleLength}" respectHtml="false">{l.item_title}</f:format.crop>
+                                            </td>
+                                            <f:switch expression="{mode}">
+                                                <f:case value="content">
+                                                    <td class="col-title-flexible">
+                                                        {l.fulltextData.fulltextdata}
+                                                    </td>
+                                                    <f:if condition="{extensionConfiguration.useMysqlFulltext} == false">
+                                                        <td class="col-title-flexible">
+                                                            <f:for each="{l.allWords}" as="w" iteration="wordIterator">
+                                                                {w}{f:if(condition:wordIterator.isLast,then:'',else:', ')}
+                                                            </f:for>
+                                                            <br><br>
+                                                            <em>{f:translate(domain:'indexed_search.messages', key:'administration.statistics.count')}: {f:count(subject:l.allWords)}</em>
+                                                        </td>
+                                                    </f:if>
+                                                </f:case>
+                                                <f:defaultCase>
+                                                    <f:if condition="{extensionConfiguration.useMysqlFulltext} == false">
+                                                        <td class="col-min">{l.wordCount}</td>
+                                                    </f:if>
+                                                    <td class="col-min">
+                                                        <f:format.bytes decimals="1">{l.item_size}</f:format.bytes>
+                                                    </td>
+                                                    <td class="col-datetime">
+                                                        <is:format.dateTime>{l.tstamp}</is:format.dateTime>
+                                                    </td>
+                                                </f:defaultCase>
+                                            </f:switch>
+                                            <td class="col-control">
+                                                <f:form action="deleteIndexedItem">
+                                                    <div class="btn-group btn-group-sm">
+                                                        <f:link.action
+                                                            action="statisticDetails"
+                                                            arguments="{pageHash:l.phash}"
+                                                            title="{f:translate(domain:'indexed_search.messages', key:'administration.btn.details.title')}"
+                                                            class="btn btn-default"
+                                                        >
+                                                            <core:icon identifier="actions-options" />
+                                                        </f:link.action>
+
+                                                        <f:form.hidden name="itemId" value="{l.phash}" />
+                                                        <f:form.hidden name="depth" value="{depth}" />
+                                                        <f:form.hidden name="mode" value="{mode}" />
+
+                                                        <button
+                                                            type="submit"
+                                                            title="{f:translate(domain:'indexed_search.messages', key:'administration.removeEntry')}"
+                                                            class="btn btn-default"
+                                                        >
+                                                            <core:icon identifier="actions-edit-delete" />
+                                                        </button>
+                                                    </div>
+                                                </f:form>
+                                            </td>
+                                        </tr>
+                                    </f:for>
+                                </f:then>
+                                <f:else>
+                                    <tr>
+                                        <td class="col-title-flexible">
+                                            <div class="treeline-container">
+                                                {line.depthData -> f:format.raw()}{line.HTML -> f:format.raw()}
+                                                <f:if condition="{line.icon}">{line.icon -> f:format.raw()}</f:if>
+                                                <span class="treeline-label">{line.row.title}</span>
+                                            </div>
+                                        </td>
+                                        <td colspan="5">
+                                            <span class="badge badge-secondary"><f:translate domain="indexed_search.messages" key="{f:if(condition: line.row.no_search, then: 'administration.indexingDisabled', else: 'administration.notIndexed')}" /></span>
+                                        </td>
+                                    </tr>
+                                </f:else>
+                            </f:if>
+                        </f:for>
+                    </tbody>
+                </table>
+            </div>
+            <f:form action="deleteIndexedItem">
+                <f:form.hidden name="itemId" value="ALL" />
+                <f:form.hidden name="depth" value="{depth}" />
+                <f:form.hidden name="mode" value="{mode}" />
+
+                <button
+                    type="submit"
+                    title="{f:translate(domain:'indexed_search.messages', key:'administration.removeAllEntries')}"
+                    class="btn btn-default"
+                >
+                    <core:icon identifier="actions-edit-delete" />
+                    <f:translate domain="indexed_search.messages" key="administration.removeAllEntries" />
+                </button>
+            </f:form>
+        </f:then>
+        <f:else>
+            <f:be.infobox
+                message="{f:translate(domain:'indexed_search.messages', key:'administration.noPageSelected')}"
+                state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::INFO')}"
+            />
+        </f:else>
+    </f:if>
+</f:section>
+
+</html>

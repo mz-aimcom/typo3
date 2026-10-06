@@ -16,13 +16,17 @@
 namespace TYPO3\CMS\Frontend\ContentObject;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use TYPO3\CMS\Core\Page\AssetCollector;
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\FileReference;
 use TYPO3\CMS\Core\Service\MarkerBasedTemplateService;
+use TYPO3\CMS\Core\TimeTracker\TimeTracker;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\Event\ModifyImageSourceCollectionEvent;
+use TYPO3\CMS\Frontend\Page\FrontendUrlPrefix;
 
 /**
  * Contains IMAGE class object.
@@ -31,15 +35,17 @@ class ImageContentObject extends AbstractContentObject
 {
     public function __construct(
         protected readonly MarkerBasedTemplateService $markerTemplateService,
+        protected readonly TimeTracker $timeTracker,
+        protected readonly LoggerInterface $logger,
     ) {}
 
     /**
      * Rendering the cObject, IMAGE
      *
-     * @param array|mixed $conf Array of TypoScript properties
+     * @param mixed $conf Array of TypoScript properties (marked as "mixed" currently because we don't know what we're receiving)
      * @return string Output
      */
-    public function render($conf = [])
+    public function render($conf = []): string
     {
         if (!empty($conf['if.']) && !$this->cObj->checkIf($conf['if.'])) {
             return '';
@@ -62,7 +68,6 @@ class ImageContentObject extends AbstractContentObject
      */
     protected function cImage($file, array $conf): string
     {
-        $tsfe = $this->getTypoScriptFrontendController();
         $imageResource = $this->cObj->getImgResource($file, $conf['file.'] ?? []);
         if ($imageResource === null) {
             return '';
@@ -70,15 +75,25 @@ class ImageContentObject extends AbstractContentObject
         // $info['originalFile'] will be set, when the file is processed by FAL.
         // In that case the URL is final and we must not add a prefix
         if ($imageResource->getOriginalFile() === null && is_file($imageResource->getFullPath())) {
-            $source = $tsfe->absRefPrefix . str_replace('%2F', '/', rawurlencode($imageResource->getPublicUrl()));
+            $absRefPrefix = GeneralUtility::makeInstance(FrontendUrlPrefix::class)->getUrlPrefix($this->request);
+            $source = $absRefPrefix . str_replace('%2F', '/', rawurlencode($imageResource->getPublicUrl()));
         } else {
             $source = $imageResource->getPublicUrl();
         }
-        GeneralUtility::makeInstance(AssetCollector::class)->addMedia(
-            $source,
-            $imageResource->getLegacyImageResourceInformation()
-        );
-
+        // A file whose physical resource is gone (sys_file.missing=1) resolves to
+        // an image resource without public URL. Render nothing in this case, just
+        // like for an image resource that could not be resolved at all.
+        if ($source === null) {
+            $identifier = $imageResource->getOriginalFile()?->getIdentifier() ?: $imageResource->getFullPath();
+            $this->logger->warning('The image "{file}" has no public URL, the file is probably missing, and won\'t be included in frontend output', [
+                'file' => $identifier,
+            ]);
+            $this->timeTracker->setTSlogMessage(
+                'The image "' . $identifier . '" has no public URL, the file is probably missing. It is not rendered.',
+                LogLevel::WARNING
+            );
+            return '';
+        }
         $layoutKey = (string)$this->cObj->stdWrapValue('layoutKey', $conf);
         $imageTagTemplate = $this->getImageTagTemplate($layoutKey, $conf);
         $sourceCollection = $this->getImageSourceCollection($layoutKey, $conf, $file);
@@ -96,7 +111,7 @@ class ImageContentObject extends AbstractContentObject
             'params' => $params,
             'altParams' => $altParam,
             'sourceCollection' => $sourceCollection,
-            'selfClosingTagSlash' => $this->getPageRenderer()->getDocType()->isXmlCompliant() ? ' /' : '',
+            'selfClosingTagSlash' => DocType::createFromRequest($this->request)->isXmlCompliant() ? ' /' : '',
         ];
 
         $theValue = $this->markerTemplateService->substituteMarkerArray($imageTagTemplate, $imageTagValues, '###|###', true, true);
@@ -159,10 +174,11 @@ class ImageContentObject extends AbstractContentObject
             }
 
             // apply option split to configurations
-            $tsfe = $this->getTypoScriptFrontendController();
             $typoScriptService = GeneralUtility::makeInstance(TypoScriptService::class);
             $srcLayoutOptionSplitted = $typoScriptService->explodeConfigurationForOptionSplit((array)$conf['layout.'][$layoutKey . '.'], count($activeSourceCollections));
             $eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
+
+            $isXmlCompliant = DocType::createFromRequest($this->request)->isXmlCompliant();
 
             // render sources
             foreach ($activeSourceCollections as $key => $sourceConfiguration) {
@@ -212,14 +228,13 @@ class ImageContentObject extends AbstractContentObject
                     $sourceConfiguration['height'] = $imageResource->getHeight();
 
                     $urlPrefix = '';
-                    // Prepend 'absRefPrefix' to file path only if file was not processed
-                    // by FAL, e.g. GIFBUILDER
+                    // Prepend 'absRefPrefix' to file path only if file was not processed by FAL, e.g. GIFBUILDER
                     if ($imageResource->getOriginalFile() === null && is_file($imageResource->getFullPath())) {
-                        $urlPrefix = $tsfe->absRefPrefix;
+                        $urlPrefix = GeneralUtility::makeInstance(FrontendUrlPrefix::class)->getUrlPrefix($this->request);
                     }
 
                     $sourceConfiguration['src'] = htmlspecialchars($urlPrefix . $imageResource->getPublicUrl());
-                    $sourceConfiguration['selfClosingTagSlash'] = $this->getPageRenderer()->getDocType()->isXmlCompliant() ? ' /' : '';
+                    $sourceConfiguration['selfClosingTagSlash'] = $isXmlCompliant ? ' /' : '';
 
                     $oneSourceCollection = $this->markerTemplateService->substituteMarkerArray($sourceLayout, $sourceConfiguration, '###|###', true, true);
 
@@ -274,7 +289,7 @@ class ImageContentObject extends AbstractContentObject
         // Choices: 'keepEmpty' | 'useAlt' | 'removeAttr'
         if ($titleText || $emptyTitleHandling === 'keepEmpty') {
             $altParam .= ' title="' . htmlspecialchars($titleText) . '"';
-        } elseif (!$titleText && $emptyTitleHandling === 'useAlt') {
+        } elseif ($emptyTitleHandling === 'useAlt') {
             $altParam .= ' title="' . htmlspecialchars($altText) . '"';
         }
         return $altParam;

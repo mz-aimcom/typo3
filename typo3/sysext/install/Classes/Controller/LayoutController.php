@@ -27,14 +27,18 @@ use TYPO3\CMS\Core\Http\HtmlResponse;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Information\Typo3Version;
-use TYPO3\CMS\Core\Package\FailsafePackageManager;
-use TYPO3\CMS\Core\Page\ImportMap;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Configuration\Behavior;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
-use TYPO3\CMS\Install\Service\Exception\ConfigurationChangedException;
-use TYPO3\CMS\Install\Service\Exception\SilentConfigurationUpgradeReadonlyException;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Middleware\PolicyBag;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Scope;
+use TYPO3\CMS\Core\Service\Exception\ConfigurationChangedException;
+use TYPO3\CMS\Core\Service\Exception\SilentConfigurationUpgradeReadonlyException;
+use TYPO3\CMS\Core\Service\SilentConfigurationUpgradeService;
+use TYPO3\CMS\Core\Type\Map;
+use TYPO3\CMS\Install\Factory\ImportMapFactory;
 use TYPO3\CMS\Install\Service\Exception\TemplateFileChangedException;
-use TYPO3\CMS\Install\Service\SilentConfigurationUpgradeService;
 use TYPO3\CMS\Install\Service\SilentTemplateFileUpgradeService;
 
 /**
@@ -50,12 +54,13 @@ class LayoutController extends AbstractController
     use ControllerTrait;
 
     public function __construct(
-        private readonly FailsafePackageManager $packageManager,
         private readonly SilentConfigurationUpgradeService $silentConfigurationUpgradeService,
         private readonly SilentTemplateFileUpgradeService $silentTemplateFileUpgradeService,
         private readonly BackendEntryPointResolver $backendEntryPointResolver,
+        private readonly ImportMapFactory $importMapFactory,
         private readonly HashService $hashService,
         private readonly IconRegistry $iconRegistry,
+        private readonly DirectiveHashCollection $directiveHashCollection,
     ) {}
 
     /**
@@ -69,14 +74,9 @@ class LayoutController extends AbstractController
             $bust = $this->hashService->hmac((new Typo3Version()) . Environment::getProjectPath(), self::class);
         }
 
-        $packages = [
-            $this->packageManager->getPackage('core'),
-            $this->packageManager->getPackage('backend'),
-            $this->packageManager->getPackage('install'),
-        ];
-        $importMap = new ImportMap($this->hashService, $packages);
         $sitePath = $request->getAttribute('normalizedParams')->getSitePath();
-        $initModule = $sitePath . $importMap->resolveImport('@typo3/install/init-install.js');
+        $importMap = $this->importMapFactory->create($sitePath);
+        $initModule = $importMap->resolveImport('@typo3/install/init-install.js', true, $sitePath);
 
         $view = $this->initializeView($request);
         $nonce = new ConsumableNonce();
@@ -92,7 +92,7 @@ class LayoutController extends AbstractController
             200,
             [
                 'Cache-Control' => 'no-cache, no-store',
-                'Content-Security-Policy' => $this->createContentSecurityPolicy()->compile($nonce),
+                'Content-Security-Policy' => $this->createContentSecurityPolicy()->compile(new PolicyBag(Scope::backend(), new Map(), new Behavior(), $nonce, $this->directiveHashCollection)),
                 'Pragma' => 'no-cache',
             ]
         );
@@ -106,7 +106,7 @@ class LayoutController extends AbstractController
     public function mainLayoutAction(ServerRequestInterface $request): ResponseInterface
     {
         $view = $this->initializeView($request);
-        $view->assign('moduleName', 'tools_tools' . ($request->getQueryParams()['install']['module'] ?? 'layout'));
+        $view->assign('moduleName', 'system_' . ($request->getQueryParams()['install']['module'] ?? 'layout'));
         $view->assign('backendUrl', (string)$this->backendEntryPointResolver->getUriFromRequest($request));
         $view->assign('frontendUrl', $request->getAttribute('normalizedParams')->getSiteUrl());
         return new JsonResponse([
@@ -128,7 +128,7 @@ class LayoutController extends AbstractController
         } catch (ConfigurationChangedException) {
             $success = false;
         } catch (SettingsWriteException $e) {
-            throw new SilentConfigurationUpgradeReadonlyException(code: 1688462974, throwable: $e);
+            throw new SilentConfigurationUpgradeReadonlyException(1688462974, $e);
         }
         return new JsonResponse([
             'success' => $success,

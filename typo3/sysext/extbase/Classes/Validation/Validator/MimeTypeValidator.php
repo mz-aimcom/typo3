@@ -59,7 +59,7 @@ final class MimeTypeValidator extends AbstractValidator
         }
     }
 
-    protected function validateUploadedFile(UploadedFile $uploadedFile, ?int $index = null): void
+    private function validateUploadedFile(UploadedFile $uploadedFile, ?int $index = null): void
     {
         $fileInfo = $this->getFileInfo($uploadedFile->getTemporaryFileName());
         $mimeType = $fileInfo->getMimeType();
@@ -86,7 +86,7 @@ final class MimeTypeValidator extends AbstractValidator
             // Example: myfile.txt is actually a PDF file (defined by mime-type), but .txt is not associated
             // for application/pdf, so this is not valid.
             $fileExtension =  pathinfo($uploadedFile->getClientFilename(), PATHINFO_EXTENSION);
-            $assumedMimesTypeOfFileExtension = (new MimeTypeDetector())->getMimeTypesForFileExtension($fileExtension);
+            $assumedMimesTypeOfFileExtension = new MimeTypeDetector()->getMimeTypesForFileExtension($fileExtension);
             if (empty(array_intersect($allowedMimeTypes, $assumedMimesTypeOfFileExtension))) {
                 $message = $this->translateErrorMessage(
                     $this->invalidExtensionMessage,
@@ -106,7 +106,7 @@ final class MimeTypeValidator extends AbstractValidator
     /**
      * Checks if this validator is correctly configured
      */
-    protected function validateOptions(): void
+    private function validateOptions(): void
     {
         if (!is_array($this->options['allowedMimeTypes'] ?? false) || $this->options['allowedMimeTypes'] === []) {
             throw new InvalidValidationOptionsException('The option "allowedMimeTypes" must be an array with at least one item.', 1708526223);

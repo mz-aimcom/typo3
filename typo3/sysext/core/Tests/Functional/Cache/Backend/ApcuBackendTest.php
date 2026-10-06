@@ -20,7 +20,6 @@ namespace TYPO3\CMS\Core\Tests\Functional\Cache\Backend;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\Backend\ApcuBackend;
-use TYPO3\CMS\Core\Cache\Exception;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -52,21 +51,10 @@ final class ApcuBackendTest extends FunctionalTestCase
     }
 
     #[Test]
-    public function setThrowsExceptionIfNoFrontEndHasBeenSet(): void
-    {
-        $backend = new ApcuBackend('Testing');
-        $data = 'Some data';
-        $identifier = StringUtility::getUniqueId('MyIdentifier');
-        $this->expectException(Exception::class);
-        $this->expectExceptionCode(1232986118);
-        $backend->set($identifier, $data);
-    }
-
-    #[Test]
     public function itIsPossibleToSetAndCheckExistenceInCache(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'Some data';
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data);
@@ -88,8 +76,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function itIsPossibleToSetAndGetEntry(mixed $data): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data);
         self::assertSame($data, $backend->get($identifier));
@@ -98,8 +86,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function itIsPossibleToSetAndGetObject(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $object = new \stdClass();
         $object->foo = 'foo';
@@ -111,8 +99,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function itIsPossibleToRemoveEntryFromCache(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'Some data';
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data);
@@ -123,8 +111,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function itIsPossibleToOverwriteAnEntryInTheCache(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'Some data';
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data);
@@ -137,8 +125,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function findIdentifiersByTagFindsSetEntries(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'Some data';
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data, ['UnitTestTag%tag1', 'UnitTestTag%tag2']);
@@ -151,8 +139,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function setRemovesTagsFromPreviousSet(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'Some data';
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $backend->set($identifier, $data, ['UnitTestTag%tag1', 'UnitTestTag%tagX']);
@@ -164,8 +152,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function hasReturnsFalseIfTheEntryDoesNotExist(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $identifier = StringUtility::getUniqueId('NonExistingIdentifier');
         self::assertFalse($backend->has($identifier));
     }
@@ -173,8 +161,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function removeReturnsFalseIfTheEntryDoesntExist(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $identifier = StringUtility::getUniqueId('NonExistingIdentifier');
         self::assertFalse($backend->remove($identifier));
     }
@@ -182,8 +170,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function flushByTagRemovesCacheEntriesWithSpecifiedTag(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'some data' . microtime();
         $backend->set('BackendAPCUTest1', $data, ['UnitTestTag%test', 'UnitTestTag%boring']);
         $backend->set('BackendAPCUTest2', $data, ['UnitTestTag%test', 'UnitTestTag%special']);
@@ -197,8 +185,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function flushByTagsRemovesCacheEntriesWithSpecifiedTags(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'some data' . microtime();
         $backend->set('BackendAPCUTest1', $data, ['UnitTestTag%test', 'UnitTestTag%boring']);
         $backend->set('BackendAPCUTest2', $data, ['UnitTestTag%test', 'UnitTestTag%special']);
@@ -212,8 +200,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function flushRemovesAllCacheEntries(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = 'some data' . microtime();
         $backend->set('BackendAPCUTest1', $data);
         $backend->set('BackendAPCUTest2', $data);
@@ -227,14 +215,14 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function flushRemovesOnlyOwnEntries(): void
     {
-        $thisCache = $this->createMock(FrontendInterface::class);
+        $thisCache = self::createStub(FrontendInterface::class);
         $thisCache->method('getIdentifier')->willReturn('thisCache');
-        $thisBackend = new ApcuBackend('Testing');
+        $thisBackend = new ApcuBackend();
         $thisBackend->setCache($thisCache);
 
-        $thatCache = $this->createMock(FrontendInterface::class);
+        $thatCache = self::createStub(FrontendInterface::class);
         $thatCache->method('getIdentifier')->willReturn('thatCache');
-        $thatBackend = new ApcuBackend('Testing');
+        $thatBackend = new ApcuBackend();
         $thatBackend->setCache($thatCache);
         $thisBackend->set('thisEntry', 'Hello');
         $thatBackend->set('thatEntry', 'World!');
@@ -249,8 +237,8 @@ final class ApcuBackendTest extends FunctionalTestCase
     #[Test]
     public function largeDataIsStored(): void
     {
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $data = str_repeat('abcde', 1024 * 1024);
         $identifier = StringUtility::getUniqueId('tooLargeData');
         $backend->set($identifier, $data);
@@ -264,8 +252,8 @@ final class ApcuBackendTest extends FunctionalTestCase
         $identifier = StringUtility::getUniqueId('MyIdentifier');
         $tags = ['UnitTestTag%test', 'UnitTestTag%boring'];
 
-        $backend = new ApcuBackend('Testing');
-        $backend->setCache($this->createMock(FrontendInterface::class));
+        $backend = new ApcuBackend();
+        $backend->setCache(self::createStub(FrontendInterface::class));
         $backend->set($identifier, 'testData', $tags);
         $backend->set($identifier, 'testData', $tags);
         // Expect exactly 4 entries:

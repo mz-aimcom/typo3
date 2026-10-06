@@ -18,6 +18,7 @@ namespace TYPO3\CMS\Frontend\ContentObject;
 use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 
 /**
  * Contains COA_INT class object.
@@ -32,26 +33,22 @@ class ContentObjectArrayInternalContentObject extends AbstractContentObject
      */
     public function render($conf = [])
     {
-        if (!is_array($conf)) {
+        if (empty($conf)) {
             $this->getTimeTracker()->setTSlogMessage('No elements in this content object array (COA_INT).', LogLevel::WARNING);
             return '';
         }
-
-        $frontendController = $this->getTypoScriptFrontendController();
-        $substKey = 'INT_SCRIPT.' . $frontendController->uniqueHash();
-        $content = '<!--' . $substKey . '-->';
-        $frontendController->config['INTincScript'][$substKey] = [
+        $substKey = 'INT_SCRIPT.' . md5(StringUtility::getUniqueId());
+        $pageParts = $this->request->getAttribute('frontend.page.parts');
+        $pageParts->addNotCachedContentElement([
+            'substKey' => $substKey,
             'conf' => $conf,
-            'cObj' => serialize($this->cObj),
+            'cObjData' => serialize($this->cObj->getState()),
             'type' => 'COA',
-        ];
-        return $content;
+        ]);
+        return '<!--' . $substKey . '-->';
     }
 
-    /**
-     * @return TimeTracker
-     */
-    protected function getTimeTracker()
+    protected function getTimeTracker(): TimeTracker
     {
         return GeneralUtility::makeInstance(TimeTracker::class);
     }

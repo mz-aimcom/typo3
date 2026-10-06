@@ -22,7 +22,6 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -72,6 +71,11 @@ class LinkValidatorController
     protected array $checkOpt = ['report' => [], 'check' => []];
 
     /**
+     * Selected link type to be reported
+     */
+    protected string $reportSelectedLinkType = '';
+
+    /**
      * Information for last edited record
      */
     protected array $lastEditedRecord = [
@@ -108,7 +112,7 @@ class LinkValidatorController
 
         $view = $this->moduleTemplateFactory->create($request);
         if ($this->pageRecord !== []) {
-            $view->getDocHeaderComponent()->setMetaInformation($this->pageRecord);
+            $view->getDocHeaderComponent()->setPageBreadcrumb($this->pageRecord);
         }
 
         $this->validateSettings($request);
@@ -151,14 +155,17 @@ class LinkValidatorController
         }
         $action = $moduleData->get('action');
 
-        $this->addDocHeaderShortCutButton($view, $action);
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'web_linkvalidator',
+            $this->getModuleTitle(),
+            ['id' => $this->id, 'action' => $action]
+        );
+        $view->makeDocHeaderModuleMenu(['id' => $this->id]);
 
         $checkFormEnabled = false;
         if (($this->modTS['showCheckLinkTab'] ?? '') === '1') {
             $checkFormEnabled = true;
         }
-
-        $brokenLinksInformation = $this->linkAnalyzer->getLinkCounts();
 
         $view->assignMultiple([
             'pageUid' => $this->id,
@@ -166,10 +173,9 @@ class LinkValidatorController
             'checkFormEnabled' => $checkFormEnabled,
             'selectedLevelCheck' => $this->searchLevel['check'],
             'selectedLevelReport' => $this->searchLevel['report'],
-            'optionsCheck' => $this->getCheckOptions('check'),
-            'optionsReport' => $this->getCheckOptions('report'),
+            'optionsCheck' => $this->getCheckOptions(),
+            'reportLinkTypeOptions' => $this->renderLinkTypeOptions(),
             'brokenLinks' => $this->getBrokenLinks(),
-            'brokenLinkTotalCount' => $brokenLinksInformation['total'] ?: '0',
         ]);
         return $view->renderResponse('Backend/Report');
     }
@@ -214,6 +220,7 @@ class LinkValidatorController
         // which linkTypes to check (internal, file, external, ...)
         $set = $request->getParsedBody()[$prefix . '_SET'] ?? [];
         $submittedValues = $request->getParsedBody()[$prefix . '_values'] ?? [];
+        $reportLinkTypeToBeShown = $request->getParsedBody()['report_link_type'] ?? '';
 
         foreach ($this->linktypeRegistry->getIdentifiers() as $linkType) {
             // Compile list of all available types. Used for checking with button "Check Links".
@@ -226,7 +233,8 @@ class LinkValidatorController
             // 3) if not set, use default
             if (!empty($submittedValues)) {
                 $this->checkOpt[$prefix][$linkType] = $set[$linkType] ?? '0';
-                $moduleData->set($mainLinkType, $this->checkOpt[$prefix][$linkType]);
+                $this->reportSelectedLinkType = $reportLinkTypeToBeShown;
+                $moduleData->set($mainLinkType, $this->checkOpt[$prefix][$linkType], $this->reportSelectedLinkType);
             } elseif ($moduleData->has($mainLinkType)) {
                 $this->checkOpt[$prefix][$linkType] = $moduleData->get($mainLinkType);
             } else {
@@ -299,9 +307,9 @@ class LinkValidatorController
     protected function getBrokenLinks(): array
     {
         $items = [];
-        $linkTypes = [];
-        if (is_array($this->checkOpt['report'])) {
-            $linkTypes = array_keys($this->checkOpt['report'], '1');
+        $linkTypes = $this->linktypeRegistry->getIdentifiers();
+        if (!empty($this->reportSelectedLinkType)) {
+            $linkTypes = [$this->reportSelectedLinkType];
         }
         $rootLineHidden = $this->pagesRepository->doesRootLineContainHiddenPages($this->pageRecord);
         if (!empty($linkTypes) && (!$rootLineHidden || ($this->modTS['checkhidden'] ?? false))) {
@@ -314,7 +322,10 @@ class LinkValidatorController
                 if (!$this->tcaSchemaFactory->has($row['table_name'])) {
                     continue;
                 }
-                $items[] = $this->generateTableRow($row);
+                if (($tableRow = $this->generateTableRow($row)) !== []) {
+                    $items[] = $tableRow;
+                }
+
             }
         }
         return $items;
@@ -361,8 +372,11 @@ class LinkValidatorController
         // Try to resolve the field label from TCA
         if ($schema->hasSubSchema($elementType) && $schema->getSubSchema($elementType)->hasField($row['field'])) {
             $fieldLabel = $schema->getSubSchema($elementType)->getField($row['field'])->getLabel();
-        } else {
+        } elseif ($schema->hasField($row['field'])) {
             $fieldLabel = $schema->getField($row['field'])->getLabel();
+        } else {
+            // Entry in the database is not valid since the field <=> table combination does not or no longer exist
+            return [];
         }
         // Crop colon from end if present
         $fieldLabel = rtrim((string)($fieldLabel ?: $row['field']), ':');
@@ -399,6 +413,7 @@ class LinkValidatorController
                     $row['record_uid'] => 'edit',
                 ],
             ],
+            'module' => 'web_linkvalidator',
             'returnUrl' => $this->getModuleUri(
                 'report',
                 [
@@ -433,10 +448,8 @@ class LinkValidatorController
 
     /**
      * Builds the checkboxes to show which types of links are available
-     *
-     * @param string $prefix "report" or "check" for "Report" and "Check links" form
      */
-    protected function getCheckOptions(string $prefix): array
+    protected function getCheckOptions(): array
     {
         $brokenLinksInformation = $this->linkAnalyzer->getLinkCounts();
         $options = [
@@ -447,14 +460,15 @@ class LinkValidatorController
             if (!in_array($type, $linkTypes, true)) {
                 continue;
             }
-            $isChecked = !empty($this->checkOpt[$prefix][$type]);
+            $isChecked = !empty($this->checkOpt['check'][$type]);
             $linkType = $this->linktypeRegistry->getLinktype($type);
             $linktypeLabel = ($linkType instanceof LabelledLinktypeInterface)
                 ? ($linkType->getReadableName() ?: $linkType->getIdentifier())
                 : $type;
             $options['optionsByType'][$type] = [
-                'id' => $prefix . '_SET_' . $type,
-                'name' => $prefix . '_SET[' . $type . ']',
+                'id' => 'check_SET_' . $type,
+                'name' => 'check_SET[' . $type . ']',
+                'value' => $type,
                 'label' => $linktypeLabel,
                 'checked' => $isChecked,
                 'count' => (!empty($brokenLinksInformation[$type]) ? $brokenLinksInformation[$type] : '0'),
@@ -464,14 +478,35 @@ class LinkValidatorController
         return $options;
     }
 
-    protected function addDocHeaderShortCutButton(ModuleTemplate $view, string $action): void
+    /**
+     * Create select box options for existing link types
+     */
+    protected function renderLinkTypeOptions(): string
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('web_linkvalidator')
-            ->setDisplayName($this->getModuleTitle())
-            ->setArguments(['id' => $this->id, 'action' => $action]);
-        $buttonBar->addButton($shortcutButton);
+        $languageService = $this->getLanguageService();
+        $brokenLinksInformation = $this->linkAnalyzer->getLinkCounts();
+        $linkTypes = GeneralUtility::trimExplode(',', $this->modTS['linktypes'] ?? '', true);
+        $selectedLinkTypeOption = $this->reportSelectedLinkType;
+        $linkTypeAllOptionSelected = empty($selectedLinkTypeOption) ? 'selected' : '';
+
+        $options = '';
+        $options .= '<option value="" ' . $linkTypeAllOptionSelected . '>' . $languageService->translate('filter.type.all', 'linkvalidator.module.messages')
+            . ' (' . $brokenLinksInformation['total'] . ')' . '</option>';
+
+        foreach ($this->linktypeRegistry->getIdentifiers() as $linkType) {
+            if (!in_array($linkType, $linkTypes, true)) {
+                continue;
+            }
+            $linkTypeRegistryType = $this->linktypeRegistry->getLinktype($linkType);
+            $linkTypeLabel = ($linkTypeRegistryType instanceof LabelledLinktypeInterface)
+                ? ($linkTypeRegistryType->getReadableName() ?: $linkTypeRegistryType->getIdentifier())
+                : $linkType;
+            $linkTypeCount = !empty($brokenLinksInformation[$linkType]) ? $brokenLinksInformation[$linkType] : '0';
+            $linkTypeIsSelectedOption = ($linkType === $selectedLinkTypeOption) ? 'selected' : '';
+            $options .= '<option value="' . $linkType . '"' . $linkTypeIsSelectedOption . '>' . $linkTypeLabel . ' (' . $linkTypeCount . ')' . '</option>';
+        }
+
+        return $options;
     }
 
     protected function getModuleUri(?string $action = null, array $additionalPramaters = []): string
@@ -487,9 +522,8 @@ class LinkValidatorController
 
     protected function getModuleTitle(): string
     {
-        $languageService = $this->getLanguageService();
         $pageTitle = '';
-        $moduleName = $languageService->sL('LLL:EXT:linkvalidator/Resources/Private/Language/Module/locallang_mod.xlf:mlang_labels_tablabel');
+        $moduleName = $this->getLanguageService()->translate('short_description', 'linkvalidator.module');
         if ($this->id === 0) {
             $pageTitle = $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'];
         } elseif ($this->pageRecord !== []) {

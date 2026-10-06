@@ -27,8 +27,8 @@ use TYPO3\CMS\Core\Package\Initialization\CheckForImportRequirements;
 use TYPO3\CMS\Core\Package\Initialization\ImportExtensionDataOnPackageInitialization;
 use TYPO3\CMS\Core\Package\Initialization\ImportStaticSqlDataOnPackageInitialization;
 use TYPO3\CMS\Core\Package\Package;
-use TYPO3\CMS\Core\Package\PackageActivationService;
 use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Package\PackageSetup;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class PackageInitializationEventTest extends FunctionalTestCase
@@ -41,20 +41,18 @@ final class PackageInitializationEventTest extends FunctionalTestCase
     public function gettersReturnInitializedObjects(): void
     {
         $extensionKey = 'my_ext';
-        $package = $this->createMock(Package::class);
+        $package = self::createStub(Package::class);
         $container = new Container();
         $emitter = $this;
 
         $event = new PackageInitializationEvent(
             extensionKey: $extensionKey,
             package: $package,
-            container: $container,
             emitter: $emitter
         );
 
         self::assertSame($extensionKey, $event->getExtensionKey());
         self::assertSame($package, $event->getPackage());
-        self::assertSame($container, $event->getContainer());
         self::assertSame($emitter, $event->getEmitter());
         self::assertFalse($event->hasStorageEntry(__CLASS__));
 
@@ -68,20 +66,18 @@ final class PackageInitializationEventTest extends FunctionalTestCase
     public function setterOverwritesResult(): void
     {
         $extensionKey = 'my_ext';
-        $package = $this->createMock(Package::class);
+        $package = self::createStub(Package::class);
         $container = new Container();
         $emitter = $this;
 
         $event = new PackageInitializationEvent(
             extensionKey: $extensionKey,
             package: $package,
-            container: $container,
             emitter: $emitter
         );
 
         self::assertSame($extensionKey, $event->getExtensionKey());
         self::assertSame($package, $event->getPackage());
-        self::assertSame($container, $event->getContainer());
         self::assertSame($emitter, $event->getEmitter());
 
         self::assertFalse($event->hasStorageEntry(__CLASS__));
@@ -101,10 +97,10 @@ final class PackageInitializationEventTest extends FunctionalTestCase
     public function coreListenersAddStorageEntries(): void
     {
         /** @var PackageInitializationEvent $event */
-        $event = $this->getContainer()->get(EventDispatcherInterface::class)->dispatch(
+        $event = $this->get(EventDispatcherInterface::class)->dispatch(
             new PackageInitializationEvent(
-                'test_package_initialization',
-                $this->getContainer()->get(PackageManager::class)->getPackage('test_package_initialization'),
+                extensionKey: 'test_package_initialization',
+                package: $this->get(PackageManager::class)->getPackage('test_package_initialization'),
             )
         );
 
@@ -116,7 +112,9 @@ final class PackageInitializationEventTest extends FunctionalTestCase
 
         self::assertTrue($event->hasStorageEntry(ImportStaticSqlDataOnPackageInitialization::class));
         self::assertStringEndsWith(
-            '/typo3conf/ext/test_package_initialization/ext_tables_static+adt.sql',
+            // Where the extension lives on disk differs by installation mode; only the
+            // file below its package path is the subject here.
+            '/ext_tables_static+adt.sql',
             $event->getStorageEntry(ImportStaticSqlDataOnPackageInitialization::class)->getResult()
         );
 
@@ -146,9 +144,9 @@ final class PackageInitializationEventTest extends FunctionalTestCase
         $listenerProdiver = $container->get(ListenerProvider::class);
         $listenerProdiver->addListener(PackageInitializationEvent::class, 'package-initialization-listener');
 
-        /** @var PackageActivationService $packageActivationService */
-        $packageActivationService = $container->get(PackageActivationService::class);
-        $packageActivationService->reloadExtensionData(['test_package_initialization']);
+        $packageManager = $container->get(PackageManager::class);
+        $setupExtensionsService = $container->get(PackageSetup::class);
+        $setupExtensionsService->setup(['test_package_initialization' => $packageManager->getPackage('test_package_initialization')]);
 
         self::assertInstanceOf(PackageInitializationEvent::class, $packageInitializationEvent);
         self::assertSame($listenerResult, $packageInitializationEvent->getStorageEntry('package-initialization-listener')->getResult());

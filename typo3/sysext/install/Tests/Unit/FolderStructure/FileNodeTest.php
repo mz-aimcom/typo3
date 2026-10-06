@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\FolderStructure;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -29,6 +30,7 @@ use TYPO3\CMS\Install\FolderStructure\FileNode;
 use TYPO3\CMS\Install\FolderStructure\NodeInterface;
 use TYPO3\CMS\Install\FolderStructure\RootNodeInterface;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FileNodeTest extends AbstractFolderStructureTestCase
 {
     #[Test]
@@ -45,7 +47,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionCode(1366222207);
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
         $structure = [
             'name' => 'foo/bar',
@@ -56,7 +58,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorSetsParent(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
         $structure = [
             'name' => 'foo',
@@ -68,7 +70,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorSetsTargetPermission(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
         $targetPermission = '0660';
         $structure = [
@@ -83,7 +85,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     public function constructorSetsName(): void
     {
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $name = StringUtility::getUniqueId('test_');
         $node->__construct(['name' => $name], $parent);
         self::assertSame($name, $node->getName());
@@ -95,7 +97,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionCode(1380364361);
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $structure = [
             'name' => 'foo',
             'targetContent' => 'foo',
@@ -108,7 +110,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     public function constructorSetsTargetContent(): void
     {
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $targetContent = StringUtility::getUniqueId('content_');
         $structure = [
             'name' => 'foo',
@@ -122,7 +124,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     public function constructorSetsTargetContentToContentOfTargetContentFile(): void
     {
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $targetFile = $this->getTestFilePath('test_');
         $targetContent = StringUtility::getUniqueId('content_');
         file_put_contents($targetFile, $targetContent);
@@ -140,7 +142,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionCode(1380364362);
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $targetFile = $this->getTestFilePath('test_');
         $structure = [
             'name' => 'foo',
@@ -153,7 +155,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     public function targetContentIsNullIfNotGiven(): void
     {
         $node = $this->getAccessibleMock(FileNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $structure = [
             'name' => 'foo',
         ];
@@ -530,7 +532,7 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function isPermissionCorrectReturnsTrueIfTargetPermissionAndCurrentPermissionAreIdentical(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(FileNode::class, ['getCurrentPermission', 'isWindowsOs'], [], '', false);
         $node->method('isWindowsOs')->willReturn(false);
         $node->method('getCurrentPermission')->willReturn('0664');
@@ -611,8 +613,10 @@ final class FileNodeTest extends AbstractFolderStructureTestCase
         // do not use var path here, as file nodes explicitly check for public path
         $testRoot = Environment::getPublicPath() . '/typo3temp/tests/';
         $path = $testRoot . StringUtility::getUniqueId('root_');
-        $this->testFilesToDelete[] = $testRoot;
         GeneralUtility::mkdir_deep($path);
+        // Register the unique directory and not the shared root: other test cases
+        // keep their files below the same root and must not have them removed.
+        $this->testFilesToDelete[] = $path;
         $link = StringUtility::getUniqueId('link_');
         $file = StringUtility::getUniqueId('file_');
         touch($path . '/' . $file);

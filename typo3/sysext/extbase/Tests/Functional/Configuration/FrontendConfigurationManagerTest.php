@@ -31,6 +31,8 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class FrontendConfigurationManagerTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     #[Test]
     public function beforeFlexFormConfigurationOverrideEventIsDispatched(): void
     {
@@ -71,9 +73,9 @@ final class FrontendConfigurationManagerTest extends FunctionalTestCase
         $eventListener = $container->get(ListenerProvider::class);
         $eventListener->addListener(BeforeFlexFormConfigurationOverrideEvent::class, 'foo-flexform-listener');
 
-        $contentObject = new ContentObjectRenderer();
+        $contentObject = $this->get(ContentObjectRenderer::class);
         $contentObject->data = ['pi_flexform' => $flexForm];
-        $request = (new ServerRequest())->withAttribute('currentContentObject', $contentObject);
+        $request = new ServerRequest()->withAttribute('currentContentObject', $contentObject);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray([]);
         $request = $request->withAttribute('frontend.typoscript', $frontendTypoScript);
@@ -350,9 +352,9 @@ final class FrontendConfigurationManagerTest extends FunctionalTestCase
         array $typoScript,
         array $expected
     ): void {
-        $contentObject = new ContentObjectRenderer();
+        $contentObject = $this->get(ContentObjectRenderer::class);
         $contentObject->data = ['pi_flexform' => $flexForm];
-        $request = (new ServerRequest())->withAttribute('currentContentObject', $contentObject);
+        $request = new ServerRequest()->withAttribute('currentContentObject', $contentObject);
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray($typoScript);
         $request = $request->withAttribute('frontend.typoscript', $frontendTypoScript);

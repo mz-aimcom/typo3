@@ -18,10 +18,10 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Tests\Unit\Configuration;
 
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
 use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
@@ -73,7 +73,7 @@ final class FrontendConfigurationManagerTest extends UnitTestCase
         ];
         $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
         $frontendTypoScript->setSetupArray($testTypoScriptSetup);
-        $request = (new ServerRequest())->withAttribute('frontend.typoscript', $frontendTypoScript);
+        $request = new ServerRequest()->withAttribute('frontend.typoscript', $frontendTypoScript);
         $expectedResult = [
             'settings' => [
                 'setting1' => 'overriddenValue1',
@@ -96,8 +96,8 @@ final class FrontendConfigurationManagerTest extends UnitTestCase
         ];
         $subject = new FrontendConfigurationManager(
             new TypoScriptService(),
-            $this->createMock(FlexFormService::class),
-            $this->createMock(PageRepository::class),
+            self::createStub(FlexFormTools::class),
+            self::createStub(PageRepository::class),
             new NoopEventDispatcher()
         );
         $actualResult = $subject->getConfiguration($request, ['extensionName' => 'CurrentExtensionName', 'pluginName' => 'CurrentPluginName']);

@@ -20,9 +20,10 @@ namespace TYPO3\CMS\Linkvalidator\Tests\Unit\Linktype;
 use GuzzleHttp\Cookie\CookieJar;
 use GuzzleHttp\Exception\ClientException;
 use GuzzleHttp\Psr7\Response;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
 use TYPO3\CMS\Core\Http\Client\GuzzleClientFactory;
 use TYPO3\CMS\Core\Http\RequestFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -30,18 +31,19 @@ use TYPO3\CMS\Linkvalidator\LinkAnalyzer;
 use TYPO3\CMS\Linkvalidator\Linktype\ExternalLinktype;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class ExternalLinktypeTest extends UnitTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['LANG'] = $this->buildLanguageServiceMock();
+        $GLOBALS['LANG'] = $this->buildLanguageServiceStub();
     }
 
-    private function buildLanguageServiceMock(): MockObject
+    private function buildLanguageServiceStub(): Stub
     {
-        $languageServiceMock = $this->getMockBuilder(LanguageService::class)->disableOriginalConstructor()->getMock();
-        return $languageServiceMock;
+        $languageServiceStub = self::createStub(LanguageService::class);
+        return $languageServiceStub;
     }
 
     #[Test]
@@ -49,21 +51,23 @@ final class ExternalLinktypeTest extends UnitTestCase
     {
         $response = new Response(404);
         $clientExceptionMock = $this->getMockBuilder(ClientException::class)->disableOriginalConstructor()->getMock();
-        $clientExceptionMock->expects($this->once())->method('hasResponse')->willReturn(true);
-        $clientExceptionMock->expects($this->once())->method('getResponse')->willReturn($response);
+        $clientExceptionMock->expects($this->exactly(2))->method('getResponse')->willReturn($response);
 
         $url = 'https://example.org/~not-existing-url';
         $options = $this->getRequestHeaderOptions();
-        $requestFactoryMock = $this->getMockBuilder(RequestFactory::class)->disableOriginalConstructor()->getMock();
-        $requestFactoryMock->method('request')->with($url, 'HEAD', $options)
-            ->willThrowException($clientExceptionMock);
-
+        $requestFactoryMock = self::createStub(RequestFactory::class);
         $optionsSecondTryWithGET = array_merge_recursive($options, ['headers' => ['Range' => 'bytes=0-4048']]);
-        $requestFactoryMock->method('request')->with($url, 'GET', $optionsSecondTryWithGET)
-            ->willThrowException($clientExceptionMock);
+        $requestFactoryMock->method('request')->willReturnCallback(
+            static function (string $actualUrl, string $method, array $actualOptions) use ($url, $options, $optionsSecondTryWithGET, $clientExceptionMock): never {
+                self::assertSame($url, $actualUrl);
+                self::assertContains($method, ['HEAD', 'GET']);
+                self::assertEquals($method === 'HEAD' ? $options : $optionsSecondTryWithGET, $actualOptions);
+                throw $clientExceptionMock;
+            }
+        );
         $subject = new ExternalLinktype($requestFactoryMock);
 
-        $result = $subject->checkLink($url, [], $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock());
+        $result = $subject->checkLink($url, [], self::createStub(LinkAnalyzer::class));
 
         self::assertFalse($result);
     }
@@ -73,26 +77,29 @@ final class ExternalLinktypeTest extends UnitTestCase
     {
         $response = new Response(404);
         $clientExceptionMock = $this->getMockBuilder(ClientException::class)->disableOriginalConstructor()->getMock();
-        $clientExceptionMock->expects($this->once())->method('hasResponse')->willReturn(true);
-        $clientExceptionMock->expects($this->once())->method('getResponse')->willReturn($response);
+        $clientExceptionMock->expects($this->exactly(2))->method('getResponse')->willReturn($response);
 
         $options = $this->getRequestHeaderOptions();
 
         $url = 'https://example.org/~not-existing-url';
-        $requestFactoryMock = $this->getMockBuilder(RequestFactory::class)->disableOriginalConstructor()->getMock();
-        $requestFactoryMock->method('request')->with($url, 'HEAD', $options)
-            ->willThrowException($clientExceptionMock);
+        $requestFactoryMock = self::createStub(RequestFactory::class);
         $optionsSecondTryWithGET = array_merge_recursive($options, ['headers' => ['Range' => 'bytes=0-4048']]);
-        $requestFactoryMock->method('request')->with($url, 'GET', $optionsSecondTryWithGET)
-            ->willThrowException($clientExceptionMock);
+        $requestFactoryMock->method('request')->willReturnCallback(
+            static function (string $actualUrl, string $method, array $actualOptions) use ($url, $options, $optionsSecondTryWithGET, $clientExceptionMock): never {
+                self::assertSame($url, $actualUrl);
+                self::assertContains($method, ['HEAD', 'GET']);
+                self::assertEquals($method === 'HEAD' ? $options : $optionsSecondTryWithGET, $actualOptions);
+                throw $clientExceptionMock;
+            }
+        );
 
         $subject = new ExternalLinktype($requestFactoryMock);
 
-        $subject->checkLink($url, [], $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock());
+        $subject->checkLink($url, [], self::createStub(LinkAnalyzer::class));
         $errorParams = $subject->getErrorParams();
 
-        self::assertSame($errorParams['errorType'], 'httpStatusCode');
-        self::assertSame($errorParams['errno'], 404);
+        self::assertSame('httpStatusCode', $errorParams['errorType']);
+        self::assertSame(404, $errorParams['errno']);
     }
 
     private function getRequestHeaderOptions(): array
@@ -177,7 +184,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $subject = new ExternalLinktype(new RequestFactory(new GuzzleClientFactory()));
         $method = new \ReflectionMethod($subject, 'preprocessUrl');
         $result = $method->invokeArgs($subject, [$inputUrl]);
-        self::assertEquals($result, $expectedResult);
+        self::assertEquals($expectedResult, $result);
     }
 
     #[Test]
@@ -200,7 +207,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinkType->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -228,7 +235,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinkType->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -252,7 +259,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinktype->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -276,7 +283,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinkType->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -300,7 +307,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinktype->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -324,7 +331,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinkType->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 
@@ -351,7 +358,7 @@ final class ExternalLinktypeTest extends UnitTestCase
         $externalLinkType->checkLink(
             'http://example.com',
             [],
-            $this->getMockBuilder(LinkAnalyzer::class)->disableOriginalConstructor()->getMock()
+            self::createStub(LinkAnalyzer::class)
         );
     }
 }

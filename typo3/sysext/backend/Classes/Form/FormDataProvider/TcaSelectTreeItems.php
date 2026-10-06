@@ -64,8 +64,6 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                 $fieldConfig['config']['maxitems'] = 99999;
             }
 
-            $fieldConfig = $this->parseStartingPointsFromSiteConfiguration($result, $fieldConfig);
-
             // A couple of tree specific config parameters can be overwritten via page TS.
             // Pick those that influence the data fetching and write them into the config
             // given to the tree data provider. This is additionally used in SelectTreeElement, so always do that.
@@ -73,7 +71,7 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                 $pageTsConfig = $result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['config.']['treeConfig.'];
                 if (isset($pageTsConfig['startingPoints'])) {
                     $fieldConfig['config']['treeConfig']['startingPoints']
-                        = implode(',', array_unique(GeneralUtility::intExplode(',', (string)$pageTsConfig['startingPoints'])));
+                        = implode(',', array_unique(GeneralUtility::trimExplode(',', (string)$pageTsConfig['startingPoints'], true)));
                 }
                 if (isset($pageTsConfig['appearance.']['expandAll'])) {
                     $fieldConfig['config']['treeConfig']['appearance']['expandAll'] = (bool)$pageTsConfig['appearance.']['expandAll'];
@@ -86,10 +84,33 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                 }
             }
 
+            $fieldConfig = $this->parseStartingPointsFromSiteConfiguration($result, $fieldConfig);
+            $fieldConfig = $this->parseStartingPointsFromMarkers($result, $fieldName, $fieldConfig);
+
             // Prepare the list of currently selected nodes using RelationHandler
             // This is needed to ensure a correct value initialization before the actual tree is loaded
             $result['databaseRow'][$fieldName] = $this->processDatabaseFieldValue($result['databaseRow'], $fieldName);
             $result['databaseRow'][$fieldName] = $this->processSelectFieldValue($result, $fieldName, []);
+
+            // Preserve original TCA static items before overwriting with resolved items
+            $originalTcaItems = $fieldConfig['config']['items'] ?? [];
+
+            // Always resolve the full item list (static + foreign_table + TSconfig) with filtering.
+            // This is needed by TcaColumnsRemoveEmptyRelations to determine if the field has any
+            // selectable items, and is reused below for tree building in the AJAX context.
+            $staticItems = $this->sanitizeItemArray($originalTcaItems, $table, $fieldName);
+            $staticItems = array_merge($staticItems, $this->addItemsFromPageTsConfig($result, $fieldName, []));
+            $staticItems = $this->removeItemsByKeepItemsPageTsConfig($result, $fieldName, $staticItems);
+            $staticItems = $this->removeItemsByRemoveItemsPageTsConfig($result, $fieldName, $staticItems);
+            $dynamicItems = $this->addItemsFromForeignTable($result, $fieldName);
+            $dynamicItems = $this->removeItemsByKeepItemsPageTsConfig($result, $fieldName, $dynamicItems);
+            $dynamicItems = $this->removeItemsByRemoveItemsPageTsConfig($result, $fieldName, $dynamicItems);
+            $dynamicItems = $this->removeItemsByUserLanguageFieldRestriction($result, $fieldName, $dynamicItems);
+            $dynamicItems = $this->removeItemsByUserAuthMode($result, $fieldName, $dynamicItems);
+            $dynamicItems = $this->removeItemsByDoktypeUserRestriction($result, $fieldName, $dynamicItems);
+
+            // Store flat items for downstream providers (will be overwritten with tree structure during AJAX)
+            $fieldConfig['config']['items'] = array_merge($staticItems, $dynamicItems);
 
             if ($result['selectTreeCompileItems']) {
                 $finalItems = [];
@@ -97,7 +118,7 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                 // Prepare the list of "static" items if there are any.
                 // "static" and "dynamic" is separated since the tree code only copes with "real" existing foreign nodes,
                 // so this "static" stuff allows defining tree items that don't really exist in the tree.
-                $itemsFromTca = $this->sanitizeItemArray($fieldConfig['config']['items'] ?? [], $table, $fieldName);
+                $itemsFromTca = $this->sanitizeItemArray($originalTcaItems, $table, $fieldName);
 
                 // List of additional items defined by page ts config "addItems"
                 $itemsFromPageTsConfig = $this->addItemsFromPageTsConfig($result, $fieldName, []);
@@ -125,10 +146,13 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                     $staticItems = $this->removeItemsByUserAuthMode($result, $fieldName, $staticItems);
                     $staticItems = $this->removeItemsByDoktypeUserRestriction($result, $fieldName, $staticItems);
                     // Call itemsProcFunc if given. Note this function does *not* see the "dynamic" list of items
-                    if (!empty($fieldConfig['config']['itemsProcFunc'])) {
-                        $staticItems = $this->resolveItemProcessorFunction($result, $fieldName, $staticItems);
+                    if (!empty($fieldConfig['config']['itemsProcFunc']) || !empty($fieldConfig['config']['itemsProcessors'])) {
+                        $staticItems = $this->resolveItemsProcessorFunction($result, $fieldName, $staticItems);
                         // itemsProcFunc must not be used anymore
-                        unset($fieldConfig['config']['itemsProcFunc']);
+                        unset(
+                            $fieldConfig['config']['itemsProcFunc'],
+                            $fieldConfig['config']['itemsProcessors']
+                        );
                     }
                     // translate any labels
                     $staticItems = $this->translateLabels($result, $staticItems, $table, $fieldName);
@@ -153,14 +177,7 @@ class TcaSelectTreeItems extends AbstractItemProvider implements FormDataProvide
                     }
                 }
 
-                // Fetch the list of all possible "related" items (yuk!) and apply a similar processing as with the "static" list
-                $dynamicItems = $this->addItemsFromForeignTable($result, $fieldName);
-                $dynamicItems = $this->removeItemsByKeepItemsPageTsConfig($result, $fieldName, $dynamicItems);
-                $dynamicItems = $this->removeItemsByRemoveItemsPageTsConfig($result, $fieldName, $dynamicItems);
-                $dynamicItems = $this->removeItemsByUserLanguageFieldRestriction($result, $fieldName, $dynamicItems);
-                $dynamicItems = $this->removeItemsByUserAuthMode($result, $fieldName, $dynamicItems);
-                $dynamicItems = $this->removeItemsByDoktypeUserRestriction($result, $fieldName, $dynamicItems);
-                // Funnily, the only data needed for the tree code are the uids of the possible records (yuk!) - get them
+                // Reuse the already-fetched dynamic items to build uid whitelist for tree
                 $uidListOfAllDynamicItems = [];
                 foreach ($dynamicItems as $item) {
                     if ((int)$item['value'] > 0) {

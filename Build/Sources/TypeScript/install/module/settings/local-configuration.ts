@@ -13,14 +13,12 @@
 
 import 'bootstrap';
 import { Collapse } from 'bootstrap';
-import '../../renderable/clearable';
 import { AbstractInteractableModule, type ModuleLoadedResponseWithButtons } from '../abstract-interactable-module';
 import Modal from '@typo3/backend/modal';
 import Notification from '@typo3/backend/notification';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import Router from '../../router';
 import RegularEvent from '@typo3/core/event/regular-event';
-import { KeyTypesEnum } from '@typo3/backend/enum/key-types';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { ModalElement } from '@typo3/backend/modal';
 import type MessageInterface from '@typo3/install/message-interface';
@@ -44,7 +42,6 @@ type LocalConfigurationWrittenResponse = {
  * Module: @typo3/install/module/local-configuration
  */
 class LocalConfiguration extends AbstractInteractableModule {
-  private searchInput: HTMLInputElement;
   private toggleAll: boolean = false;
 
   public override initialize(currentModal: ModalElement): void {
@@ -81,11 +78,6 @@ class LocalConfiguration extends AbstractInteractableModule {
           event.preventDefault();
           searchInput.focus();
         }
-      } else if (event.key === KeyTypesEnum.ESCAPE) {
-        // Clear search on ESC key
-        event.preventDefault();
-        searchInput.value = '';
-        searchInput.focus();
       }
     }).bindTo(currentModal);
 
@@ -186,8 +178,6 @@ class LocalConfiguration extends AbstractInteractableModule {
           if (data.success === true) {
             modalContent.innerHTML = data.html;
             Modal.setButtons(data.buttons);
-            this.searchInput = modalContent.querySelector<HTMLInputElement>((Identifiers.searchTrigger));
-            this.searchInput.clearable();
           }
         },
         (error: AjaxResponse): void => {

@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Install\Tests\Functional\Service;
 
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Resource\ProcessedFileRepository;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -35,7 +36,7 @@ final class Typo3tempFileServiceTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->directoryName = StringUtility::getUniqueId('test');
-        $this->directoryPath = $this->instancePath . '/typo3temp/assets/' . $this->directoryName;
+        $this->directoryPath = Environment::getPublicPath() . '/typo3temp/assets/' . $this->directoryName;
     }
 
     protected function tearDown(): void
@@ -51,8 +52,8 @@ final class Typo3tempFileServiceTest extends FunctionalTestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1501781454);
 
-        $processedFileRepository = $this->getMockBuilder(ProcessedFileRepository::class)->disableOriginalConstructor()->getMock();
-        $storageRepository = $this->getMockBuilder(StorageRepository::class)->disableOriginalConstructor()->getMock();
+        $processedFileRepository = self::createStub(ProcessedFileRepository::class);
+        $storageRepository = self::createStub(StorageRepository::class);
         $subject = new Typo3tempFileService($processedFileRepository, $storageRepository);
         $subject->clearAssetsFolder('/typo3temp/assets/' . $this->directoryName);
     }
@@ -65,8 +66,8 @@ final class Typo3tempFileServiceTest extends FunctionalTestCase
         file_put_contents($this->directoryPath . '/a/b/c.css', '/* test */');
         file_put_contents($this->directoryPath . '/a/b/d.css', '/* test */');
 
-        $processedFileRepository = $this->getMockBuilder(ProcessedFileRepository::class)->disableOriginalConstructor()->getMock();
-        $storageRepository = $this->getMockBuilder(StorageRepository::class)->disableOriginalConstructor()->getMock();
+        $processedFileRepository = self::createStub(ProcessedFileRepository::class);
+        $storageRepository = self::createStub(StorageRepository::class);
         $subject = new Typo3tempFileService($processedFileRepository, $storageRepository);
         $subject->clearAssetsFolder('/typo3temp/assets/' . $this->directoryName);
 

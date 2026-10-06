@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Domain\Repository;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Context\Context;
@@ -47,8 +46,14 @@ use TYPO3\CMS\Core\Domain\Event\BeforePageLanguageOverlayEvent;
 use TYPO3\CMS\Core\Domain\Event\BeforeRecordLanguageOverlayEvent;
 use TYPO3\CMS\Core\Domain\Event\ModifyDefaultConstraintsForDatabaseQueryEvent;
 use TYPO3\CMS\Core\Domain\Page;
+use TYPO3\CMS\Core\Error\Http\LinkedPageNotResolvableException;
 use TYPO3\CMS\Core\Error\Http\ShortcutTargetPageNotFoundException;
+use TYPO3\CMS\Core\Exception\Page\CircularPageReferenceChainException;
+use TYPO3\CMS\Core\Exception\Page\PageReferenceResolvingReachedIterationLimitException;
+use TYPO3\CMS\Core\LinkHandling\PageTypeLinkResolver;
+use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\PageTranslationVisibility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -58,19 +63,15 @@ use TYPO3\CMS\Core\Versioning\VersionState;
 /**
  * Page functions, a lot of sql/pages-related functions
  *
- * Mainly used in the frontend but also in some cases in the backend. It's
- * important to set the right $where_hid_del in the object so that the
- * functions operate properly
+ * Mainly used in the frontend but also in some cases in the backend.
  *
  * For the Context, the workspace aspect is used to determine the workspace.
  * The Workspace ID is relevant for previewing
  * If > 0, versioning preview of other record versions is allowed. This should only
  * be set if the page is not cached and truly previewed by a backend user!
  */
-class PageRepository implements LoggerAwareInterface
+readonly class PageRepository
 {
-    use LoggerAwareTrait;
-
     /**
      * Named constants for "magic numbers" of the field doktype
      */
@@ -87,24 +88,12 @@ class PageRepository implements LoggerAwareInterface
      */
     public const SHORTCUT_MODE_NONE = 0;
     public const SHORTCUT_MODE_FIRST_SUBPAGE = 1;
-    public const SHORTCUT_MODE_RANDOM_SUBPAGE = 2;
     public const SHORTCUT_MODE_PARENT_PAGE = 3;
-
-    /**
-     * This is not the final clauses. There will normally be conditions for the
-     * hidden, starttime and endtime fields as well. This is initialized in the init() function.
-     */
-    protected string $where_hid_del = 'pages.deleted=0';
-
-    /**
-     * Clause for fe_group access
-     */
-    protected string $where_groupAccess = '';
 
     /**
      * Computed properties that are added to database rows.
      */
-    protected array $computedPropertyNames = [
+    protected const COMPUTED_PROPERTY_NAMES = [
         '_LOCALIZED_UID',
         '_REQUESTED_OVERLAY_LANGUAGE',
         '_MP_PARAM',
@@ -115,26 +104,53 @@ class PageRepository implements LoggerAwareInterface
 
     protected Context $context;
     protected TcaSchemaFactory $tcaSchemaFactory;
+    protected PageTypeLinkResolver $pageTypeLinkResolver;
+    protected LoggerInterface $logger;
 
     /**
      * PageRepository constructor to set the base context, this will effectively remove the necessity for
      * setting properties from the outside.
      */
-    public function __construct(?Context $context = null, ?TcaSchemaFactory $tcaSchemaFactory = null)
+    public function __construct(?Context $context = null, ?TcaSchemaFactory $tcaSchemaFactory = null, ?PageTypeLinkResolver $pageTypeLinkResolver = null, ?LoggerInterface $logger = null)
     {
         $this->context = $context ?? GeneralUtility::makeInstance(Context::class);
         $this->tcaSchemaFactory = $tcaSchemaFactory ?? GeneralUtility::makeInstance(TcaSchemaFactory::class);
-        $this->init();
+        $this->pageTypeLinkResolver = $pageTypeLinkResolver ?? GeneralUtility::makeInstance(PageTypeLinkResolver::class);
+        $this->logger = $logger ?? GeneralUtility::makeInstance(LogManager::class)->getLogger(static::class);
     }
 
     /**
-     * This sets the internal variable $this->where_hid_del to the correct where
-     * clause for page records taking deleted/hidden/starttime/endtime/t3ver_state
-     * into account.
-     *
-     * @internal
+     * Returns an instance operating on the given Context, for instance to resolve pages
+     * of a different language or workspace than the one of the current request.
      */
-    protected function init(): void
+    public function withContext(Context $context): self
+    {
+        if ($context === $this->context) {
+            return $this;
+        }
+        return new self($context, $this->tcaSchemaFactory, $this->pageTypeLinkResolver, $this->logger);
+    }
+
+    /**
+     * Returns an instance operating on the given language aspect, leaving all other aspects
+     * (workspace, visibility, ...) of the current Context untouched. Use "new LanguageAspect()"
+     * to resolve records without any language overlay being applied.
+     */
+    public function withLanguageAspect(LanguageAspect $languageAspect): self
+    {
+        $context = clone $this->context;
+        $context->setAspect('language', $languageAspect);
+        return $this->withContext($context);
+    }
+
+    /**
+     * Builds the where clause for page records taking
+     * deleted/hidden/starttime/endtime/t3ver_state into account.
+     *
+     * The result is kept in the runtime cache, keyed by the relevant context aspects, so
+     * it is built at most once per distinct workspace/user/date/visibility state.
+     */
+    protected function getEnableFieldsConstraint(): string
     {
         $workspaceId = (int)$this->context->getPropertyFromAspect('workspace', 'id');
         // As PageRepository may be used multiple times during the frontend request, and may
@@ -170,42 +186,32 @@ class PageRepository implements LoggerAwareInterface
         );
         $cacheEntry = $cache->get($cacheIdentifier);
         if ($cacheEntry) {
-            $this->where_hid_del = $cacheEntry;
-        } else {
-            // @todo: This is bad. init() is called by __construct() which then performs stuff that
-            //        depends on DB setup being ready.
-            //        This makes early injection of PageRepository impossible - when DB does not
-            //        exist or has not been set up.
-            //        The acceptance tests with their early ext:styleguide for instance triggers
-            //        events that trigger this indirectly. See comment in ext:form DataStructureIdentifierListener,
-            //        it is the reason it declares some dependencies lazy.
-            //        After all, when PageRepository is injected, it must not by default start
-            //        preparing DB queries. This needs to vanish, the code must not be triggered by __construct().
-            $expressionBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
-                ->getQueryBuilderForTable('pages')
-                ->expr();
-            if ($workspaceId > 0) {
-                // For version previewing, make sure that enable-fields are not
-                // de-selecting hidden pages - we need versionOL() to unset them only
-                // if the overlay record instructs us to.
-                // Clear where_hid_del and restrict to live and current workspaces
-                $this->where_hid_del = (string)$expressionBuilder->and(
-                    $expressionBuilder->eq('pages.deleted', 0),
-                    $expressionBuilder->or(
-                        $expressionBuilder->eq('pages.t3ver_wsid', 0),
-                        $expressionBuilder->eq('pages.t3ver_wsid', $workspaceId)
-                    )
-                );
-            } else {
-                // add starttime / endtime, and check for hidden/deleted
-                // Filter out new/deleted place-holder pages in case we are NOT in a
-                // versioning preview (that means we are online!)
-                $constraints = $this->getDefaultConstraints('pages', ['fe_group' => true]);
-                $this->where_hid_del = $constraints === [] ? '' : (string)$expressionBuilder->and(...$constraints);
-            }
-            $cache->set($cacheIdentifier, $this->where_hid_del);
+            return $cacheEntry;
         }
-        $this->where_groupAccess = $this->getMultipleGroupsWhereClause('pages.fe_group', 'pages');
+        $expressionBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable('pages')
+            ->expr();
+        if ($workspaceId > 0) {
+            // For version previewing, make sure that enable-fields are not
+            // de-selecting hidden pages - we need versionOL() to unset them only
+            // if the overlay record instructs us to.
+            // Restrict to live and current workspaces
+            $enableFieldsConstraint = (string)$expressionBuilder->and(
+                $expressionBuilder->eq('pages.deleted', 0),
+                $expressionBuilder->or(
+                    $expressionBuilder->eq('pages.t3ver_wsid', 0),
+                    $expressionBuilder->eq('pages.t3ver_wsid', $workspaceId)
+                )
+            );
+        } else {
+            // add starttime / endtime, and check for hidden/deleted
+            // Filter out new/deleted place-holder pages in case we are NOT in a
+            // versioning preview (that means we are online!)
+            $constraints = $this->getDefaultConstraints('pages', ['fe_group' => true]);
+            $enableFieldsConstraint = $constraints === [] ? '' : (string)$expressionBuilder->and(...$constraints);
+        }
+        $cache->set($cacheIdentifier, $enableFieldsConstraint);
+        return $enableFieldsConstraint;
     }
 
     /**************************
@@ -223,11 +229,8 @@ class PageRepository implements LoggerAwareInterface
      * Language overlay and versioning overlay are applied. Mount Point
      * handling is not done, an overlaid Mount Point is not replaced.
      *
-     * The result has constraints filled by the properties $this->where_groupAccess
-     * and $this->where_hid_del that are preset by the init() method.
-     *
-     * @see PageRepository::where_groupAccess
-     * @see PageRepository::where_hid_del
+     * The result is constrained by the enable-field and fe_group access clauses,
+     * which are computed lazily on first use.
      *
      * By default, the usergroup access check is enabled. Use the second method argument
      * to disable the usergroup access check.
@@ -252,13 +255,15 @@ class PageRepository implements LoggerAwareInterface
         }
         $disableGroupAccessCheck = $event->isGroupAccessCheckSkipped();
         $uid = $event->getPageId();
+        $enableFieldsConstraint = $this->getEnableFieldsConstraint();
+        $whereGroupAccess = $disableGroupAccessCheck ? '' : $this->getMultipleGroupsWhereClause('pages.fe_group', 'pages');
         $cacheIdentifier = 'PageRepository_getPage_' . md5(
             implode(
                 '-',
                 [
                     $uid,
-                    $disableGroupAccessCheck ? '' : $this->where_groupAccess,
-                    $this->where_hid_del,
+                    $whereGroupAccess,
+                    $enableFieldsConstraint,
                     $this->context->getPropertyFromAspect('language', 'id', 0),
                 ]
             )
@@ -275,15 +280,11 @@ class PageRepository implements LoggerAwareInterface
             ->from('pages')
             ->where(
                 $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter((int)$uid, Connection::PARAM_INT)),
-                $this->where_hid_del
+                $enableFieldsConstraint
             );
 
-        $originalWhereGroupAccess = '';
         if (!$disableGroupAccessCheck) {
-            $queryBuilder->andWhere(QueryHelper::stripLogicalOperatorPrefix($this->where_groupAccess));
-        } else {
-            $originalWhereGroupAccess = $this->where_groupAccess;
-            $this->where_groupAccess = '';
+            $queryBuilder->andWhere(QueryHelper::stripLogicalOperatorPrefix($whereGroupAccess));
         }
 
         $row = $queryBuilder->executeQuery()->fetchAssociative();
@@ -294,17 +295,13 @@ class PageRepository implements LoggerAwareInterface
             }
         }
 
-        if ($disableGroupAccessCheck) {
-            $this->where_groupAccess = $originalWhereGroupAccess;
-        }
-
         $cache->set($cacheIdentifier, $result);
         return $result;
     }
 
     /**
-     * Return the $row for the page with uid = $uid WITHOUT checking for
-     * ->where_hid_del (start- and endtime or hidden). Only "deleted" is checked!
+     * Return the $row for the page with uid = $uid WITHOUT checking the
+     * enable-field constraints (start- and endtime or hidden). Only "deleted" is checked!
      *
      * @param int $uid The page id to look up
      * @return array The page row with overlaid localized fields. Empty array if no page.
@@ -683,7 +680,7 @@ class PageRepository implements LoggerAwareInterface
         $incomingLanguageId = (int)($row[$languageField] ?? 0);
 
         // Return record for ALL languages untouched
-        if ($incomingLanguageId === -1) {
+        if ($incomingLanguageId === LanguageMarker::ALL_LANGUAGES) {
             return $row;
         }
 
@@ -907,11 +904,6 @@ class PageRepository implements LoggerAwareInterface
     ): array {
         $relationField = $parentPages ? 'pid' : 'uid';
 
-        if ($disableGroupAccessCheck) {
-            $whereGroupAccessCheck = $this->where_groupAccess;
-            $this->where_groupAccess = '';
-        }
-
         $schema = $this->tcaSchemaFactory->get('pages');
 
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
@@ -930,8 +922,8 @@ class PageRepository implements LoggerAwareInterface
                     $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
                     $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 ),
-                $this->where_hid_del,
-                QueryHelper::stripLogicalOperatorPrefix($this->where_groupAccess),
+                $this->getEnableFieldsConstraint(),
+                QueryHelper::stripLogicalOperatorPrefix($disableGroupAccessCheck ? '' : $this->getMultipleGroupsWhereClause('pages.fe_group', 'pages')),
                 QueryHelper::stripLogicalOperatorPrefix($additionalWhereClause)
             );
 
@@ -955,21 +947,18 @@ class PageRepository implements LoggerAwareInterface
             }
 
             // Add a mount point parameter if needed
-            $page = $this->addMountPointParameterToPage((array)$page);
+            $page = $this->addMountPointParameterToPage((array)$page, $disableGroupAccessCheck);
 
             // If shortcut, look up if the target exists and is currently visible
             if ($checkShortcuts) {
-                $page = $this->checkValidShortcutOfPage((array)$page, $additionalWhereClause);
+                $page = $this->checkValidShortcutOfPage($page, $additionalWhereClause, $disableGroupAccessCheck);
+                $page = $this->checkValidLinkOfPage($page, $disableGroupAccessCheck);
             }
 
             // If the page still is there, we add it to the output
             if (!empty($page)) {
                 $pages[$originalUid] = $page;
             }
-        }
-
-        if ($disableGroupAccessCheck) {
-            $this->where_groupAccess = $whereGroupAccessCheck;
         }
 
         // Finally load language overlays
@@ -989,9 +978,10 @@ class PageRepository implements LoggerAwareInterface
      * @todo Find a better name. The current doesn't hit the point.
      *
      * @param array $page The page record to handle.
+     * @param bool $disableGroupAccessCheck set to true to disable group access check
      * @return array The given page record or it's replacement.
      */
-    protected function addMountPointParameterToPage(array $page): array
+    protected function addMountPointParameterToPage(array $page, bool $disableGroupAccessCheck = false): array
     {
         if (empty($page)) {
             return [];
@@ -1004,7 +994,7 @@ class PageRepository implements LoggerAwareInterface
         if (is_array($mountPointInfo) && $mountPointInfo['overlay']) {
             // Using "getPage" is OK since we need the check for enableFields AND for type 2
             // of mount pids we DO require a doktype < 200!
-            $mountPointPage = $this->getPage((int)$mountPointInfo['mount_pid']);
+            $mountPointPage = $this->getPage((int)$mountPointInfo['mount_pid'], $disableGroupAccessCheck);
 
             if (!empty($mountPointPage)) {
                 $page = $mountPointPage;
@@ -1021,8 +1011,9 @@ class PageRepository implements LoggerAwareInterface
      *
      * @param array $page The page to check
      * @param string $additionalWhereClause Optional additional where clauses. Like "AND title like '%some text%'" for instance.
+     * @param bool $disableGroupAccessCheck set to true to disable group access check
      */
-    protected function checkValidShortcutOfPage(array $page, string $additionalWhereClause): array
+    protected function checkValidShortcutOfPage(array $page, string $additionalWhereClause, bool $disableGroupAccessCheck = false): array
     {
         if (empty($page)) {
             return [];
@@ -1032,23 +1023,22 @@ class PageRepository implements LoggerAwareInterface
         $shortcutMode = (int)($page['shortcut_mode'] ?? 0);
 
         if ($dokType === self::DOKTYPE_SHORTCUT && (($shortcut = (int)($page['shortcut'] ?? 0)) || $shortcutMode)) {
-            if ($shortcutMode === self::SHORTCUT_MODE_NONE) {
+            if ($shortcutMode === self::SHORTCUT_MODE_NONE && $shortcut > 0) {
                 // No shortcut_mode set, so target is directly set in $page['shortcut']
                 $searchField = 'uid';
                 $searchUid = $shortcut;
-            } elseif ($shortcutMode === self::SHORTCUT_MODE_FIRST_SUBPAGE || $shortcutMode === self::SHORTCUT_MODE_RANDOM_SUBPAGE) {
-                // Check subpages - first subpage or random subpage
-                $searchField = 'pid';
-                // If a shortcut mode is set and no valid page is given to select subpages
-                // from use the actual page.
-                $searchUid = $shortcut ?: $page['uid'];
             } elseif ($shortcutMode === self::SHORTCUT_MODE_PARENT_PAGE) {
                 // Shortcut to parent page
                 $searchField = 'uid';
                 $searchUid = $page['pid'];
+            } elseif ($shortcutMode === self::SHORTCUT_MODE_FIRST_SUBPAGE || $shortcutMode) {
+                // Check subpages if first subpage or an invalid shortcut mode
+                $searchField = 'pid';
+                // If a shortcut mode is set and no valid page is given to select subpages
+                // from use the actual page.
+                $searchUid = $shortcut ?: $page['uid'];
             } else {
-                $searchField = '';
-                $searchUid = 0;
+                return [];
             }
 
             $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
@@ -1060,8 +1050,8 @@ class PageRepository implements LoggerAwareInterface
                         $searchField,
                         $queryBuilder->createNamedParameter($searchUid, Connection::PARAM_INT)
                     ),
-                    $this->where_hid_del,
-                    QueryHelper::stripLogicalOperatorPrefix($this->where_groupAccess),
+                    $this->getEnableFieldsConstraint(),
+                    QueryHelper::stripLogicalOperatorPrefix($disableGroupAccessCheck ? '' : $this->getMultipleGroupsWhereClause('pages.fe_group', 'pages')),
                     QueryHelper::stripLogicalOperatorPrefix($additionalWhereClause)
                 )
                 ->executeQuery()
@@ -1078,7 +1068,36 @@ class PageRepository implements LoggerAwareInterface
     }
 
     /**
-     * Get page shortcut; Finds the records pointed to by input value $SC (the shortcut value)
+     * If shortcut, look up if the target exists and is currently visible
+     *
+     * @param array $page The page to check
+     */
+    protected function checkValidLinkOfPage(array $page, bool $disableGroupAccessCheck): array
+    {
+        if (empty($page)) {
+            return [];
+        }
+        $dokType = (int)($page['doktype'] ?? 0);
+        if ($dokType !== self::DOKTYPE_LINK) {
+            return $page;
+        }
+        $link = (string)($page['link'] ?? '');
+        if ($link === '') {
+            // No link set, remove from menu.
+            return [];
+        }
+        $chain = [];
+        try {
+            $resolvedPage = $this->resolveReferencedPageRecord($page, $chain, 20, $disableGroupAccessCheck);
+        } catch (ShortcutTargetPageNotFoundException|LinkedPageNotResolvableException|PageReferenceResolvingReachedIterationLimitException|CircularPageReferenceChainException $exception) {
+            // Linked page is not linkable, remove it from the menu.
+            return [];
+        }
+        return $page;
+    }
+
+    /**
+     * Get page shortcut; Finds the records pointed to by $shortcutFieldValue
      *
      * @param string $shortcutFieldValue The value of the "shortcut" field from the pages record
      * @param int $shortcutMode The shortcut mode: 1 will select first subpage, 2 a random subpage, 3 the parent page; default is the page pointed to by $SC
@@ -1086,86 +1105,44 @@ class PageRepository implements LoggerAwareInterface
      * @param int $iteration Safety feature which makes sure that the function is calling itself recursively max 20 times (since this function can find shortcuts to other shortcuts to other shortcuts...)
      * @param array $pageLog An array filled with previous page uids tested by the function - new page uids are evaluated against this to avoid going in circles.
      * @param bool $disableGroupCheck If true, the group check is disabled when fetching the target page (needed e.g. for menu generation)
-     * @param bool $resolveRandomPageShortcuts If true (default) this will also resolve shortcut to random subpages. In case of linking from a page to a shortcut page, we do not want to cache the "random" logic.
      *
      * @throws \RuntimeException
      * @throws ShortcutTargetPageNotFoundException
-     * @return mixed Returns the page record of the page that the shortcut pointed to. If $resolveRandomPageShortcuts = false, and the shortcut page is configured to point to a random shortcut then an empty array is returned
+     * @return mixed Returns the page record of the page that the shortcut pointed to.
      * @internal
      */
-    protected function getPageShortcut($shortcutFieldValue, $shortcutMode, $thisUid, $iteration = 20, $pageLog = [], $disableGroupCheck = false, bool $resolveRandomPageShortcuts = true)
+    protected function getPageShortcut($shortcutFieldValue, $shortcutMode, $thisUid, $iteration = 20, $pageLog = [], $disableGroupCheck = false)
     {
         // @todo: Simplify! page['shortcut'] is maxitems 1 and not a comma separated list of values!
-        $idArray = GeneralUtility::intExplode(',', $shortcutFieldValue);
-        if ($resolveRandomPageShortcuts === false && (int)$shortcutMode === self::SHORTCUT_MODE_RANDOM_SUBPAGE) {
-            return [];
-        }
+        $shortcutId = GeneralUtility::intExplode(',', $shortcutFieldValue)[0];
         // Find $page record depending on shortcut mode:
-        switch ($shortcutMode) {
-            case self::SHORTCUT_MODE_FIRST_SUBPAGE:
-            case self::SHORTCUT_MODE_RANDOM_SUBPAGE:
-                $excludedDoktypes = [
-                    self::DOKTYPE_SPACER,
-                    self::DOKTYPE_SYSFOLDER,
-                    self::DOKTYPE_BE_USER_SECTION,
-                ];
-                $savedWhereGroupAccess = '';
-                // "getMenu()" does not allow to hand over $disableGroupCheck, for this reason it is manually disabled and re-enabled afterwards.
-                if ($disableGroupCheck) {
-                    $savedWhereGroupAccess = $this->where_groupAccess;
-                    $this->where_groupAccess = '';
-                }
-                $pageArray = $this->getMenu($idArray[0] ?: (int)$thisUid, '*', 'sorting', 'AND pages.doktype NOT IN (' . implode(', ', $excludedDoktypes) . ')');
-                if ($disableGroupCheck) {
-                    $this->where_groupAccess = $savedWhereGroupAccess;
-                }
-                $pO = 0;
-                if ($shortcutMode == self::SHORTCUT_MODE_RANDOM_SUBPAGE && !empty($pageArray)) {
-                    $pO = (int)random_int(0, count($pageArray) - 1);
-                }
-                $c = 0;
-                $page = [];
-                foreach ($pageArray as $pV) {
-                    if ($c === $pO) {
-                        $page = $pV;
-                        break;
-                    }
-                    $c++;
-                }
-                if (empty($page)) {
-                    $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to a subpage. However, this page has no accessible subpages.';
-                    throw new ShortcutTargetPageNotFoundException($message, 1301648328);
-                }
-                break;
-            case self::SHORTCUT_MODE_PARENT_PAGE:
-                $parent = $this->getPage(($idArray[0] ?: (int)$thisUid), $disableGroupCheck);
-                $page = $this->getPage((int)$parent['pid'], $disableGroupCheck);
-                if (empty($page)) {
-                    $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to its parent page. However, the parent page is not accessible.';
-                    throw new ShortcutTargetPageNotFoundException($message, 1301648358);
-                }
-                break;
-            default:
-                $page = $this->getPage($idArray[0], $disableGroupCheck);
-                if (empty($page)) {
-                    $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to a page, which is not accessible (ID ' . $idArray[0] . ').';
-                    throw new ShortcutTargetPageNotFoundException($message, 1301648404);
-                }
-        }
-        // Check if shortcut page was a shortcut itself, if so look up recursively
-        if ((int)$page['doktype'] === self::DOKTYPE_SHORTCUT) {
-            if (!in_array($page['uid'], $pageLog) && $iteration > 0) {
-                $pageLog[] = $page['uid'];
-                $page = $this->getPageShortcut((string)$page['shortcut'], $page['shortcut_mode'], $page['uid'], $iteration - 1, $pageLog, $disableGroupCheck);
-            } else {
-                $pageLog[] = $page['uid'];
-                $this->logger->error('Page shortcuts were looping in uids {uids}', ['uids' => implode(', ', array_values($pageLog))]);
-                // @todo: This shouldn't be a \RuntimeException since editors can construct loops. It should trigger 500 handling or something.
-                throw new \RuntimeException('Page shortcuts were looping in uids: ' . implode(', ', array_values($pageLog)), 1294587212);
+        if ($shortcutMode === self::SHORTCUT_MODE_PARENT_PAGE) {
+            $parent = $this->getPage(($shortcutId ?: (int)$thisUid), $disableGroupCheck);
+            if ($parent === [] || ($referencedPageRecord = $this->getPage((int)($parent['pid'] ?? 0), $disableGroupCheck)) === []) {
+                $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to its parent page. However, the parent page is not accessible.';
+                throw new ShortcutTargetPageNotFoundException($message, 1301648358);
+            }
+        } elseif ($shortcutMode === self::DOKTYPE_SHORTCUT || ($shortcutMode !== self::SHORTCUT_MODE_FIRST_SUBPAGE && $shortcutId)) {
+            $referencedPageRecord = $this->getPage($shortcutId, $disableGroupCheck);
+            if ($referencedPageRecord === []) {
+                $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to a page, which is not accessible (ID ' . $shortcutId . ').';
+                throw new ShortcutTargetPageNotFoundException($message, 1301648404);
+            }
+        } else {
+            $excludedDoktypes = [
+                self::DOKTYPE_SPACER,
+                self::DOKTYPE_SYSFOLDER,
+                self::DOKTYPE_BE_USER_SECTION,
+            ];
+            $pageArray = $this->getMenu($shortcutId ?: (int)$thisUid, '*', 'sorting', 'AND pages.doktype NOT IN (' . implode(', ', $excludedDoktypes) . ')', true, $disableGroupCheck);
+            $referencedPageRecord = reset($pageArray);
+            if ($referencedPageRecord === false || $referencedPageRecord === null) {
+                $message = 'This page (ID ' . $thisUid . ') is of type "Shortcut" and configured to redirect to a subpage. However, this page has no accessible subpages.';
+                throw new ShortcutTargetPageNotFoundException($message, 1301648328);
             }
         }
-        // Return resulting page:
-        return $page;
+        // Check if shortcut page was a shortcut itself, if so look up recursively
+        return $this->resolveReferencedPageRecord($referencedPageRecord, $pageLog, $iteration, $disableGroupCheck);
     }
 
     /**
@@ -1176,9 +1153,12 @@ class PageRepository implements LoggerAwareInterface
      * This method also provides a runtime cache around resolving the shortcut resolving, in order to speed up link generation
      * to the same shortcut page.
      *
+     * @throws CircularPageReferenceChainException
      * @throws ShortcutTargetPageNotFoundException
+     * @throws PageReferenceResolvingReachedIterationLimitException
+     * @throws LinkedPageNotResolvableException
      */
-    public function resolveShortcutPage(array $page, bool $resolveRandomSubpages = false, bool $disableGroupAccessCheck = false): array
+    public function resolveShortcutPage(array $page, bool $disableGroupAccessCheck = false): array
     {
         if ((int)($page['doktype'] ?? 0) !== self::DOKTYPE_SHORTCUT) {
             return $page;
@@ -1188,11 +1168,9 @@ class PageRepository implements LoggerAwareInterface
 
         $cacheIdentifier = 'shortcuts_resolved_' . ($disableGroupAccessCheck ? '1' : '0') . '_' . $page['uid'] . '_' . $this->context->getPropertyFromAspect('language', 'id', 0) . '_' . $page['sys_language_uid'];
         // Only use the runtime cache if we do not support the random subpages functionality
-        if ($resolveRandomSubpages === false) {
-            $cachedResult = $this->getRuntimeCache()->get($cacheIdentifier);
-            if (is_array($cachedResult)) {
-                return $cachedResult;
-            }
+        $cachedResult = $this->getRuntimeCache()->get($cacheIdentifier);
+        if (is_array($cachedResult)) {
+            return $cachedResult;
         }
         $shortcut = $this->getPageShortcut(
             $shortcutTarget,
@@ -1200,8 +1178,7 @@ class PageRepository implements LoggerAwareInterface
             $page['uid'],
             20,
             [],
-            $disableGroupAccessCheck,
-            $resolveRandomSubpages
+            $disableGroupAccessCheck
         );
         if (!empty($shortcut)) {
             $shortcutOriginalPageUid = (int)$page['uid'];
@@ -1209,11 +1186,82 @@ class PageRepository implements LoggerAwareInterface
             $page['_SHORTCUT_ORIGINAL_PAGE_UID'] = $shortcutOriginalPageUid;
         }
 
-        if ($resolveRandomSubpages === false) {
-            $this->getRuntimeCache()->set($cacheIdentifier, $page);
-        }
+        $this->getRuntimeCache()->set($cacheIdentifier, $page);
 
         return $page;
+    }
+
+    /**
+     * If a page is a link whose destination is another page, the other pages
+     * record is returned. The result is cached. Circles of pages linking to
+     * each other are stopped after 20 iterations and an exception is thrown
+     * in that case.
+     *
+     * If the link destination is of any other type, the original page record
+     * is returned.
+     *
+     * @throws CircularPageReferenceChainException
+     * @throws ShortcutTargetPageNotFoundException
+     * @throws PageReferenceResolvingReachedIterationLimitException
+     * @throws LinkedPageNotResolvableException
+     */
+    public function resolveLinkPage(array $pageRecord, bool $disableGroupAccessCheck = false): array
+    {
+        if ((int)($pageRecord['doktype'] ?? 0) !== self::DOKTYPE_LINK) {
+            return $pageRecord;
+        }
+        $linkParts = $this->pageTypeLinkResolver->resolveTypolinkParts($pageRecord);
+        if ($linkParts['type'] !== 'page') {
+            return $pageRecord;
+        }
+
+        $cacheIdentifier = 'links_resolved_' . ($disableGroupAccessCheck ? '1' : '0') . '_' . $pageRecord['uid'] . '_' . $this->context->getPropertyFromAspect('language', 'id', 0) . '_' . $pageRecord['sys_language_uid'];
+        // Only use the runtime cache if we do not support the random subpages functionality
+        $cachedResult = $this->getRuntimeCache()->get($cacheIdentifier);
+        if (is_array($cachedResult)) {
+            return $cachedResult;
+        }
+        $resolvedPageRecord = $this->getPageLink(
+            $linkParts,
+            $pageRecord,
+            20,
+            [],
+            $disableGroupAccessCheck
+        );
+
+        if (!empty($resolvedPageRecord)) {
+            $shortcutOriginalPageUid = (int)$pageRecord['uid'];
+            $pageRecord = $resolvedPageRecord;
+            $pageRecord['_SHORTCUT_ORIGINAL_PAGE_UID'] = $shortcutOriginalPageUid;
+        }
+
+        $this->getRuntimeCache()->set($cacheIdentifier, $pageRecord);
+
+        return $resolvedPageRecord;
+    }
+
+    /**
+     * @internal to be used only within {@see self::resolveLinkPage()} and {@see self::resolveReferencedPageRecord()}.
+     *
+     * @throws CircularPageReferenceChainException
+     * @throws ShortcutTargetPageNotFoundException
+     * @throws PageReferenceResolvingReachedIterationLimitException
+     * @throws LinkedPageNotResolvableException
+     */
+    protected function getPageLink(array $linkParts, array $pageRecord, int $iteration = 20, array $pageLog = [], bool $disableGroupCheck = false): array
+    {
+        if (($linkParts['pageuid'] ?? '') === 'current') {
+            // TypoLink field allows to omit a page uid to create links to current page and only adding
+            // query parameters and is respected here by returning the record for the current record.
+            return $pageRecord;
+        }
+        $referencedPageId = (int)($linkParts['pageuid'] ?? 0);
+        $referencedPageRecord = $this->getPage($referencedPageId, $disableGroupCheck);
+        if (empty($referencedPageRecord)) {
+            $message = sprintf('This page (ID %d) is of type "Link" and configured to redirect to a page, which is not accessible (ID %d).', $pageRecord['uid'], $referencedPageId);
+            throw new LinkedPageNotResolvableException($message, 1761831322);
+        }
+        return $this->resolveReferencedPageRecord($referencedPageRecord, $pageLog, $iteration, $disableGroupCheck);
     }
 
     /**
@@ -1642,10 +1690,11 @@ class PageRepository implements LoggerAwareInterface
      * Principle: Record online! => Find offline?
      *
      * @param string $table Table name
-     * @param array $row Record array passed by reference. As minimum, the "uid", "pid" and "t3ver_state" fields must exist! The record MAY be set to FALSE in which case the calling function should act as if the record is forbidden to access!
+     * @param array|false|null $row Record array passed by reference. As minimum, the "uid", "pid" and "t3ver_state" fields must exist! The record MAY be set to FALSE in which case the calling function should act as if the record is forbidden to access!
      * @param bool $unsetMovePointers If set, the $row is cleared in case it is a move-pointer. This is only for preview of moved records (to remove the record from the original location so it appears only in the new location)
      * @param bool $bypassEnableFieldsCheck Unless this option is TRUE, the $row is unset if enablefields for BOTH the version AND the online record deselects it. This is because when versionOL() is called it is assumed that the online record is already selected with no regards to it's enablefields. However, after looking for a new version the online record enablefields must ALSO be evaluated of course. This is done all by this function!
      * @see BackendUtility::workspaceOL()
+     * @param-out false|array|null $row
      */
     public function versionOL(string $table, &$row, bool $unsetMovePointers = false, bool $bypassEnableFieldsCheck = false): void
     {
@@ -1677,7 +1726,7 @@ class PageRepository implements LoggerAwareInterface
                 ->executeQuery()
                 ->fetchAssociative();
         }
-        $wsAlt = $this->getWorkspaceVersionOfRecord($table, (int)$row['uid'], $fields, $bypassEnableFieldsCheck);
+        $wsAlt = $this->getWorkspaceVersionOfRecord($table, $row, $bypassEnableFieldsCheck);
         if (!$wsAlt) {
             return;
         }
@@ -1711,7 +1760,7 @@ class PageRepository implements LoggerAwareInterface
             }
             return;
         }
-        // No version found, then check if online version is dummy-representation
+        // No version found, then check if online version is a dummy-representation
         // Notice, that unless $bypassEnableFieldsCheck is TRUE, the $row is unset if
         // enablefields for BOTH the version AND the online record deselects it. See
         // note for $bypassEnableFieldsCheck
@@ -1725,17 +1774,17 @@ class PageRepository implements LoggerAwareInterface
      * Select the version of a record for a workspace
      *
      * @param string $table Table name to select from
-     * @param int $uid Record uid for which to find workspace version.
-     * @param array $fields Fields to select, `*` is the default - If a custom list is set, make sure the list
-     *                       contains the `uid` field. It's mandatory for further processing of the result row.
+     * @param array $liveRecord Record for which to find a workspace version.
      * @param bool $bypassEnableFieldsCheck If TRUE, enableFields are not checked for.
      * @return array|int|bool If found, return record, otherwise other value: Returns 1 if version was sought for but not found, returns -1/-2 if record (offline/online) existed but had enableFields that would disable it. Returns FALSE if not in workspace or no versioning for record. Notice, that the enablefields of the online record is also tested.
      * @see BackendUtility::getWorkspaceVersionOfRecord()
      * @internal this is a rather low-level method, it is recommended to use versionOL instead()
      */
-    public function getWorkspaceVersionOfRecord(string $table, int $uid, array $fields = ['*'], bool $bypassEnableFieldsCheck = false): array|int|bool
+    public function getWorkspaceVersionOfRecord(string $table, array $liveRecord, bool $bypassEnableFieldsCheck = false, ?Context $context = null): array|int|bool
     {
-        $workspace = (int)$this->context->getPropertyFromAspect('workspace', 'id');
+        $context ??= $this->context;
+        $uid = (int)$liveRecord['uid'];
+        $workspace = (int)$context->getPropertyFromAspect('workspace', 'id');
         // No look up in database because versioning not enabled / or workspace not offline
         if ($workspace === 0) {
             return false;
@@ -1750,8 +1799,10 @@ class PageRepository implements LoggerAwareInterface
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
-        $newrow = $queryBuilder
-            ->select(...$fields)
+        $fields = $this->purgeComputedProperties($liveRecord);
+
+        $versionedRecord = $queryBuilder
+            ->select(...array_keys($fields))
             ->from($table)
             ->where(
                 $queryBuilder->expr()->eq(
@@ -1780,53 +1831,20 @@ class PageRepository implements LoggerAwareInterface
             ->executeQuery()
             ->fetchAssociative();
 
-        // If version found, check if it could have been selected with enableFields on
-        // as well:
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
-        $queryBuilder->setRestrictions(GeneralUtility::makeInstance(FrontendRestrictionContainer::class, $this->context));
-        // Remove the workspace restriction because we are testing a version record
-        $queryBuilder->getRestrictions()->removeByType(WorkspaceRestriction::class);
-        $queryBuilder->select('uid')
-            ->from($table)
-            ->setMaxResults(1);
-
-        if (is_array($newrow)) {
-            $queryBuilder->where(
-                $queryBuilder->expr()->eq(
-                    't3ver_wsid',
-                    $queryBuilder->createNamedParameter($workspace, Connection::PARAM_INT)
-                ),
-                $queryBuilder->expr()->or(
-                    // t3ver_state=1 does not contain a t3ver_oid, and returns itself
-                    $queryBuilder->expr()->and(
-                        $queryBuilder->expr()->eq(
-                            'uid',
-                            $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)
-                        ),
-                        $queryBuilder->expr()->eq(
-                            't3ver_state',
-                            $queryBuilder->createNamedParameter(VersionState::NEW_PLACEHOLDER->value, Connection::PARAM_INT)
-                        )
-                    ),
-                    $queryBuilder->expr()->eq(
-                        't3ver_oid',
-                        $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)
-                    )
-                )
-            );
-            if ($bypassEnableFieldsCheck || $queryBuilder->executeQuery()->fetchOne()) {
+        /** @var RecordAccessVoter $accessVoter */
+        $accessVoter = GeneralUtility::makeInstance(RecordAccessVoter::class);
+        // If version found, check if the versioned record has access ("enableFields")
+        if (is_array($versionedRecord)) {
+            if ($bypassEnableFieldsCheck || $accessVoter->accessGranted($table, $versionedRecord, $context)) {
                 // Return offline version, tested for its enableFields.
-                return $newrow;
+                return $versionedRecord;
             }
-            // Return -1 because offline version was de-selected due to its enableFields.
+            // Return -1 because offline version did not have granted access.
             return -1;
         }
         // OK, so no workspace version was found. Then check if online version can be
         // selected with full enable fields and if so, return 1:
-        $queryBuilder->where(
-            $queryBuilder->expr()->eq('uid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT))
-        );
-        if ($bypassEnableFieldsCheck || $queryBuilder->executeQuery()->fetchOne()) {
+        if ($bypassEnableFieldsCheck || $accessVoter->accessGranted($table, $liveRecord, $context)) {
             // Means search was done, but no version found.
             return 1;
         }
@@ -2015,25 +2033,23 @@ class PageRepository implements LoggerAwareInterface
                     }
                 }
                 // Next level
-                if (!$row['php_tree_stop']) {
-                    // Normal mode:
-                    if (is_array($mount_info) && !$mount_info['overlay']) {
-                        $next_id = (int)$mount_info['mount_pid'];
-                    }
-                    // Call recursively, if the id is not in prevID_array:
-                    if (!in_array($next_id, $prevId_array, true)) {
-                        $descendantPageIds = array_merge(
-                            $descendantPageIds,
-                            $this->getSubpagesRecursive(
-                                $next_id,
-                                $depth - 1,
-                                $begin - 1,
-                                $excludePageIds,
-                                $bypassEnableFieldsCheck,
-                                $prevId_array
-                            )
-                        );
-                    }
+                // Normal mode:
+                if (is_array($mount_info) && !$mount_info['overlay']) {
+                    $next_id = (int)$mount_info['mount_pid'];
+                }
+                // Call recursively, if the id is not in prevID_array:
+                if (!in_array($next_id, $prevId_array, true)) {
+                    $descendantPageIds = array_merge(
+                        $descendantPageIds,
+                        $this->getSubpagesRecursive(
+                            $next_id,
+                            $depth - 1,
+                            $begin - 1,
+                            $excludePageIds,
+                            $bypassEnableFieldsCheck,
+                            $prevId_array
+                        )
+                    );
                 }
             }
         }
@@ -2059,7 +2075,7 @@ class PageRepository implements LoggerAwareInterface
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
 
         $queryBuilder
-            ->select('uid', 'hidden', 'starttime', 'endtime')
+            ->select('*')
             ->from('pages')
             ->setMaxResults(1);
 
@@ -2099,17 +2115,76 @@ class PageRepository implements LoggerAwareInterface
         }
         $page = $queryBuilder->executeQuery()->fetchAssociative();
         if ((int)$this->context->getPropertyFromAspect('workspace', 'id') > 0) {
-            // Fetch overlay of page if in workspace and check if it is hidden
-            $backupContext = clone $this->context;
-            $this->context->setAspect('visibility', new VisibilityAspect());
-            $targetPage = $this->getWorkspaceVersionOfRecord('pages', (int)$page['uid']);
+            // Fetch overlay of page if in workspace and check if it is hidden. The visibility aspect is
+            // reset on a cloned context so the workspace version is evaluated against default visibility.
+            $context = clone $this->context;
+            $context->setAspect('visibility', VisibilityAspect::create());
+            $targetPage = $this->getWorkspaceVersionOfRecord('pages', $page, false, $context);
             // Also checks if the workspace version is NOT hidden but the live version is in fact still hidden
             $result = $targetPage === -1 || $targetPage === -2 || (is_array($targetPage) && $targetPage['hidden'] == 0 && $page['hidden'] == 1);
-            $this->context = $backupContext;
         } else {
             $result = is_array($page) && ($page['hidden'] || $page['starttime'] > $GLOBALS['SIM_EXEC_TIME'] || $page['endtime'] != 0 && $page['endtime'] <= $GLOBALS['SIM_EXEC_TIME']);
         }
         return $result;
+    }
+
+    /**
+     * This resolves and returns the referenced pageRecord for {@see self::DOKTYPE_SHORTCUT} and
+     * {@see self::DOKTYPE_LINK},
+     *
+     * For any other `$pageRecord['doktype']` the passed `$pageRecord` is returned unchanged.
+     *
+     * @throws CircularPageReferenceChainException
+     * @throws PageReferenceResolvingReachedIterationLimitException
+     * @throws ShortcutTargetPageNotFoundException
+     * @throws LinkedPageNotResolvableException
+     */
+    public function resolveReferencedPageRecord(array $pageRecord, array $pageLog, int $iteration, bool $disableGroupCheck): mixed
+    {
+        $doktype = (int)($pageRecord['doktype'] ?? 0);
+        if (!in_array($doktype, [self::DOKTYPE_LINK, self::DOKTYPE_SHORTCUT], true)) {
+            return $pageRecord;
+        }
+        if (in_array($pageRecord['uid'], $pageLog, true)) {
+            $pageLog[] = $pageRecord['uid'];
+            $chain = implode(' → ', $pageLog);
+            $this->logger->error(
+                'Circular page reference detected. Chain: {chain}',
+                ['chain' => $chain, 'uids' => $pageLog]
+            );
+            throw new CircularPageReferenceChainException(
+                sprintf(
+                    'A circular reference occurred while resolving page references (shortcut/link). Chain: %s',
+                    $chain,
+                ),
+                1294587212,
+            );
+        }
+        $pageLog[] = $pageRecord['uid'];
+        if ($iteration <= 0) {
+            $chain = implode(' → ', $pageLog);
+            $this->logger->error(
+                'Page reference resolving depth reached before resolving final page. Chain: {chain}',
+                ['chain' => $chain, 'uids' => $pageLog]
+            );
+            throw new PageReferenceResolvingReachedIterationLimitException(
+                sprintf(
+                    'Resolving page references reached max depth before resolving final page record for shortcut/link. Chain: %s',
+                    $chain,
+                ),
+                1763640566,
+            );
+        }
+        if ($doktype === self::DOKTYPE_LINK) {
+            $subLinkParts = $this->pageTypeLinkResolver->resolveTypolinkParts($pageRecord);
+            return match ($subLinkParts['type'] ?? '') {
+                'page' => $this->getPageLink($subLinkParts, $pageRecord, $iteration - 1, $pageLog, $disableGroupCheck),
+                // @todo Consider to add a PSR-14 event here to allow handling for custom link types if they are linkable/redirectable,
+                //       for now return $pageRecord to allow them, like `email` or `telephone` which are at least linkable in menues.
+                default => $pageRecord,
+            };
+        }
+        return $this->getPageShortcut((string)$pageRecord['shortcut'], $pageRecord['shortcut_mode'], $pageRecord['uid'], $iteration - 1, $pageLog, $disableGroupCheck);
     }
 
     /**
@@ -2118,7 +2193,7 @@ class PageRepository implements LoggerAwareInterface
      */
     protected function purgeComputedProperties(array $row): array
     {
-        foreach ($this->computedPropertyNames as $computedPropertyName) {
+        foreach (self::COMPUTED_PROPERTY_NAMES as $computedPropertyName) {
             if (array_key_exists($computedPropertyName, $row)) {
                 unset($row[$computedPropertyName]);
             }

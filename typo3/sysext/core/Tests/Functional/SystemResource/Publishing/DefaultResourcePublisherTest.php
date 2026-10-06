@@ -1,0 +1,366 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+
+namespace TYPO3\CMS\Core\Tests\Functional\SystemResource\Publishing;
+
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Package\PackageManager;
+use TYPO3\CMS\Core\Resource\File;
+use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Resource\StorageRepository;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotGenerateUriException;
+use TYPO3\CMS\Core\SystemResource\Publishing\DefaultSystemResourcePublisher;
+use TYPO3\CMS\Core\SystemResource\Publishing\FileSystem\SymlinkPublisher;
+use TYPO3\CMS\Core\SystemResource\Publishing\UriGenerationOptions;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
+use TYPO3\CMS\Core\SystemResource\Type\PackageResource;
+use TYPO3\CMS\Core\SystemResource\Type\PublicPackageFile;
+use TYPO3\CMS\Core\Tests\Functional\Fixtures\DummyFileCreationService;
+use TYPO3\CMS\Core\Utility\File\FileSystem;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+
+final class DefaultResourcePublisherTest extends FunctionalTestCase
+{
+    private DummyFileCreationService $file;
+
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/core/Tests/Functional/Fixtures/Extensions/test_system_resources',
+    ];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->file = new DummyFileCreationService($this->get(StorageRepository::class));
+    }
+
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        $this->file->cleanupCreatedFiles();
+    }
+
+    public static function publishesAssetsToAssetsDirectoryDataProvider(): \Generator
+    {
+        yield 'core Resources/Public' => [
+            'extensionKey' => 'core',
+            'expectedFile' => '/_assets/d25de869aebcd01495d2fe67ad5b0e25/Icons/Extension.svg',
+            'unlinkFile' => '/_assets/d25de869aebcd01495d2fe67ad5b0e25',
+        ];
+        yield 'test_system_resources Resources/Public' => [
+            'extensionKey' => 'test_system_resources',
+            'expectedFile' => '/_assets/26f8e52d460fac27eea3f36b9efc5efc/Icons/Extension.svg',
+            'unlinkFile' => '/_assets/26f8e52d460fac27eea3f36b9efc5efc',
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension2.svg',
+            'url' => '/_assets/26f8e52d460fac27eea3f36b9efc5efc/Icons/Extension2.svg',
+        ];
+        yield 'test_system_resources Resources/Public4' => [
+            'extensionKey' => 'test_system_resources',
+            'expectedFile' => '/_assets/7922c0678b0b1a59ae0d9417ef508d8d/.gitkeep',
+            'unlinkFile' => '/_assets/7922c0678b0b1a59ae0d9417ef508d8d',
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public4/Extension.svg',
+            'url' => '/_assets/7922c0678b0b1a59ae0d9417ef508d8d/Extension.svg',
+        ];
+        yield 'test_system_resources Resources/PublicFiles/Html/ToBePublished1.html' => [
+            'extensionKey' => 'test_system_resources',
+            'expectedFile' => '/_assets/1492c25b9324b34ab800bf15fb25f86d/ToBePublished1.html',
+            'unlinkFile' => '/_assets/1492c25b9324b34ab800bf15fb25f86d/ToBePublished1.html',
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/PublicFiles/Html/ToBePublished1.html',
+            'url' => '/_assets/1492c25b9324b34ab800bf15fb25f86d/ToBePublished1.html',
+        ];
+        yield 'test_system_resources Resources/PublicFiles/Html/ToBePublished2.html' => [
+            'extensionKey' => 'test_system_resources',
+            'expectedFile' => '/_assets/test_system_resources/custom/folder/published2.html',
+            'unlinkFile' => '/_assets/test_system_resources/custom/folder/published2.html',
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/PublicFiles/Html/ToBePublished2.html',
+            'url' => '/_assets/test_system_resources/custom/folder/published2.html',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('publishesAssetsToAssetsDirectoryDataProvider')]
+    public function publishesAssetsToAssetsDirectory(string $extensionKey, string $expectedFile, string $unlinkFile, ?string $resourceString = null, ?string $url = null): void
+    {
+        Environment::initialize(
+            Environment::getContext(),
+            true,
+            true,
+            Environment::getProjectPath(),
+            Environment::getPublicPath() . '/typo3temp/public',
+            Environment::getVarPath(),
+            Environment::getConfigPath(),
+            Environment::getCurrentScript(),
+            Environment::isWindows() ? 'WINDOWS' : 'UNIX'
+        );
+        GeneralUtility::mkdir_deep(Environment::getPublicPath() . '/typo3temp');
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $packageManager = $this->get(PackageManager::class);
+        $resourcePublisher->publishResources($packageManager->getPackage($extensionKey));
+        self::assertFileExists(Environment::getPublicPath() . $expectedFile);
+        unlink(Environment::getPublicPath() . $unlinkFile);
+
+        if ($resourceString !== null) {
+            $resourceFactory = $this->get(SystemResourceFactory::class);
+            $resource = $resourceFactory->createPublicResource($resourceString);
+            self::assertStringStartsWith($url, (string)$resourcePublisher->generateUri($resource, null));
+        }
+    }
+
+    #[Test]
+    public function failsafePublishesAssetsToInstallAssetsDirectory(): void
+    {
+        Environment::initialize(
+            Environment::getContext(),
+            true,
+            true,
+            Environment::getProjectPath(),
+            Environment::getPublicPath() . '/typo3temp/public',
+            Environment::getVarPath(),
+            Environment::getConfigPath(),
+            Environment::getCurrentScript(),
+            Environment::isWindows() ? 'WINDOWS' : 'UNIX'
+        );
+        GeneralUtility::mkdir_deep(Environment::getPublicPath() . '/typo3temp');
+        $resourcePublisher = new DefaultSystemResourcePublisher(
+            [
+                new SymlinkPublisher(new FileSystem()),
+            ],
+            true,
+        );
+        $packageManager = $this->get(PackageManager::class);
+        $resourcePublisher->publishResources($packageManager->getPackage('core'));
+        self::assertFileExists(Environment::getPublicPath() . '/_assets_install/d25de869aebcd01495d2fe67ad5b0e25/Icons/Extension.svg');
+        unlink(Environment::getPublicPath() . '/_assets_install/d25de869aebcd01495d2fe67ad5b0e25');
+    }
+
+    public static function generatesUriForAllKindsOfResourcesDataProvider(): \Generator
+    {
+        $iconMtime = filemtime(__DIR__ . '/../../Fixtures/Extensions/test_system_resources/Resources/Private/Icons/Extension.svg');
+        yield 'public resource string' => [
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?' . $iconMtime,
+        ];
+        yield 'public resource string to folder' => [
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/',
+            'endsWith' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/',
+        ];
+        yield 'public resource string with query' => [
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg?v=42',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?v=42&' . $iconMtime,
+            'endsWith' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?v=42&' . $iconMtime,
+        ];
+        yield 'public resource string with section' => [
+            'resourceString' => 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg#foo-bar',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?' . $iconMtime . '#foo-bar',
+            'endsWith' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?' . $iconMtime . '#foo-bar',
+        ];
+        yield 'public ext path' => [
+            'resourceString' => 'EXT:test_system_resources/Resources/Public/Icons/Extension.svg',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?' . $iconMtime,
+        ];
+        yield 'public ext path with query' => [
+            'resourceString' => 'EXT:test_system_resources/Resources/Public/Icons/Extension.svg?v=42',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?v=42&' . $iconMtime,
+            'endsWith' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg?v=42&' . $iconMtime,
+        ];
+        yield 'public ext path of not existing file' => [
+            'resourceString' => 'EXT:test_system_resources/Resources/Public/Icons/NotHere.svg',
+            'url' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/NotHere.svg',
+            'endsWith' => '/typo3conf/ext/test_system_resources/Resources/Public/Icons/NotHere.svg',
+        ];
+        yield 'absolute http url' => [
+            'resourceString' => 'http://host.tld/Resources/Private/Icons/Extension.svg',
+            'url' => 'http://host.tld/Resources/Private/Icons/Extension.svg',
+            'endsWith' => 'http://host.tld/Resources/Private/Icons/Extension.svg',
+        ];
+        yield 'absolute https url' => [
+            'resourceString' => 'https://host.tld/Resources/Private/Icons/Extension.svg',
+            'url' => 'https://host.tld/Resources/Private/Icons/Extension.svg',
+            'endsWith' => 'https://host.tld/Resources/Private/Icons/Extension.svg',
+        ];
+        yield 'project path with uploads' => [
+            'resourceString' => 'PKG:typo3/app:uploads/relative/path/to/some/icon.svg',
+            'url' => '/uploads/relative/path/to/some/icon.svg?',
+        ];
+        yield 'project path with uploads but non existing file' => [
+            'resourceString' => 'PKG:typo3/app:uploads/not/here/icon.svg',
+            'url' => '/uploads/not/here/icon.svg',
+            'endsWith' => '/uploads/not/here/icon.svg',
+        ];
+        yield 'public temporary asset path via typo3/app package reference' => [
+            'resourceString' => 'PKG:typo3/app:typo3temp/assets/Extension.svg',
+            'url' => '/typo3temp/assets/Extension.svg?',
+        ];
+        yield 'combined FAL identifier' => [
+            'resourceString' => 'FAL:1:/Extension.svg',
+            'url' => '/fileadmin/Extension.svg?da39a3ee5e6b4b0d3255bfef95601890afd80709',
+        ];
+        yield 'legacy: FAL resolving' => [
+            'resourceString' => 'fileadmin/Extension.svg',
+            'url' => '/fileadmin/Extension.svg?da39a3ee5e6b4b0d3255bfef95601890afd80709',
+        ];
+        yield 'legacy: FAL resolving leading slash' => [
+            'resourceString' => '/fileadmin/Extension.svg',
+            'url' => '/fileadmin/Extension.svg?da39a3ee5e6b4b0d3255bfef95601890afd80709',
+        ];
+        yield 'legacy: public asset folder' => [
+            'resourceString' => '_assets/vite/asset.svg',
+            'url' => '/_assets/vite/asset.svg?',
+        ];
+        yield 'legacy: public asset folder leading slash' => [
+            'resourceString' => '/_assets/vite/asset.svg',
+            'url' => '/_assets/vite/asset.svg?',
+        ];
+        yield 'legacy: uploads folder' => [
+            'resourceString' => 'uploads/relative/path/to/some/icon.svg',
+            'url' => '/uploads/relative/path/to/some/icon.svg?',
+        ];
+        yield 'legacy: uploads folder leading slash' => [
+            'resourceString' => '/uploads/relative/path/to/some/icon.svg',
+            'url' => '/uploads/relative/path/to/some/icon.svg?',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('generatesUriForAllKindsOfResourcesDataProvider')]
+    public function generatesUriForAllKindsOfResources(string $resourceString, string $url, ?string $endsWith = null): void
+    {
+        $this->file->ensureFilesExistInPublicFolder('/_assets/vite/asset.svg');
+        $this->file->ensureFilesExistInPublicFolder('/typo3temp/assets/Extension.svg');
+        $this->file->ensureFilesExistInPublicFolder('/uploads/relative/path/to/some/icon.svg');
+        $this->file->ensureFilesExistInStorage('/Extension.svg');
+        $resourceFactory = $this->get(SystemResourceFactory::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $resource = $resourceFactory->createPublicResource($resourceString);
+        self::assertStringStartsWith($url, (string)$resourcePublisher->generateUri($resource, null));
+        if ($endsWith !== null) {
+            self::assertStringEndsWith($endsWith, (string)$resourcePublisher->generateUri($resource, null));
+        }
+    }
+
+    #[Test]
+    public function generatesUriWithoutCacheBusting(): void
+    {
+        $resourceString = 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg';
+        $url = '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg';
+        $resourceFactory = $this->get(SystemResourceFactory::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $resource = $resourceFactory->createPublicResource($resourceString);
+        self::assertSame($url, (string)$resourcePublisher->generateUri($resource, null, new UriGenerationOptions(cacheBusting: false)));
+    }
+
+    public static function generatesUriWithCustomPrefixDataProvider(): \Generator
+    {
+        yield 'no prefix' => [
+            null,
+        ];
+        yield 'empty prefix' => [
+            '',
+        ];
+        yield 'authority prefix' => [
+            '//example.com/',
+        ];
+        yield 'path prefix' => [
+            '/prefix/',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('generatesUriWithCustomPrefixDataProvider')]
+    public function generatesUriWithCustomPrefix(?string $uriPrefix): void
+    {
+        $resourceString = 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg';
+        // Default prefix is "/"
+        $uriPrefix ??= '/';
+        $expectedUri = $uriPrefix . 'typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.svg';
+        $resourceFactory = $this->get(SystemResourceFactory::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $resource = $resourceFactory->createPublicResource($resourceString);
+        self::assertSame($expectedUri, (string)$resourcePublisher->generateUri($resource, null, new UriGenerationOptions(uriPrefix: $uriPrefix, cacheBusting: false)));
+    }
+
+    #[Test]
+    public function generatesUriWithCacheBustingInFileName(): void
+    {
+        $GLOBALS['TYPO3_CONF_VARS']['BE']['versionNumberInFilename'] = true;
+        $GLOBALS['TYPO3_CONF_VARS']['FE']['versionNumberInFilename'] = true;
+        $iconMtime = filemtime(__DIR__ . '/../../Fixtures/Extensions/test_system_resources/Resources/Private/Icons/Extension.svg');
+        $resourceString = 'PKG:typo3tests/test-system-resources:Resources/Public/Icons/Extension.svg';
+        $url = '/typo3conf/ext/test_system_resources/Resources/Public/Icons/Extension.' . $iconMtime . '.svg';
+        $resourceFactory = $this->get(SystemResourceFactory::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $resource = $resourceFactory->createPublicResource($resourceString);
+
+        self::assertSame($url, (string)$resourcePublisher->generateUri($resource, null));
+
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        $request = new ServerRequest('https://www.example.com/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('normalizedParams', $normalizedParams);
+
+        self::assertSame($url, (string)$resourcePublisher->generateUri($resource, $request));
+    }
+
+    #[Test]
+    public function unpublishedPublicFileThrowsExceptionWhenBuildingUri(): void
+    {
+        $this->expectException(CanNotGenerateUriException::class);
+        $resourceFactory = $this->get(SystemResourceFactory::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $privateResource = $resourceFactory->createResource('PKG:typo3/cms-core:Resources/Private/Font/nimbus.ttf');
+        self::assertInstanceOf(PackageResource::class, $privateResource);
+        $resourcePublisher->generateUri(PublicPackageFile::fromPackageResource($privateResource), null);
+    }
+
+    #[Test]
+    #[AllowMockObjectsWithoutExpectations]
+    public function falFileFromPrivateStorageThrowsExceptionWhenBuildingUri(): void
+    {
+        $this->expectException(CanNotGenerateUriException::class);
+        $resourcePublisher = $this->get(DefaultSystemResourcePublisher::class);
+        $resourcePublisher->generateUri($this->getPrivateFileMock(), null);
+    }
+
+    /**
+     * @todo it would be nicer for a functional test to create a real private storage
+     *       and retrieve a real file from it, instead of mocking everything
+     */
+    private function getPrivateFileMock(): File
+    {
+        $class = new \ReflectionClass(File::class);
+        $allMethods = array_map(static fn($method) => $method->name, $class->getMethods());
+        $methodsToMock = array_diff($allMethods, ['isPublished']);
+        $storage = self::createStub(ResourceStorage::class);
+        $storage->method('isPublic')
+            ->willReturn(false);
+        return $this->getMockBuilder(File::class)
+            ->setConstructorArgs([
+                [],
+                $storage,
+            ])
+            ->onlyMethods($methodsToMock)
+            ->getMock();
+    }
+}

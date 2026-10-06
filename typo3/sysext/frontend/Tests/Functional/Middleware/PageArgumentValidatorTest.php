@@ -29,13 +29,15 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class PageArgumentValidatorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     private RequestHandlerInterface $responseOutputHandler;
 
     protected function setUp(): void
     {
         parent::setUp();
         // A request handler which only runs through
-        $this->responseOutputHandler = new class () implements RequestHandlerInterface {
+        $this->responseOutputHandler = new class implements RequestHandlerInterface {
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
                 return new Response();

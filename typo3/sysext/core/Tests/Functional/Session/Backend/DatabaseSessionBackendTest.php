@@ -26,17 +26,11 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class DatabaseSessionBackendTest extends FunctionalTestCase
 {
-    /**
-     * @var DatabaseSessionBackend
-     */
-    protected $subject;
+    private DatabaseSessionBackend $subject;
 
-    /**
-     * @var array
-     */
-    protected $testSessionRecord = [
+    private array $testSessionRecord = [
         // DatabaseSessionBackend::hash('randomSessionId') with encryption key 12345
-        'ses_id' => '21c0e911565a67315cdc384889c470fd291feafbfa62e31ecf7409430640bc7a',
+        'ses_id' => 'ef88b5c11865f33ab671a1dfb36868e9641bbb2f917980e35f76d9f70b407122',
         'ses_userid' => 1,
         // serialize(['foo' => 'bar', 'boo' => 'far'])
         'ses_data' => 'a:2:{s:3:"foo";s:3:"bar";s:3:"boo";s:3:"far";}',
@@ -50,7 +44,7 @@ final class DatabaseSessionBackendTest extends FunctionalTestCase
         parent::setUp();
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = '12345';
 
-        $this->subject = new DatabaseSessionBackend();
+        $this->subject = $this->get(DatabaseSessionBackend::class);
         $this->subject->initialize('default', [
             'table' => 'fe_sessions',
             'has_anonymous' => true,

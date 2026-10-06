@@ -7,10 +7,11 @@ use TYPO3\CMS\IndexedSearch\Controller\AdministrationController;
  */
 return [
     'manage_search_index' => [
-        'parent' => 'web',
+        'parent' => 'content_status',
+        'position' => ['after' => 'web_info_translations'],
         'access' => 'user',
         'iconIdentifier' => 'module-indexed_search',
-        'labels' => 'LLL:EXT:indexed_search/Resources/Private/Language/locallang_mod.xlf',
+        'labels' => 'indexed_search.module',
         'path' => 'module/manage/search-index',
         'aliases' => ['web_IndexedSearchIsearch'],
         'extensionName' => 'IndexedSearch',

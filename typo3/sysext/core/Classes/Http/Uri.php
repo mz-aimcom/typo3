@@ -157,7 +157,7 @@ class Uri implements UriInterface
             $port = (int)$uriParts['port'];
             if (!$this->validatePort($port)) {
                 throw new \InvalidArgumentException(
-                    'The uri "' . $uri . '" appears to be malformed, invalid port "' . $port . '" specified, must be a valid TCP/UDP port',
+                    'The URI "' . $uri . '" appears to be malformed, invalid port "' . $port . '" specified, must be a valid TCP/UDP port',
                     1728057215
                 );
             }
@@ -174,7 +174,7 @@ class Uri implements UriInterface
         }
 
         if (!$this->validate()) {
-            throw new \InvalidArgumentException('The uri "' . $uri . '" appears to be malformed', 1728057216);
+            throw new \InvalidArgumentException('The URI "' . $uri . '" appears to be malformed', 1728057216);
         }
     }
 
@@ -406,9 +406,7 @@ class Uri implements UriInterface
     public function withScheme(string $scheme): UriInterface
     {
         $scheme = $this->sanitizeScheme($scheme);
-        $clonedObject = clone $this;
-        $clonedObject->scheme = $scheme;
-        return $clonedObject;
+        return clone($this, ['scheme' => $scheme]);
     }
 
     /**
@@ -433,9 +431,7 @@ class Uri implements UriInterface
             $userInfo .= ':' . $password;
         }
 
-        $clonedObject = clone $this;
-        $clonedObject->userInfo = $userInfo;
-        return $clonedObject;
+        return clone($this, ['userInfo' => $userInfo]);
     }
 
     /**
@@ -455,9 +451,7 @@ class Uri implements UriInterface
         if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
             $host = '[' . $host . ']';
         }
-        $clonedObject = clone $this;
-        $clonedObject->host = $host;
-        return $clonedObject;
+        return clone($this, ['host' => $host]);
     }
 
     /**
@@ -483,9 +477,7 @@ class Uri implements UriInterface
             throw new \InvalidArgumentException('Invalid port "' . $port . '" specified, must be a valid TCP/UDP port.', 1436717326);
         }
 
-        $clonedObject = clone $this;
-        $clonedObject->port = $port;
-        return $clonedObject;
+        return clone($this, ['port' => $port]);
     }
 
     protected function validatePort(int $port): bool
@@ -529,9 +521,7 @@ class Uri implements UriInterface
         }
 
         $path = $this->sanitizePath($path);
-        $clonedObject = clone $this;
-        $clonedObject->path = $path;
-        return $clonedObject;
+        return clone($this, ['path' => $path]);
     }
 
     /**
@@ -556,9 +546,7 @@ class Uri implements UriInterface
         }
 
         $query = $this->sanitizeQuery($query);
-        $clonedObject = clone $this;
-        $clonedObject->query = $query;
-        return $clonedObject;
+        return clone($this, ['query' => $query]);
     }
 
     /**
@@ -578,9 +566,7 @@ class Uri implements UriInterface
     public function withFragment(string $fragment): UriInterface
     {
         $fragment = $this->sanitizeFragment($fragment);
-        $clonedObject = clone $this;
-        $clonedObject->fragment = $fragment;
-        return $clonedObject;
+        return clone($this, ['fragment' => $fragment]);
     }
 
     /**
@@ -618,11 +604,7 @@ class Uri implements UriInterface
             $uri .= '//' . $authority;
         }
 
-        $path = $this->getPath();
-        if ($path !== '' && !str_starts_with($path, '/')) {
-            $path = '/' . $path;
-        }
-        $uri .= $path;
+        $uri .= $this->normalizePathForStringification($authority, $this->getPath());
 
         if ($this->query) {
             $uri .= '?' . $this->query;
@@ -631,6 +613,23 @@ class Uri implements UriInterface
             $uri .= '#' . $this->fragment;
         }
         return $uri;
+    }
+
+    private function normalizePathForStringification(string $authority, string $path): string
+    {
+        $isRootless = $path !== '' && !str_starts_with($path, '/');
+        if ($isRootless) {
+            if ($authority === '') {
+                // See: https://datatracker.ietf.org/doc/html/rfc3986#page-26:~:text=A%20path%20segment%20that%20contains%20a%20colon%20character%20(e.g.%2C%20%22this%3Athat%22)
+                $pathParts = explode('/', $path, 2);
+                if (str_contains($pathParts[0], ':')) {
+                    $path = './' . $path;
+                }
+            } else {
+                $path = '/' . $path;
+            }
+        }
+        return $path;
     }
 
     /**

@@ -128,7 +128,9 @@ abstract class AbstractFormElement extends AbstractNode
             $fieldName = $this->data['flexFormContainerFieldName'] ?? $this->data['flexFormFieldName'] ?? $this->data['containerFieldName'] ?? $this->data['fieldName'];
             $label .= ' <code>[' . htmlspecialchars($fieldName) . ']</code>';
         }
-        return '<label for="' . htmlspecialchars($for) . '" class="form-label t3js-formengine-label">' . $label . '</label>';
+        $html = '<label for="' . htmlspecialchars($for) . '" class="form-label t3js-formengine-label">' . $label . '</label>';
+        $html .= $this->renderDescription();
+        return $html;
     }
 
     /**
@@ -145,9 +147,23 @@ abstract class AbstractFormElement extends AbstractNode
         $html = [];
         $html[] = '<fieldset>';
         $html[] =     '<legend class="form-label t3js-formengine-label">' . $legend . '</legend>';
+        $html[] =     $this->renderDescription();
         $html[] =     $innerHTML;
         $html[] = '</fieldset>';
         return implode(LF, $html);
+    }
+
+    protected function renderDescription(): string
+    {
+        $description = (string)($this->data['parameterArray']['fieldConf']['description'] ?? '');
+        if ($description === '') {
+            return '';
+        }
+        $description = $this->getLanguageService()->sL($description);
+        if ($description === '') {
+            return '';
+        }
+        return '<div class="form-description">' . nl2br(htmlspecialchars($description)) . '</div>';
     }
 
     /**
@@ -215,7 +231,7 @@ abstract class AbstractFormElement extends AbstractNode
      * Format field content if 'format' is set to date, filesize, ..., user
      *
      * @param string $format Configuration for the display.
-     * @param string $itemValue The value to display
+     * @param ?string $itemValue The value to display
      * @param array $formatOptions Format options
      * @return string Formatted field value
      */
@@ -233,7 +249,7 @@ abstract class AbstractFormElement extends AbstractNode
                             } else {
                                 $locale = new Locale();
                             }
-                            $value = (new DateFormatter())->strftime($option, (int)$itemValue, $locale);
+                            $value = new DateFormatter()->strftime($option, (int)$itemValue, $locale);
                         } else {
                             $value = date($option, (int)$itemValue);
                         }
@@ -243,7 +259,7 @@ abstract class AbstractFormElement extends AbstractNode
                     if (isset($formatOptions['appendAge']) && $formatOptions['appendAge']) {
                         $now = DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME']);
                         $then = DateTimeFactory::createFromTimestamp((int)$itemValue);
-                        $age = (new DateFormatter())->formatDateInterval(
+                        $age = new DateFormatter()->formatDateInterval(
                             $now->diff($then),
                             $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.minutesHoursDaysYears')
                         );
@@ -264,6 +280,12 @@ abstract class AbstractFormElement extends AbstractNode
                 // compatibility with "eval" (type "input")
                 if ($itemValue !== '' && $itemValue !== null) {
                     $itemValue = BackendUtility::time((int)$itemValue, false);
+                }
+                break;
+            case 'datetimesec':
+                // compatibility with "eval" (type "input")
+                if ($itemValue !== '' && $itemValue !== null) {
+                    $itemValue = BackendUtility::datetimesec((int)$itemValue);
                 }
                 break;
             case 'timesec':
@@ -401,45 +423,8 @@ abstract class AbstractFormElement extends AbstractNode
         if ($checked xor $invert) {
             $attrs['checked'] = 'checked';
         }
+        $attrs['data-invert-state-display'] = $invert ? 'true' : 'false';
         return GeneralUtility::implodeAttributes($attrs, true);
-    }
-
-    /**
-     * Calculates the bootstrap grid classes based on the amount of columns
-     * defined in the checkbox item TCA
-     *
-     * @internal
-     */
-    protected function calculateColumnMarkup(int $cols): array
-    {
-        $colWidth = (int)floor(12 / $cols);
-        $colClass = 'col';
-        $colClear = [];
-        if ($colWidth === 6) {
-            $colClass = 'col col-sm-6';
-            $colClear = [
-                2 => 'd-sm-block',
-            ];
-        } elseif ($colWidth === 4) {
-            $colClass = 'col col-sm-4';
-            $colClear = [
-                3 => 'd-sm-block',
-            ];
-        } elseif ($colWidth === 3) {
-            $colClass = 'col col-sm-6 col-md-3';
-            $colClear = [
-                2 => 'd-sm-block d-md-none',
-                4 => 'd-sm-block d-md-block d-lg-none',
-            ];
-        } elseif ($colWidth <= 2) {
-            $colClass = 'col col-sm-6 col-md-3 col-lg-2';
-            $colClear = [
-                2 => 'd-sm-block',
-                4 => 'd-sm-block d-md-block d-lg-none',
-                6 => 'd-sm-block d-md-block d-lg-block d-xl-none',
-            ];
-        }
-        return [$colClass, $colClear];
     }
 
     /**

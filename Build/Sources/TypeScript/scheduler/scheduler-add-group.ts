@@ -17,11 +17,12 @@ import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type ResponseInterface from '@typo3/backend/ajax-data-handler/response-interface';
 import Notification from '@typo3/backend/notification';
-import { lll } from '@typo3/core/lit-helper';
+import labels from '~labels/scheduler.messages';
 
 /**
  * Module: @typo3/scheduler/scheduler-add-groups
  * @exports @typo3/scheduler/scheduler-add-groups
+ * @todo Migrate to web component and tranlsate labels + use custom css for the "Edit whole record" text
  */
 class SchedulerAddGroups {
   selector: string = '.t3js-create-group';
@@ -36,37 +37,32 @@ class SchedulerAddGroups {
       element.addEventListener('click', (button: MouseEvent) => {
         button.preventDefault();
         const content: TemplateResult = html`
-          <form name="scheduler-create-group" @submit=${this.createGroup}>
+          <form id="scheduler-create-group" name="scheduler-create-group" @submit=${this.createGroup}>
             <label class="form-label" for="actionCreateGroup">Group name</label>
             <input class="form-control" id="actionCreateGroup" required="" name="action[createGroup]" autofocus type="text">
+            <div class="form-text mt-3">
+              <button type="button" class="btn btn-link btn btn-link border-0 text-decoration-underline" @click="${this.editWholeRecord}">Edit</button> the whole record to add a custom color and description.
+            </div>
           </form>
         `;
 
-        const modal = Modal.advanced({
+        Modal.advanced({
           content: content,
-          title: lll('scheduler.createGroup') || 'New group',
+          title: labels.get('function.group.add'),
           size: Modal.sizes.small,
           buttons: [
             {
               trigger: (): void => Modal.dismiss(),
-              text: lll('scheduler.modalCancel') || 'Cancel',
+              text: labels.get('button.cancel'),
               btnClass: 'btn-default',
               name: 'cancel'
             },{
-              trigger: (): void => {
-                const form: HTMLFormElement = Modal.currentModal.querySelector('form[name="scheduler-create-group"]');
-                form.requestSubmit();
-              },
-              text: lll('scheduler.modalOk') || 'Create group',
+              text: labels.get('button.group.modalOk'),
               btnClass: 'btn-primary',
-              name: 'ok'
+              name: 'ok',
+              form: 'scheduler-create-group'
             }
           ]
-        });
-
-        modal.addEventListener('typo3-modal-shown', (): void => {
-          const input: HTMLInputElement = Modal.currentModal.querySelector('input[name="action[createGroup]"]');
-          input.focus();
         });
       });
     }
@@ -88,7 +84,7 @@ class SchedulerAddGroups {
         return await response.resolve();
       }).then((result: ResponseInterface): ResponseInterface => {
         if (result.hasErrors) {
-          Notification.error(lll('scheduler.group.error.title'), lll('scheduler.group.error.message') + ' "' + name + '"!');
+          Notification.error(labels.get('msg.group.notification.error.title'), labels.get('msg.group.notification.error.message') + ' "' + name + '"!');
         }
 
         result.messages.forEach((message) => {
@@ -97,7 +93,7 @@ class SchedulerAddGroups {
 
         return result;
       }).catch(() => {
-        Notification.error(lll('scheduler.group.error.title'), lll('scheduler.group.error.message') + ' "' + name + '"!');
+        Notification.error(labels.get('msg.group.notification.error.title'), labels.get('msg.group.notification.error.message') + ' "' + name + '"!');
       }).finally(() => {
         const select = (document as Document).querySelector('#task_group');
         if(select) {
@@ -113,6 +109,30 @@ class SchedulerAddGroups {
 
         Modal.dismiss();
       });
+  }
+
+  private editWholeRecord(e: Event): void {
+    e.preventDefault();
+
+    // Get the current input value (group name) if entered
+    const input: HTMLInputElement = Modal.currentModal.querySelector('input[name="action[createGroup]"]');
+    const groupName = input ? input.value.trim() : '';
+
+    // Build FormEngine URL for creating a new task group record
+    const formEngineUrl = new URL(top.TYPO3.settings.FormEngine.moduleUrl, window.location.origin);
+    formEngineUrl.searchParams.set('edit[tx_scheduler_task_group][0]', 'new');
+
+    // If a group name was entered, forward it as defVals
+    if (groupName) {
+      formEngineUrl.searchParams.set('defVals[tx_scheduler_task_group][groupName]', groupName);
+    }
+
+    // Set return URL to current page
+    formEngineUrl.searchParams.set('returnUrl', window.location.href);
+
+    // Dismiss modal and navigate to FormEngine
+    Modal.dismiss();
+    window.location.href = formEngineUrl.toString();
   }
 }
 

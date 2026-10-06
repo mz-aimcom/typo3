@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Resource\Collection;
 
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
-use PHPUnit\Framework\Attributes\IgnoreDeprecations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Resource\Collection\FileCollectionRegistry;
 use TYPO3\CMS\Core\Tests\Unit\Resource\Collection\Fixtures\OtherTestingFileCollection;
@@ -26,6 +25,7 @@ use TYPO3\CMS\Core\Tests\Unit\Resource\Collection\Fixtures\TestingFileCollection
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class FileCollectionRegistryTest extends UnitTestCase
 {
     #[Test]
@@ -71,7 +71,6 @@ final class FileCollectionRegistryTest extends UnitTestCase
     }
 
     #[Test]
-    #[DoesNotPerformAssertions]
     public function registerFileCollectionClassOverridesExistingRegisteredFileCollectionClass(): void
     {
         $className = TestingFileCollection::class;
@@ -79,6 +78,7 @@ final class FileCollectionRegistryTest extends UnitTestCase
         $subject = new FileCollectionRegistry();
         $subject->registerFileCollectionClass($className, 'foobar');
         $subject->registerFileCollectionClass($className2, 'foobar', true);
+        self::assertSame($className2, $subject->getFileCollectionClass('foobar'));
     }
 
     #[Test]
@@ -130,44 +130,5 @@ final class FileCollectionRegistryTest extends UnitTestCase
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['fal']['registeredFileCollections'] = [];
         $subject = new FileCollectionRegistry();
         self::assertFalse($subject->fileCollectionTypeExists(StringUtility::getUniqueId('name_')));
-    }
-
-    #[Test]
-    #[IgnoreDeprecations]
-    public function addNewTypeToTCA(): void
-    {
-        // Create a TCA fixture for sys_file_collection
-        $GLOBALS['TCA']['sys_file_collection'] = [
-            'types' => [
-                'typeB' => ['showitem' => 'fieldA, fieldB, fieldC;labelC, --palette--;;paletteC, fieldD'],
-            ],
-            'columns' => [
-                'type' => [
-                    'config' => [
-                        'items' => [
-                            ['label' => 'Type B', 'value' => 'typeB'],
-                        ],
-                    ],
-                ],
-            ],
-        ];
-
-        $type = 'my_type';
-        $label = 'The Label';
-
-        $subject = new FileCollectionRegistry();
-        $subject->addTypeToTCA($type, $label, 'something');
-
-        // Add another item, so that phpstan doesn't complain about non-existing array keys.
-        $GLOBALS['TCA']['sys_file_collection']['columns']['type']['config']['items'][] = [
-            ['label' => 'Type C', 'value' => 'typeC'],
-        ];
-
-        // check type
-        self::assertEquals('sys_language_uid, l10n_parent, l10n_diffsource, title, --palette--;;1, type, something', $GLOBALS['TCA']['sys_file_collection']['types']['my_type']['showitem']);
-
-        // check if columns.type.item exist
-        self::assertEquals($type, $GLOBALS['TCA']['sys_file_collection']['columns']['type']['config']['items'][1]['value']);
-        self::assertEquals($label, $GLOBALS['TCA']['sys_file_collection']['columns']['type']['config']['items'][1]['label']);
     }
 }

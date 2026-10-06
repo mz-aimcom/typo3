@@ -23,14 +23,20 @@ use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Context\LanguageAspectFactory;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Domain\Access\RecordAccessVoter;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
+use TYPO3\CMS\Core\Error\Http\LinkedPageNotResolvableException;
 use TYPO3\CMS\Core\Error\Http\ShortcutTargetPageNotFoundException;
 use TYPO3\CMS\Core\Error\Http\StatusException;
+use TYPO3\CMS\Core\Exception\Page\CircularPageReferenceChainException;
+use TYPO3\CMS\Core\Exception\Page\PageReferenceResolvingReachedIterationLimitException;
 use TYPO3\CMS\Core\Exception\Page\RootLineException;
+use TYPO3\CMS\Core\LinkHandling\PageTypeLinkResolver;
 use TYPO3\CMS\Core\Page\PageLayoutResolver;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Site\Entity\NullSite;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Type\Bitmask\PageTranslationVisibility;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -73,6 +79,9 @@ final readonly class PageInformationFactory
         private SysTemplateRepository $sysTemplateRepository,
         private PageLayoutResolver $pageLayoutResolver,
         private TcaSchemaFactory $tcaSchemaFactory,
+        private PageTypeLinkResolver $pageTypeLinkResolver,
+        private PageDoktypeRegistry $pageDoktypeRegistry,
+        private PageRepository $pageRepository,
     ) {}
 
     /**
@@ -123,7 +132,11 @@ final readonly class PageInformationFactory
         $pageInformation = $event->getPageInformation();
 
         $pageInformation = $this->setSysTemplateRows($request, $pageInformation);
-        return $this->setLocalRootLine($request, $pageInformation);
+        $pageInformation = $this->setLocalRootLine($request, $pageInformation);
+
+        $this->verifySiteOrSysTemplateRowExists($request, $pageInformation);
+
+        return $pageInformation;
     }
 
     /**
@@ -134,12 +147,11 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function setPageAndRootline(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
+    private function setPageAndRootline(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
     {
         $id = $pageInformation->getId();
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
         $mountPoint = $pageInformation->getMountPoint();
-        $pageRecord = $pageRepository->getPage($id);
+        $pageRecord = $this->pageRepository->getPage($id);
 
         if (empty($pageRecord)) {
             // @todo: This logic could be streamlined is general. The idea of PageRepository->getPage() is
@@ -161,7 +173,7 @@ final readonly class PageInformationFactory
             if ($schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField) && !$includeHiddenPages) {
                 // Page is hidden, user has no access. 404. This is deliberately done in default language
                 // since language overlays should not be rendered when default language is hidden.
-                $rawPageRecord = $pageRepository->getPage_noCheck($id);
+                $rawPageRecord = $this->pageRepository->getPage_noCheck($id);
                 $hiddenField = $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getFieldName();
                 if ($rawPageRecord === [] || $rawPageRecord[$hiddenField]) {
                     $response = $this->errorController->pageNotFoundAction(
@@ -172,7 +184,7 @@ final readonly class PageInformationFactory
                     throw new PageInformationCreationFailedException($response, 1674144383);
                 }
             }
-            $requestedPageRowWithoutGroupCheck = $pageRepository->getPage($id, true);
+            $requestedPageRowWithoutGroupCheck = $this->pageRepository->getPage($id, true);
             if (!empty($requestedPageRowWithoutGroupCheck)) {
                 // We know now the page could not be received, but the reason is *not* that the
                 // page is hidden and the user has no hidden access. So group access failed? 403.
@@ -200,8 +212,8 @@ final readonly class PageInformationFactory
         $pageInformation->setPageRecord($pageRecord);
         $pageDoktype = (int)($pageRecord['doktype']);
 
-        if ($pageDoktype === PageRepository::DOKTYPE_SPACER || $pageDoktype === PageRepository::DOKTYPE_SYSFOLDER) {
-            // Spacer and sysfolders are not accessible in frontend
+        // Spacer and sysfolders are not accessible in frontend
+        if (!$this->pageDoktypeRegistry->isPageTypeViewable($pageDoktype)) {
             $response = $this->errorController->pageNotFoundAction(
                 $request,
                 'The requested page does not exist!',
@@ -210,7 +222,7 @@ final readonly class PageInformationFactory
             throw new PageInformationCreationFailedException($response, 1533931343);
         }
 
-        if ($pageDoktype === PageRepository::DOKTYPE_SHORTCUT) {
+        if ($pageDoktype === PageRepository::DOKTYPE_LINK || $pageDoktype === PageRepository::DOKTYPE_SHORTCUT) {
             // Resolve shortcut page target.
             // Clear mount point if page is a shortcut: If the shortcut goes to
             // another page, we leave the rootline which the MP expects.
@@ -220,23 +232,45 @@ final readonly class PageInformationFactory
             // or if a translation of the page overwrites the shortcut target, and we need to follow the new target.
             $pageInformation = $this->settingLanguage($request, $pageInformation);
             // Reset vars to new state that may have been created by settingLanguage()
-            $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
             $pageRecord = $pageInformation->getPageRecord();
-            $pageInformation->setOriginalShortcutPageRecord($pageRecord);
-            try {
-                $pageRecord = $pageRepository->resolveShortcutPage($pageRecord, true);
-            } catch (ShortcutTargetPageNotFoundException) {
-                $response = $this->errorController->pageNotFoundAction(
-                    $request,
-                    'ID was not an accessible page',
-                    ['code' => PageAccessFailureReasons::PAGE_NOT_FOUND]
-                );
-                throw new PageInformationCreationFailedException($response, 1705335065);
+            if ($pageDoktype === PageRepository::DOKTYPE_LINK) {
+                $pageInformation->setOriginalShortcutPageRecord($pageRecord);
+                $typolinkInformation = $this->pageTypeLinkResolver->resolveTypolinkParts($pageRecord);
+                // The link destination was a page, we have to prevent infinitive loops
+                if ($typolinkInformation['type'] === 'page') {
+                    try {
+                        $pageRecord = $this->pageRepository->resolveLinkPage($pageRecord);
+                    } catch (ShortcutTargetPageNotFoundException|LinkedPageNotResolvableException|CircularPageReferenceChainException|PageReferenceResolvingReachedIterationLimitException) {
+                        $response = $this->errorController->pageNotFoundAction(
+                            $request,
+                            'ID was not an accessible page',
+                            ['code' => PageAccessFailureReasons::PAGE_NOT_FOUND]
+                        );
+                        throw new PageInformationCreationFailedException($response, 1705335066);
+                    }
+                    $pageInformation->setPageRecord($pageRecord);
+                    $id = (int)$pageRecord['uid'];
+                    $pageInformation->setId($id);
+                    $pageDoktype = (int)($pageRecord['doktype'] ?? 0);
+                }
             }
-            $pageInformation->setPageRecord($pageRecord);
-            $id = (int)$pageRecord['uid'];
-            $pageInformation->setId($id);
-            $pageDoktype = (int)($pageRecord['doktype'] ?? 0);
+            if ($pageDoktype === PageRepository::DOKTYPE_SHORTCUT) {
+                $pageInformation->setOriginalShortcutPageRecord($pageRecord);
+                try {
+                    $pageRecord = $this->pageRepository->resolveShortcutPage($pageRecord);
+                } catch (ShortcutTargetPageNotFoundException|LinkedPageNotResolvableException|CircularPageReferenceChainException|PageReferenceResolvingReachedIterationLimitException) {
+                    $response = $this->errorController->pageNotFoundAction(
+                        $request,
+                        'ID was not an accessible page',
+                        ['code' => PageAccessFailureReasons::PAGE_NOT_FOUND]
+                    );
+                    throw new PageInformationCreationFailedException($response, 1705335065);
+                }
+                $pageInformation->setPageRecord($pageRecord);
+                $id = (int)$pageRecord['uid'];
+                $pageInformation->setId($id);
+                $pageDoktype = (int)($pageRecord['doktype'] ?? 0);
+            }
         }
 
         if ($pageDoktype === PageRepository::DOKTYPE_MOUNTPOINT && $pageRecord['mount_pid_ol']) {
@@ -245,7 +279,7 @@ final readonly class PageInformationFactory
             // We thus change the current page id.
             $originalMountPointPageRecord = $pageRecord;
             $pageInformation->setOriginalMountPointPageRecord($pageRecord);
-            $pageRecord = $pageRepository->getPage((int)$originalMountPointPageRecord['mount_pid']);
+            $pageRecord = $this->pageRepository->getPage((int)$originalMountPointPageRecord['mount_pid']);
             if (empty($pageRecord)) {
                 // Target mount point page not accessible for some reason.
                 $response = $this->errorController->pageNotFoundAction(
@@ -287,7 +321,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function settingLanguage(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
+    private function settingLanguage(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
     {
         $site = $request->getAttribute('site');
         $language = $request->getAttribute('language', $site->getDefaultLanguage());
@@ -300,8 +334,7 @@ final readonly class PageInformationFactory
         $pageTranslationVisibility = new PageTranslationVisibility((int)($pageRecord['l18n_cfg'] ?? 0));
         if ($languageAspect->getId() > 0) {
             // If the incoming language is set to another language than default
-            $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-            $olRec = $pageRepository->getPageOverlay($pageRecord, $languageAspect);
+            $olRec = $this->pageRepository->getPageOverlay($pageRecord, $languageAspect);
             $overlaidLanguageId = (int)($olRec['sys_language_uid'] ?? 0);
             if ($overlaidLanguageId !== $languageAspect->getId()) {
                 // If requested translation is not available
@@ -399,7 +432,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function setContentFromPid(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
+    private function setContentFromPid(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
     {
         $contentFromPid = (int)($pageInformation->getPageRecord()['content_from_pid'] ?? 0);
         if ($contentFromPid === 0) {
@@ -419,7 +452,7 @@ final readonly class PageInformationFactory
     /**
      * Resolve the selected backend layout for the current page and add it to the page information
      */
-    protected function setPageLayout(PageInformation $pageInformation): PageInformation
+    private function setPageLayout(PageInformation $pageInformation): PageInformation
     {
         $pageLayout = $this->pageLayoutResolver->getLayoutForPage(
             $pageInformation->getPageRecord(),
@@ -444,7 +477,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function checkRootlineForIncludeSection(ServerRequestInterface $request, PageInformation $pageInformation): void
+    private function checkRootlineForIncludeSection(ServerRequestInterface $request, PageInformation $pageInformation): void
     {
         $rootLine = $pageInformation->getRootLine();
         for ($a = 0; $a < count($rootLine); $a++) {
@@ -497,7 +530,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function checkCrossDomainWithDirectId(ServerRequestInterface $request, PageInformation $pageInformation): void
+    private function checkCrossDomainWithDirectId(ServerRequestInterface $request, PageInformation $pageInformation): void
     {
         $directlyRequestedId = (int)($request->getQueryParams()['id'] ?? 0);
         $shortcutId = (int)($pageInformation->getOriginalShortcutPageRecord()['uid'] ?? 0);
@@ -528,7 +561,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function checkBackendUserAccess(ServerRequestInterface $request, PageInformation $pageInformation): void
+    private function checkBackendUserAccess(ServerRequestInterface $request, PageInformation $pageInformation): void
     {
         // No backend user was logged in, nothing to check
         if (!$this->context->getPropertyFromAspect('backend.user', 'isLoggedIn', false)) {
@@ -558,10 +591,12 @@ final readonly class PageInformationFactory
      *        in below implementation, we could potentially join or sub select sys_template
      *        records already when pages rootline is queried. This will save one query.
      *        This could be done when we manage to switch PageRepository / RootlineUtility to a CTE.
+     *        @see \TYPO3\CMS\Extbase\Configuration\BackendConfigurationManager::getTypoScriptSetup()
+     *        for similar usage.
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function setSysTemplateRows(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
+    private function setSysTemplateRows(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
     {
         $site = $request->getAttribute('site');
         $rootLine = $pageInformation->getRootLine();
@@ -584,7 +619,7 @@ final readonly class PageInformationFactory
     /**
      * Calculate "local" rootLine that stops at first root=1 template.
      */
-    protected function setLocalRootLine(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
+    private function setLocalRootLine(ServerRequestInterface $request, PageInformation $pageInformation): PageInformation
     {
         $site = $request->getAttribute('site');
         $sysTemplateRows = $pageInformation->getSysTemplateRows();
@@ -610,7 +645,7 @@ final readonly class PageInformationFactory
      * @throws PageInformationCreationFailedException
      * @throws StatusException
      */
-    protected function getRootlineOrThrow(ServerRequestInterface $request, int $pageId, string $mountPoint): array
+    private function getRootlineOrThrow(ServerRequestInterface $request, int $pageId, string $mountPoint): array
     {
         $rootLine = [];
         try {
@@ -642,7 +677,36 @@ final readonly class PageInformationFactory
         }
     }
 
-    protected function getBackendUser(): ?FrontendBackendUserAuthentication
+    /**
+     * @throws PageInformationCreationFailedException
+     * @throws StatusException
+     */
+    private function verifySiteOrSysTemplateRowExists(ServerRequestInterface $request, PageInformation $pageInformation): void
+    {
+        $site = $request->getAttribute('site');
+        if ((!$site instanceof NullSite && !$site->isTypoScriptRoot()) && $pageInformation->getSysTemplateRows() === []) {
+            // @todo: The above check for NullSite is done for ext:redirects to not explode on "not existing" sites here.
+            //        This is of course a hack that should vanish when the early url creation of ext:redirects and its fragile
+            //        bootstrap strategy is resolved.
+            //        This check should be: "if (!$site->isTypoScriptRoot() && $pageInformation->getSysTemplateRows() === []) {"
+            // Early exception if there is no typoscript definition in current site and no sys_template at all.
+            $message = 'No site configuration or TypoScript template record found!';
+            $this->logger->error($message);
+            try {
+                $response = $this->errorController->internalErrorAction(
+                    $request,
+                    $message,
+                    ['code' => PageAccessFailureReasons::RENDERING_INSTRUCTIONS_NOT_FOUND]
+                );
+                throw new PageInformationCreationFailedException($response, 1705656657);
+            } catch (StatusException $up) {
+                $this->logger->error($message, ['exception' => $up]);
+                throw $up;
+            }
+        }
+    }
+
+    private function getBackendUser(): ?FrontendBackendUserAuthentication
     {
         return $GLOBALS['BE_USER'] ?? null;
     }

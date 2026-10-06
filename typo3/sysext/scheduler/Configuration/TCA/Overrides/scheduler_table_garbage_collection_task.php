@@ -29,20 +29,18 @@ ExtensionManagementUtility::addRecordType(
         'group' => 'scheduler',
     ],
     '
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+        --div--;core.form.tabs:general,
             tasktype,
             task_group,
             description,
             all_tables,
             selected_tables;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.tableGarbageCollection.table,
             number_of_days;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.tableGarbageCollection.numberOfDays,
-        --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
-            execution_details,
-            nextexecution,
-            --palette--;;lastexecution,
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+        --div--;core.form.tabs:timing,
+            --palette--;;execution,
+        --div--;core.form.tabs:access,
             disable,
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+        --div--;core.form.tabs:extended,',
     [
         'columnsOverrides' => [
             'selected_tables' => [
@@ -82,6 +80,10 @@ ExtensionManagementUtility::addRecordType(
                 'sys_log' => [
                     'dateField' => 'tstamp',
                     'expirePeriod' => 180,
+                ],
+                'sys_http_report' => [
+                    'dateField' => 'changed',
+                    'expirePeriod' => 30,
                 ],
                 'sys_history' => [
                     'dateField' => 'tstamp',

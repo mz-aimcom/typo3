@@ -34,10 +34,10 @@ final class MultiSiteTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    private const VALUE_PageIdWebsite = 1;
-    private const VALUE_PageIdSecondSite = 50;
-    private const TABLE_Page = 'pages';
-    private const LANGUAGE_PRESETS = [
+    private const int VALUE_PageIdWebsite = 1;
+    private const int VALUE_PageIdSecondSite = 50;
+    private const string TABLE_Page = 'pages';
+    private const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -72,9 +72,9 @@ final class MultiSiteTest extends FunctionalTestCase
         $actionService->moveRecord(self::TABLE_Page, self::VALUE_PageIdSecondSite, self::VALUE_PageIdWebsite);
         $this->assertCSVDataSet(__DIR__ . '/DataSet/moveRootPageToDifferentPageTree.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageIdSecondSite));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageIdSecondSite));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Page)->setField('title')->setValues('Second Root Page'));
     }
 }

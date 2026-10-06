@@ -48,12 +48,12 @@ use TYPO3\CMS\Core\Utility\RootlineUtility;
  *
  * @internal Please note that the site matcher will be probably cease to exist and adapted to the SiteFinder concept when Pseudo-Site handling will be removed.
  */
-class SiteMatcher implements SingletonInterface
+readonly class SiteMatcher implements SingletonInterface
 {
     public function __construct(
-        protected readonly Features $features,
-        protected readonly SiteFinder $finder,
-        protected readonly RequestContextFactory $requestContextFactory
+        protected Features $features,
+        protected SiteFinder $finder,
+        protected RequestContextFactory $requestContextFactory
     ) {}
 
     /**
@@ -92,8 +92,8 @@ class SiteMatcher implements SingletonInterface
         // Allow insecure pageId based site resolution if explicitly enabled and only if both, ?id= and ?L= are defined
         // (pageId based site resolution without L parameter has always been prohibited, so we do not support that)
         if (
-            $this->features->isFeatureEnabled('security.frontend.allowInsecureSiteResolutionByQueryParameters') &&
-            $pageId !== null && $languageId !== null
+            $this->features->isFeatureEnabled('security.frontend.allowInsecureSiteResolutionByQueryParameters')
+            && $pageId !== null && $languageId !== null
         ) {
             return $this->matchSiteByQueryParams($pageId, $languageId, $routeResult, $uri);
         }
@@ -246,7 +246,7 @@ class SiteMatcher implements SingletonInterface
                 $match['language'],
                 $match['tail']
             );
-        } catch (NoConfigurationException | ResourceNotFoundException) {
+        } catch (NoConfigurationException|ResourceNotFoundException) {
             return new SiteRouteResult($uri, new NullSite(), null, '');
         }
     }

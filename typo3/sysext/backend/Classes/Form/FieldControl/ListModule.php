@@ -24,7 +24,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
 /**
- * Renders the icon with link parameters to jump to the list module
+ * Renders the icon with link parameters to jump to the records module
  * "single table" view, showing only one configurable table.
  */
 class ListModule extends AbstractNode
@@ -73,8 +73,8 @@ class ListModule extends AbstractNode
             // pid configured in options - use it
             $pid = $options['pid'];
         } elseif (
-            isset($GLOBALS['TCA'][$table]['ctrl']['rootLevel'])
-            && (int)$GLOBALS['TCA'][$table]['ctrl']['rootLevel'] === 1
+            $this->data['tcaSchemata']->has($table)
+            && ($this->data['tcaSchemata']->get($table)->getRawConfiguration()['rootLevel'] ?? false) === 1
         ) {
             // Target table can only exist on root level - set 0 as pid
             $pid = 0;
@@ -96,7 +96,7 @@ class ListModule extends AbstractNode
         $id = StringUtility::getUniqueId('t3js-formengine-fieldcontrol-');
 
         return [
-            'iconIdentifier' => 'actions-system-list-open',
+            'iconIdentifier' => 'actions-list-alternative',
             'title' => $title,
             'linkAttributes' => [
                 'id' => $id,

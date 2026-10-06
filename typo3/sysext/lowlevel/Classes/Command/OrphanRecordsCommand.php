@@ -27,7 +27,7 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 
-#[AsCommand('cleanup:orphanrecords', 'Find and delete records that have lost their connection with the page tree')]
+#[AsCommand('cleanup:orphanrecords', 'Finds and deletes records that have lost their connection with the page tree')]
 class OrphanRecordsCommand extends Command
 {
     public function __construct(
@@ -37,7 +37,7 @@ class OrphanRecordsCommand extends Command
         parent::__construct();
     }
 
-    public function configure(): void
+    protected function configure(): void
     {
         $this
             ->setHelp(

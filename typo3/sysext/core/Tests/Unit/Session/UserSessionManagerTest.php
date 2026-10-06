@@ -17,8 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Session;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Clock\ClockInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\NullLogger;
 use TYPO3\CMS\Core\Authentication\IpLocker;
@@ -30,6 +32,7 @@ use TYPO3\CMS\Core\Session\UserSession;
 use TYPO3\CMS\Core\Session\UserSessionManager;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class UserSessionManagerTest extends UnitTestCase
 {
     use JwtTrait;
@@ -59,31 +62,64 @@ final class UserSessionManagerTest extends UnitTestCase
     #[Test]
     public function willExpireWillExpire(int $sessionLifetime, int $gracePeriod, bool $expectedResult): void
     {
-        $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
+        $sessionBackendStub = self::createStub(SessionBackendInterface::class);
         $subject = new UserSessionManager(
-            $sessionBackendMock,
+            $sessionBackendStub,
             $sessionLifetime,
             new IpLocker(0, 0),
-            'FE'
+            'FE',
+            self::createFrozenClock(1700000000)
         );
         $session = $subject->createAnonymousSession();
         self::assertEquals($expectedResult, $subject->willExpire($session, $gracePeriod));
     }
 
+    #[Test]
     public function hasExpiredIsCalculatedCorrectly(): void
     {
-        $GLOBALS['EXEC_TIME'] = time();
+        $subject = new UserSessionManager(
+            self::createStub(SessionBackendInterface::class),
+            60,
+            new IpLocker(0, 0),
+            'FE',
+            self::createFrozenClock(1700000000)
+        );
+        $expiredSession = UserSession::createFromRecord('random-string', ['ses_tstamp' => 1700000000 - 500]);
+        self::assertTrue($subject->hasExpired($expiredSession));
+        $newSession = UserSession::createFromRecord('random-string', ['ses_tstamp' => 1700000000]);
+        self::assertFalse($subject->hasExpired($newSession));
+    }
+
+    #[Test]
+    public function elevateToFixatedUserSessionUsesClockForSessionTimestamp(): void
+    {
         $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
+        $sessionBackendMock->expects($this->once())->method('set')
+            ->with('random-string', self::callback(static fn(array $sessionRecord): bool => $sessionRecord['ses_tstamp'] === 1700000000))
+            ->willReturnArgument(1);
         $subject = new UserSessionManager(
             $sessionBackendMock,
             60,
             new IpLocker(0, 0),
-            'FE'
+            'FE',
+            self::createFrozenClock(1700000000)
         );
-        $expiredSession = UserSession::createFromRecord('random-string', ['ses_tstamp' => time() - 500]);
-        self::assertTrue($subject->hasExpired($expiredSession));
-        $newSession = UserSession::createFromRecord('random-string', ['ses_tstamp' => time()]);
-        self::assertFalse($subject->hasExpired($newSession));
+        $subject->setLogger(new NullLogger());
+        $session = UserSession::createNonFixated('random-string', 1700000000 - 500);
+        $elevatedSession = $subject->elevateToFixatedUserSession($session, 13);
+        self::assertSame(1700000000, $elevatedSession->getLastUpdated());
+    }
+
+    private static function createFrozenClock(int $timestamp): ClockInterface
+    {
+        return new class ($timestamp) implements ClockInterface {
+            public function __construct(private readonly int $timestamp) {}
+
+            public function now(): \DateTimeImmutable
+            {
+                return new \DateTimeImmutable('@' . $this->timestamp);
+            }
+        };
     }
 
     #[Test]
@@ -91,7 +127,7 @@ final class UserSessionManagerTest extends UnitTestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'secret-encryption-key-test';
         $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
-        $sessionBackendMock->method('get')->with('valid-session')->willReturn([
+        $sessionBackendMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('valid-session')->willReturn([
             'ses_id' => 'valid-session',
             'ses_userid' => 13,
             'ses_data' => serialize(['propertyA' => 42, 'propertyB' => 'great']),
@@ -109,7 +145,7 @@ final class UserSessionManagerTest extends UnitTestCase
         $validSessionJwt = self::encodeHashSignedJwt(
             [
                 'identifier' => 'valid-session',
-                'time' => (new \DateTimeImmutable())->format(\DateTimeImmutable::RFC3339),
+                'time' => new \DateTimeImmutable()->format(\DateTimeImmutable::RFC3339),
                 'scope' => [
                     'domain' => $cookieDomain,
                     'path' => '/',
@@ -118,10 +154,10 @@ final class UserSessionManagerTest extends UnitTestCase
             self::createSigningKeyFromEncryptionKey(UserSession::class)
         );
 
-        $normalizedParams = $this->createMock(NormalizedParams::class);
+        $normalizedParams = self::createStub(NormalizedParams::class);
         $normalizedParams->method('getRequestHostOnly')->willReturn($cookieDomain);
         $normalizedParams->method('getSitePath')->willReturn('/');
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = self::createStub(ServerRequestInterface::class);
         $request->method('getAttribute')->willReturnCallback(static fn(string $name): mixed => match ($name) {
             'normalizedParams' => $normalizedParams,
             default => null,
@@ -141,7 +177,7 @@ final class UserSessionManagerTest extends UnitTestCase
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'secret-encryption-key-test';
         $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
-        $sessionBackendMock->method('get')->with('invalid-session')->willThrowException(
+        $sessionBackendMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('invalid-session')->willThrowException(
             new SessionNotFoundException('Session not found', 1669358326)
         );
         $subject = new UserSessionManager(
@@ -153,9 +189,9 @@ final class UserSessionManagerTest extends UnitTestCase
         $subject->setLogger(new NullLogger());
 
         $cookieDomain = 'example.org';
-        $normalizedParams = $this->createMock(NormalizedParams::class);
+        $normalizedParams = self::createStub(NormalizedParams::class);
         $normalizedParams->method('getRequestHostOnly')->willReturn($cookieDomain);
-        $request = $this->createMock(ServerRequestInterface::class);
+        $request = self::createStub(ServerRequestInterface::class);
         $request->method('getAttribute')->willReturnCallback(static fn(string $name): mixed => match ($name) {
             'normalizedParams' => $normalizedParams,
             default => null,
@@ -173,8 +209,8 @@ final class UserSessionManagerTest extends UnitTestCase
     #[Test]
     public function updateSessionWillSetLastUpdated(): void
     {
-        $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
-        $sessionBackendMock->method('update')->with(self::anything(), self::anything())->willReturn([
+        $sessionBackendStub = self::createStub(SessionBackendInterface::class);
+        $sessionBackendStub->method('update')->willReturn([
             'ses_id' => 'valid-session',
             'ses_userid' => 13,
             'ses_data' => serialize(['propertyA' => 42, 'propertyB' => 'great']),
@@ -182,7 +218,7 @@ final class UserSessionManagerTest extends UnitTestCase
             'ses_iplock' => '[DISABLED]',
         ]);
         $subject = new UserSessionManager(
-            $sessionBackendMock,
+            $sessionBackendStub,
             60,
             new IpLocker(0, 0),
             'FE'
@@ -195,8 +231,8 @@ final class UserSessionManagerTest extends UnitTestCase
     #[Test]
     public function fixateAnonymousSessionWillUpdateSessionObject(): void
     {
-        $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
-        $sessionBackendMock->method('set')->with(self::anything(), self::anything())->willReturn([
+        $sessionBackendStub = self::createStub(SessionBackendInterface::class);
+        $sessionBackendStub->method('set')->willReturn([
             'ses_id' => 'valid-session',
             'ses_userid' => 0,
             'ses_data' => serialize(['propertyA' => 42, 'propertyB' => 'great']),
@@ -204,7 +240,7 @@ final class UserSessionManagerTest extends UnitTestCase
             'ses_iplock' => IpLocker::DISABLED_LOCK_VALUE,
         ]);
         $subject = new UserSessionManager(
-            $sessionBackendMock,
+            $sessionBackendStub,
             60,
             new IpLocker(0, 0),
             'FE'

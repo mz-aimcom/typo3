@@ -1,0 +1,17 @@
+categories:
+  camino: ~
+
+settings:
+  camino.colorScheme:
+    default: theme-caramel-cream
+    type: string
+    enum:
+      - theme-caramel-cream
+      - theme-ocean-breeze
+      - theme-forest-mist
+      - theme-violet-velvet
+    category: camino
+  camino.header.fixedPosition:
+    default: false
+    type: bool
+    category: camino

@@ -10,12 +10,12 @@ settings:
     default: '0'
     type: string
     enum:
-      '0': '0'
-      '1': '1'
-      '2': '2'
-      '3': '3'
-      '4': '4'
-      '255': '255'
+      - '0'
+      - '1'
+      - '2'
+      - '3'
+      - '4'
+      - '255'
     category: felogin
   felogin.showForgotPassword:
     default: false
@@ -71,15 +71,15 @@ settings:
     category: felogin
   felogin.redirectPageLogin:
     default: 0
-    type: int
+    type: page
     category: felogin
   felogin.redirectPageLoginError:
     default: 0
-    type: int
+    type: page
     category: felogin
   felogin.redirectPageLogout:
     default: 0
-    type: int
+    type: page
     category: felogin
   felogin.redirectDisable:
     default: false

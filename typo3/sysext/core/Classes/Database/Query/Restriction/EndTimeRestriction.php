@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Database\Query\Restriction;
 
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Database\Query\Expression\CompositeExpression;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
@@ -28,17 +29,11 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 class EndTimeRestriction implements QueryRestrictionInterface
 {
-    /**
-     * @var int
-     */
-    protected $accessTimeStamp;
-
-    protected TcaSchemaFactory $tcaSchemaFactory;
+    protected ?int $accessTimeStamp;
 
     public function __construct(?int $accessTimeStamp = null)
     {
-        $this->accessTimeStamp = $accessTimeStamp ?: ($GLOBALS['SIM_ACCESS_TIME'] ?? null);
-        $this->tcaSchemaFactory = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+        $this->accessTimeStamp = $accessTimeStamp ?: null;
     }
 
     /**
@@ -48,30 +43,36 @@ class EndTimeRestriction implements QueryRestrictionInterface
      * @param array $queriedTables Array of tables, where array key is table alias and value is a table name
      * @param ExpressionBuilder $expressionBuilder Expression builder instance to add restrictions with
      * @return CompositeExpression The result of query builder expression(s)
-     * @throws \RuntimeException
      */
     public function buildExpression(array $queriedTables, ExpressionBuilder $expressionBuilder): CompositeExpression
     {
+        $tcaSchemaFactory = $expressionBuilder->getContainer()->get(TcaSchemaFactory::class);
         $constraints = [];
         foreach ($queriedTables as $tableAlias => $tableName) {
-            if (!$this->tcaSchemaFactory->has($tableName)) {
+            if (!$tcaSchemaFactory->has($tableName)) {
                 continue;
             }
-            $schema = $this->tcaSchemaFactory->get($tableName);
+            $schema = $tcaSchemaFactory->get($tableName);
             if ($schema->hasCapability(TcaSchemaCapability::RestrictionEndTime)) {
-                if (empty($this->accessTimeStamp)) {
-                    throw new \RuntimeException(
-                        'accessTimeStamp needs to be set to an integer value, but is empty! Maybe $GLOBALS[\'SIM_ACCESS_TIME\'] has been overridden somewhere?',
-                        1462821084
-                    );
-                }
                 $fieldName = $tableAlias . '.' . $schema->getCapability(TcaSchemaCapability::RestrictionEndTime)->getFieldName();
                 $constraints[] = $expressionBuilder->or(
                     $expressionBuilder->eq($fieldName, 0),
-                    $expressionBuilder->gt($fieldName, (int)$this->accessTimeStamp)
+                    $expressionBuilder->gt($fieldName, $this->getAccessTimeStamp())
                 );
             }
         }
         return $expressionBuilder->and(...$constraints);
+    }
+
+    /**
+     * Resolved late, so that merely creating a restriction container does not access the Context,
+     * and so that a date aspect set after instantiation - for instance by the preview simulator -
+     * is still taken into account.
+     */
+    protected function getAccessTimeStamp(): int
+    {
+        return $this->accessTimeStamp ?? GeneralUtility::makeInstance(Context::class)
+            ->getAspect('date')
+            ->getTimestampWithMinutePrecision();
     }
 }

@@ -10,7 +10,6 @@ return [
             ],
         ],
         'autosize' => 'EXT:core/Resources/Public/JavaScript/Contrib/autosize.js',
-        'bootstrap' => 'EXT:core/Resources/Public/JavaScript/Contrib/bootstrap.js',
         'cropperjs' => 'EXT:core/Resources/Public/JavaScript/Contrib/cropperjs.js',
         'css-tree' => 'EXT:core/Resources/Public/JavaScript/Contrib/css-tree.js',
         'dompurify' => 'EXT:core/Resources/Public/JavaScript/Contrib/dompurify.js',
@@ -20,8 +19,7 @@ return [
         // legacy, has ben renamed 'flatpickr/dist/l10n'
         'flatpickr/locales' => 'EXT:core/Resources/Public/JavaScript/Contrib/flatpickr/dist/l10n.js',
         'interactjs' => 'EXT:core/Resources/Public/JavaScript/Contrib/interactjs.js',
-        'jquery' => 'EXT:core/Resources/Public/JavaScript/Contrib/jquery.js',
-        'jquery/' => 'EXT:core/Resources/Public/JavaScript/Contrib/jquery/',
+        'intl-messageformat' => 'EXT:core/Resources/Public/JavaScript/Contrib/intl-messageformat.js',
         '@lit/reactive-element' => 'EXT:core/Resources/Public/JavaScript/Contrib/@lit/reactive-element/reactive-element.js',
         '@lit/reactive-element/' => 'EXT:core/Resources/Public/JavaScript/Contrib/@lit/reactive-element/',
         '@lit/task' => 'EXT:core/Resources/Public/JavaScript/Contrib/@lit/task/index.js',

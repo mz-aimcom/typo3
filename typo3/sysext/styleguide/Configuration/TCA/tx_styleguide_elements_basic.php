@@ -180,7 +180,6 @@ return [
             'description' => 'valuePicker',
             'config' => [
                 'type' => 'input',
-                'size' => 20,
                 'eval' => 'trim',
                 'valuePicker' => [
                     'items' => [
@@ -188,42 +187,6 @@ return [
                         [ 'value' => 'summer', 'label' => 'Summer'],
                         [ 'value' => 'autumn', 'label' => 'Autumn'],
                         [ 'value' => 'winter', 'label' => 'Winter'],
-                    ],
-                ],
-            ],
-        ],
-        'input_35' => [
-            'label' => 'input_35',
-            'description' => 'valuePicker append',
-            'config' => [
-                'type' => 'input',
-                'size' => 20,
-                'eval' => 'trim',
-                'valuePicker' => [
-                    'mode' => 'append',
-                    'items' => [
-                        [ 'label' => 'Spring', 'value' => 'spring'],
-                        [ 'label' => 'Summer', 'value' => 'summer'],
-                        [ 'label' => 'Autumn', 'value' => 'autumn'],
-                        [ 'label' => 'Winter', 'value' => 'winter'],
-                    ],
-                ],
-            ],
-        ],
-        'input_36' => [
-            'label' => 'input_36',
-            'description' => 'valuePicker prepend',
-            'config' => [
-                'type' => 'input',
-                'size' => 20,
-                'eval' => 'trim',
-                'valuePicker' => [
-                    'mode' => 'prepend',
-                    'items' => [
-                        [ 'label' => 'spring', 'value' => 'Spring'],
-                        [ 'label' => 'summer', 'value' => 'Summer'],
-                        [ 'label' => 'autumn', 'value' => 'Autumn'],
-                        [ 'label' => 'winter', 'value' => 'Winter'],
                     ],
                 ],
             ],
@@ -521,6 +484,42 @@ return [
                 'nullable' => true,
             ],
         ],
+        'inputdatetime_36' => [
+            'label' => 'inputdatetime_36',
+            'description' => 'format=datetimesec',
+            'config' => [
+                'type' => 'datetime',
+                'format' => 'datetimesec',
+            ],
+        ],
+        'inputdatetime_37' => [
+            'label' => 'inputdatetime_37',
+            'description' => 'format=datetimesec dbType=datetime',
+            'config' => [
+                'type' => 'datetime',
+                'format' => 'datetimesec',
+                'dbType' => 'datetime',
+            ],
+        ],
+        'inputdatetime_38' => [
+            'label' => 'inputdatetime_38',
+            'description' => 'format=datetimesec nullable=true',
+            'config' => [
+                'type' => 'datetime',
+                'format' => 'datetimesec',
+                'nullable' => true,
+            ],
+        ],
+        'inputdatetime_39' => [
+            'label' => 'inputdatetime_39',
+            'description' => 'format=datetimesec dbType=datetime nullable=true',
+            'config' => [
+                'type' => 'datetime',
+                'format' => 'datetimesec',
+                'dbType' => 'datetime',
+                'nullable' => true,
+            ],
+        ],
 
         'link_1' => [
             'label' => 'link_1',
@@ -569,6 +568,19 @@ return [
                 ],
             ],
         ],
+        'link_6' => [
+            'label' => 'link_6',
+            'description' => 'valuePicker',
+            'config' => [
+                'type' => 'link',
+                'valuePicker' => [
+                    'items' => [
+                        [ 'label' => 'TYPO3.org', 'value' => 'https://typo3.org' ],
+                        [ 'label' => 'TYPO3.com', 'value' => 'https://typo3.com' ],
+                    ],
+                ],
+            ],
+        ],
 
         'password_1' => [
             'label' => 'password_1',
@@ -604,10 +616,7 @@ return [
                         'renderType' => 'passwordGenerator',
                         'options' => [
                             'title' => 'Create random hex string',
-                            'passwordRules' => [
-                                'length' => 30,
-                                'random' => 'hex',
-                            ],
+                            'passwordPolicy' => 'styleguideHex',
                         ],
                     ],
                 ],
@@ -624,10 +633,7 @@ return [
                         'options' => [
                             'title' => 'Create random base64 string',
                             'allowEdit' => false,
-                            'passwordRules' => [
-                                'length' => 35,
-                                'random' => 'base64',
-                            ],
+                            'passwordPolicy' => 'styleguideBase64',
                         ],
                     ],
                 ],
@@ -643,9 +649,7 @@ return [
                         'renderType' => 'passwordGenerator',
                         'options' => [
                             'title' => 'Create random password',
-                            'passwordRules' => [
-                                'specialCharacters' => true,
-                            ],
+                            'passwordPolicy' => 'styleguideAllCharacters',
                         ],
                     ],
                 ],
@@ -661,11 +665,7 @@ return [
                         'renderType' => 'passwordGenerator',
                         'options' => [
                             'title' => 'Create random number',
-                            'passwordRules' => [
-                                'length' => 8,
-                                'lowerCaseCharacters' => false,
-                                'upperCaseCharacters' => false,
-                            ],
+                            'passwordPolicy' => 'styleguideDigits',
                         ],
                     ],
                 ],
@@ -677,6 +677,21 @@ return [
             'config' => [
                 'type' => 'password',
                 'nullable' => true,
+            ],
+        ],
+        'password_9' => [
+            'label' => 'password_9',
+            'description' => 'type=password fieldControl=passwordGenerator without passwordPolicy - control is not rendered',
+            'config' => [
+                'type' => 'password',
+                'fieldControl' => [
+                    'passwordGenerator' => [
+                        'renderType' => 'passwordGenerator',
+                        'options' => [
+                            'title' => 'Create random password',
+                        ],
+                    ],
+                ],
             ],
         ],
 
@@ -699,6 +714,9 @@ return [
                         [ 'label' => 'blue', 'value' => '#0000FF'],
                         [ 'label' => 'red', 'value' => '#FF0000'],
                         [ 'label' => 'typo3 orange', 'value' => '#FF8700'],
+                        [ 'label' => 'styleguide.messages:elements.color.valid', 'value' => '#FF8701'],
+                        [ 'label' => 'LLL:EXT:styleguide/Resources/Private/Language/locallang.xlf:elements.color.valid', 'value' => '#FF8702'],
+                        [ 'label' => 'styleguide:something.invalid', 'value' => '#FF8703'],
                     ],
                 ],
             ],
@@ -741,15 +759,15 @@ return [
 
         'number_1' => [
             'label' => 'number_1',
-            'description' => 'format=decimal',
+            'description' => 'scale=2',
             'config' => [
                 'type' => 'number',
-                'format' => 'decimal',
+                'scale' => 2,
             ],
         ],
         'number_2' => [
             'label' => 'number_2',
-            'description' => 'format=integer (default)',
+            'description' => 'scale=0, integer (default)',
             'config' => [
                 'type' => 'number',
             ],
@@ -788,7 +806,7 @@ return [
             'description' => 'slider default=14.5 step=0.5 width=150 format=decimal',
             'config' => [
                 'type' => 'number',
-                'format' => 'decimal',
+                'scale' => 2,
                 'size' => 5,
                 'range' => [
                     'lower' => -90.5,
@@ -807,6 +825,72 @@ return [
             'config' => [
                 'type' => 'number',
                 'readOnly' => 1,
+            ],
+        ],
+        'number_8' => [
+            'label' => 'number_8',
+            'description' => 'valuePicker',
+            'config' => [
+                'type' => 'number',
+                'valuePicker' => [
+                    'items' => [
+                        [ 'value' => 1998, 'label' => 'First TYPO3 Release'],
+                        [ 'value' => 2006, 'label' => 'First TYPO3 Developer Days'],
+                        [ 'value' => 2024, 'label' => 'First TYPO3 Surfcamp'],
+                    ],
+                ],
+            ],
+        ],
+        'number_9' => [
+            'label' => 'number_9',
+            'description' => 'scale=1',
+            'config' => [
+                'type' => 'number',
+                'scale' => 1,
+            ],
+        ],
+        'number_10' => [
+            'label' => 'number_10',
+            'description' => 'scale=2',
+            'config' => [
+                'type' => 'number',
+                'scale' => 2,
+            ],
+        ],
+        'number_11' => [
+            'label' => 'number_11',
+            'description' => 'scale=4',
+            'config' => [
+                'type' => 'number',
+                'scale' => 4,
+            ],
+        ],
+        'number_12' => [
+            'label' => 'number_12',
+            'description' => 'scale=4 slider step=0.0001 width=150',
+            'config' => [
+                'type' => 'number',
+                'scale' => 4,
+                'size' => 10,
+                'range' => [
+                    'lower' => -90.5,
+                    'upper' => 90.5,
+                ],
+                'default' => 14.5,
+                'slider' => [
+                    'step' => 0.0001,
+                    'width' => 150,
+                ],
+            ],
+        ],
+        'number_13' => [
+            'label' => 'number_13',
+            'description' => 'scale=30 (maximum) nullable=true',
+            'config' => [
+                'type' => 'number',
+                'scale' => 30,
+                'nullable' => true,
+                'size' => 40,
             ],
         ],
 
@@ -850,6 +934,7 @@ return [
                 'valuePicker' => [
                     'items' => [
                         ['label' => 'Example email', 'value' => 'info@example.org'],
+                        ['label' => 'Another email', 'value' => 'info@another.org'],
                     ],
                 ],
             ],
@@ -1095,7 +1180,9 @@ backend_layout {
             'description' => 'uuid without copy icon',
             'config' => [
                 'type' => 'uuid',
-                'enableCopyToClipboard' => false,
+                'appearance' => [
+                    'copyToClipboard' => false,
+                ],
             ],
         ],
         'uuid_3' => [
@@ -1161,7 +1248,7 @@ backend_layout {
             // @todo: Checking a checkbox that is added by itemsProcFunc is not persisted correctly.
             // @todo: HTML looks good, so this is probably an issue in DataHandler?
             'label' => 'checkbox_6',
-            'description' => 'itemsProcFunc',
+            'description' => 'itemsProcFunc and itemsProcessors',
             'config' => [
                 'type' => 'check',
                 'items' => [
@@ -1169,6 +1256,14 @@ backend_layout {
                     ['label' => 'bar'],
                 ],
                 'itemsProcFunc' => 'TYPO3\\CMS\\Styleguide\\UserFunctions\\FormEngine\\TypeCheckbox8ItemsProcFunc->itemsProcFunc',
+                'itemsProcessors' => [
+                    100 => [
+                        'class' => 'TYPO3\\CMS\\Styleguide\\UserFunctions\\FormEngine\\TypeCheckbox8ItemsProcessor',
+                        'parameters' => [
+                            'extra' => 'extraValue',
+                        ],
+                    ],
+                ],
             ],
         ],
         'checkbox_7' => [
@@ -1763,6 +1858,21 @@ backend_layout {
                                                 <dbType>time</dbType>
                                             </config>
                                         </inputDateTime_8>
+                                        <inputDateTime_9>
+                                            <label>inputDateTime_9 format=datetimesec</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>datetimesec</format>
+                                            </config>
+                                        </inputDateTime_9>
+                                        <inputDateTime_10>
+                                            <label>inputDateTime_10 format=datetimesec</label>
+                                            <config>
+                                                <type>datetime</type>
+                                                <format>datetimesec</format>
+                                                <dbType>datetime</dbType>
+                                            </config>
+                                        </inputDateTime_10>
                                     </el>
                                 </ROOT>
                             </sInputDateTime>
@@ -1807,9 +1917,101 @@ backend_layout {
                                                 </appearance>
                                             </config>
                                         </link_1>
+                                        <link_2>
+                                            <label>link_2</label>
+                                            <description>valuePicker</description>
+                                            <config>
+                                                <type>link</type>
+                                                <valuePicker>
+                                                    <items>
+                                                        <numIndex index="0">
+                                                            <label>TYPO3.org</label>
+                                                            <value>https://typo3.org</value>
+                                                        </numIndex>
+                                                        <numIndex index="1">
+                                                            <label>TYPO3.com</label>
+                                                            <value>https://typo3.com</value>
+                                                        </numIndex>
+                                                    </items>
+                                                </valuePicker>
+                                            </config>
+                                        </link_2>
                                     </el>
                                 </ROOT>
                             </sLink>
+
+                            <sNumber>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>number</sheetTitle>
+                                    <el>
+                                        <number_1>
+                                            <label>number_1</label>
+                                            <description>number_1 valuePicker</description>
+                                            <config>
+                                                <type>number</type>
+                                                <default>1998</default>
+                                                <valuePicker>
+                                                    <items>
+                                                        <numIndex index="0">
+                                                            <label>First TYPO3 Release</label>
+                                                            <value>1998</value>
+                                                        </numIndex>
+                                                        <numIndex index="1">
+                                                            <label>First TYPO3 Developer Days</label>
+                                                            <value>2006</value>
+                                                        </numIndex>
+                                                        <numIndex index="2">
+                                                            <label>First TYPO3 Surfcamp</label>
+                                                            <value>2024</value>
+                                                        </numIndex>
+                                                    </items>
+                                                </valuePicker>
+                                                <range>
+                                                    <lower>1998</lower>
+                                                    <upper>2024</upper>
+                                                </range>
+                                            </config>
+                                        </number_1>
+                                        <number_2>
+                                            <label>number_2</label>
+                                            <description>number_2 format=decimal scale=4</description>
+                                            <config>
+                                                <type>number</type>
+                                                <scale>4</scale>
+                                            </config>
+                                        </number_2>
+                                    </el>
+                                </ROOT>
+                            </sNumber>
+
+                            <sEmail>
+                                <ROOT>
+                                    <type>array</type>
+                                    <sheetTitle>email</sheetTitle>
+                                    <el>
+                                        <email_1>
+                                            <label>email_1</label>
+                                            <description>email_1 valuePicker</description>
+                                            <config>
+                                                <type>email</type>
+                                                <valuePicker>
+                                                    <items>
+                                                        <numIndex index="0">
+                                                            <label>Example email</label>
+                                                            <value>info@example.org</value>
+                                                        </numIndex>
+                                                        <numIndex index="1">
+                                                            <label>Another email</label>
+                                                            <value>info@another.org</value>
+                                                        </numIndex>
+                                                    </items>
+                                                </valuePicker>
+                                            </config>
+                                        </email_1>
+                                    </el>
+                                </ROOT>
+                            </sEmail>
 
                             <sCheck>
                                 <ROOT>
@@ -1953,14 +2155,15 @@ backend_layout {
                     inputdatetime_21, inputdatetime_22, inputdatetime_23, inputdatetime_24, inputdatetime_25,
                     inputdatetime_26, inputdatetime_27, inputdatetime_28, inputdatetime_29, inputdatetime_30,
                     inputdatetime_31, inputdatetime_32, inputdatetime_33, inputdatetime_35,
+                    inputdatetime_36, inputdatetime_37, inputdatetime_38, inputdatetime_39,
                 --div--;link,
-                    link_1,link_2,link_3,link_4,link_5,
+                    link_1,link_2,link_3,link_4,link_5,link_6,
                 --div--;password,
-                    password_1,password_2,password_3,password_8,password_4,password_5,password_6,password_7,
+                    password_1,password_2,password_3,password_8,password_4,password_5,password_6,password_7,password_9,
                 --div--;color,
                     color_1,color_2,color_3,color_4,color_5,color_palpreset,
                 --div--;number,
-                    number_1, number_2, number_3, number_4, number_5, number_7,
+                    number_1, number_2, number_3, number_4, number_5, number_7, number_8, number_9, number_10, number_11, number_12, number_13,
                 --div--;email,
                     email_1, email_2, email_3, email_4, email_5,
                 --div--;text,

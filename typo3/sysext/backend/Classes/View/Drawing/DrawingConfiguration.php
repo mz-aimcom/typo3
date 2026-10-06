@@ -31,11 +31,15 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * Corresponds to legacy public properties from PageLayoutView.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
 class DrawingConfiguration
 {
-    protected int $selectedLanguageId = 0;
+    /**
+     * Array of selected language IDs for multi-language comparison view
+     * @var int[]
+     */
+    protected array $selectedLanguageIds = [0];
 
     /**
      * Corresponds to web.layout.allowInconsistentLanguageHandling TSconfig property
@@ -75,32 +79,53 @@ class DrawingConfiguration
 
     public static function create(BackendLayout $backendLayout, array $pageTsConfig, PageViewMode $pageViewMode): self
     {
+        $modConfig = $pageTsConfig['mod'] ?? $pageTsConfig['mod.'] ?? [];
+        $webLayoutConfig = $modConfig['web_layout'] ?? $modConfig['web_layout.'] ?? [];
+        $sharedConfig = $modConfig['SHARED'] ?? $modConfig['SHARED.'] ?? [];
+        $localizationConfig = $webLayoutConfig['localization'] ?? $webLayoutConfig['localization.'] ?? [];
+
         $obj = new self();
         $obj->pageViewMode = $pageViewMode;
-        $obj->allowInconsistentLanguageHandling = (bool)($pageTsConfig['mod.']['web_layout.']['allowInconsistentLanguageHandling'] ?? false);
-        $obj->shouldHideRestrictedColumns = (bool)($pageTsConfig['mod.']['web_layout.']['hideRestrictedCols'] ?? false);
+        $obj->allowInconsistentLanguageHandling = (bool)($webLayoutConfig['allowInconsistentLanguageHandling'] ?? false);
+        $obj->shouldHideRestrictedColumns = (bool)($webLayoutConfig['hideRestrictedCols'] ?? false);
         $availableColumnPositionsFromBackendLayout = array_unique($backendLayout->getColumnPositionNumbers());
-        $allowedColumnPositionsByTsConfig = array_unique(GeneralUtility::intExplode(',', (string)($pageTsConfig['mod.']['SHARED.']['colPos_list'] ?? ''), true));
+        $allowedColumnPositionsByTsConfig = array_unique(GeneralUtility::intExplode(',', (string)($sharedConfig['colPos_list'] ?? ''), true));
         // If there is no tsConfig colPos_list, no restriction. Else create intersection of available and allowed.
         if (!empty($allowedColumnPositionsByTsConfig)) {
             $obj->activeColumns = array_intersect($availableColumnPositionsFromBackendLayout, $allowedColumnPositionsByTsConfig);
         } else {
             $obj->activeColumns = $availableColumnPositionsFromBackendLayout;
         }
-        $obj->allowTranslateModeForTranslations = (bool)($pageTsConfig['mod.']['web_layout.']['localization.']['enableTranslate'] ?? true);
-        $obj->allowCopyModeForTranslations = (bool)($pageTsConfig['mod.']['web_layout.']['localization.']['enableCopy'] ?? true);
+        $obj->allowTranslateModeForTranslations = (bool)($localizationConfig['enableTranslate'] ?? true);
+        $obj->allowCopyModeForTranslations = (bool)($localizationConfig['enableCopy'] ?? true);
 
         return $obj;
     }
 
-    public function getSelectedLanguageId(): int
+    /**
+     * Get all selected language IDs
+     * @return int[]
+     */
+    public function getSelectedLanguageIds(): array
     {
-        return $this->selectedLanguageId;
+        return $this->selectedLanguageIds;
     }
 
-    public function setSelectedLanguageId(int $selectedLanguageId): void
+    /**
+     * Set selected language IDs
+     * @param int[] $selectedLanguageIds
+     */
+    public function setSelectedLanguageIds(array $selectedLanguageIds): void
     {
-        $this->selectedLanguageId = $selectedLanguageId;
+        $this->selectedLanguageIds = $selectedLanguageIds !== [] ? array_map('intval', $selectedLanguageIds) : [0];
+    }
+
+    /**
+     * Get the primary (first) selected language ID
+     */
+    public function getPrimaryLanguageId(): int
+    {
+        return $this->selectedLanguageIds[0] ?? 0;
     }
 
     public function getAllowInconsistentLanguageHandling(): bool

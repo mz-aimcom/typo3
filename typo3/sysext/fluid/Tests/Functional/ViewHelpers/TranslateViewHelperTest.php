@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -38,7 +39,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
         'DE' => ['id' => 1, 'title' => 'Deutsch', 'locale' => 'de_DE.UTF8'],
     ];
@@ -54,7 +55,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1351584844);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     #[Test]
@@ -64,7 +65,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1351584844);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate default="myDefault" />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     #[Test]
@@ -74,7 +75,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1639828178);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="key1" />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function renderReturnsStringInNonExtbaseContextDataProvider(): array
@@ -136,13 +137,45 @@ final class TranslateViewHelperTest extends FunctionalTestCase
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:shortcut.title" arguments="{0: \"a\", 1: \"b\", 2: \"c\", 3: 13}"/>',
                 'ab on page &quot;c&quot; [13]',
             ],
+            'translation domain syntax for existing label with combined syntax and LLL prefix' => [
+                '<f:translate key="LLL:test_translate.messages:form.legend" />',
+                'Search form',
+            ],
+            'translation domain syntax for existing label with combined syntax and LLL prefix and default label' => [
+                '<f:translate key="LLL:test_translate.messages:form.legend" default="My Default Label" />',
+                'Search form',
+            ],
+            'translation domain syntax for existing label with combined syntax' => [
+                '<f:translate key="test_translate.messages:form.legend" />',
+                'Search form',
+            ],
+            'translation domain syntax for existing label with combined syntax and default label' => [
+                '<f:translate key="test_translate.messages:form.legend" default="My Default Label" />',
+                'Search form',
+            ],
+            'translation domain attribute with extension name for existing label' => [
+                '<f:translate key="form.legend" domain="test_translate" />',
+                'Search form',
+            ],
+            'translation domain attribute with valid domain for existing label' => [
+                '<f:translate key="form.legend" domain="test_translate.messages" />',
+                'Search form',
+            ],
+            'valid translation domain in extensionName attribute for existing label' => [
+                '<f:translate key="form.legend" extensionName="test_translate.messages" />',
+                'Search form',
+            ],
+            'translation domain syntax for existing label with combined syntax and : in key' => [
+                '<f:translate key="test_translate.messages:form.legend:example" />',
+                'An example',
+            ],
             'empty string on invalid extension' => [
                 '<f:translate key="LLL:EXT:i_am_invalid/Resources/Private/Language/locallang.xlf:dummy" />',
                 '',
             ],
             'languageKey fallback to default when key is not localized to de' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:not.localized.to.de" languageKey="de" />',
-                'EN label',
+                'Default label',
             ],
             'languageKey de when key is localized to de' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de" languageKey="de" />',
@@ -164,6 +197,26 @@ final class TranslateViewHelperTest extends FunctionalTestCase
                 '<f:for each="{4711:\'4712\'}" as="i" iteration="iterator" key="k"><f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:iDoNotExist">{k}</f:translate></f:for>',
                 '4711',
             ],
+            'fallback to default due to invalid domain name, id contains colon' => [
+                '<f:translate key="apple:tree" default="plum:tree"/>',
+                'plum:tree',
+            ],
+            'fallback to default to invalid domain name, id contains colon, key and default the same' => [
+                '<f:translate key="apple:tree" default="apple:tree"/>',
+                'apple:tree',
+            ],
+            'valid translation domain with underscored domain attribute for existing label fails' => [
+                '<f:translate key="module.headline" domain="backend.modules.content-security-policy" />',
+                '',
+            ],
+            'valid translation domain with underscored domain attribute for existing label' => [
+                '<f:translate key="module.headline" domain="backend.modules.content_security_policy" />',
+                'Content Security Policy',
+            ],
+            'valid translation domain in key attribute for existing label' => [
+                '<f:translate key="LLL:EXT:backend/Resources/Private/Language/Modules/content-security-policy.xlf:module.headline" />',
+                'Content Security Policy',
+            ],
         ];
     }
 
@@ -175,7 +228,30 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
+    }
+
+    public static function deprecatedLabelDataProvider(): array
+    {
+        return [
+            'Deprecated label' => [
+                'template' => '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:my_deprecated_label" />',
+                'expected' => 'My label is deprecated!',
+            ],
+        ];
+    }
+
+    #[IgnoreDeprecations]
+    #[DataProvider('deprecatedLabelDataProvider')]
+    #[Test]
+    public function renderingDeprecatedLabelsIsDeprecatedInNonExtbaseContext(string $template, string $expected): void
+    {
+        $this->expectUserDeprecationMessageMatches('/.*/');
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource($template);
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 
     public static function fallbackChainInNonExtbaseContextDataProvider(): array
@@ -183,11 +259,11 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         return [
             'languageKey fallback to default when key is not localized to en' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:not.localized.to.en" />',
-                'EN label',
+                'Default label',
             ],
             'languageKey fallback to default when key is not localized to de' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:not.localized.to.de" languageKey="de" />',
-                'EN label',
+                'Default label',
             ],
             'languageKey de when key is localized to de' => [
                 '<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de" languageKey="de" />',
@@ -203,7 +279,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
             ],
             'key + extensionName: languageKey fallback to default when key is not localized to de' => [
                 '<f:translate extensionName="test_translate" key="not.localized.to.de" languageKey="de" />',
-                'EN label',
+                'Default label',
             ],
             'key + extensionName: languageKey de when key is localized to de' => [
                 '<f:translate extensionName="test_translate" key="localized.to.de" languageKey="de" />',
@@ -234,7 +310,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
             ->withAttribute('language', new SiteLanguage(0, 'de_CH.utf8', new Uri('https://example.ch/'), []));
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 
     #[Test]
@@ -245,7 +321,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de'));
         self::assertSame('DE label', $templateView->render());
     }
 
@@ -257,7 +333,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de_at'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de_at'));
         self::assertSame('DE label', $templateView->render());
     }
 
@@ -269,7 +345,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="LLL:EXT:test_translate/Resources/Private/Language/locallang.xlf:localized.to.de_at" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de_at'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de_at'));
         self::assertSame('DE_AT label', $templateView->render());
     }
 
@@ -294,6 +370,14 @@ final class TranslateViewHelperTest extends FunctionalTestCase
             ],
             'key given with existing label' => [
                 '<f:translate key="login.header" />',
+                'Login',
+            ],
+            'translation domain syntax with existing label' => [
+                '<f:translate key="test_translate.messages:login.header" />',
+                'Login',
+            ],
+            'translation domain with LLL: syntax with existing label' => [
+                '<f:translate key="LLL:test_translate.messages:login.header" />',
                 'Login',
             ],
             'key given with existing label and arguments without given arguments' => [
@@ -326,7 +410,7 @@ final class TranslateViewHelperTest extends FunctionalTestCase
             ],
             'languageKey fallback to default when key is not localized to de' => [
                 '<f:translate key="not.localized.to.de" languageKey="de" />',
-                'EN label',
+                'Default label',
             ],
             'languageKey de when key is localized to de' => [
                 '<f:translate key="localized.to.de" languageKey="de" />',
@@ -372,11 +456,38 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $GLOBALS['BE_USER']->user['lang'] = 'de-AT';
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setControllerExtensionName('test_translate');
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = (new Request($serverRequest));
         $context = $this->get(RenderingContextFactory::class)->create([], $extbaseRequest);
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
+    }
+
+    public static function renderDeprecatedLabelThrowsDeprecationProvider(): array
+    {
+        return [
+            'key given for not existing label, fallback to child' => [
+                'template' => '<f:translate key="my_deprecated_label" />',
+                'expected' => 'My label is deprecated!',
+            ],
+        ];
+    }
+
+    #[IgnoreDeprecations]
+    #[DataProvider('renderDeprecatedLabelThrowsDeprecationProvider')]
+    #[Test]
+    public function renderDeprecatedLabelThrowsDeprecationInExtbase(string $template, string $expected): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+        $GLOBALS['BE_USER']->user['lang'] = 'de-AT';
+        $extbaseRequestParameters = new ExtbaseRequestParameters();
+        $extbaseRequestParameters->setControllerExtensionName('test_translate');
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $extbaseRequest = (new Request($serverRequest));
+        $context = $this->get(RenderingContextFactory::class)->create([], $extbaseRequest);
+        $context->getTemplatePaths()->setTemplateSource($template);
+        self::assertSame($expected, new TemplateView($context)->render());
     }
 
     #[Test]
@@ -386,12 +497,12 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setControllerExtensionName('test_translate');
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = (new Request($serverRequest));
         $context = $this->get(RenderingContextFactory::class)->create([], $extbaseRequest);
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="localized.to.de" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de'));
         self::assertSame('DE label', $templateView->render());
     }
 
@@ -402,12 +513,12 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setControllerExtensionName('test_translate');
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = (new Request($serverRequest));
         $context = $this->get(RenderingContextFactory::class)->create([], $extbaseRequest);
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="localized.to.de" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de_at'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de_at'));
         self::assertSame('DE label', $templateView->render());
     }
 
@@ -418,24 +529,43 @@ final class TranslateViewHelperTest extends FunctionalTestCase
         $this->setUpBackendUser(1);
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setControllerExtensionName('test_translate');
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $extbaseRequest = (new Request($serverRequest));
         $context = $this->get(RenderingContextFactory::class)->create([], $extbaseRequest);
         $context->getTemplatePaths()->setTemplateSource('<f:translate key="localized.to.de_at" languageKey="{myLocale}" />');
         $templateView = new TemplateView($context);
-        $templateView->assign('myLocale', (new Locales())->createLocale('de_at'));
+        $templateView->assign('myLocale', new Locales()->createLocale('de_at'));
         self::assertSame('DE_AT label', $templateView->render());
     }
 
+    public static function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptDataProvider(): array
+    {
+        return [
+            'en-US label for site with localization en-US' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.en-US.localized\.to\.de = TypoScript en-US label',
+                'TypoScript en-US label',
+            ],
+            'en label for site with localization en-US' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.en.localized\.to\.de = TypoScript en label',
+                'TypoScript en label',
+            ],
+            'default label for site with localization en-US does not override an existent Xliff-file label' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.default.localized\.to\.de = TypoScript label',
+                'Default label',
+            ],
+        ];
+    }
+
+    #[DataProvider('renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptDataProvider')]
     #[Test]
-    public function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptInDefaultLanguage(): void
+    public function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptEnglishUsLabelInEnglishUsLanguage(string $tsConfig, string $expected): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/pages.csv');
         $this->writeSiteConfiguration(
             'test',
             $this->buildSiteConfiguration(1, '/'),
         );
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -446,16 +576,37 @@ page.10 {
     extensionName = TestTranslate
     pluginName = Test
 }
-plugin.tx_testtranslate_test._LOCAL_LANG.default.localized\.to\.de = TypoScript default label
-EOT
+EOT . LF . $tsConfig,
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(2));
-        self::assertStringContainsString('TypoScript default label', (string)$response->getBody());
-
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(2));
+        self::assertStringContainsString($expected, (string)$response->getBody());
     }
 
+    public static function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptInLocalizedPageDataProvider(): array
+    {
+        return [
+            'de-DE label for site with localization de-DE' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.de-DE.localized\.to\.de = TypoScript de-DE label',
+                'TypoScript de-DE label',
+            ],
+            'de label for site with localization de-DE' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.de.localized\.to\.de = TypoScript de label',
+                'TypoScript de label',
+            ],
+            'default label for site with localization de-DE does not override an existent Xliff-file label' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.default.localized\.to\.de = TypoScript label',
+                'DE label',
+            ],
+            'en label for site with localization de-DE does not override an existent label' => [
+                'plugin.tx_testtranslate_test._LOCAL_LANG.en.localized\.to\.de = TypoScript en label',
+                'DE label',
+            ],
+        ];
+    }
+
+    #[DataProvider('renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptInLocalizedPageDataProvider')]
     #[Test]
-    public function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptInLocalizedPage(): void
+    public function renderInExtbaseFrontendContextHandlesLabelOverrideWithTypoScriptInLocalizedPage(string $tsConfig, string $expected): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/pages.csv');
         $this->writeSiteConfiguration(
@@ -466,7 +617,7 @@ EOT
                 $this->buildLanguageConfiguration('DE', '/de/', ['EN']),
             ]
         );
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -477,11 +628,9 @@ page.10 {
     extensionName = TestTranslate
     pluginName = Test
 }
-plugin.tx_testtranslate_test._LOCAL_LANG.de-DE.localized\.to\.de = TypoScript de label
-EOT
+EOT . LF . $tsConfig,
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(2)->withLanguageId(1));
-        self::assertStringContainsString('TypoScript de label', (string)$response->getBody());
-
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(2)->withLanguageId(1));
+        self::assertStringContainsString($expected, (string)$response->getBody());
     }
 }

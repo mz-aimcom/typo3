@@ -19,13 +19,14 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers\Uri;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\Area;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariant;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
@@ -52,32 +53,32 @@ final class ImageViewHelperTest extends FunctionalTestCase
             [
                 '<f:uri.image />',
                 1460976233,
-                'Unable to render image uri: You must either specify a string src or a File object.',
+                'Unable to render image URI: You must either specify a string src or a File object.',
             ],
             [
                 '<f:uri.image src="" />',
                 1460976233,
-                'Unable to render image uri: You must either specify a string src or a File object.',
+                'Unable to render image URI: You must either specify a string src or a File object.',
             ],
             [
                 '<f:uri.image src="something" />',
                 1509741908,
-                'Unable to render image uri: Supplied something could not be resolved to a File or FileReference.',
+                'Unable to render image URI: Supplied something could not be resolved to a File or FileReference.',
             ],
             [
-                '<f:uri.image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
-                1509741910,
-                'Unable to render image uri: File /typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers does not exist.',
+                '<f:uri.image src="EXT:fluid/Resources/Private/Language/" />',
+                1509741907,
+                'Unable to render image URI: Tried to access a private resource file "EXT:fluid/Resources/Private/Language/" from fallback compatibility storage. This storage only handles public files.',
             ],
             [
                 '<f:uri.image src="fileadmin/image.jpg" />',
                 1509741908,
-                'Unable to render image uri: Supplied fileadmin/image.jpg could not be resolved to a File or FileReference.',
+                'Unable to render image URI: Supplied fileadmin/image.jpg could not be resolved to a File or FileReference.',
             ],
             [
                 '<f:uri.image src="something" fileExtension="dummy" />',
                 1618992262,
-                'Unable to render image uri: The extension dummy is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\'] as a valid image file extension and can not be processed.',
+                'Unable to render image URI: The extension dummy is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\'] as a valid image file extension and can not be processed.',
             ],
         ];
     }
@@ -92,7 +93,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
 
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function invalidArgumentsWithContentObjectPresentDataProvider(): array
@@ -101,32 +102,32 @@ final class ImageViewHelperTest extends FunctionalTestCase
             [
                 '<f:uri.image />',
                 1460976233,
-                'Unable to render image uri in "tt_content:123": You must either specify a string src or a File object.',
+                'Unable to render image URI in "tt_content:123": You must either specify a string src or a File object.',
             ],
             [
                 '<f:uri.image src="" />',
                 1460976233,
-                'Unable to render image uri in "tt_content:123": You must either specify a string src or a File object.',
+                'Unable to render image URI in "tt_content:123": You must either specify a string src or a File object.',
             ],
             [
                 '<f:uri.image src="something" />',
                 1509741908,
-                'Unable to render image uri in "tt_content:123": Supplied something could not be resolved to a File or FileReference.',
+                'Unable to render image URI in "tt_content:123": Supplied something could not be resolved to a File or FileReference.',
             ],
             [
-                '<f:uri.image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
-                1509741910,
-                'Unable to render image uri in "tt_content:123": File /typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers does not exist.',
+                '<f:uri.image src="EXT:fluid/Resources/Private/Language/" />',
+                1509741907,
+                'Unable to render image URI in "tt_content:123": Tried to access a private resource file "EXT:fluid/Resources/Private/Language/" from fallback compatibility storage. This storage only handles public files.',
             ],
             [
                 '<f:uri.image src="fileadmin/image.jpg" />',
                 1509741908,
-                'Unable to render image uri in "tt_content:123": Supplied fileadmin/image.jpg could not be resolved to a File or FileReference.',
+                'Unable to render image URI in "tt_content:123": Supplied fileadmin/image.jpg could not be resolved to a File or FileReference.',
             ],
             [
                 '<f:uri.image src="something" fileExtension="dummy" />',
                 1618992262,
-                'Unable to render image uri in "tt_content:123": The extension dummy is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\'] as a valid image file extension and can not be processed.',
+                'Unable to render image URI in "tt_content:123": The extension dummy is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\'] as a valid image file extension and can not be processed.',
             ],
         ];
     }
@@ -139,8 +140,8 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode($expectedExceptionCode);
         $this->expectExceptionMessage($message);
 
-        $cObj = new ContentObjectRenderer();
-        $serverRequest = (new ServerRequest())
+        $cObj = $this->get(ContentObjectRenderer::class);
+        $serverRequest = new ServerRequest()
             ->withAttribute('currentContentObject', $cObj)
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
@@ -149,7 +150,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
 
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource($template);
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function basicScalingCroppingDataProvider(): \Generator
@@ -267,12 +268,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(1));
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertMatchesRegularExpression($expected, $result);
 
         $matches = [];
         preg_match($expected, $result, $matches);
-        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        [$width, $height] = getimagesize(Environment::getPublicPath() . '/' . $matches[1]);
         self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
         self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
     }
@@ -331,12 +332,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getVariableProvider()->add('crop', (string)$cropVariantCollection);
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertMatchesRegularExpression($expected, $result);
 
         $matches = [];
         preg_match($expected, $result, $matches);
-        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        [$width, $height] = getimagesize(Environment::getPublicPath() . '/' . $matches[1]);
         self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
         self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
     }
@@ -348,33 +349,34 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:uri.image src="fileadmin/ImageViewHelperTest.jpg" fileExtension="png" />');
         self::assertMatchesRegularExpression(
             '@^fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
     #[Test]
     public function absoluteArgument(): void
     {
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_DIR', 'https://typo3-testing.local/');
+        $normalizedParams = NormalizedParams::createFromServerParams(['HTTP_HOST' => 'typo3-testing.local', 'HTTPS' => 'on', 'SCRIPT_NAME' => '/index.php']);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('normalizedParams', $normalizedParams)
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
 
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:uri.image src="fileadmin/ImageViewHelperTest.jpg" absolute="1" />');
         self::assertEquals(
             'https://typo3-testing.local/fileadmin/ImageViewHelperTest.jpg',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
     #[Test]
     public function base64Argument(): void
     {
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_DIR', 'https://typo3-testing.local/');
-
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:uri.image src="fileadmin/ImageViewHelperTest.jpg" base64="1" width="5" height="5" />');
         self::assertEquals(
             'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQIAEgASAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAFAAUDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAdEAEAAgICAwAAAAAAAAAAAAABAgMAEQQhEiIl/8QAFQEBAQAAAAAAAAAAAAAAAAAAAQL/xAAXEQADAQAAAAAAAAAAAAAAAAABAhEA/9oADAMBAAIRAxEAPwCBv53C5IfMiW1vjKyVqsgjEDRo0JJOt+3a6xjGU4jQZYC7/9k=',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 }

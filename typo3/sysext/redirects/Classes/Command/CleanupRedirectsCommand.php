@@ -22,12 +22,13 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Redirects\Repository\Demand;
 use TYPO3\CMS\Redirects\Repository\RedirectRepository;
 
-#[AsCommand('redirects:cleanup', 'Cleanup old redirects periodically for given constraints like days, hit count or domains.')]
+#[AsCommand('redirects:cleanup', 'Periodically cleans up old redirects for constraints such as days, hit count or domains.')]
 class CleanupRedirectsCommand extends Command
 {
     protected LanguageService $languageService;
@@ -36,7 +37,7 @@ class CleanupRedirectsCommand extends Command
         protected readonly RedirectRepository $redirectRepository,
         protected readonly LanguageServiceFactory $languageServiceFactory
     ) {
-        $this->languageService = $languageServiceFactory->create('default');
+        $this->languageService = $languageServiceFactory->create('en');
         parent::__construct();
     }
 
@@ -104,12 +105,25 @@ class CleanupRedirectsCommand extends Command
                     return array_keys($this->redirectRepository->findIntegrityStatusCodes());
                 }
             )
+            ->addOption(
+                'redirectType',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                $this->languageService->sL('LLL:EXT:redirects/Resources/Private/Language/locallang.xlf:cleanupRedirectsCommand.label.redirectType'),
+                Demand::DEFAULT_REDIRECT_TYPE,
+                function (): array {
+                    return array_keys($this->redirectRepository->findRedirectTypes());
+                }
+            )
         ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        Bootstrap::initializeBackendAuthentication();
+
         $this->redirectRepository->removeByDemand(Demand::fromCommandInput($input));
+
         return Command::SUCCESS;
     }
 }

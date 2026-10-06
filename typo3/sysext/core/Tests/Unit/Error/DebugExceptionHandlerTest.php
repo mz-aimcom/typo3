@@ -17,21 +17,24 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Error;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use Psr\Log\LoggerTrait;
 use TYPO3\CMS\Core\Error\DebugExceptionHandler;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 /**
  * testcase for the DebugExceptionHandler class.
  */
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class DebugExceptionHandlerTest extends UnitTestCase
 {
-    protected DebugExceptionHandler&MockObject $subject;
+    private DebugExceptionHandler&MockObject $subject;
 
     /**
      * Sets up this test case.
@@ -111,7 +114,7 @@ final class DebugExceptionHandlerTest extends UnitTestCase
     {
         $subject = new DebugExceptionHandler();
 
-        $logger = new class () implements LoggerInterface {
+        $logger = new class implements LoggerInterface {
             use LoggerTrait;
             public array $records = [];
             public function log($level, string|\Stringable $message, array $context = []): void
@@ -126,7 +129,11 @@ final class DebugExceptionHandlerTest extends UnitTestCase
 
         $subject->setLogger($logger);
 
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_URL', $originalUrl);
+        $urlParts = parse_url($originalUrl);
+        $_SERVER['HTTP_HOST'] = $urlParts['host'] ?? 'localhost';
+        $_SERVER['REQUEST_URI'] = ($urlParts['path'] ?? '/') . (isset($urlParts['query']) ? '?' . $urlParts['query'] : '');
+        $_SERVER['SCRIPT_NAME'] = $urlParts['path'] ?? '/';
+        $_SERVER['HTTPS'] = ($urlParts['scheme'] ?? 'http') === 'https' ? 'on' : '';
 
         $exception = new \Exception('message', 1476049367);
         ob_start();

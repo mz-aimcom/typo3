@@ -17,6 +17,7 @@ namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 
 use TYPO3\CMS\Backend\Form\FormDataProviderInterface;
 use TYPO3\CMS\Backend\Form\Processor\SelectItemProcessor;
+use TYPO3\CMS\Core\Configuration\Processor\Placeholder\EnvPlaceholderProcessor;
 use TYPO3\CMS\Core\Schema\Struct\SelectItem;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
@@ -27,6 +28,7 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
 {
     public function __construct(
         private readonly SelectItemProcessor $selectItemProcessor,
+        private readonly EnvPlaceholderProcessor $envPlaceholderProcessor,
     ) {}
 
     /**
@@ -58,13 +60,28 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
 
             $fieldConfig['config']['items'] = $this->addItemsFromFolder($result, $fieldName, $fieldConfig['config']['items']);
 
-            $fieldConfig['config']['items'] = $this->addItemsFromForeignTable($result, $fieldName, $fieldConfig['config']['items']);
+            // We never load foreign table relations for l10n_parent fields when sys_language_uid=0 - they should
+            // never populate the list now, as this could be massive. In general, we should rather migrate this to
+            // a better solution (e.g. custom type + more useful render type, or custom FormDataProvider) but for
+            // now we just do it like this, to ensure that editors do not need to wait for loading FormEngine too long
+            // on records with language>0 that have a lot of "possible" default language relations on the same pid.
+            $transOrigPointerField = $result['processedTca']['ctrl']['transOrigPointerField'] ?? '';
+            $languageField = $result['processedTca']['ctrl']['languageField'] ?? '';
+            $isTransOrigPointerFieldForDefaultLanguage = $fieldName === $transOrigPointerField
+                && $languageField !== ''
+                && (int)($result['databaseRow'][$languageField] ?? 0) <= 0;
+            if (!$isTransOrigPointerFieldForDefaultLanguage) {
+                $fieldConfig['config']['items'] = $this->addItemsFromForeignTable($result, $fieldName, $fieldConfig['config']['items']);
+            }
 
             // Resolve "itemsProcFunc"
-            if (!empty($fieldConfig['config']['itemsProcFunc'])) {
-                $fieldConfig['config']['items'] = $this->resolveItemProcessorFunction($result, $fieldName, $fieldConfig['config']['items']);
+            if (!empty($fieldConfig['config']['itemsProcFunc']) || !empty($fieldConfig['config']['itemsProcessors'])) {
+                $fieldConfig['config']['items'] = $this->resolveItemsProcessorFunction($result, $fieldName, $fieldConfig['config']['items']);
                 // itemsProcFunc must not be used anymore
-                unset($fieldConfig['config']['itemsProcFunc']);
+                unset(
+                    $fieldConfig['config']['itemsProcFunc'],
+                    $fieldConfig['config']['itemsProcessors']
+                );
             }
 
             // removing items before $dynamicItems and $removedItems have been built results in having them
@@ -118,6 +135,30 @@ class TcaSelectItems extends AbstractItemProvider implements FormDataProviderInt
             if (!($table === 'sys_file_metadata' && $fieldName === 'file')) {
                 $fieldConfig['config']['items'] = $this->translateLabels($result, $fieldConfig['config']['items'], $table, $fieldName);
                 $fieldConfig['config']['items'] = $this->addIconFromAltIcons($result, $fieldConfig['config']['items'], $table, $fieldName);
+            }
+
+            $unresolvedValue = $result['databaseRow'][$fieldName][0] ?? null;
+
+            if ($table === 'site' && $this->envPlaceholderProcessor->canProcess($unresolvedValue ?? '')) {
+                $resolvedValue = $this->envPlaceholderProcessor->process($unresolvedValue);
+
+                $itemByResolvedPlaceholder = array_find(
+                    $fieldConfig['config']['items'],
+                    fn(array $v) => (string)$v['value'] === $resolvedValue
+                );
+
+                if ($itemByResolvedPlaceholder === null) {
+                    throw new \RuntimeException(
+                        sprintf('Invalid placeholder value "%s" for "%s"', $resolvedValue, $unresolvedValue),
+                        1764310149
+                    );
+                }
+
+                $fieldConfig['config']['items'][0] = [
+                    ...$itemByResolvedPlaceholder,
+                    'label' => $itemByResolvedPlaceholder['label'],
+                    'value' => $unresolvedValue,
+                ];
             }
 
             // Keys may contain table names, so a numeric array is created

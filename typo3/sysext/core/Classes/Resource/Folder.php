@@ -194,12 +194,7 @@ class Folder implements FolderInterface
      */
     public function getFiles(int $start = 0, int $numberOfItems = 0, int $filterMode = self::FILTER_MODE_USE_OWN_AND_STORAGE_FILTERS, bool $recursive = false, string $sort = '', bool $sortRev = false): array
     {
-        if ($filterMode === 0) {
-            $useFilters = false;
-            $backedUpFilters = [];
-        } else {
-            [$backedUpFilters, $useFilters] = $this->prepareFiltersInStorage($filterMode);
-        }
+        [$backedUpFilters, $useFilters] = $this->prepareFiltersInStorage($filterMode);
 
         $fileObjects = $this->storage->getFilesInFolder($this, $start, $numberOfItems, $useFilters, $recursive, $sort, $sortRev);
 
@@ -252,7 +247,7 @@ class Folder implements FolderInterface
      * @param int $start The item to start at
      * @param int $numberOfItems The number of items to return
      * @param int $filterMode The filter mode to use for the filelist.
-     * @phpstan-return array<array-key, Folder>
+     * @return array<array-key, Folder>
      */
     public function getSubfolders(int $start = 0, int $numberOfItems = 0, int $filterMode = self::FILTER_MODE_USE_OWN_AND_STORAGE_FILTERS, bool $recursive = false): array
     {

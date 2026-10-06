@@ -11,14 +11,14 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { html, css, type TemplateResult, LitElement } from 'lit';
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
+import { PseudoButtonLitElement } from '@typo3/backend/element/pseudo-button';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import { default as Modal, type ModalElement } from '@typo3/backend/modal';
-import { lll } from '@typo3/core/lit-helper';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import Notification from '@typo3/backend/notification';
+import listLabels from '~labels/core.mod_web_list';
 
 enum Selectors {
   columnsSelector = '.t3js-column-selector',
@@ -50,29 +50,13 @@ enum SelectorActions {
  * </typo3-backend-column-selector-button>
  */
 @customElement('typo3-backend-column-selector-button')
-export class ColumnSelectorButton extends LitElement {
-  static override styles = [css`:host { cursor: pointer; appearance: button; }`];
-
+export class ColumnSelectorButton extends PseudoButtonLitElement {
   @property({ type: String, attribute: 'data-url' }) modalUrl: string;
   @property({ type: String, attribute: 'data-target' }) modalTarget: string;
   @property({ type: String, attribute: 'data-title' }) modalTitle: string = 'Show columns';
-  @property({ type: String, attribute: 'data-button-ok' }) buttonOk: string = lll('button.ok') || 'Update';
-  @property({ type: String, attribute: 'data-button-close' }) buttonClose: string = lll('button.close') || 'Close';
+  @property({ type: String, attribute: 'data-button-ok' }) buttonOk: string = listLabels.get('button.ok');
+  @property({ type: String, attribute: 'data-button-close' }) buttonClose: string = listLabels.get('button.close');
   @property({ type: String, attribute: 'data-error-message' }) errorMessage: string = 'Could not update columns';
-
-  public constructor() {
-    super();
-    this.addEventListener('click', (e: Event): void => {
-      e.preventDefault();
-      this.showColumnSelectorModal();
-    });
-    this.addEventListener('keydown', (e: KeyboardEvent): void => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        this.showColumnSelectorModal();
-      }
-    });
-  }
 
   /**
    * Toggle selector actions state (enabled or disabled) depending
@@ -148,17 +132,8 @@ export class ColumnSelectorButton extends LitElement {
     });
   }
 
-  public override connectedCallback(): void {
-    if (!this.hasAttribute('role')) {
-      this.setAttribute('role', 'button');
-    }
-    if (!this.hasAttribute('tabindex')) {
-      this.setAttribute('tabindex', '0');
-    }
-  }
-
-  protected override render(): TemplateResult {
-    return html`<slot></slot>`;
+  protected override buttonActivated(): void {
+    this.showColumnSelectorModal();
   }
 
   private showColumnSelectorModal(): void {
@@ -185,7 +160,7 @@ export class ColumnSelectorButton extends LitElement {
           text: this.buttonOk,
           btnClass: 'btn-primary',
           name: 'update',
-          trigger: (e: Event, modal: ModalElement): void => this.processSelection(modal)
+          form: 'columnSelectorForm',
         }
       ],
       ajaxCallback: (): void => this.handleModalContentLoaded(modal)
@@ -223,7 +198,10 @@ export class ColumnSelectorButton extends LitElement {
       return;
     }
     // Prevent the form from being submitted as the form data will be send via an ajax request
-    form.addEventListener('submit', (e: Event): void => { e.preventDefault(); });
+    form.addEventListener('submit', (e: Event): void => {
+      e.preventDefault();
+      this.processSelection(currentModal);
+    });
 
     const columns: NodeListOf<HTMLInputElement> = currentModal.querySelectorAll(Selectors.columnsSelector);
     const columnsFilter: HTMLInputElement = currentModal.querySelector(Selectors.columnsFilterSelector);

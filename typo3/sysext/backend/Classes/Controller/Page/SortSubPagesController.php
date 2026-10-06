@@ -21,6 +21,7 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -29,7 +30,6 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Imaging\IconFactory;
-use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -39,11 +39,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class SortSubPagesController
+readonly class SortSubPagesController
 {
     public function __construct(
-        protected readonly IconFactory $iconFactory,
-        protected readonly ModuleTemplateFactory $moduleTemplateFactory,
+        protected IconFactory $iconFactory,
+        protected ComponentFactory $componentFactory,
+        protected ModuleTemplateFactory $moduleTemplateFactory,
+        protected ConnectionPool $connectionPool,
     ) {}
 
     /**
@@ -63,19 +65,14 @@ class SortSubPagesController
         }
 
         // Doc header handling
-        $view->getDocHeaderComponent()->setMetaInformation($pageInformation);
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $previewDataAttributes = PreviewUriBuilder::create($pageInformation)
-            ->withRootLine(BackendUtility::BEgetRootLine($parentPageUid))
-            ->buildDispatcherDataAttributes();
-        $viewButton = $buttonBar->makeLinkButton()
-            ->setHref('#')
-            ->setDataAttributes($previewDataAttributes ?? [])
-            ->setDisabled(!$previewDataAttributes)
-            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
-            ->setIcon($this->iconFactory->getIcon('actions-view-page', IconSize::SMALL))
-            ->setShowLabelText(true);
-        $buttonBar->addButton($viewButton);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageInformation);
+        $view->addButtonToButtonBar(
+            $this->componentFactory->createViewButton(
+                PreviewUriBuilder::create($pageInformation)
+                    ->withRootLine(BackendUtility::BEgetRootLine($parentPageUid))
+                    ->buildDispatcherDataAttributes() ?? []
+            )
+        );
 
         $isInWorkspace = $backendUser->workspace !== 0;
         $view->assignMultiple([
@@ -180,7 +177,7 @@ class SortSubPagesController
      */
     protected function getSubPagesOfPage(int $parentPageUid, string $orderBy = 'sorting'): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()->removeAll()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
         return $queryBuilder->select('*')
             ->from('pages')

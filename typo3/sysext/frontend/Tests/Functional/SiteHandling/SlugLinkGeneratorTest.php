@@ -132,7 +132,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGenerated(string $hostPrefix, int $sourcePageId, int $targetPageId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createTypoLinkUrlInstruction([
@@ -192,7 +192,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedFromMountPoint(string $hostPrefix, array $pageMount, int $sourcePageId, int $targetPageId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withMountPoint(...$pageMount)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
@@ -253,7 +253,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedForLanguageWithLanguageProperty(string $hostPrefix, int $sourcePageId, int $targetPageId, int $targetLanguageId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createTypoLinkUrlInstruction([
@@ -270,28 +270,28 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     {
         $instructions = [
             // acme.com -> acme.com (same site)
-            ['https://acme.us/', 1100, 1000, '/welcome?testing%5Bvalue%5D=1&cHash=f42b850e435f0cedd366f5db749fc1af'], // shortcut page is resolved directly
-            ['https://acme.us/', 1100, 1100, '/welcome?testing%5Bvalue%5D=1&cHash=f42b850e435f0cedd366f5db749fc1af'],
-            ['https://acme.us/', 1100, 1200, '/features?testing%5Bvalue%5D=1&cHash=784e11c50ea1a13fd7d969df4ec53ea3'],
-            ['https://acme.us/', 1100, 1210, '/features/frontend-editing/?testing%5Bvalue%5D=1&cHash=ccb7067022b9835ebfd8f720722bc708'],
-            ['https://acme.us/', 1100, 404, '/404?testing%5Bvalue%5D=1&cHash=864e96f586a78a53452f3bf0f4d24591'],
+            ['https://acme.us/', 1100, 1000, '/welcome?testing%5Bvalue%5D=1&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31'], // shortcut page is resolved directly
+            ['https://acme.us/', 1100, 1100, '/welcome?testing%5Bvalue%5D=1&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31'],
+            ['https://acme.us/', 1100, 1200, '/features?testing%5Bvalue%5D=1&cHash=bb3c16ac55784cd0b05d98c8583f093f0d67eb49a159b70abeda51b367f1e96e'],
+            ['https://acme.us/', 1100, 1210, '/features/frontend-editing/?testing%5Bvalue%5D=1&cHash=55cdc1694802655b30566d3fcad53263ab3842527aa6b8c7e2f3c582a5bd9d13'],
+            ['https://acme.us/', 1100, 404, '/404?testing%5Bvalue%5D=1&cHash=40c47cdf0c951392acaee9a53e8dbaa33fdd37500c88613020667e7c113d8446'],
             // acme.com -> products.acme.com (nested sub-site)
-            ['https://acme.us/', 1100, 1300, 'https://products.acme.com/products?testing%5Bvalue%5D=1&cHash=dbd6597d72ed5098cce3d03eac1eeefe'],
-            ['https://acme.us/', 1100, 1310, 'https://products.acme.com/products/planets?testing%5Bvalue%5D=1&cHash=e64bfc7ab7dd6b70d161e4d556be9726'],
+            ['https://acme.us/', 1100, 1300, 'https://products.acme.com/products?testing%5Bvalue%5D=1&cHash=27d1e44d50b52526c17fed8deac8ee6766f00f4c618bfcd2613f33be0c40f719'],
+            ['https://acme.us/', 1100, 1310, 'https://products.acme.com/products/planets?testing%5Bvalue%5D=1&cHash=f0df21242d7f211f1a4e9512bd2e3265538ec838fc613c9a819f49dbc00084fa'],
             // acme.com -> blog.acme.com (different site)
-            ['https://acme.us/', 1100, 2000, 'https://blog.acme.com/authors?testing%5Bvalue%5D=1&cHash=d23d74cb50383f8788a9930ec8ba679f'], // shortcut page is resolved directly
-            ['https://acme.us/', 1100, 2100, 'https://blog.acme.com/authors?testing%5Bvalue%5D=1&cHash=d23d74cb50383f8788a9930ec8ba679f'],
-            ['https://acme.us/', 1100, 2110, 'https://blog.acme.com/john/john?testing%5Bvalue%5D=1&cHash=bf25eea89f44a9a79dabdca98f38a432'],
-            ['https://acme.us/', 1100, 2111, 'https://blog.acme.com/john/about-john?testing%5Bvalue%5D=1&cHash=42dbaeb9172b6b1ca23b49941e194db2'],
+            ['https://acme.us/', 1100, 2000, 'https://blog.acme.com/authors?testing%5Bvalue%5D=1&cHash=85ecb6585a5c327ea455492202a28c0ef27f1ab26453468a3f929ca70ca95c7d'], // shortcut page is resolved directly
+            ['https://acme.us/', 1100, 2100, 'https://blog.acme.com/authors?testing%5Bvalue%5D=1&cHash=85ecb6585a5c327ea455492202a28c0ef27f1ab26453468a3f929ca70ca95c7d'],
+            ['https://acme.us/', 1100, 2110, 'https://blog.acme.com/john/john?testing%5Bvalue%5D=1&cHash=5d570e966004fb0e3f56fe5abeba1dd68ee29e2ffb9744b75f8ab8980d140a62'],
+            ['https://acme.us/', 1100, 2111, 'https://blog.acme.com/john/about-john?testing%5Bvalue%5D=1&cHash=1216b02bef1f398fb2b0c507e98267377adcd3cdd1392e3191924b2b45b95f23'],
             // blog.acme.com -> acme.com (different site)
-            ['https://blog.acme.com/', 2100, 1000, 'https://acme.us/welcome?testing%5Bvalue%5D=1&cHash=f42b850e435f0cedd366f5db749fc1af'], // shortcut page is resolved directly
-            ['https://blog.acme.com/', 2100, 1100, 'https://acme.us/welcome?testing%5Bvalue%5D=1&cHash=f42b850e435f0cedd366f5db749fc1af'],
-            ['https://blog.acme.com/', 2100, 1200, 'https://acme.us/features?testing%5Bvalue%5D=1&cHash=784e11c50ea1a13fd7d969df4ec53ea3'],
-            ['https://blog.acme.com/', 2100, 1210, 'https://acme.us/features/frontend-editing/?testing%5Bvalue%5D=1&cHash=ccb7067022b9835ebfd8f720722bc708'],
-            ['https://blog.acme.com/', 2100, 404, 'https://acme.us/404?testing%5Bvalue%5D=1&cHash=864e96f586a78a53452f3bf0f4d24591'],
+            ['https://blog.acme.com/', 2100, 1000, 'https://acme.us/welcome?testing%5Bvalue%5D=1&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31'], // shortcut page is resolved directly
+            ['https://blog.acme.com/', 2100, 1100, 'https://acme.us/welcome?testing%5Bvalue%5D=1&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31'],
+            ['https://blog.acme.com/', 2100, 1200, 'https://acme.us/features?testing%5Bvalue%5D=1&cHash=bb3c16ac55784cd0b05d98c8583f093f0d67eb49a159b70abeda51b367f1e96e'],
+            ['https://blog.acme.com/', 2100, 1210, 'https://acme.us/features/frontend-editing/?testing%5Bvalue%5D=1&cHash=55cdc1694802655b30566d3fcad53263ab3842527aa6b8c7e2f3c582a5bd9d13'],
+            ['https://blog.acme.com/', 2100, 404, 'https://acme.us/404?testing%5Bvalue%5D=1&cHash=40c47cdf0c951392acaee9a53e8dbaa33fdd37500c88613020667e7c113d8446'],
             // blog.acme.com -> products.acme.com (different sub-site)
-            ['https://blog.acme.com/', 2100, 1300, 'https://products.acme.com/products?testing%5Bvalue%5D=1&cHash=dbd6597d72ed5098cce3d03eac1eeefe'],
-            ['https://blog.acme.com/', 2100, 1310, 'https://products.acme.com/products/planets?testing%5Bvalue%5D=1&cHash=e64bfc7ab7dd6b70d161e4d556be9726'],
+            ['https://blog.acme.com/', 2100, 1300, 'https://products.acme.com/products?testing%5Bvalue%5D=1&cHash=27d1e44d50b52526c17fed8deac8ee6766f00f4c618bfcd2613f33be0c40f719'],
+            ['https://blog.acme.com/', 2100, 1310, 'https://products.acme.com/products/planets?testing%5Bvalue%5D=1&cHash=f0df21242d7f211f1a4e9512bd2e3265538ec838fc613c9a819f49dbc00084fa'],
         ];
 
         return self::keysFromTemplate(
@@ -305,7 +305,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedWithQueryParameters(string $hostPrefix, int $sourcePageId, int $targetPageId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createTypoLinkUrlInstruction([
@@ -316,6 +316,45 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
         );
 
         self::assertSame($expectation, (string)$response->getBody());
+    }
+
+    #[Test]
+    public function linkIsGeneratedWithQueryParametersArray(): void
+    {
+        $response = $this->executeFrontendSubRequest(
+            new InternalRequest('https://acme.us/')
+                ->withPageId(1100)
+                ->withInstructions([
+                    $this->createTypoLinkUrlInstruction([
+                        'parameter' => 1100,
+                        'queryParameters' => ['testing' => ['value' => '1']],
+                    ]),
+                ])
+        );
+
+        // Must produce the same URL as additionalParams string equivalent
+        self::assertSame('/welcome?testing%5Bvalue%5D=1&cHash=1a3af6ba153b6210cf8abb271ca8b360b9b06163a22790a43540df76ded1ba31', (string)$response->getBody());
+    }
+
+    #[Test]
+    public function queryParametersArrayOverridesAdditionalParams(): void
+    {
+        $response = $this->executeFrontendSubRequest(
+            new InternalRequest('https://acme.us/')
+                ->withPageId(1100)
+                ->withInstructions([
+                    $this->createTypoLinkUrlInstruction([
+                        'parameter' => 1100,
+                        'additionalParams' => '&testing[value]=old&testing[other]=keep',
+                        'queryParameters' => ['testing' => ['value' => 'new']],
+                    ]),
+                ])
+        );
+
+        $url = (string)$response->getBody();
+        self::assertStringContainsString('testing%5Bvalue%5D=new', $url);
+        self::assertStringContainsString('testing%5Bother%5D=keep', $url);
+        self::assertStringNotContainsString('old', $url);
     }
 
     public static function linkIsGeneratedForRestrictedPageDataProvider(): array
@@ -357,14 +396,14 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedForRestrictedPage(string $hostPrefix, int $sourcePageId, int $targetPageId, int $frontendUserId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createTypoLinkUrlInstruction([
                         'parameter' => $targetPageId,
                     ]),
                 ]),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame($expectation, (string)$response->getBody());
@@ -374,23 +413,23 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     {
         $instructions = [
             // no frontend user given
-            ['https://acme.us/', 1100, 1510, 1500, 0, '<a href="/my-acme?pageId=1510&amp;cHash=119c4870e323bb7e8c9fae2941726b0d" data-access-restricted="true">Whitepapers</a>'],
+            ['https://acme.us/', 1100, 1510, 1500, 0, '<a href="/my-acme?pageId=1510&amp;cHash=3b6b5d302af992573f9bf4ca5129de2c9868e15f159c5865e384e25938184da7" data-access-restricted="true">Whitepapers</a>'],
             // ['https://acme.us/', 1100, 1511, 1500, 0, '<a href="/my-acme?pageId=1511"></a>'], // @todo Fails, not expanded to sub-pages
-            ['https://acme.us/', 1100, 1512, 1500, 0, '<a href="/my-acme?pageId=1512&amp;cHash=0ced3db0fd4aae0019a99f59cfa58cb0" data-access-restricted="true">Solutions</a>'],
-            ['https://acme.us/', 1100, 1515, 1500, 0, '<a href="/my-acme?pageId=1515&amp;cHash=176f16b31d2c731347d411861d8b06dc" data-access-restricted="true">Research</a>'],
-            ['https://acme.us/', 1100, 1520, 1500, 0, '<a href="/my-acme?pageId=1520&amp;cHash=253d3dccd4794c4a9473226f683bc36a" data-access-restricted="true">Forecasts</a>'],
+            ['https://acme.us/', 1100, 1512, 1500, 0, '<a href="/my-acme?pageId=1512&amp;cHash=cf60d9d81e02f3299a226e0f91a15e37ff1a033eacc33918347a6c0ffad200a0" data-access-restricted="true">Solutions</a>'],
+            ['https://acme.us/', 1100, 1515, 1500, 0, '<a href="/my-acme?pageId=1515&amp;cHash=f8714bf92b1cfee12e2748442e4398d38b67fdcce996f9ab88895b48a0feb3ed" data-access-restricted="true">Research</a>'],
+            ['https://acme.us/', 1100, 1520, 1500, 0, '<a href="/my-acme?pageId=1520&amp;cHash=d2b7fcccaf90818d3bd9460f063270a25cc443eee33dfa5468d597c69f59781b" data-access-restricted="true">Forecasts</a>'],
             // ['https://acme.us/', 1100, 1521, 1500, 0, '<a href="/my-acme?pageId=1521"></a>'], // @todo Fails, not expanded to sub-pages
             // frontend user 1
             ['https://acme.us/', 1100, 1510, 1500, 1, '<a href="/my-acme/whitepapers">Whitepapers</a>'],
             ['https://acme.us/', 1100, 1511, 1500, 1, '<a href="/my-acme/whitepapers/products">Products</a>'],
             ['https://acme.us/', 1100, 1512, 1500, 1, '<a href="/my-acme/whitepapers/solutions">Solutions</a>'],
-            ['https://acme.us/', 1100, 1515, 1500, 1, '<a href="/my-acme?pageId=1515&amp;cHash=176f16b31d2c731347d411861d8b06dc" data-access-restricted="true">Research</a>'],
-            ['https://acme.us/', 1100, 1520, 1500, 1, '<a href="/my-acme?pageId=1520&amp;cHash=253d3dccd4794c4a9473226f683bc36a" data-access-restricted="true">Forecasts</a>'],
+            ['https://acme.us/', 1100, 1515, 1500, 1, '<a href="/my-acme?pageId=1515&amp;cHash=f8714bf92b1cfee12e2748442e4398d38b67fdcce996f9ab88895b48a0feb3ed" data-access-restricted="true">Research</a>'],
+            ['https://acme.us/', 1100, 1520, 1500, 1, '<a href="/my-acme?pageId=1520&amp;cHash=d2b7fcccaf90818d3bd9460f063270a25cc443eee33dfa5468d597c69f59781b" data-access-restricted="true">Forecasts</a>'],
             // ['https://acme.us/', 1100, 1521, 1500, 1, '<a href="/my-acme?pageId=1521"></a>'], // @todo Fails, not expanded to sub-pages
             // frontend user 2
             ['https://acme.us/', 1100, 1510, 1500, 2, '<a href="/my-acme/whitepapers">Whitepapers</a>'],
             ['https://acme.us/', 1100, 1511, 1500, 2, '<a href="/my-acme/whitepapers/products">Products</a>'],
-            ['https://acme.us/', 1100, 1512, 1500, 2, '<a href="/my-acme?pageId=1512&amp;cHash=0ced3db0fd4aae0019a99f59cfa58cb0" data-access-restricted="true">Solutions</a>'],
+            ['https://acme.us/', 1100, 1512, 1500, 2, '<a href="/my-acme?pageId=1512&amp;cHash=cf60d9d81e02f3299a226e0f91a15e37ff1a033eacc33918347a6c0ffad200a0" data-access-restricted="true">Solutions</a>'],
             ['https://acme.us/', 1100, 1515, 1500, 2, '<a href="/my-acme/whitepapers/research">Research</a>'],
             ['https://acme.us/', 1100, 1520, 1500, 2, '<a href="/my-acme/forecasts">Forecasts</a>'],
             ['https://acme.us/', 1100, 1521, 1500, 2, '<a href="/my-acme/forecasts/current-year">Current Year</a>'],
@@ -410,10 +449,10 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedForRestrictedPageUsingLoginPage(string $hostPrefix, int $sourcePageId, int $targetPageId, int $loginPageId, int $frontendUserId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
-                    (new TypoScriptInstruction())
+                    new TypoScriptInstruction()
                         ->withTypoScript([
                             'config.' => [
                                 'typolinkLinkAccessRestrictedPages' => $loginPageId,
@@ -427,7 +466,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                         'parameter' => $targetPageId,
                     ]),
                 ]),
-            (new InternalRequestContext())->withFrontendUserId($frontendUserId)
+            new InternalRequestContext()->withFrontendUserId($frontendUserId)
         );
 
         self::assertSame($expectation, (string)$response->getBody());
@@ -457,10 +496,10 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function linkIsGeneratedForRestrictedPageForGuestsUsingTypolinkLinkAccessRestrictedPages(string $hostPrefix, int $sourcePageId, int $targetPageId, int $languageId, string $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
-                    (new TypoScriptInstruction())
+                    new TypoScriptInstruction()
                         ->withTypoScript([
                             'config.' => [
                                 'typolinkLinkAccessRestrictedPages' => 'NONE',
@@ -514,21 +553,21 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
         }
 
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createTypoLinkUrlInstruction([
                         'parameter' => $targetPageId,
                     ]),
                 ]),
-            (new InternalRequestContext())
+            new InternalRequestContext()
                 ->withWorkspaceId($backendUserId !== 0 ? $workspaceId : 0)
                 ->withBackendUserId($backendUserId)
         );
 
         $expectation = str_replace(
             ['{targetPageId}'],
-            [$targetPageId],
+            [(string)$targetPageId],
             $expectation
         );
 
@@ -542,14 +581,18 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                 'https://acme.us/',
                 1100,
                 [
-                    ['title' => 'EN: Welcome', 'link' => '/welcome', 'target' => ''],
-                    [
+                    0 => [
+                        'title' => 'EN: Welcome',
+                        'link' => '/welcome',
+                        'target' => '',
+                    ],
+                    1 => [
                         'title' => 'ZH-CN: Welcome Default',
                         // Symfony UrlGenerator, which is used for uri generation, rawurlencodes the url internally.
                         'link' => '/%E7%AE%80-bienvenue',
                         'target' => '',
                     ],
-                    [
+                    2 => [
                         'title' => 'EN: Features',
                         'link' => '/features',
                         'target' => '',
@@ -561,7 +604,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                             ],
                         ],
                     ],
-                    [
+                    3 => [
                         'title' => 'EN: Products',
                         'link' => 'https://products.acme.com/products',
                         'target' => '',
@@ -583,8 +626,12 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                             ],
                         ],
                     ],
-                    ['title' => 'EN: ACME in your Region', 'link' => '/acme-in-your-region', 'target' => ''],
-                    [
+                    4 => [
+                        'title' => 'EN: ACME in your Region',
+                        'link' => '/acme-in-your-region',
+                        'target' => '',
+                    ],
+                    5 => [
                         'title' => 'Divider',
                         // Dividers are not linkable so the link is empty
                         'link' => '',
@@ -597,9 +644,17 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                             ],
                         ],
                     ],
-                    ['title' => 'Internal', 'link' => '/my-acme', 'target' => ''],
-                    ['title' => 'About us', 'link' => '/about', 'target' => ''],
-                    [
+                    6 => [
+                        'title' => 'Internal',
+                        'link' => '/my-acme',
+                        'target' => '',
+                    ],
+                    7 => [
+                        'title' => 'About us',
+                        'link' => '/about',
+                        'target' => '',
+                    ],
+                    8 => [
                         'title' => 'Announcements & News',
                         'link' => '/news',
                         'target' => '',
@@ -621,17 +676,33 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                             ],
                         ],
                     ],
-                    ['title' => 'That page is forbidden to you', 'link' => '/403', 'target' => ''],
-                    ['title' => 'That page was not found', 'link' => '/404', 'target' => ''],
-                    ['title' => 'Our Blog', 'link' => 'https://blog.acme.com/authors', 'target' => ''],
-                    ['title' => 'Cross Site Shortcut', 'link' => 'https://blog.acme.com/authors', 'target' => ''],
+                    9 => [
+                        'title' => 'That page is forbidden to you',
+                        'link' => '/403',
+                        'target' => '',
+                    ],
+                    10 => [
+                        'title' => 'That page was not found',
+                        'link' => '/404',
+                        'target' => '',
+                    ],
+                    11 => [
+                        'title' => 'Our Blog',
+                        'link' => 'https://blog.acme.com/authors',
+                        'target' => '',
+                    ],
+                    12 => [
+                        'title' => 'Cross Site Shortcut',
+                        'link' => 'https://blog.acme.com/authors',
+                        'target' => '',
+                    ],
                 ],
             ],
             'ACME Blog' => [
                 'https://blog.acme.com/',
                 2100,
                 [
-                    [
+                    0 => [
                         'title' => 'Authors',
                         'link' => '/authors',
                         'target' => '',
@@ -653,34 +724,65 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                             ],
                         ],
                     ],
-                    1 =>
-                        [
-                            'title' => 'Announcements & News',
-                            'link' => '/news',
-                            'target' => '',
-                            'children' => [
-                                [
-                                    'title' => 'Markets',
-                                    'link' => '/news/common/markets',
-                                    'target' => '',
-                                ],
-                                [
-                                    'title' => 'Products',
-                                    'link' => '/news/common/products',
-                                    'target' => '',
-                                ],
-                                [
-                                    'title' => 'Partners',
-                                    'link' => '/news/common/partners',
-                                    'target' => '_blank',
-                                ],
+                    1 => [
+                        'title' => 'Announcements & News',
+                        'link' => '/news',
+                        'target' => '',
+                        'children' => [
+                            [
+                                'title' => 'Markets',
+                                'link' => '/news/common/markets',
+                                'target' => '',
+                            ],
+                            [
+                                'title' => 'Products',
+                                'link' => '/news/common/products',
+                                'target' => '',
+                            ],
+                            [
+                                'title' => 'Partners',
+                                'link' => '/news/common/partners',
+                                'target' => '_blank',
                             ],
                         ],
-                    ['title' => 'What is a blog on Wikipedia', 'link' => 'https://en.wikipedia.org/wiki/Blog', 'target' => 'a_new_tab'],
-                    ['title' => 'Link to a query parameter', 'link' => '/authors?showOption=1&cHash=3ba1e68f3a2f76b865952c40b7c82c8b', 'target' => ''],
+                    ],
+                    2 => [
+                        'title' => 'Read about Jane',
+                        'link' => 'https://blog.acme.com/jane/jane',
+                        'target' => '',
+                    ],
+                    3 => [
+                        'title' => 'More about Jane',
+                        'link' => 'https://blog.acme.com/jane/jane?my-parameter=123&cHash=bffc3d9f2604437744c0da1411665776f1d8e78599c6d795d0fb4532516c8287#c33',
+                        'target' => '_blank',
+                    ],
+                    4 => [
+                        'title' => 'Email to Jane',
+                        'link' => 'mailto:jane@example.org',
+                        'target' => '',
+                    ],
+                    5 => [
+                        'title' => 'What is a blog on Wikipedia',
+                        'link' => 'https://en.wikipedia.org/wiki/Blog',
+                        'target' => 'a_new_tab',
+                    ],
+                    6 => [
+                        'title' => 'Link to a query parameter',
+                        'link'
+                        => '/authors?showOption=1&cHash=98e2ce943b4e491e9b4b8a8fdf77cf226e57e433eaf19303db124fd4cfedd36b',
+                        'target' => '',
+                    ],
                     // target is empty because no fluid_styled_content typoscript with config.extTarget is active
-                    ['title' => 'What is Wikipedia in a separate window', 'link' => 'https://en.wikipedia.org/', 'target' => ''],
-                    ['title' => 'ACME Inc', 'link' => 'https://acme.us/welcome', 'target' => ''],
+                    7 => [
+                        'title' => 'What is Wikipedia in a separate window',
+                        'link' => 'https://en.wikipedia.org/',
+                        'target' => '',
+                    ],
+                    8 => [
+                        'title' => 'ACME Inc',
+                        'link' => 'https://acme.us/welcome',
+                        'target' => '',
+                    ],
                 ],
             ],
         ];
@@ -691,7 +793,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function hierarchicalMenuIsGenerated(string $hostPrefix, int $sourcePageId, array $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction([
@@ -745,7 +847,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
             ],
         ];
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest('https://blog.acme.com/'))
+            new InternalRequest('https://blog.acme.com/')
                 ->withPageId(2130)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction([
@@ -835,7 +937,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function hierarchicalMenuSetsActiveStateProperly(string $hostPrefix, int $sourcePageId, string $menuPageIds, array $expectation, int $languageId = 0): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction([
@@ -900,7 +1002,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function hierarchicalMenuAlwaysResolvesToDefaultLanguage(int $languageId, string $excludedUidList, int $expectedMenuItems): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest('https://acme.us/'))
+            new InternalRequest('https://acme.us/')
                 ->withPageId(1100)
                 ->withLanguageId($languageId)
                 ->withInstructions([
@@ -1050,7 +1152,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function directoryMenuIsGenerated(string $hostPrefix, int $sourcePageId, int $directoryMenuParentPage, int $backendUserId, int $workspaceId, array $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction([
@@ -1061,7 +1163,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                         'titleField' => 'title',
                     ]),
                 ]),
-            (new InternalRequestContext())
+            new InternalRequestContext()
                 ->withWorkspaceId($backendUserId !== 0 ? $workspaceId : 0)
                 ->withBackendUserId($backendUserId)
         );
@@ -1137,7 +1239,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function directoryMenuToAccessRestrictedPagesIsGenerated(string $hostPrefix, int $sourcePageId, int $directoryMenuParentPage, int $loginPageId, int $backendUserId, int $workspaceId, array $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction([
@@ -1149,7 +1251,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                         'showAccessRestrictedPages' => $loginPageId,
                     ]),
                 ]),
-            (new InternalRequestContext())
+            new InternalRequestContext()
                 ->withWorkspaceId($backendUserId !== 0 ? $workspaceId : 0)
                 ->withBackendUserId($backendUserId)
         );
@@ -1267,7 +1369,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function listMenuIsGenerated(string $hostPrefix, int $sourcePageId, array $menuPageIds, int $backendUserId, int $workspaceId, array $additionalMenuConfiguration, array $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createHierarchicalMenuProcessorInstruction(array_replace_recursive([
@@ -1278,7 +1380,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
                         'titleField' => 'title',
                     ], $additionalMenuConfiguration)),
                 ]),
-            (new InternalRequestContext())
+            new InternalRequestContext()
                 ->withWorkspaceId($backendUserId !== 0 ? $workspaceId : 0)
                 ->withBackendUserId($backendUserId)
         );
@@ -1343,7 +1445,7 @@ final class SlugLinkGeneratorTest extends AbstractTestCase
     public function languageMenuIsGenerated(string $hostPrefix, int $sourcePageId, array $expectation): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest($hostPrefix))
+            new InternalRequest($hostPrefix)
                 ->withPageId($sourcePageId)
                 ->withInstructions([
                     $this->createLanguageMenuProcessorInstruction([

@@ -23,6 +23,7 @@ use Doctrine\DBAL\Platforms\MariaDBPlatform as DoctrineMariaDBPlatform;
 use Doctrine\DBAL\Platforms\MySQLPlatform as DoctrineMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform as DoctrineSQLitePlatform;
+use Doctrine\DBAL\Query\QueryBuilder as DoctrineQueryBuilder;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\ColumnDiff;
@@ -67,28 +68,15 @@ class ConnectionMigrator
     protected string $deletedPrefix = 'zzz_deleted_';
 
     /**
+     * @param non-empty-string $connectionName
      * @param Table[] $tables
      */
     public function __construct(
         private readonly string $connectionName,
         private readonly Typo3Connection $connection,
+        private readonly ConnectionPool $connectionPool,
         private readonly array $tables,
     ) {}
-
-    /**
-     * @param non-empty-string $connectionName
-     * @param Typo3Connection $connection
-     * @param Table[] $tables
-     */
-    public static function create(string $connectionName, Typo3Connection $connection, array $tables): self
-    {
-        return GeneralUtility::makeInstance(
-            static::class,
-            $connectionName,
-            $connection,
-            $tables,
-        );
-    }
 
     /**
      * Return the raw Doctrine SchemaDiff object for the current connection.
@@ -108,7 +96,7 @@ class ConnectionMigrator
         $schemaDiff = $this->buildSchemaDiff();
         if ($remove === false) {
             return array_merge_recursive(
-                ['add' => [], 'create_table' => [], 'change' => [], 'change_currentValue' => []],
+                ['create_table' => [], 'change' => [], 'change_currentValue' => [], 'add' => []],
                 $this->getNewFieldUpdateSuggestions($schemaDiff),
                 $this->getNewTableUpdateSuggestions($schemaDiff),
                 $this->getChangedFieldUpdateSuggestions($schemaDiff),
@@ -189,6 +177,20 @@ class ConnectionMigrator
     }
 
     /**
+     * Names of the views of this connection.
+     *
+     * @return list<string>
+     */
+    protected function getViewNames(AbstractSchemaManager $schemaManager): array
+    {
+        $viewNames = [];
+        foreach ($schemaManager->introspectViews() as $view) {
+            $viewNames[] = $view->getObjectName()->getUnqualifiedName()->getValue();
+        }
+        return $viewNames;
+    }
+
+    /**
      * If the schema is not for the Default connection remove all tables from the schema
      * that have no mapping in the TYPO3 configuration. This avoids update suggestions
      * for tables that are in the database but have no direct relation to the TYPO3 instance.
@@ -249,7 +251,20 @@ class ConnectionMigrator
 
         // Build the schema definitions
         $fromSchema = $this->buildExistingSchemaDefinitions($schemaManager);
-        $toSchema = $this->buildExpectedSchemaDefinitions($this->connectionName);
+        $toSchema = $this->buildExpectedSchemaDefinitions($this->connectionName, $schemaManager);
+
+        // A name that exists as a view is not TYPO3's to manage: the view may map onto anything, so
+        // altering or dropping it would act on something the declaration does not describe, and
+        // creating it fails outright because the view already occupies the name. Taking it out of
+        // both schemas leaves it untouched, whichever side it appears on.
+        foreach ($this->getViewNames($schemaManager) as $viewName) {
+            if ($fromSchema->hasTable($viewName)) {
+                $fromSchema->dropTable($viewName);
+            }
+            if ($toSchema->hasTable($viewName)) {
+                $toSchema->dropTable($viewName);
+            }
+        }
 
         // Add current table options to the fromSchema
         $tableOptions = $this->getTableOptions($this->getSchemaTableNames($fromSchema));
@@ -266,9 +281,6 @@ class ConnectionMigrator
         // Build SchemaDiff and handle renames of tables and columns
         $comparator = GeneralUtility::makeInstance(Comparator::class, $schemaManager->createComparator());
         $schemaDiff = $comparator->compareSchemas($fromSchema, $toSchema);
-        if (! $schemaDiff instanceof Typo3SchemaDiff) {
-            $schemaDiff = Typo3SchemaDiff::ensure($schemaDiff);
-        }
         $schemaDiff = $this->migrateColumnRenamesToDistinctActions($schemaDiff);
 
         if ($renameUnused) {
@@ -317,10 +329,16 @@ class ConnectionMigrator
      * @throws \Doctrine\DBAL\Exception
      * @throws \InvalidArgumentException
      */
-    protected function buildExpectedSchemaDefinitions(string $connectionName): Schema
+    protected function buildExpectedSchemaDefinitions(string $connectionName, AbstractSchemaManager $schemaManager): Schema
     {
         $schemaConfig = new SchemaConfig();
-        $schemaConfig->setName($this->connection->getDatabase());
+        // Doctrine uses the schema name as the default namespace and prepends it to every unqualified
+        // table name. Derive it the same way the introspected ("from") schema does, so both schemas stay
+        // comparable: the schema config carries the current schema name (null for platforms without schema
+        // support like MySQL/MariaDB/SQLite). Using the raw database name here would break database names
+        // containing a dot. `createSchemaConfig()->getName()` is used because the underlying
+        // `getCurrentSchemaName()` is protected and thus not callable directly.
+        $schemaConfig->setName($schemaManager->createSchemaConfig()->getName());
         if (isset($this->connection->getParams()['defaultTableOptions'])) {
             $schemaConfig->setDefaultTableOptions($this->connection->getParams()['defaultTableOptions']);
         }
@@ -676,10 +694,11 @@ class ConnectionMigrator
                 // Treat each renamed index with a new diff to get a dedicated suggestions
                 // just for this index.
                 foreach ($changedTable->renamedIndexes as $key => $renamedIndex) {
-                    $indexDiff = clone $tableDiff;
-                    $indexDiff->renamedIndexes = [
-                        $changedTable->getOldTable()->getIndex($key)->getQuotedName($databasePlatform) => $renamedIndex,
-                    ];
+                    $indexDiff = clone($tableDiff, [
+                        'renamedIndexes' => [
+                            $changedTable->getOldTable()->getIndex($key)->getQuotedName($databasePlatform) => $renamedIndex,
+                        ],
+                    ]);
 
                     $temporarySchemaDiff = new Typo3SchemaDiff(
                         // createdSchemas
@@ -837,8 +856,9 @@ class ConnectionMigrator
                 );
 
                 foreach ($changedTable->modifiedForeignKeys as $changedForeignKey) {
-                    $foreignKeyDiff = clone $tableDiff;
-                    $foreignKeyDiff->modifiedForeignKeys = [$this->buildQuotedForeignKey($changedForeignKey)];
+                    $foreignKeyDiff = clone($tableDiff, [
+                        'modifiedForeignKeys' => [$this->buildQuotedForeignKey($changedForeignKey)],
+                    ]);
 
                     $temporarySchemaDiff = new Typo3SchemaDiff(
                         // createdSchemas
@@ -1327,7 +1347,7 @@ class ConnectionMigrator
      */
     protected function getTableRecordCount(string $tableName): int
     {
-        return GeneralUtility::makeInstance(ConnectionPool::class)
+        return $this->connectionPool
             ->getConnectionForTable($tableName)
             ->count('*', $tableName, []);
     }
@@ -1339,7 +1359,7 @@ class ConnectionMigrator
      */
     protected function getConnectionNameForTable(string $tableName): string
     {
-        $connectionNames = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionNames();
+        $connectionNames = $this->connectionPool->getConnectionNames();
 
         if (isset($GLOBALS['TYPO3_CONF_VARS']['DB']['TableMapping'][$tableName])) {
             return in_array($GLOBALS['TYPO3_CONF_VARS']['DB']['TableMapping'][$tableName], $connectionNames, true)
@@ -1394,11 +1414,44 @@ class ConnectionMigrator
             if ($tableDiff instanceof Table) {
                 continue;
             }
-            if (! $tableDiff instanceof Typo3TableDiff) {
-                $tableDiff = Typo3TableDiff::ensure($tableDiff);
-            }
         }
         return $tableDiffs;
+    }
+
+    /**
+     * MariaDB 11.4 introduced the UCA-1400 collations along with a new
+     * `FULL_COLLATION_NAME` column in `information_schema.COLLATION_CHARACTER_SET_APPLICABILITY`.
+     * For these collations `COLLATION_NAME` only holds the character-set independent part, for
+     * example `uca1400_ai_ci`, while `FULL_COLLATION_NAME` holds `utf8mb4_uca1400_ai_ci` which is
+     * what `information_schema.TABLES.TABLE_COLLATION` reports. Joining on `COLLATION_NAME` would
+     * therefore not match at all for tables using such a collation.
+     */
+    protected function hasFullCollationNameSupport(): bool
+    {
+        // Low level, concrete Doctrine QueryBuilder is used here intentionally to avoid dependency injection
+        // conflicts with TYPO3 QueryRestrictions. These are not required here.
+        $queryBuilder = new DoctrineQueryBuilder($this->connection);
+        $count = $queryBuilder
+            ->select('COUNT(*)')
+            ->from($this->connection->quoteIdentifier('information_schema.COLUMNS'))
+            ->where(
+                $queryBuilder->expr()->eq(
+                    $this->connection->quoteIdentifier('TABLE_SCHEMA'),
+                    $queryBuilder->createNamedParameter('information_schema')
+                ),
+                $queryBuilder->expr()->eq(
+                    $this->connection->quoteIdentifier('TABLE_NAME'),
+                    $queryBuilder->createNamedParameter('COLLATION_CHARACTER_SET_APPLICABILITY')
+                ),
+                $queryBuilder->expr()->eq(
+                    $this->connection->quoteIdentifier('COLUMN_NAME'),
+                    $queryBuilder->createNamedParameter('FULL_COLLATION_NAME')
+                )
+            )
+            ->executeQuery()
+            ->fetchOne();
+
+        return (int)$count > 0;
     }
 
     /**
@@ -1420,33 +1473,37 @@ class ConnectionMigrator
             return $tableOptions;
         }
 
-        $queryBuilder = $this->connection->createQueryBuilder();
+        // Low level, concrete Doctrine QueryBuilder is used here intentionally to avoid dependency injection
+        // conflicts with TYPO3 QueryRestrictions. These are not required here.
+        $queryBuilder = new DoctrineQueryBuilder($this->connection);
         $result = $queryBuilder
             ->select(
-                'tables.TABLE_NAME AS table',
-                'tables.ENGINE AS engine',
-                'tables.ROW_FORMAT AS row_format',
-                'tables.TABLE_COLLATION AS collate',
-                'tables.TABLE_COMMENT AS comment',
-                'CCSA.character_set_name AS charset'
+                $this->connection->quoteIdentifier('tables.TABLE_NAME') . ' AS ' . $this->connection->quoteIdentifier('table'),
+                $this->connection->quoteIdentifier('tables.ENGINE') . ' AS ' . $this->connection->quoteIdentifier('engine'),
+                $this->connection->quoteIdentifier('tables.ROW_FORMAT') . ' AS ' . $this->connection->quoteIdentifier('row_format'),
+                $this->connection->quoteIdentifier('tables.TABLE_COLLATION') . ' AS ' . $this->connection->quoteIdentifier('collate'),
+                $this->connection->quoteIdentifier('tables.TABLE_COMMENT') . ' AS ' . $this->connection->quoteIdentifier('comment'),
+                $this->connection->quoteIdentifier('CCSA.character_set_name') . ' AS ' . $this->connection->quoteIdentifier('charset')
             )
-            ->from('information_schema.TABLES', 'tables')
+            ->from($this->connection->quoteIdentifier('information_schema.TABLES'), $this->connection->quoteIdentifier('tables'))
             ->join(
-                'tables',
-                'information_schema.COLLATION_CHARACTER_SET_APPLICABILITY',
-                'CCSA',
+                $this->connection->quoteIdentifier('tables'),
+                $this->connection->quoteIdentifier('information_schema.COLLATION_CHARACTER_SET_APPLICABILITY'),
+                $this->connection->quoteIdentifier('CCSA'),
                 $queryBuilder->expr()->eq(
-                    'CCSA.collation_name',
-                    $queryBuilder->quoteIdentifier('tables.table_collation')
+                    $this->connection->quoteIdentifier(
+                        $this->hasFullCollationNameSupport() ? 'CCSA.full_collation_name' : 'CCSA.collation_name'
+                    ),
+                    $this->connection->quoteIdentifier('tables.table_collation')
                 )
             )
             ->where(
                 $queryBuilder->expr()->eq(
-                    'TABLE_TYPE',
+                    $this->connection->quoteIdentifier('TABLE_TYPE'),
                     $queryBuilder->createNamedParameter('BASE TABLE')
                 ),
                 $queryBuilder->expr()->eq(
-                    'TABLE_SCHEMA',
+                    $this->connection->quoteIdentifier('TABLE_SCHEMA'),
                     $queryBuilder->createNamedParameter($this->connection->getDatabase())
                 )
             )
@@ -1554,7 +1611,7 @@ class ConnectionMigrator
 
     protected function getDatabasePlatformForTable(string $tableName): AbstractPlatform
     {
-        $databasePlatform = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($tableName)->getDatabasePlatform();
+        $databasePlatform = $this->connectionPool->getConnectionForTable($tableName)->getDatabasePlatform();
         return match (true) {
             $databasePlatform instanceof DoctrinePostgreSQLPlatform,
             $databasePlatform instanceof DoctrineSQLitePlatform,

@@ -34,7 +34,7 @@ use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * The "move tt_content element" wizard. Reachable via list module "Re-position content element" on tt_content records.
+ * The "move tt_content element" wizard. Reachable via records module "Re-position content element" on tt_content records.
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
@@ -63,7 +63,6 @@ final readonly class MoveElementController
         $contentOnly = $queryParams['contentOnly'] ?? false;
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/global-event-handler.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/tree/page-browser.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/viewport/resizable-navigation.js');
         $this->pageRenderer->getJavaScriptRenderer()->addJavaScriptModuleInstruction(
             JavaScriptModuleInstruction::create('@typo3/backend/wizard/move-content-element.js', 'MoveContentElement')->instance()
         );
@@ -79,7 +78,7 @@ final readonly class MoveElementController
             return new HtmlResponse($content);
         }
         $this->pageRenderer->setBodyContent('<body>' . $content);
-        return new HtmlResponse($this->pageRenderer->render());
+        return new HtmlResponse($this->pageRenderer->render($request));
     }
 
     private function getContentVariables(ServerRequestInterface $request): array
@@ -99,12 +98,12 @@ final readonly class MoveElementController
 
         $contentElement = BackendUtility::getRecordWSOL('tt_content', $contentElementUid);
         $pageInfo = BackendUtility::readPageAccess($pageId, $permsClause);
-
+        $contentElementTitle = BackendUtility::getRecordTitle('tt_content', $contentElement);
         $assigns = [
             'record' => $contentElement,
             'makeCopyChecked' => $makeCopy,
             'pageInfo' => $pageInfo,
-            'recordTitle' => BackendUtility::getRecordTitle('tt_content', $contentElement),
+            'recordTitle' => BackendUtility::cropToTitleLength($contentElementTitle),
         ];
         if (is_array($pageInfo) && $this->getBackendUser()->isInWebMount($pageInfo['uid'], $permsClause)) {
             // Initialize the content position map:
@@ -113,8 +112,9 @@ final readonly class MoveElementController
             $contentPositionMap->moveUid = $contentElementUid;
             $contentPositionMap->cur_sys_language = $sysLanguage;
 
+            $pageTitle = BackendUtility::getRecordTitle('pages', $pageInfo);
             $assigns['pageRecord']['recordTooltip'] = BackendUtility::getRecordIconAltText($pageInfo, 'pages', false);
-            $assigns['pageRecord']['recordTitle'] = BackendUtility::getRecordTitle('pages', $pageInfo);
+            $assigns['pageRecord']['recordTitle'] = BackendUtility::cropToTitleLength($pageTitle);
             $assigns['contentElementColumns'] = $contentPositionMap->printContentElementColumns($pageId, $pageInfo, $request);
         }
         return $assigns;

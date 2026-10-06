@@ -24,13 +24,13 @@ use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\Resource\Collection\AbstractFileCollection;
 use TYPO3\CMS\Core\Resource\Exception;
 use TYPO3\CMS\Core\Resource\Exception\FileDoesNotExistException;
+use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
 use TYPO3\CMS\Core\Resource\FileCollectionRepository;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\FileRepository;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Object to collect files from various sources during runtime.
@@ -62,6 +62,7 @@ class FileCollector implements \Countable, LoggerAwareInterface
         protected readonly FileCollectionRepository $fileCollectionRepository,
         protected readonly FileRepository $fileRepository,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly LinkService $linkService,
     ) {}
 
     /**
@@ -103,7 +104,16 @@ class FileCollector implements \Countable, LoggerAwareInterface
     public function addFileReferences(array $fileReferenceUids = []): void
     {
         foreach ($fileReferenceUids as $fileReferenceUid) {
-            $fileObject = $this->resourceFactory->getFileReferenceObject((int)$fileReferenceUid);
+            try {
+                $fileObject = $this->resourceFactory->getFileReferenceObject((int)$fileReferenceUid);
+            } catch (ResourceDoesNotExistException $e) {
+                $this->logger->warning(
+                    'The file reference with uid  "' . $fileReferenceUid
+                    . '" could not be found and won\'t be included in frontend output',
+                    ['exception' => $e]
+                );
+                continue;
+            }
             $this->addFileObject($fileObject);
         }
     }
@@ -167,8 +177,7 @@ class FileCollector implements \Countable, LoggerAwareInterface
             try {
                 if (str_starts_with($folderIdentifier, 't3://folder')) {
                     // a t3://folder link to a folder in FAL
-                    $linkService = GeneralUtility::makeInstance(LinkService::class);
-                    $data = $linkService->resolveByStringRepresentation($folderIdentifier);
+                    $data = $this->linkService->resolveByStringRepresentation($folderIdentifier);
                     $folder = $data['folder'];
                 } else {
                     $folder = $this->resourceFactory->getFolderObjectFromCombinedIdentifier($folderIdentifier);
@@ -188,16 +197,11 @@ class FileCollector implements \Countable, LoggerAwareInterface
 
     /**
      * Sort the file objects based on a property.
-     *
-     * @param string $sortingProperty The sorting property
-     * @param 'ascending'|'descending'|'random' $sortingOrder The sorting order
      */
-    public function sort(string $sortingProperty = '', string $sortingOrder = 'ascending'): void
+    public function sort(string $sortingProperty = '', FileCollectionSorting $sortingOrder = FileCollectionSorting::Ascending): void
     {
-        $sortingOrder = strtolower($sortingOrder);
-
         if ($sortingProperty !== '' && count($this->files) > 1) {
-            $sortMultiplier = in_array($sortingOrder, ['descending', 'desc'], true) ? -1 : 1;
+            $sortMultiplier = $sortingOrder === FileCollectionSorting::Descending ? -1 : 1;
             @usort(
                 $this->files,
                 static function (
@@ -211,11 +215,8 @@ class FileCollector implements \Countable, LoggerAwareInterface
                 }
             );
 
-            switch ($sortingOrder) {
-                case 'random':
-                case 'rand':
-                    shuffle($this->files);
-                    break;
+            if ($sortingOrder === FileCollectionSorting::Random) {
+                shuffle($this->files);
             }
         }
     }

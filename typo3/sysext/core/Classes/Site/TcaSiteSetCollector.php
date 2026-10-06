@@ -80,8 +80,7 @@ final readonly class TcaSiteSetCollector
                 'value' => $invalidSet,
             ];
 
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $error,
                 $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.site.invalidSetDependencies'),
                 ContextualFeedbackSeverity::ERROR,
@@ -91,12 +90,12 @@ final readonly class TcaSiteSetCollector
         }
     }
 
-    protected function getBackendUser(): BackendUserAuthentication
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }

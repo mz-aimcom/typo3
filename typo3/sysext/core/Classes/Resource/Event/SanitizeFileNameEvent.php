@@ -22,13 +22,14 @@ use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 
 /**
- * This event is fired once an index was just added to the database (= indexed), so it is possible
- * to modify the file name, and name the files according to naming conventions of a specific project.
+ * This event is fired after a file name has been sanitized and before a file is added to FAL. Listeners can use this
+ * event to modify the file name, and name the file according to naming conventions of a specific project.
  */
 final class SanitizeFileNameEvent
 {
     public function __construct(
         private string $fileName,
+        private readonly string $originalFileName,
         private readonly Folder $targetFolder,
         private readonly ResourceStorage $storage,
         private readonly DriverInterface $driver
@@ -37,6 +38,11 @@ final class SanitizeFileNameEvent
     public function getFileName(): string
     {
         return $this->fileName;
+    }
+
+    public function getOriginalFileName(): string
+    {
+        return $this->originalFileName;
     }
 
     public function setFileName(string $fileName): void

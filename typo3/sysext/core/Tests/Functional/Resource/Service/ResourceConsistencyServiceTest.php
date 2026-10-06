@@ -19,7 +19,8 @@ namespace TYPO3\CMS\Core\Tests\Functional\Resource\Service;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\MockObject\Stub;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\Service\ResourceConsistencyService;
 use TYPO3\CMS\Core\Validation\ResultException;
@@ -43,11 +44,11 @@ final class ResourceConsistencyServiceTest extends FunctionalTestCase
         parent::setUp();
 
         $this->subject = $this->get(ResourceConsistencyService::class);
-        $this->subjectShallValidate = (new \ReflectionObject($this->subject))->getMethod('shallValidate');
+        $this->subjectShallValidate = new \ReflectionObject($this->subject)->getMethod('shallValidate');
 
         $this->storages = [
-            1 => $this->createMockedStorage(1),
-            2 => $this->createMockedStorage(2),
+            1 => $this->createStubbedStorage(1),
+            2 => $this->createStubbedStorage(2),
         ];
         $this->items = [
             [
@@ -91,7 +92,7 @@ final class ResourceConsistencyServiceTest extends FunctionalTestCase
 
         $this->subject->validate(
             $this->storages[1],
-            $this->instancePath . '/fileadmin/ProcessedFileTest.jpg',
+            Environment::getPublicPath() . '/fileadmin/ProcessedFileTest.jpg',
             'ProcessedFileTest.exe'
         );
     }
@@ -108,13 +109,10 @@ final class ResourceConsistencyServiceTest extends FunctionalTestCase
         self::assertTrue($this->subjectShallValidate->invokeArgs($this->subject, array_values($this->items[1])));
     }
 
-    private function createMockedStorage(int $uid): ResourceStorage&MockObject
+    private function createStubbedStorage(int $uid): ResourceStorage&Stub
     {
-        $mock = $this->getMockBuilder(ResourceStorage::class)
-            ->onlyMethods(['getUid'])
-            ->disableOriginalConstructor()
-            ->getMock();
-        $mock->method('getUid')->willReturn($uid);
-        return $mock;
+        $stub = self::createStub(ResourceStorage::class);
+        $stub->method('getUid')->willReturn($uid);
+        return $stub;
     }
 }

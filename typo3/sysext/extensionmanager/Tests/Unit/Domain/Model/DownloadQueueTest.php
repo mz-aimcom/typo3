@@ -28,23 +28,17 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  */
 final class DownloadQueueTest extends UnitTestCase
 {
-    /**
-     * @var DownloadQueue
-     */
-    protected $downloadQueue;
+    private DownloadQueue $downloadQueue;
 
-    /**
-     * @var Extension
-     */
-    protected $extension;
+    private Extension $extension;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->downloadQueue = new DownloadQueue();
         $this->extension = new Extension();
-        $this->extension->setExtensionKey('foobar');
-        $this->extension->setVersion('1.0.0');
+        $this->extension->extensionKey = 'foobar';
+        $this->extension->version = '1.0.0';
     }
 
     #[Test]
@@ -77,8 +71,8 @@ final class DownloadQueueTest extends UnitTestCase
     public function addExtensionToQueueThrowsExceptionIfExtensionWithSameKeyAndDifferentValuesAlreadyExists(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foobar');
-        $extension->setVersion('1.0.3');
+        $extension->extensionKey = 'foobar';
+        $extension->version = '1.0.3';
 
         $this->expectException(ExtensionManagerException::class);
         $this->expectExceptionCode(1342432101);
@@ -90,8 +84,8 @@ final class DownloadQueueTest extends UnitTestCase
     public function removeExtensionFromQueueRemovesExtension(): void
     {
         $extension = new Extension();
-        $extension->setExtensionKey('foobarbaz');
-        $extension->setVersion('1.0.3');
+        $extension->extensionKey = 'foobarbaz';
+        $extension->version = '1.0.3';
         $this->downloadQueue->addExtensionToQueue($this->extension);
         $this->downloadQueue->addExtensionToQueue($extension);
         $extensionStorageBefore = $this->downloadQueue->getExtensionQueue();

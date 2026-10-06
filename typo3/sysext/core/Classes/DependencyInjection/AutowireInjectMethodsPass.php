@@ -17,8 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\DependencyInjection;
 
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Compiler\AbstractRecursivePass;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Reference;
+use TYPO3\CMS\Core\Log\Logger;
+use TYPO3\CMS\Core\Log\LogManager;
 
 /**
  * Looks for definitions with autowiring enabled and registers their corresponding "inject*" methods as setters.
@@ -26,11 +30,9 @@ use Symfony\Component\DependencyInjection\Definition;
 class AutowireInjectMethodsPass extends AbstractRecursivePass
 {
     /**
-     * @param mixed $value
      * @param bool $isRoot
-     * @return mixed
      */
-    protected function processValue($value, $isRoot = false)
+    protected function processValue($value, $isRoot = false): mixed
     {
         $value = parent::processValue($value, $isRoot);
 
@@ -57,7 +59,7 @@ class AutowireInjectMethodsPass extends AbstractRecursivePass
             }
 
             if ($reflectionMethod->isPublic() && str_starts_with($reflectionMethod->name, 'inject')) {
-                $value->addMethodCall($reflectionMethod->name);
+                $this->addInjectMethodCall($value, $reflectionMethod);
             }
 
             if ($reflectionMethod->name === 'initializeObject' && $reflectionMethod->isPublic()) {
@@ -72,5 +74,43 @@ class AutowireInjectMethodsPass extends AbstractRecursivePass
         }
 
         return $value;
+    }
+
+    private function addInjectMethodCall(Definition $definition, \ReflectionMethod $reflectionMethod): void
+    {
+        $definition->addMethodCall(
+            $reflectionMethod->name,
+            $this->getRequiredInjectMethodArguments($definition, $reflectionMethod)
+        );
+    }
+
+    /**
+     * @return array<string, Definition>
+     */
+    private function getRequiredInjectMethodArguments(Definition $definition, \ReflectionMethod $reflectionMethod): array
+    {
+        $channelExtractor = new LogChannelExtractor();
+        $arguments = [];
+        foreach ($reflectionMethod->getParameters() as $parameter) {
+            if (!$parameter->hasType()) {
+                continue;
+            }
+
+            $type = $parameter->getType();
+            if (!$type instanceof \ReflectionNamedType || $type->getName() !== LoggerInterface::class) {
+                continue;
+            }
+
+            $channel = $channelExtractor->getParameterChannelName($parameter) ?? $channelExtractor->getClassChannelName($this->container->getReflectionClass($definition->getClass(), false)) ?? $definition->getClass();
+
+            $logger = new Definition(Logger::class);
+            $logger->setFactory([new Reference(LogManager::class), 'getLogger']);
+            $logger->setArguments([$channel]);
+            $logger->setShared(false);
+
+            $name = '$' . $parameter->getName();
+            $arguments[$name] = $logger;
+        }
+        return $arguments;
     }
 }

@@ -17,14 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Adminpanel\Modules\Info;
 
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Adminpanel\ModuleApi\AbstractSubModule;
 use TYPO3\CMS\Adminpanel\ModuleApi\DataProviderInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\ModuleData;
+use TYPO3\CMS\Adminpanel\Service\ProcessedImageCollector;
 use TYPO3\CMS\Core\Context\Context;
-use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
@@ -42,9 +42,10 @@ class GeneralInformation extends AbstractSubModule implements DataProviderInterf
         private readonly TimeTracker $timeTracker,
         private readonly Context $context,
         private readonly ViewFactoryInterface $viewFactory,
+        private readonly ProcessedImageCollector $processedImageCollector,
     ) {}
 
-    public function getDataToStore(ServerRequestInterface $request): ModuleData
+    public function getDataToStore(ServerRequestInterface $request, ResponseInterface $response): ModuleData
     {
         $frontendUserAspect = $this->context->getAspect('frontend.user');
         return new ModuleData(
@@ -59,14 +60,14 @@ class GeneralInformation extends AbstractSubModule implements DataProviderInterf
                     'groupList' => implode(',', $frontendUserAspect->getGroupIds()),
                     'noCache' => !$request->getAttribute('frontend.cache.instruction')->isCachingAllowed(),
                     'noCacheReasons' => $request->getAttribute('frontend.cache.instruction')->getDisabledCacheReasons(),
-                    'countUserInt' => count($request->getAttribute('frontend.controller')->config['INTincScript'] ?? []),
+                    'countUserInt' => count($request->getAttribute('frontend.page.parts')->getNotCachedContentElementRegistry()),
                     'totalParsetime' => $this->timeTracker->getParseTime(),
                     'feUser' => [
                         'uid' => $frontendUserAspect->get('id') ?: 0,
                         'username' => $frontendUserAspect->get('username') ?: '',
                     ],
                     'imagesOnPage' => $this->collectImagesOnPage($request),
-                    'documentSize' => $this->collectDocumentSize($request),
+                    'documentSize' => $this->collectDocumentSize($request, $response),
                 ],
             ]
         );
@@ -101,7 +102,7 @@ class GeneralInformation extends AbstractSubModule implements DataProviderInterf
     }
 
     /**
-     * Get image information from AssetCollector and calculates the total size.
+     * Get the images processed during this request and calculate the total size.
      * Returns human-readable image sizes for fluid template output
      */
     protected function collectImagesOnPage(ServerRequestInterface $request): array
@@ -115,33 +116,30 @@ class GeneralInformation extends AbstractSubModule implements DataProviderInterf
         if ($request->getAttribute('frontend.cache.instruction')->isCachingAllowed()) {
             return $imagesOnPage;
         }
-        $count = 0;
         $totalImageSize = 0;
-        foreach (GeneralUtility::makeInstance(AssetCollector::class)->getMedia() as $file => $information) {
-            $filePath = Environment::getPublicPath() . '/' . ltrim(parse_url($file, PHP_URL_PATH), '/');
-            $fileSize = is_file($filePath) ? filesize($filePath) : 0;
+        foreach ($this->processedImageCollector->getImages() as $image) {
             $imagesOnPage['files'][] = [
-                'name' => $file,
-                'size' => $fileSize,
-                'sizeHuman' => GeneralUtility::formatSize($fileSize),
+                'name' => $image['name'],
+                'size' => $image['size'],
+                'sizeHuman' => GeneralUtility::formatSize($image['size']),
+                'width' => $image['width'],
+                'height' => $image['height'],
             ];
-            $totalImageSize += $fileSize;
-            $count++;
+            $totalImageSize += $image['size'];
         }
         $imagesOnPage['totalSize'] = GeneralUtility::formatSize($totalImageSize);
-        $imagesOnPage['total'] = $count;
+        $imagesOnPage['total'] = count($imagesOnPage['files']);
         return $imagesOnPage;
     }
 
     /**
      * Gets the document size from the current page in a human-readable format
      */
-    protected function collectDocumentSize(ServerRequestInterface $request): string
+    protected function collectDocumentSize(ServerRequestInterface $request, ResponseInterface $response): string
     {
         $documentSize = 0;
         if (!$request->getAttribute('frontend.cache.instruction')->isCachingAllowed()) {
-            $tsfe = $request->getAttribute('frontend.controller');
-            $documentSize = mb_strlen($tsfe->content, 'UTF-8');
+            $documentSize = (int)$response->getBody()->getSize();
         }
         return GeneralUtility::formatSize($documentSize);
     }

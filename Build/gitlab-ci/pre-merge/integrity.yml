@@ -7,11 +7,11 @@ cgl pre-merge:
       - schedules
       - main
   script:
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.2
-    - Build/Scripts/runTests.sh -s cglGit -n -p 8.2
-    - Build/Scripts/runTests.sh -s cglHeaderGit -n -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
+    - Build/Scripts/runTests.sh -s cglGit -n -p 8.5
+    - Build/Scripts/runTests.sh -s cglHeaderGit -n -p 8.5
 
-integration various php 8.2 pre-merge:
+integration various php 8.5 pre-merge:
   stage: main
   tags:
     - metal2
@@ -20,22 +20,24 @@ integration various php 8.2 pre-merge:
       - schedules
       - main
   script:
-    - Build/Scripts/runTests.sh -s composerValidate -p 8.2
-    - Build/Scripts/runTests.sh -s composerTestDistribution -p 8.2
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.2
-    - Build/Scripts/runTests.sh -s checkGitSubmodule -p 8.2
-    - Build/Scripts/runTests.sh -s checkPermissions -p 8.2
-    - Build/Scripts/runTests.sh -s checkRst -p 8.2
-    - Build/Scripts/runTests.sh -s checkFilePathLength -p 8.2
-    - Build/Scripts/runTests.sh -s checkExtensionScannerRst -p 8.2
-    - Build/Scripts/runTests.sh -s checkBom -p 8.2
-    - Build/Scripts/runTests.sh -s checkComposer -p 8.2
-    - Build/Scripts/runTests.sh -s checkIntegrityPhp -p 8.2
-    - Build/Scripts/runTests.sh -s checkIntegritySetLabels -p 8.2
-    - Build/Scripts/runTests.sh -s lintServicesYaml -p 8.2
-    - Build/Scripts/runTests.sh -s lintYaml -p 8.2
-    - Build/Scripts/runTests.sh -s checkFilesAndPathsForSpaces -p 8.2
-    - Build/Scripts/runTests.sh -s checkCharsets -p 8.2
+    - Build/Scripts/runTests.sh -s composerValidate -p 8.5
+    - Build/Scripts/runTests.sh -s composerTestDistribution -p 8.5
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
+    - Build/Scripts/runTests.sh -s checkGitSubmodule -p 8.5
+    - Build/Scripts/runTests.sh -s checkPermissions -p 8.5
+    - Build/Scripts/runTests.sh -s checkRst -p 8.5
+    - Build/Scripts/runTests.sh -s checkFilePathLength -p 8.5
+    - Build/Scripts/runTests.sh -s checkExtensionScannerRst -p 8.5
+    - Build/Scripts/runTests.sh -s checkBom -p 8.5
+    - Build/Scripts/runTests.sh -s checkComposer -p 8.5
+    - Build/Scripts/runTests.sh -s checkIntegrityPhp -p 8.5
+    - Build/Scripts/runTests.sh -s checkIntegritySetLabels -p 8.5
+    - Build/Scripts/runTests.sh -s checkIntegrityXliff -p 8.5
+    - Build/Scripts/runTests.sh -s lintServicesYaml -p 8.5
+    - Build/Scripts/runTests.sh -s lintYaml -p 8.5
+    - Build/Scripts/runTests.sh -s checkFilesAndPathsForSpaces -p 8.5
+    - Build/Scripts/runTests.sh -s checkCharsets -p 8.5
+    - Build/Scripts/runTests.sh -s normalizeXliff -n -p 8.5
 
 lint php pre-merge:
   stage: main
@@ -46,8 +48,8 @@ lint php pre-merge:
       - schedules
       - main
   script:
-    - Build/Scripts/runTests.sh -s lintPhp -p 8.2
     - Build/Scripts/runTests.sh -s lintPhp -p 8.5
+    - Build/Scripts/runTests.sh -s lintPhp -p 8.6
 
 grunt scss ts html pre-merge:
   stage: main
@@ -67,7 +69,7 @@ grunt scss ts html pre-merge:
     - Build/Scripts/runTests.sh -s lintTypescript
     - Build/Scripts/runTests.sh -s lintHtml
 
-phpstan php 8.2 pre-merge:
+phpstan php 8.5 pre-merge:
   stage: main
   tags:
     - metal2
@@ -76,6 +78,25 @@ phpstan php 8.2 pre-merge:
       - schedules
       - main
   script:
-    - Build/Scripts/runTests.sh -s composerInstall -p 8.2
-    - Build/Scripts/runTests.sh -s phpstan -p 8.2
+    - Build/Scripts/runTests.sh -s composerInstall -p 8.5
+    - Build/Scripts/runTests.sh -s phpstan -p 8.5  -- --no-progress
 
+documentation rendering pre-merge:
+  stage: main
+  tags:
+    - metal2
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "schedule" && $CI_COMMIT_BRANCH != "main"
+      changes:
+        # detect only changes in last commit
+        compare_to: 'HEAD~1'
+        paths:
+          # respect changes for runTests.sh, as we do not know if documentation rendering is changed,
+          # for example the used docker image or similar.
+          - Build/Scripts/runTests.sh
+          # Execute documentation rending in case any file in a documentation subfolder is changed.
+          - typo3/sysext/*/Documentation/**/*
+  script:
+    # Renders only the documentation of those system extensions changed in the last
+    # commit - or all of them, if runTests.sh itself changed.
+    - Build/Scripts/runTests.sh -s checkRstRenderingChanged HEAD~1

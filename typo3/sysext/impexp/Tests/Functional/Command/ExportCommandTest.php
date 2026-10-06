@@ -20,19 +20,16 @@ namespace TYPO3\CMS\Impexp\Tests\Functional\Command;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\Console\Tester\CommandTester;
 use TYPO3\CMS\Core\Core\Environment;
-use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\ReferenceIndex;
-use TYPO3\CMS\Core\Information\Typo3Version;
-use TYPO3\CMS\Core\Localization\Locales;
-use TYPO3\CMS\Core\Resource\DefaultUploadFolderResolver;
-use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Impexp\Command\ExportCommand;
 use TYPO3\CMS\Impexp\Export;
 use TYPO3\CMS\Impexp\Tests\Functional\AbstractImportExportTestCase;
 
 final class ExportCommandTest extends AbstractImportExportTestCase
 {
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/impexp/Tests/Functional/Fixtures/Extensions/template_extension',
+    ];
+
     #[Test]
     public function exportCommandRequiresNoArguments(): void
     {
@@ -47,15 +44,7 @@ final class ExportCommandTest extends AbstractImportExportTestCase
     {
         $fileName = 'empty_export';
 
-        $subject = $this->getAccessibleMock(Export::class, ['setMetaData'], [
-            $this->get(ConnectionPool::class),
-            $this->get(Locales::class),
-            $this->get(Typo3Version::class),
-            $this->get(ReferenceIndex::class),
-        ]);
-        $subject->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        $subject->injectResourceFactory($this->get(ResourceFactory::class));
-        $subject->injectDefaultUploadFolderResolver($this->get(DefaultUploadFolderResolver::class));
+        $subject = $this->get(Export::class);
 
         $tester = new CommandTester(new ExportCommand($subject));
         $tester->execute(['filename' => $fileName], []);
@@ -65,7 +54,10 @@ final class ExportCommandTest extends AbstractImportExportTestCase
 
         self::assertEquals(0, $tester->getStatusCode());
         self::assertStringEndsWith('empty_export.xml', $filePath);
-        self::assertXmlFileEqualsXmlFile(__DIR__ . '/../Fixtures/XmlExports/empty.xml', $filePath);
+        self::assertXmlStringEqualsXmlFile(
+            __DIR__ . '/../Fixtures/XmlExports/empty.xml',
+            file_get_contents($filePath)
+        );
     }
 
     #[Test]
@@ -81,30 +73,17 @@ final class ExportCommandTest extends AbstractImportExportTestCase
             '--list' => ['sys_category:123'],
             '--include-related' => ['be_users'],
             '--include-static' => ['sys_category'],
-            '--exclude' => ['be_users:3'],
+            '--exclude' => ['be_users:3', 'pages:5'], // equals --exclude be_users:3 --exclude pages:5 on CLI
             '--exclude-disabled-records' => false,
             '--title' => 'Export Command',
             '--description' => 'The export which considers all arguments passed on the command line.',
             '--notes' => 'This export is not for production use.',
             '--dependency' => ['bootstrap_package'],
             '--save-files-outside-export-file' => false,
+            '--include-site-configurations' => false,
         ];
 
-        $exportMock = $this->getAccessibleMock(
-            Export::class,
-            [
-                'setExportFileType', 'setExportFileName', 'setPid', 'setLevels', 'setTables', 'setRecord', 'setList',
-                'setRelOnlyTables', 'setRelStaticTables', 'setExcludeMap', 'setExcludeDisabledRecords',
-                'setTitle', 'setDescription', 'setNotes', 'setExtensionDependencies', 'setSaveFilesOutsideExportFile',
-            ],
-            [
-                $this->get(ConnectionPool::class),
-                $this->get(Locales::class),
-                $this->get(Typo3Version::class),
-                $this->get(ReferenceIndex::class),
-            ]
-        );
-        $exportMock->injectDefaultUploadFolderResolver($this->get(DefaultUploadFolderResolver::class));
+        $exportMock = $this->createMock(Export::class);
         $exportMock->expects($this->once())->method('setExportFileName')->with(self::equalTo('empty_export'));
         $exportMock->expects($this->once())->method('setExportFileType')->with(self::equalTo(Export::FILETYPE_T3D));
         $exportMock->expects($this->once())->method('setPid')->with(self::equalTo(123));
@@ -114,13 +93,14 @@ final class ExportCommandTest extends AbstractImportExportTestCase
         $exportMock->expects($this->once())->method('setList')->with(self::equalTo(['sys_category:123']));
         $exportMock->expects($this->once())->method('setRelOnlyTables')->with(self::equalTo(['be_users']));
         $exportMock->expects($this->once())->method('setRelStaticTables')->with(self::equalTo(['sys_category']));
-        $exportMock->expects($this->once())->method('setExcludeMap')->with(self::equalTo(['be_users:3']));
+        $exportMock->expects($this->once())->method('setExcludeMap')->with(self::equalTo(['be_users:3' => 1, 'pages:5' => 1]));
         $exportMock->expects($this->once())->method('setExcludeDisabledRecords')->with(self::equalTo(false));
         $exportMock->expects($this->once())->method('setTitle')->with(self::equalTo('Export Command'));
         $exportMock->expects($this->once())->method('setDescription')->with(self::equalTo('The export which considers all arguments passed on the command line.'));
         $exportMock->expects($this->once())->method('setNotes')->with(self::equalTo('This export is not for production use.'));
         $exportMock->expects($this->once())->method('setExtensionDependencies')->with(self::equalTo(['bootstrap_package']));
         $exportMock->expects($this->once())->method('setSaveFilesOutsideExportFile')->with(self::equalTo(false));
+        $exportMock->expects($this->once())->method('setIncludeSiteConfigurations')->with(self::equalTo(false));
 
         $tester = new CommandTester(new ExportCommand($exportMock));
         $tester->execute($input);

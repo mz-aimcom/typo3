@@ -20,9 +20,11 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers\Be;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
@@ -31,6 +33,8 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 
 final class PageRendererViewHelperTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     public static function renderDataProvider(): array
     {
         return [
@@ -40,11 +44,11 @@ final class PageRendererViewHelperTest extends FunctionalTestCase
             ],
             'renderIncludesCssFile' => [
                 '<f:be.pageRenderer includeCssFiles="{0: \'EXT:backend/Resources/Public/Css/backend.css\'}" />',
-                'rel="stylesheet" href="typo3/sysext/backend/Resources/Public/Css/backend.css',
+                'rel="stylesheet" href="{{BACKEND_PUBLIC}}Css/backend.css',
             ],
             'renderIncludesJsFile' => [
                 '<f:be.pageRenderer includeJsFiles="{0: \'EXT:backend/Resources/Public/JavaScript/backend.js\'}" />',
-                '<script src="typo3/sysext/backend/Resources/Public/JavaScript/backend.js',
+                '<script src="{{BACKEND_PUBLIC}}JavaScript/backend.js',
             ],
             'renderIncludesInlineSettings' => [
                 '<f:be.pageRenderer addInlineSettings="{\'foo\': \'bar\'}" />',
@@ -64,11 +68,12 @@ final class PageRendererViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
         $view = new TemplateView($context);
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $view->render();
         $pageRenderer = $this->get(PageRenderer::class);
         // PageRenderer depends on request to determine FE vs. BE
-        self::assertStringContainsString($expected, $pageRenderer->renderResponse()->getBody()->__toString());
+        $expected = str_replace('{{BACKEND_PUBLIC}}', (string)PathUtility::getSystemResourceUri('EXT:backend/Resources/Public/'), $expected);
+        self::assertStringContainsString($expected, $pageRenderer->renderResponse($this->createRequest())->getBody()->__toString());
     }
 
     #[Test]
@@ -76,14 +81,23 @@ final class PageRendererViewHelperTest extends FunctionalTestCase
     {
         $extbaseRequestParameters = new ExtbaseRequestParameters();
         $extbaseRequestParameters->setControllerExtensionName('Backend');
-        $serverRequest = (new ServerRequest('https://example.com/typo3/'))->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest('https://example.com/typo3/')->withAttribute('extbase', $extbaseRequestParameters)->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource('<f:be.pageRenderer addJsInlineLabels="{0: \'login.header\'}" />');
         $view = new TemplateView($context);
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $view->render();
         $pageRenderer = $this->get(PageRenderer::class);
         // PageRenderer depends on request to determine FE vs. BE
-        self::assertStringContainsString('"lang":{"login.header":"Login"}', $pageRenderer->renderResponse()->getBody()->__toString());
+        self::assertStringContainsString('"lang":{"login.header":"Login"}', $pageRenderer->renderResponse($this->createRequest())->getBody()->__toString());
+    }
+
+    private function createRequest(): ServerRequest
+    {
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        return new ServerRequest('https://www.example.com/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', $normalizedParams);
     }
 }

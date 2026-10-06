@@ -19,17 +19,19 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\ContentObject;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+use TYPO3Fluid\Fluid\View\Exception\InvalidTemplateResourceException;
 
 final class FluidTemplateContentObjectTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
-    protected const ROOT_PAGE_ID = 1;
+    protected const int ROOT_PAGE_ID = 1;
 
     protected array $testExtensionsToLoad = [
         'typo3/sysext/frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template',
@@ -54,7 +56,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/nested_fluid_template.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('ABC', (string)$response->getBody());
     }
 
@@ -67,7 +69,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/nested_fluid_template_with_layout.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('Default Layout', $responseBody);
         self::assertStringContainsString('LayoutOverride', $responseBody);
@@ -82,7 +84,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/template_rootpaths_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Foobar', (string)$response->getBody());
     }
 
@@ -95,7 +97,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/file.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Foobar', (string)$response->getBody());
     }
 
@@ -108,7 +110,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/template.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('My fluid template', (string)$response->getBody());
     }
 
@@ -121,7 +123,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/template_name.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Foobar', (string)$response->getBody());
     }
 
@@ -134,7 +136,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/template_name_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Foobar', (string)$response->getBody());
     }
 
@@ -147,7 +149,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/layout_root_path.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('Alternative Layout', $responseBody);
         self::assertStringContainsString('Alternative Template', $responseBody);
@@ -162,7 +164,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/layout_root_path_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('Alternative Layout', $responseBody);
         self::assertStringContainsString('Alternative Template', $responseBody);
@@ -177,7 +179,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/layout_root_paths_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('Alternative Layout', $responseBody);
         self::assertStringContainsString('Alternative Template', $responseBody);
@@ -192,7 +194,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/layout_root_paths_fallback.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('LayoutOverride', $responseBody);
         self::assertStringContainsString('Main Template', $responseBody);
@@ -207,7 +209,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/layout_root_path_and_paths_fallback.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         $responseBody = (string)$response->getBody();
         self::assertStringContainsString('LayoutOverride', $responseBody);
         self::assertStringContainsString('Main Template', $responseBody);
@@ -222,7 +224,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/partial.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Template with Partial', (string)$response->getBody());
     }
 
@@ -235,7 +237,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/partial_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Template with Partial', (string)$response->getBody());
     }
 
@@ -248,7 +250,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/partial_root_paths_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Template with Partial', (string)$response->getBody());
     }
 
@@ -261,7 +263,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/partial_root_paths_fallback.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Template with Partial Override', (string)$response->getBody());
     }
 
@@ -274,7 +276,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/partial_root_path_and_paths_fallback.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Template with Partial Override', (string)$response->getBody());
     }
 
@@ -287,7 +289,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/format.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('FoobarXML', (string)$response->getBody());
     }
 
@@ -300,7 +302,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/format_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('FoobarXML', (string)$response->getBody());
     }
 
@@ -313,7 +315,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/settings.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('I am coming from the settings', (string)$response->getBody());
     }
 
@@ -328,7 +330,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
         );
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1288095720);
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
     }
 
     #[Test]
@@ -342,7 +344,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
         );
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1288095720);
-        $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
     }
 
     #[Test]
@@ -354,7 +356,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/variables.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('I am coming from the variables', (string)$response->getBody());
     }
 
@@ -367,7 +369,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/data.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('FluidTemplateContentObjectTest', (string)$response->getBody());
     }
 
@@ -380,7 +382,7 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/current.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('My current value', (string)$response->getBody());
     }
 
@@ -393,22 +395,38 @@ final class FluidTemplateContentObjectTest extends FunctionalTestCase
                 'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/fluid_template_stdwrap.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('1+1=2', (string)$response->getBody());
     }
 
     #[Test]
-    public function renderFluidTemplateAssetsIntoPageRendererRendersAndAttachesAssets(): void
+    public function missingTemplateExceptionHasContextInformation(): void
     {
         $this->setUpFrontendRootPage(
             self::ROOT_PAGE_ID,
             [
-                'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/assets.typoscript',
+                'EXT:frontend/Tests/Functional/Fixtures/Extensions/test_fluid_template/Configuration/TypoScript/missing_template.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
-        $responseBody = (string)$response->getBody();
-        self::assertStringContainsString('Foo Header' . "\n" . '</head>', $responseBody);
-        self::assertStringContainsString('Foo Footer' . "\n" . '</body>', $responseBody);
+        $this->expectException(InvalidTemplateResourceException::class);
+        self::expectExceptionCode(1772572794);
+        $this->expectExceptionMessage('FLUIDTEMPLATE TypoScript object: Failed to resolve a template file for templateName "Missing".');
+        $this->expectExceptionMessage('"' . implode('", "', [
+            // With default controller name "Default"
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Default/Missing.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Default/Missing.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Default/Missing',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Default/Missing.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Default/Missing.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Default/Missing',
+            // Without default controller name
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Missing.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Missing.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/Templates/Missing',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Missing.fluid.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Missing.html',
+            ExtensionManagementUtility::extPath('test_fluid_template') . 'Resources/Private/FoobarTemplates/Missing',
+        ]) . '"');
+        $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
     }
 }

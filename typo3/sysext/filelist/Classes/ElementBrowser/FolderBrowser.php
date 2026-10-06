@@ -18,7 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Filelist\ElementBrowser;
 
 use Psr\Http\Message\ServerRequestInterface;
-use TYPO3\CMS\Backend\View\FolderUtilityRenderer;
+use TYPO3\CMS\Backend\View\ResourceUtilityRenderer;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -81,7 +81,7 @@ class FolderBrowser extends AbstractResourceBrowser
             $markup[] = '        </div>';
             $markup[] = '    </div>';
             $markup[] = '    <div class="col-auto">';
-            $markup[] = '        ' . $this->getSortingModeButtons($this->filelist->mode);
+            $markup[] = '        ' . $this->getSortingModeButtons();
             $markup[] = '        ' . $this->getViewModeButton();
             $markup[] = '    </div>';
             $markup[] = '</div>';
@@ -91,8 +91,8 @@ class FolderBrowser extends AbstractResourceBrowser
             $markup[] = $this->filelist->render(null, $this->view);
 
             // Build the folder creation form
-            $folderUtilityRenderer = GeneralUtility::makeInstance(FolderUtilityRenderer::class, $this);
-            $markup[] = $folderUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
+            $resourceUtilityRenderer = GeneralUtility::makeInstance(ResourceUtilityRenderer::class, $this);
+            $markup[] = $resourceUtilityRenderer->createFolder($this->getRequest(), $this->selectedFolder);
 
             $contentHtml = implode('', $markup);
         }
@@ -108,6 +108,6 @@ class FolderBrowser extends AbstractResourceBrowser
             return $content;
         }
         $this->pageRenderer->setBodyContent('<body ' . $this->getBodyTagParameters() . '>' . $content);
-        return $this->pageRenderer->render();
+        return $this->pageRenderer->render($this->getRequest());
     }
 }

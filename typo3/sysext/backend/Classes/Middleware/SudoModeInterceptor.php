@@ -22,8 +22,7 @@ use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Controller\Security\SudoModeController;
 use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessStorage;
 use TYPO3\CMS\Backend\Security\SudoMode\Exception\RequestGrantedException;
@@ -39,10 +38,8 @@ use TYPO3\CMS\Core\Http\RedirectResponse;
  * verification process was successful & the user shall be redirected to
  * the URI, that has been requested originally).
  */
-final class SudoModeInterceptor implements MiddlewareInterface, LoggerAwareInterface
+final class SudoModeInterceptor implements MiddlewareInterface
 {
-    use LoggerAwareTrait;
-
     /**
      * @internal
      */
@@ -52,7 +49,8 @@ final class SudoModeInterceptor implements MiddlewareInterface, LoggerAwareInter
         private readonly AccessStorage $storage,
         private readonly SudoModeController $controller,
         private readonly ServerRequestFactoryInterface $serverRequestFactory,
-        private readonly Application $application
+        private readonly Application $application,
+        private readonly LoggerInterface $logger,
     ) {}
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
@@ -81,14 +79,14 @@ final class SudoModeInterceptor implements MiddlewareInterface, LoggerAwareInter
         $this->storage->addClaim($claim);
         $isAjaxCall = (bool)($request->getAttribute('route')?->getOption('ajax') ?? false);
         if ($isAjaxCall) {
-            return (new JsonResponse([
+            return new JsonResponse([
                 'sudoModeInitialization' => [
                     'verifyActionUri' => (string)$this->controller->buildVerifyActionUriForClaim($claim),
                     'allowInstallToolPassword' => $GLOBALS['BE_USER']->isSystemMaintainer(),
                     'isAjax' => true,
                     'labels' => $GLOBALS['LANG']->getLabelsFromResource('EXT:backend/Resources/Private/Language/SudoMode.xlf'),
                 ],
-            ]))->withStatus(422, 'Step-Up required: A different authentication level is required');
+            ])->withStatus(422, 'Step-Up required: A different authentication level is required');
         }
         $uri = $this->controller->buildModuleActionUriForClaim($claim);
         return new RedirectResponse($uri, 401);

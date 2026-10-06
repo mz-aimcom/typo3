@@ -26,7 +26,7 @@ use TYPO3\CMS\Core\Localization\Locale;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3Fluid\Fluid\Core\Rendering\RenderingContextInterface;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
-use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to format an object implementing `\DateTimeInterface` into human-readable output.
@@ -37,8 +37,8 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
  *   <f:format.date pattern="dd. MMMM yyyy" locale="de-DE">{dateObject}</f:format.date>
  * ```
  *
- * @see https://www.php.net/manual/datetime.format.php
  * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-format-date
+ * @see https://www.php.net/manual/datetime.format.php
  * @see \DateTimeInterface
  */
 final class DateViewHelper extends AbstractViewHelper
@@ -64,9 +64,6 @@ final class DateViewHelper extends AbstractViewHelper
         $this->registerArgument('timezone', 'string', 'Timezone for the date');
     }
 
-    /**
-     * @throws Exception
-     */
     public function render(): string
     {
         $format = $this->arguments['format'] ?? '';
@@ -94,24 +91,28 @@ final class DateViewHelper extends AbstractViewHelper
                 : (int)strtotime((MathUtility::canBeInterpretedAsInteger($base) ? '@' : '') . $base);
             $dateTimestamp = strtotime((MathUtility::canBeInterpretedAsInteger($date) ? '@' : '') . $date, $base);
             if ($dateTimestamp === false) {
-                throw new Exception('"' . $date . '" could not be converted to a timestamp. Probably due to a parsing error.', 1241722579);
+                throw new InvalidArgumentValueException('"' . $date . '" could not be converted to a timestamp. Probably due to a parsing error.', 1241722579);
             }
-            $date = (new \DateTime())->setTimestamp($dateTimestamp);
+            $date = new \DateTime()->setTimestamp($dateTimestamp);
         }
 
-        if (!empty($this->arguments['timezone']) && $date instanceof \DateTime) {
+        if (!empty($this->arguments['timezone'])) {
             $timezone = (string)$this->arguments['timezone'];
-            $date->setTimezone(new \DateTimeZone($timezone));
+            if ($date instanceof \DateTime) {
+                $date->setTimezone(new \DateTimeZone($timezone));
+            } elseif ($date instanceof \DateTimeImmutable) {
+                $date = $date->setTimezone(new \DateTimeZone($timezone));
+            }
         }
 
         if ($pattern !== null) {
             $locale = $this->arguments['locale'] ?? self::resolveLocale($this->renderingContext);
-            return (new DateFormatter())->format($date, $pattern, $locale);
+            return new DateFormatter()->format($date, $pattern, $locale);
         }
         if (str_contains($format, '%')) {
             // @todo: deprecate this syntax in TYPO3 v13.
             $locale = $this->arguments['locale'] ?? self::resolveLocale($this->renderingContext);
-            return (new DateFormatter())->strftime($format, $date, $locale);
+            return new DateFormatter()->strftime($format, $date, $locale);
         }
         return $date->format($format);
     }

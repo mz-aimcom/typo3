@@ -12,12 +12,12 @@
  */
 
 import Client from '@typo3/backend/storage/client';
-import '@typo3/backend/input/clearable';
 import DocumentService from '@typo3/core/document-service';
 import DebounceEvent from '@typo3/core/event/debounce-event';
 import RegularEvent from '@typo3/core/event/regular-event';
 import Mark from 'mark.js';
 import DomHelper from '@typo3/backend/utility/dom-helper';
+import labels from '~labels/backend.messages';
 
 /**
  * Utility class to perform client side search on ul/li trees. This is used in various
@@ -67,11 +67,11 @@ class CollapseStateSearch {
   }
 
   private registerEvents(): void {
-    this.searchField.clearable({
-      onClear: (input: HTMLInputElement): void => {
-        input.closest('form').requestSubmit();
-      },
-    });
+    new RegularEvent('search', (): void => {
+      if (this.searchField.value === '') {
+        this.searchForm.requestSubmit();
+      }
+    }).bindTo(this.searchField);
 
     new DebounceEvent('input', (): void => {
       this.searchForm.requestSubmit();
@@ -104,7 +104,7 @@ class CollapseStateSearch {
       ...this.findNodesByConstantSubstitution(term, treeContainer)
     ];
 
-    numberOfSearchMatchesContainer.innerText = String(TYPO3.lang['collapse-state-search.numberOfSearchMatches']).replace('%s', String(matchingNodes.length));
+    numberOfSearchMatchesContainer.innerText = labels.get('collapse_state_search.numberOfSearchMatches', { count: matchingNodes.length });
     numberOfSearchMatchesContainer.classList.remove('hidden');
 
     matchingNodes.forEach((match: Element|null): void => {

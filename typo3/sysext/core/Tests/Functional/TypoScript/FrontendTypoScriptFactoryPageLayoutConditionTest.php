@@ -29,10 +29,10 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
-    private const ROOT_PAGE_ID = 1;
+    private const int ROOT_PAGE_ID = 1;
 
     public function setUp(): void
     {
@@ -53,7 +53,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutOnRootSetup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringContainsString('Default Layout', (string)$response->getBody());
     }
 
@@ -67,7 +67,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutNextLevelOnRootSetup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::ROOT_PAGE_ID));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::ROOT_PAGE_ID));
         self::assertStringNotContainsString('Default Layout', (string)$response->getBody());
     }
 
@@ -81,7 +81,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutAndNextLevelOnRootSetup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(2));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(2));
         self::assertStringContainsString('Inherited Layout', (string)$response->getBody());
     }
 
@@ -95,7 +95,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutAndNextLevelOnRootSubOverride1Setup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(3));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(3));
         self::assertStringContainsString('Inherited Layout', (string)$response->getBody());
     }
 
@@ -109,7 +109,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutAndNextLevelOnRootSubOverride2Setup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(4));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(4));
         self::assertStringContainsString('Extra Layout', (string)$response->getBody());
     }
 
@@ -123,7 +123,7 @@ final class FrontendTypoScriptFactoryPageLayoutConditionTest extends FunctionalT
                 'EXT:core/Tests/Functional/TypoScript/Fixtures/FrontendTypoScriptFactoryPageLayoutCondition/backendLayoutAndNextLevelOnRootSubOverride3Setup.typoscript',
             ]
         );
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(4));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(4));
         self::assertStringContainsString('Extra Layout', (string)$response->getBody());
     }
 }

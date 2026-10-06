@@ -29,7 +29,7 @@ final class ElementBrowserTest extends UnitTestCase
     #[Test]
     public function renderTrimsAllowedValuesFromConfigSection(): void
     {
-        $elementBrowser = new ElementBrowser($this->createMock(InlineStackProcessor::class));
+        $elementBrowser = new ElementBrowser(self::createStub(InlineStackProcessor::class));
         $elementBrowser->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,
@@ -50,13 +50,13 @@ final class ElementBrowserTest extends UnitTestCase
         ]);
 
         $result = $elementBrowser->render();
-        self::assertSame($result['linkAttributes']['data-params'], '|||be_users,be_groups|');
+        self::assertSame('be_users,be_groups', $result['linkAttributes']['data-allowed-types']);
     }
 
     #[Test]
     public function renderTrimsAllowedValues(): void
     {
-        $elementBrowser = new ElementBrowser($this->createMock(InlineStackProcessor::class));
+        $elementBrowser = new ElementBrowser(self::createStub(InlineStackProcessor::class));
         $elementBrowser->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,
@@ -76,7 +76,7 @@ final class ElementBrowserTest extends UnitTestCase
             ],
         ]);
         $result = $elementBrowser->render();
-        self::assertSame($result['linkAttributes']['data-params'], '|||jpg,png|');
+        self::assertSame('jpg,png', $result['linkAttributes']['data-allowed-types']);
     }
 
     public static function renderResolvesEntryPointDataProvider(): \Generator
@@ -208,7 +208,7 @@ final class ElementBrowserTest extends UnitTestCase
     #[Test]
     public function renderResolvesEntryPoint(array $config, string $expected): void
     {
-        $elementBrowser = new ElementBrowser($this->createMock(InlineStackProcessor::class));
+        $elementBrowser = new ElementBrowser(self::createStub(InlineStackProcessor::class));
         $elementBrowser->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,
@@ -234,7 +234,7 @@ final class ElementBrowserTest extends UnitTestCase
     public function renderUsesCustomTitle(): void
     {
         $title = 'Custom title';
-        $elementBrowser = new ElementBrowser($this->createMock(InlineStackProcessor::class));
+        $elementBrowser = new ElementBrowser(self::createStub(InlineStackProcessor::class));
         $elementBrowser->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,
@@ -262,7 +262,7 @@ final class ElementBrowserTest extends UnitTestCase
     #[Test]
     public function renderUsesFallbackTitle(): void
     {
-        $elementBrowser = new ElementBrowser($this->createMock(InlineStackProcessor::class));
+        $elementBrowser = new ElementBrowser(self::createStub(InlineStackProcessor::class));
         $elementBrowser->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,

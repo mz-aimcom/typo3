@@ -36,15 +36,15 @@ final class DownloadControllerTest extends UnitTestCase
 
         $dummyExtensionName = 'dummy_extension';
         $dummyExtension = new Extension();
-        $dummyExtension->setExtensionKey($dummyExtensionName);
+        $dummyExtension->extensionKey = $dummyExtensionName;
 
-        $extensionManagementServiceMock = $this->getMockBuilder(ExtensionManagementService::class)->disableOriginalConstructor()->getMock();
+        $extensionManagementServiceMock = self::createStub(ExtensionManagementService::class);
         $extensionManagementServiceMock->method('installExtension')->willThrowException($dummyException);
 
         $subject = new DownloadController(
-            $this->createMock(ExtensionRepository::class),
+            self::createStub(ExtensionRepository::class),
             $extensionManagementServiceMock,
-            $this->createMock(ExtensionConfiguration::class)
+            self::createStub(ExtensionConfiguration::class)
         );
 
         $reflectionClass = new \ReflectionClass($subject);

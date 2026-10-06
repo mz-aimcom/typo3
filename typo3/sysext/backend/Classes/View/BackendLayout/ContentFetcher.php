@@ -21,6 +21,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\BackendLayoutView;
 use TYPO3\CMS\Backend\View\Event\IsContentUsedOnPageLayoutEvent;
 use TYPO3\CMS\Backend\View\Event\ModifyDatabaseQueryForContentEvent;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
@@ -36,6 +37,7 @@ use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -50,7 +52,7 @@ use TYPO3\CMS\Core\Versioning\VersionState;
  * - Capable of returning records for a given column in a given (optional) language
  * - Capable of returning translation data (brief info about translation consistency)
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
 #[Autoconfigure(public: true)]
 readonly class ContentFetcher
@@ -62,6 +64,7 @@ readonly class ContentFetcher
         private ConnectionPool $connectionPool,
         private TcaSchemaFactory $tcaSchemaFactory,
         private FlashMessageService $flashMessageService,
+        private BackendLayoutView $backendLayoutView,
     ) {}
 
     /**
@@ -83,7 +86,7 @@ readonly class ContentFetcher
             foreach ($records as $record) {
                 $recordLanguage = (int)$record['sys_language_uid'];
                 $recordColumnNumber = (int)$record['colPos'];
-                if ($recordLanguage === -1) {
+                if ($recordLanguage === LanguageMarker::ALL_LANGUAGES) {
                     // Record is set to "all languages", place it according to view mode.
                     if ($isLanguageComparisonMode) {
                         // Force the record to only be shown in default language in "Languages" view mode.
@@ -122,7 +125,7 @@ readonly class ContentFetcher
     {
         $unrendered = [];
         $recordIdentityMap = $pageLayoutContext->getRecordIdentityMap();
-        $languageId = $pageLayoutContext->getDrawingConfiguration()->getSelectedLanguageId();
+        $languageId = $pageLayoutContext->getDrawingConfiguration()->getPrimaryLanguageId();
         // @todo consider to invoke the identity-map much earlier (to avoid fetching database records again)
         foreach ($this->getContentRecordsPerColumn($pageLayoutContext, null, $languageId) as $contentRecordsInColumn) {
             foreach ($contentRecordsInColumn as $contentRecord) {
@@ -154,14 +157,14 @@ readonly class ContentFetcher
                 array_column(
                     // Eliminate records with "-1" as sys_language_uid since they can not be translated
                     array_filter($contentRecordsInDefaultLanguage, static function (array $record): bool {
-                        return (int)($record['sys_language_uid'] ?? 0) !== -1;
+                        return (int)($record['sys_language_uid'] ?? 0) !== LanguageMarker::ALL_LANGUAGES;
                     }),
                     'uid'
                 )
             );
 
             foreach ($contentElements as $contentElement) {
-                if ((int)$contentElement['sys_language_uid'] === -1) {
+                if ((int)$contentElement['sys_language_uid'] === LanguageMarker::ALL_LANGUAGES) {
                     continue;
                 }
                 if ((int)$contentElement['l18n_parent'] === 0) {
@@ -171,6 +174,7 @@ readonly class ContentFetcher
                 if ((int)$contentElement['l18n_parent'] > 0) {
                     $languageTranslationInfo['hasTranslations'] = true;
                     $languageTranslationInfo['mode'] = 'connected';
+                    unset($untranslatedRecordUids[(int)$contentElement['l18n_parent']]);
                 }
                 if ((int)$contentElement['l10n_source'] > 0) {
                     unset($untranslatedRecordUids[(int)$contentElement['l10n_source']]);
@@ -178,6 +182,13 @@ readonly class ContentFetcher
             }
             if (!isset($languageTranslationInfo['hasTranslations'])) {
                 $languageTranslationInfo['hasTranslations'] = false;
+            }
+
+            foreach ($untranslatedRecordUids as $uid => $index) {
+                $contentElementInDefaultLanguage = $contentRecordsInDefaultLanguage[$index];
+                if (!$this->backendLayoutView->isCTypeAllowedInColPosByPage($contentElementInDefaultLanguage['CType'], $contentElementInDefaultLanguage['colPos'], $contentElementInDefaultLanguage['pid'])) {
+                    unset($untranslatedRecordUids[$uid]);
+                }
             }
 
             $untranslatedRecordUidsWithoutWorkspaceDeletedRecords = $this->removeWorkspaceDeletedPlaceholdersUidsFromUntranslatedRecordUids($pageLayoutContext, array_keys($untranslatedRecordUids), $language);

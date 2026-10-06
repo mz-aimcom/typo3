@@ -17,13 +17,15 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\MetaTag;
 
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Attribute\AsMetaTagManager;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Handles typical meta tags (non-grouped). Use AbstractMetaTagManager
  * to create your own MetaTags, this class is final by design
  */
+#[AsMetaTagManager(identifier: 'generic')]
 final class GenericMetaTagManager implements MetaTagManagerInterface
 {
     /**
@@ -31,19 +33,19 @@ final class GenericMetaTagManager implements MetaTagManagerInterface
      *
      * @var string
      */
-    protected $subPropertySeparator = ':';
+    private $subPropertySeparator = ':';
 
     /**
      * Array of properties that are set by the manager
      *
      * @var array
      */
-    protected $properties = [];
+    private $properties = [];
 
     /**
      * Add a property (including subProperties)
      */
-    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = 'name')
+    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = 'name'): void
     {
         $property = strtolower($property);
         $type = strtolower($type) ?: 'name';
@@ -83,38 +85,39 @@ final class GenericMetaTagManager implements MetaTagManagerInterface
     /**
      * Render all registered properties of this manager
      */
-    public function renderAllProperties(): string
+    public function renderAllProperties(?DocType $docType = null): string
     {
         $metatags = [];
         foreach (array_keys($this->properties) as $property) {
-            $metatags[] = $this->renderProperty($property);
+            $metatags[] = $this->renderProperty($property, $docType);
         }
-
         return implode(PHP_EOL, $metatags);
     }
 
     /**
      * Render a specific property including subproperties of that property
      */
-    public function renderProperty(string $property): string
+    public function renderProperty(string $property, ?DocType $docType = null): string
     {
         $property = strtolower($property);
-        $endingSlash = GeneralUtility::makeInstance(PageRenderer::class)->getDocType()->isXmlCompliant() ? ' /' : '';
+        $endingSlash = $docType?->isXmlCompliant() ? ' /' : '';
 
         $metaTags = [];
         foreach ((array)$this->properties[$property] as $type => $propertyItems) {
             foreach ($propertyItems as $propertyItem) {
-                $metaTags[] = '<meta ' .
-                    htmlspecialchars($type) . '="' . htmlspecialchars($property) . '" ' .
-                    'content="' . htmlspecialchars($propertyItem['content']) . '"' . $endingSlash . '>';
+                $metaTags[] = '<meta ' . GeneralUtility::implodeAttributes([
+                    htmlspecialchars($type) => $property,
+                    'content' => $propertyItem['content'],
+                ], false, true, true) . $endingSlash . '>';
 
                 if (!count($propertyItem['subProperties'])) {
                     continue;
                 }
                 foreach ($propertyItem['subProperties'] as $subProperty => $value) {
-                    $metaTags[] = '<meta ' .
-                        htmlspecialchars($type) . '="' . htmlspecialchars($property . $this->subPropertySeparator . $subProperty) . '" ' .
-                        'content="' . htmlspecialchars((string)$value) . '"' . $endingSlash . '>';
+                    $metaTags[] = '<meta ' . GeneralUtility::implodeAttributes([
+                        htmlspecialchars($type) => $property . $this->subPropertySeparator . $subProperty,
+                        'content' => (string)$value,
+                    ], false, true, true) . $endingSlash . '>';
                 }
             }
         }
@@ -126,7 +129,7 @@ final class GenericMetaTagManager implements MetaTagManagerInterface
      * Remove one property from the MetaTagManager
      * If there are multiple occurrences of a property, they all will be removed
      */
-    public function removeProperty(string $property, string $type = '')
+    public function removeProperty(string $property, string $type = ''): void
     {
         $property = strtolower($property);
         $type = strtolower($type);
@@ -141,7 +144,7 @@ final class GenericMetaTagManager implements MetaTagManagerInterface
     /**
      * Unset all properties
      */
-    public function removeAllProperties()
+    public function removeAllProperties(): void
     {
         $this->properties = [];
     }

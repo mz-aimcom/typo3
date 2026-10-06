@@ -20,7 +20,6 @@ namespace TYPO3\CMS\Extbase\Persistence\Generic\Mapper;
 use Doctrine\Instantiator\InstantiatorInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
-use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Country\Country;
@@ -29,8 +28,10 @@ use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
 use TYPO3\CMS\Core\Domain\DateTimeFactory;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Extbase\DomainObject\AbstractDomainObject;
 use TYPO3\CMS\Extbase\DomainObject\DomainObjectInterface;
 use TYPO3\CMS\Extbase\Event\Persistence\AfterObjectThawedEvent;
@@ -39,7 +40,6 @@ use TYPO3\CMS\Extbase\Persistence\Generic\Exception;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\InvalidClassException;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\UnexpectedTypeException;
 use TYPO3\CMS\Extbase\Persistence\Generic\LazyLoadingProxy;
-use TYPO3\CMS\Extbase\Persistence\Generic\LazyObjectStorage;
 use TYPO3\CMS\Extbase\Persistence\Generic\LoadingStrategyInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\ColumnMap\Relation;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\Exception\NonExistentPropertyException;
@@ -81,7 +81,6 @@ class DataMapper
         private readonly InstantiatorInterface $instantiator,
         private readonly TcaSchemaFactory $tcaSchemaFactory,
         private readonly CountryProvider $countryProvider,
-        private readonly Features $features,
     ) {}
 
     public function setQuery(QueryInterface $query): void
@@ -92,12 +91,10 @@ class DataMapper
     /**
      * Maps the given rows on objects
      *
-     * @param string $className The name of the class
-     * @param array $rows An array of arrays with field_name => value pairs
-     * @return array An array of objects of the given class
      * @template T of DomainObjectInterface
-     * @phpstan-param class-string<T> $className
-     * @phpstan-return list<T>
+     * @param class-string<T> $className The name of the class
+     * @param array $rows An array of arrays with field_name => value pairs
+     * @return list<T> An array of objects of the given class
      */
     public function map($className, array $rows)
     {
@@ -111,11 +108,9 @@ class DataMapper
     /**
      * Returns the target type for the given row.
      *
-     * @param string $className The name of the class
+     * @param class-string $className The name of the class
      * @param array $row A single array with field_name => value pairs
-     * @return string The target type (a class name)
-     * @phpstan-param class-string $className
-     * @phpstan-return class-string
+     * @return class-string The target type (a class name)
      */
     public function getTargetType($className, array $row)
     {
@@ -136,18 +131,14 @@ class DataMapper
     /**
      * Maps a single row on an object of the given class
      *
-     * @param string $className The name of the target class
-     * @param array $row A single array with field_name => value pairs
-     * @return object An object of the given class
      * @template T of DomainObjectInterface
-     * @phpstan-param class-string<T> $className
-     * @phpstan-return T
+     * @param class-string<T> $className The name of the target class
+     * @param array $row A single array with field_name => value pairs
+     * @return T An object of the given class
      */
     protected function mapSingleRow($className, array $row)
     {
-        // @todo: this also needs to contain the query's languageAspect with its configuration
-        // which should be changed along with https://review.typo3.org/c/Packages/TYPO3.CMS/+/75093
-        $identifier = $row['uid'] . (isset($row['_LOCALIZED_UID']) ? '_' . $row['_LOCALIZED_UID'] : '');
+        $identifier = $this->buildIdentifier($row);
         if ($this->persistenceSession->hasIdentifier($identifier, $className)) {
             $object = $this->persistenceSession->getObjectByIdentifier($identifier, $className);
         } else {
@@ -163,16 +154,41 @@ class DataMapper
     }
 
     /**
+     * Build a language-aware identifier for the identity map.
+     *
+     * The identifier includes the UID, localized UID (if present), and the
+     * language content identifier to ensure objects loaded with different
+     * language configurations are cached separately.
+     *
+     * @param array $row A single array with field_name => value pairs
+     * @return non-empty-string The identifier for the identity map
+     */
+    protected function buildIdentifier(array $row): string
+    {
+        return $this->persistenceSession->buildIdentifier($row, $this->getEffectiveLanguageAspect());
+    }
+
+    /**
+     * Get the effective LanguageAspect for the current mapping context.
+     *
+     * Returns the LanguageAspect from the current query if available,
+     * otherwise returns a default LanguageAspect for default language.
+     */
+    protected function getEffectiveLanguageAspect(): LanguageAspect
+    {
+        return $this->query?->getQuerySettings()->getLanguageAspect() ?? new LanguageAspect();
+    }
+
+    /**
      * Creates a skeleton of the specified object. This is
      * designed to *not* call class constructor when hydrating,
      * but *do call* initializeObject() if exists and obey
      * eventually registered implementation overrides ("xclass").
      *
-     * @param class-string $className Name of the class to create a skeleton for
-     * @throws InvalidClassException
      * @template T of DomainObjectInterface
-     * @phpstan-param class-string<T> $className
-     * @phpstan-return T
+     * @param class-string<T> $className Name of the class to create a skeleton for
+     * @return T
+     * @throws InvalidClassException
      */
     protected function createEmptyObject(string $className): DomainObjectInterface
     {
@@ -221,7 +237,7 @@ class DataMapper
                 continue;
             }
             $columnMap = $dataMap->getColumnMap($propertyName);
-            if (!$columnMap instanceof ColumnMap) {
+            if ($columnMap === null) {
                 continue;
             }
             if (!isset($row[$columnMap->columnName])) {
@@ -229,20 +245,20 @@ class DataMapper
             }
             $propertyValue = $row[$columnMap->columnName];
 
-            $nonProxyPropertyTypes = $property->getFilteredTypes([$property, 'filterLazyLoadingProxyAndLazyObjectStorage']);
+            $nonProxyPropertyTypes = $property->getFilteredTypes($property->filterLazyLoadingProxyAndLazyObjectStorage(...));
             if ($nonProxyPropertyTypes === []) {
                 throw new UnknownPropertyTypeException(
-                    'The type of property ' . $className . '::' . $propertyName . ' could not be identified, therefore the desired value (' .
-                    var_export($propertyValue, true) . ') cannot be mapped onto it. The type of a class property is usually defined via property types or php doc blocks. ' .
-                    'Make sure the property has a property type or valid @var tag set which defines the type.',
+                    'The type of property ' . $className . '::' . $propertyName . ' could not be identified, therefore the desired value ('
+                    . var_export($propertyValue, true) . ') cannot be mapped onto it. The type of a class property is usually defined via property types or php doc blocks. '
+                    . 'Make sure the property has a property type or valid @var tag set which defines the type.',
                     1579965021
                 );
             }
 
             if (count($nonProxyPropertyTypes) > 1) {
                 throw new UnknownPropertyTypeException(
-                    'The type of property ' . $className . '::' . $propertyName . ' could not be identified because the property is defined as union or intersection type, therefore the desired value (' .
-                    var_export($propertyValue, true) . ') cannot be mapped onto it. Make sure to use only a single type.',
+                    'The type of property ' . $className . '::' . $propertyName . ' could not be identified because the property is defined as union or intersection type, therefore the desired value ('
+                    . var_export($propertyValue, true) . ') cannot be mapped onto it. Make sure to use only a single type.',
                     1660215701
                 );
             }
@@ -341,9 +357,9 @@ class DataMapper
      * Creates a DateTime from a unix timestamp or date/datetime/time value.
      * If the input is empty, NULL is returned.
      *
-     * @param int|string $value Unix timestamp or date/datetime value or seconds for time/timesec
-     * @param string|null $format Output format (date/datetime/time/timesec)
-     * @param string|null $storageFormat Storage format for native date/datetime/time fields
+     * @param int|string $value Unix timestamp or date/datetime/datetimesec value or seconds for time/timesec
+     * @param string|null $format Output format (date/datetime/time/timesec/datetimesec)
+     * @param string|null $storageFormat Storage format for native date/datetime/time/datetimesec fields
      * @param string $targetType The object class name to be created
      * @return \DateTimeInterface|null
      */
@@ -354,39 +370,22 @@ class DataMapper
         $isNullable = true,
         $targetType = \DateTime::class
     ) {
-        if ($this->features->isFeatureEnabled('extbase.consistentDateTimeHandling')) {
-            $dateTime = DateTimeFactory::createFomDatabaseValueAndTCAConfig(
-                $value,
-                // Reconstruct TCA from our ColumnMap
-                [
-                    'type' => 'datetime',
-                    'format' => $format,
-                    'dbType' => $storageFormat,
-                    'nullable' => $isNullable,
-                ]
-            );
+        $dateTime = DateTimeFactory::createFromDatabaseValueAndTCAConfig(
+            $value,
+            // Reconstruct TCA from our ColumnMap
+            [
+                'type' => 'datetime',
+                'format' => $format,
+                'dbType' => $storageFormat,
+                'nullable' => $isNullable,
+            ]
+        );
 
-            return $dateTime === null ? null : match ($targetType) {
-                \DateTimeImmutable::class => $dateTime,
-                \DateTime::class => \DateTime::createFromImmutable($dateTime),
-                default => GeneralUtility::makeInstance($targetType, $dateTime->format('Y-m-d H:i:s.v e')),
-            };
-        }
-
-        $dateTimeTypes = QueryHelper::getDateTimeTypes();
-
-        // Invalid values are converted to NULL
-        if (empty($value) || $value === '0000-00-00' || $value === '0000-00-00 00:00:00' || $value === '00:00:00') {
-            return null;
-        }
-        if (!in_array($storageFormat, $dateTimeTypes, true)) {
-            // Integer timestamps are also stored "as is" in the database, but are UTC by definition,
-            // so we convert the timestamp to an ISO representation.
-            $value = date('c', (int)$value);
-        }
-        // All date/datetime/time values are stored in the database "as is", independent of any time zone information.
-        // It is therefore only important to use the same time zone in PHP when storing and retrieving the values.
-        return GeneralUtility::makeInstance($targetType, $value);
+        return $dateTime === null ? null : match ($targetType) {
+            \DateTimeImmutable::class => $dateTime,
+            \DateTime::class => \DateTime::createFromImmutable($dateTime),
+            default => GeneralUtility::makeInstance($targetType, $dateTime->format('Y-m-d H:i:s.v e')),
+        };
     }
 
     /**
@@ -396,23 +395,73 @@ class DataMapper
      * @param string $propertyName The name of the proxied property in it's parent
      * @param mixed $fieldValue The raw field value.
      * @param bool $enableLazyLoading A flag indication if the related objects should be lazy loaded
-     * @return \TYPO3\CMS\Extbase\Persistence\Generic\LazyObjectStorage|Persistence\QueryResultInterface The result
+     * @return ObjectStorage|Persistence\QueryResultInterface|DomainObjectInterface|array|null The result
      */
     public function fetchRelated(DomainObjectInterface $parentObject, $propertyName, $fieldValue = '', $enableLazyLoading = true)
     {
         $property = $this->reflectionService->getClassSchema(get_class($parentObject))->getProperty($propertyName);
         if ($enableLazyLoading && $property->isLazy()) {
             if ($property->isObjectStorageType()) {
-                $result = GeneralUtility::makeInstance(LazyObjectStorage::class, $parentObject, $propertyName, $fieldValue, $this);
+                $result = $this->createLazyObjectStorage($parentObject, $propertyName, $fieldValue);
             } elseif (empty($fieldValue)) {
                 $result = null;
             } else {
-                $result = GeneralUtility::makeInstance(LazyLoadingProxy::class, $parentObject, $propertyName, $fieldValue, $this);
+                $result = $this->createLazyEntityProxy($parentObject, $propertyName, $fieldValue);
             }
         } else {
             $result = $this->fetchRelatedEager($parentObject, $propertyName, $fieldValue);
         }
         return $result;
+    }
+
+    /**
+     * Creates an ObjectStorage as native PHP lazy ghost object: The storage is a regular
+     * ObjectStorage instance whose content is fetched from the persistence layer on first access.
+     */
+    protected function createLazyObjectStorage(DomainObjectInterface $parentObject, string $propertyName, mixed $fieldValue): ObjectStorage
+    {
+        return new \ReflectionClass(ObjectStorage::class)->newLazyGhost(
+            function (ObjectStorage $objectStorage) use ($parentObject, $propertyName, $fieldValue): void {
+                foreach ($this->fetchRelated($parentObject, $propertyName, $fieldValue, false) as $object) {
+                    $objectStorage->attach($object);
+                }
+                $objectStorage->_memorizeCleanState();
+                $parentObject->_memorizeCleanState($propertyName);
+            }
+        );
+    }
+
+    /**
+     * Creates a native PHP lazy proxy object for a 1:1 or n:1 relation: The proxy is an instance
+     * of the actual target entity class, resolving to the mapped entity on first access. For
+     * direct UID-backed relations, the uid is available without database access.
+     */
+    protected function createLazyEntityProxy(DomainObjectInterface $parentObject, string $propertyName, mixed $fieldValue): DomainObjectInterface
+    {
+        $childClassName = $this->getType(get_class($parentObject), $propertyName);
+        $reflection = new \ReflectionClass($childClassName);
+        $proxy = null;
+        $proxy = $reflection->newLazyProxy(
+            function () use ($parentObject, $propertyName, $fieldValue, $reflection, &$proxy): object {
+                $result = $this->fetchRelated($parentObject, $propertyName, $fieldValue, false);
+                $realInstance = $this->mapResultToPropertyValue($parentObject, $propertyName, $result);
+                if (!is_object($realInstance)) {
+                    // The related record cannot be resolved anymore (deleted or inaccessible):
+                    // Reset the parent property to null (previous behavior of LazyLoadingProxy)
+                    // and expose an empty instance to callers still holding the proxy.
+                    $realInstance = $reflection->newInstanceWithoutConstructor();
+                }
+                if ($parentObject->_getProperty($propertyName) === $proxy) {
+                    $parentObject->_setProperty($propertyName, $realInstance instanceof DomainObjectInterface && $realInstance->getUid() !== null ? $realInstance : null);
+                    $parentObject->_memorizeCleanState($propertyName);
+                }
+                return $realInstance;
+            }
+        );
+        if (MathUtility::canBeInterpretedAsInteger($fieldValue) && !$this->propertyMapsByForeignKey($parentObject, $propertyName)) {
+            $reflection->getProperty('uid')->setRawValueWithoutLazyInitialization($proxy, (int)$fieldValue);
+        }
+        return $proxy;
     }
 
     /**
@@ -480,7 +529,7 @@ class DataMapper
                 //the languageUid is used for getRecordOverlay later on, despite RespectSysLanguage being false
                 $parentLanguageUid = (int)$parentObject->_getProperty(AbstractDomainObject::PROPERTY_LANGUAGE_UID);
                 // do not override the language when the parent language uid is set to all languages (-1)
-                if ($parentLanguageUid !== -1) {
+                if ($parentLanguageUid !== LanguageMarker::ALL_LANGUAGES) {
                     $languageUid = $parentLanguageUid;
                 }
             }
@@ -512,8 +561,7 @@ class DataMapper
     /**
      * Get orderings array for extbase query by columnMap
      *
-     * @phpstan-return array<non-empty-string, QueryInterface::ORDER_*>|null
-     * @return array<string, string>|null
+     * @return array<non-empty-string, QueryInterface::ORDER_*>|null
      */
     public function getOrderingsForColumnMap(ColumnMap $columnMap): ?array
     {
@@ -711,13 +759,10 @@ class DataMapper
      * the correct type and identity (fieldValue), this function returns that object.
      * Otherwise, it proceeds with mapResultToPropertyValue().
      *
-     * @param DomainObjectInterface $parentObject
-     * @param string $propertyName
      * @param mixed $fieldValue the raw field value
-     * @return mixed
      * @see mapResultToPropertyValue()
      */
-    protected function mapObjectToClassProperty(DomainObjectInterface $parentObject, $propertyName, $fieldValue)
+    protected function mapObjectToClassProperty(DomainObjectInterface $parentObject, string $propertyName, $fieldValue)
     {
         if ($this->propertyMapsByForeignKey($parentObject, $propertyName)) {
             $result = $this->fetchRelated($parentObject, $propertyName, $fieldValue);
@@ -738,15 +783,16 @@ class DataMapper
         }
 
         $className = $primaryType->getClassName();
-        if (!is_string($className)) {
+        if ($className === null) {
             throw new \LogicException(
                 sprintf('Evaluated type of class property %s::%s is not a class name. Check the type declaration of the property to use a valid class name.', $parentObject::class, $propertyName),
                 1660217846
             );
         }
 
-        if ($this->persistenceSession->hasIdentifier((string)$fieldValue, $className)) {
-            return $this->persistenceSession->getObjectByIdentifier((string)$fieldValue, $className);
+        $identifier = $this->persistenceSession->buildIdentifier((string)$fieldValue, $this->getEffectiveLanguageAspect());
+        if ($this->persistenceSession->hasIdentifier($identifier, $className)) {
+            return $this->persistenceSession->getObjectByIdentifier($identifier, $className);
         }
 
         $result = $this->fetchRelated($parentObject, $propertyName, $fieldValue);
@@ -775,6 +821,9 @@ class DataMapper
     public function mapResultToPropertyValue(DomainObjectInterface $parentObject, $propertyName, $result)
     {
         $propertyValue = null;
+        if (is_object($result) && new \ReflectionClass($result)->isUninitializedLazyObject($result)) {
+            return $result;
+        }
         if ($result instanceof LoadingStrategyInterface) {
             $propertyValue = $result;
         } else {
@@ -832,9 +881,8 @@ class DataMapper
      *
      * @param string $className The class name you want to fetch the Data Map for
      * @throws Persistence\Generic\Exception
-     * @return DataMap The data map
      */
-    public function getDataMap($className)
+    public function getDataMap($className): DataMap
     {
         if (!is_string($className) || $className === '') {
             throw new Exception('No class name was given to retrieve the Data Map for.', 1251315965);
@@ -864,11 +912,9 @@ class DataMapper
     {
         if (!empty($className)) {
             $dataMap = $this->getDataMap($className);
-            if ($dataMap !== null) {
-                $columnMap = $dataMap->getColumnMap($propertyName);
-                if ($columnMap !== null) {
-                    return $columnMap->columnName;
-                }
+            $columnMap = $dataMap->getColumnMap($propertyName);
+            if ($columnMap !== null) {
+                return $columnMap->columnName;
             }
         }
         return GeneralUtility::camelCaseToLowerCaseUnderscored($propertyName);
@@ -910,25 +956,21 @@ class DataMapper
 
     /**
      * Returns a plain value, i.e. objects are flattened out if possible.
-     * Multi value objects or arrays will be converted to a comma-separated list for use in IN SQL queries.
+     * Multi value objects or arrays will be converted to a comma-separated list for use in "IN" SQL queries.
+     * Caution: We do not return "null" values yet, if so, we need to adapt all places to handle null (see git history of this line)
      *
      * @param mixed $input The value that will be converted.
      * @param ColumnMap|null $columnMap Optional column map for retrieving the date storage format.
-     * @throws \InvalidArgumentException
-     * @throws UnexpectedTypeException
-     * @return int|string
      */
     public function getPlainValue(mixed $input, ?ColumnMap $columnMap = null): int|string
     {
-        if ($this->features->isFeatureEnabled('extbase.consistentDateTimeHandling')) {
-            if ($input instanceof \DateTimeInterface || ($input === null && $columnMap?->type === TableColumnType::DATETIME)) {
-                return QueryHelper::transformDateTimeToDatabaseValue(
-                    $input,
-                    $columnMap->isNullable ?? false,
-                    $columnMap->dateTimeFormat ?? 'datetime',
-                    $columnMap?->dateTimeStorageFormat
-                ) ?? 'NULL';
-            }
+        if ($input instanceof \DateTimeInterface || ($input === null && $columnMap?->type === TableColumnType::DATETIME)) {
+            return QueryHelper::transformDateTimeToDatabaseValue(
+                $input,
+                $columnMap->isNullable ?? false,
+                $columnMap->dateTimeFormat ?? 'datetime',
+                $columnMap?->dateTimeStorageFormat
+            ) ?? 'NULL';
         }
 
         if ($input === null) {
@@ -949,20 +991,6 @@ class DataMapper
 
         if (is_int($input)) {
             return $input;
-        }
-
-        if ($input instanceof \DateTimeInterface) {
-            if ($columnMap !== null && $columnMap->dateTimeStorageFormat !== null) {
-                $storageFormat = $columnMap->dateTimeStorageFormat;
-                return match ($storageFormat) {
-                    'datetime' => $input->format('Y-m-d H:i:s'),
-                    'date' => $input->format('Y-m-d'),
-                    'time' => $input->format('H:i'),
-                    default => throw new \InvalidArgumentException('Column map DateTime format "' . $storageFormat . '" is unknown. Allowed values are date, datetime or time.', 1395353470),
-                };
-            }
-
-            return $input->format('U');
         }
 
         if ($input instanceof Country) {

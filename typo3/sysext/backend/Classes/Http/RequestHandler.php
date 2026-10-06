@@ -23,10 +23,12 @@ use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Backend\Resource\PublicUrlPrefixer;
 use TYPO3\CMS\Backend\Routing\Exception\InvalidRequestTokenException;
 use TYPO3\CMS\Backend\Routing\Exception\MissingRequestTokenException;
+use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\RouteRedirect;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Http\RedirectResponse;
+use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Resource\Event\GeneratePublicUrlForResourceEvent;
 
 /**
@@ -58,32 +60,6 @@ class RequestHandler implements RequestHandlerInterface
     }
 
     /**
-     * Sets the global GET and POST to the values, so if people access $_GET and $_POST
-     * Within hooks starting NOW (e.g. cObject), they get the "enriched" data from query params.
-     *
-     * This needs to be run after the request object has been enriched with modified GET/POST variables.
-     *
-     * @param ServerRequestInterface $request
-     * @internal this safety net will be removed in TYPO3 v11.0.
-     */
-    protected function resetGlobalsToCurrentRequest(ServerRequestInterface $request)
-    {
-        if ($request->getQueryParams() !== $_GET) {
-            $queryParams = $request->getQueryParams();
-            $_GET = $queryParams;
-            $GLOBALS['HTTP_GET_VARS'] = $_GET;
-        }
-        if ($request->getMethod() === 'POST') {
-            $parsedBody = $request->getParsedBody();
-            if (is_array($parsedBody) && $parsedBody !== $_POST) {
-                $_POST = $parsedBody;
-                $GLOBALS['HTTP_POST_VARS'] = $_POST;
-            }
-        }
-        $GLOBALS['TYPO3_REQUEST'] = $request;
-    }
-
-    /**
      * Handles a backend request, after finishing running middlewares
      * Dispatch the request to the appropriate controller through the
      * Backend Dispatcher which resolves the routing
@@ -96,13 +72,21 @@ class RequestHandler implements RequestHandlerInterface
             PublicUrlPrefixer::class,
             'prefixWithSitePath'
         );
-        // safety net to have the fully-added request object globally available as long as
-        // there are Core classes that need the Request object but do not get it handed in
-        $this->resetGlobalsToCurrentRequest($request);
+
+        /** @var Route $route */
+        $route = $request->getAttribute('route');
+        $isAjaxCall = (bool)($route->getOption('ajax') ?? false);
+
+        // b/w compat
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+
         try {
             // Check if the router has the available route and dispatch.
             return $this->dispatcher->dispatch($request);
         } catch (MissingRequestTokenException $e) {
+            if ($isAjaxCall) {
+                return new Response(statusCode: 401);
+            }
             // When token was missing, then redirect to login, but keep the current route as redirect after login
             $loginUrl = $this->uriBuilder->buildUriWithRedirect(
                 'login',
@@ -111,6 +95,9 @@ class RequestHandler implements RequestHandlerInterface
             );
             return new RedirectResponse($loginUrl);
         } catch (InvalidRequestTokenException $e) {
+            if ($isAjaxCall) {
+                return new Response(statusCode: 401);
+            }
             // When token was invalid, then redirect to login
             $loginForm = $this->uriBuilder->buildUriFromRoute('login');
             return new RedirectResponse($loginForm);

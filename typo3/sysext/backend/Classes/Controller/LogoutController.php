@@ -56,11 +56,11 @@ readonly class LogoutController
         $this->processLogout($request);
 
         $redirectUrl = $request->getParsedBody()['redirect'] ?? $request->getQueryParams()['redirect'] ?? '';
-        $redirectUrl = GeneralUtility::sanitizeLocalUrl($redirectUrl);
+        $redirectUrl = GeneralUtility::sanitizeLocalUrl($redirectUrl, $request);
         if (empty($redirectUrl)) {
             $redirectUrl = (string)$this->uriBuilder->buildUriFromRoute('login', [], UriBuilder::ABSOLUTE_URL);
         }
-        return new RedirectResponse(GeneralUtility::locationHeaderUrl($redirectUrl), 303);
+        return new RedirectResponse(GeneralUtility::locationHeaderUrl($redirectUrl, $request), 303);
     }
 
     /**

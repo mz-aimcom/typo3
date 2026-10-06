@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Query;
 use TYPO3\CMS\Extbase\Persistence\QueryInterface;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Tests\BlogExample\Domain\Repository\PostRepository;
@@ -35,7 +36,7 @@ final class OperatorTest extends FunctionalTestCase
     {
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/Fixtures/OperatorTestImport.csv');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $this->get(ConfigurationManagerInterface::class)->setRequest($request);
     }
 
@@ -62,6 +63,7 @@ final class OperatorTest extends FunctionalTestCase
     #[Test]
     public function betweenSetsBoundariesCorrectly(): void
     {
+        /** @var Query $query */
         $query = $this->get(PostRepository::class)->createQuery();
         $query->setOrderings(['uid' => QueryInterface::ORDER_ASCENDING]);
         $query->matching(

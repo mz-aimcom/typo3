@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -28,14 +29,19 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
+    ];
+
+    protected array $pathsToProvideInTestInstance = [
+        'typo3/sysext/frontend/Tests/Functional/Fixtures/Assets/app.css' => 'typo3temp/assets/css/app.css',
+        'typo3/sysext/frontend/Tests/Functional/Fixtures/Assets/app.js' => 'typo3temp/assets/js/app.js',
     ];
 
     protected array $configurationToUseInTestInstance = [
         'FE' => [
             'cacheHash' => [
-                'excludedParameters' => ['useAbsoluteUrls', 'testCompressor'],
+                'excludedParameters' => ['useAbsoluteUrls'],
             ],
         ],
     ];
@@ -44,29 +50,32 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
      * @var string[]
      */
     private array $definedResources = [
-        'absoluteCSS' => '/typo3/sysext/backend/Resources/Public/Css/backend.css',
-        'relativeCSS' => 'typo3/sysext/backend/Resources/Public/Css/backend.css',
         'extensionCSS' => 'EXT:rte_ckeditor/Resources/Public/Css/contents.css',
         'externalCSS' => 'https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css',
-        'absoluteJS' => '/typo3/sysext/backend/Resources/Public/JavaScript/backend.js',
-        'relativeJS' => 'typo3/sysext/core/Resources/Public/JavaScript/Contrib/autosize.js',
-        'extensionJS' => 'EXT:core/Resources/Public/JavaScript/Contrib/jquery.js',
+        'extensionJS' => 'EXT:core/Resources/Public/JavaScript/Contrib/luxon.js',
         'externalJS' => 'https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js',
-        'localImage' => 'typo3/sysext/frontend/Resources/Public/Icons/Extension.svg',
+        'localImage' => 'EXT:frontend/Resources/Public/Icons/Extension.svg',
+        'falImage' => 'EXT:frontend/Resources/Public/Icons/FileIcons/ico.gif',
+        'assetExtensionCSS' => 'EXT:backend/Resources/Public/Css/webfonts.css',
+        'assetExtensionJS' => 'EXT:frontend/Resources/Public/JavaScript/default_frontend.js',
+        'assetLocalCSS' => 'typo3temp/assets/css/app.css',
+        'assetLocalJS' => 'typo3temp/assets/js/app.js',
     ];
 
     /**
      * @var string[]
      */
     private array $resolvedResources = [
-        'relativeCSS' => 'typo3/sysext/backend/Resources/Public/Css/backend.css',
-        'extensionCSS' => 'typo3/sysext/rte_ckeditor/Resources/Public/Css/contents.css',
         'externalCSS' => 'https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css',
-        'relativeJS' => 'typo3/sysext/core/Resources/Public/JavaScript/Contrib/autosize.js',
-        'extensionJS' => 'typo3/sysext/core/Resources/Public/JavaScript/Contrib/jquery.js',
+        'extensionJS' => 'typo3/sysext/core/Resources/Public/JavaScript/Contrib/luxon.js',
         'externalJS' => 'https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.0.11/handlebars.min.js',
         'localImage' => 'typo3/sysext/frontend/Resources/Public/Icons/Extension.svg',
+        'falImage' => 'typo3/sysext/frontend/Resources/Public/Icons/FileIcons/ico.gif',
         'link' => '/en/dummy-1-4-10',
+        'assetExtensionCSS' => 'typo3/sysext/backend/Resources/Public/Css/webfonts.css',
+        'assetExtensionJS' => 'typo3/sysext/frontend/Resources/Public/JavaScript/default_frontend.js',
+        'assetLocalCSS' => 'typo3temp/assets/css/app.css',
+        'assetLocalJS' => 'typo3temp/assets/js/app.js',
     ];
 
     protected array $coreExtensionsToLoad = ['rte_ckeditor'];
@@ -74,6 +83,13 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Where an extension serves its public resources from differs by installation mode.
+        foreach ($this->definedResources as $key => $definedResource) {
+            if (str_starts_with($definedResource, 'EXT:') && isset($this->resolvedResources[$key])) {
+                $uri = (string)PathUtility::getSystemResourceUri($definedResource);
+                $this->resolvedResources[$key] = ltrim(explode('?', $uri)[0], '/');
+            }
+        }
         $this->importCsvDataSet(__DIR__ . '/../Fixtures/pages_frontend.csv');
         $this->writeSiteConfiguration(
             'test',
@@ -95,127 +111,42 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
 
     public static function urisAreRenderedUsingForceAbsoluteUrlsDataProvider(): \Generator
     {
-        // no compression settings
-        yield 'none - none' => [
-            'none', 'none',
+        yield 'none' => [
+            'none',
             [
-                'absolute' => '"/{{CANDIDATE}}"',
-                'local' => '"/{{CANDIDATE}}"',
-                'relative' => '"/{{CANDIDATE}}\?\d+"',
-                'extension' => '"/{{CANDIDATE}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="{{CANDIDATE}}"',
+                'local' => ['url' => '"/{{CANDIDATE}}"', 'count' => 1],
+                'extension' => ['url' => '"/{{CANDIDATE}}\?\d+"', 'count' => 3],
+                'external' => ['url' => '"{{CANDIDATE}}"', 'count' => 1],
+                'link' => ['url' => 'href="{{CANDIDATE}}"', 'count' => 1],
+                'asset' => ['url' => '"/{{CANDIDATE}}\?\d+"', 'count' => 1],
             ],
         ];
-        yield 'with-prefix - none' => [
-            '1', 'none',
+        yield 'with-prefix' => [
+            '1',
             [
-                'absolute' => '"http://localhost/{{CANDIDATE}}"',
-                'local' => '"http://localhost/{{CANDIDATE}}"',
-                'relative' => '"http://localhost/{{CANDIDATE}}\?\d+"',
-                'extension' => '"http://localhost/{{CANDIDATE}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="http://localhost{{CANDIDATE}}"',
+                'local' => ['url' => '"http://localhost/{{CANDIDATE}}"', 'count' => 1],
+                'extension' => ['url' => '"http://localhost/{{CANDIDATE}}\?\d+"', 'count' => 3],
+                'external' => ['url' => '"{{CANDIDATE}}"', 'count' => 1],
+                'link' => ['url' => 'href="http://localhost{{CANDIDATE}}"', 'count' => 1],
+                'asset' => ['url' => '"http://localhost/{{CANDIDATE}}\?\d+"', 'count' => 1],
             ],
         ];
-        // concatenation
-        yield 'none - concatenate' => [
-            '0', 'concatenate',
+        yield 'without-global-config' => [
+            '2',
             [
-                '!absolute' => '{{CANDIDATE}}',
-                '!relative' => '{{CANDIDATE}}',
-                '!extension' => '{{CANDIDATE}}',
-                'absolute' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"/{{CANDIDATE}}"',
-                'relative' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="{{CANDIDATE}}"',
-            ],
-        ];
-        yield 'with-prefix - concatenate' => [
-            '1', 'concatenate',
-            [
-                '!absolute' => 'http://localhost/{{CANDIDATE}}',
-                '!relative' => 'http://localhost/{{CANDIDATE}}',
-                '!extension' => 'http://localhost/{{CANDIDATE}}',
-                'absolute' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"http://localhost/{{CANDIDATE}}"',
-                'relative' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="http://localhost{{CANDIDATE}}"',
-            ],
-        ];
-        // compression
-        yield 'none - compress' => [
-            '0', 'compress',
-            [
-                '!absolute' => '{{CANDIDATE}}',
-                '!relative' => '/{{CANDIDATE}}',
-                '!extension' => '/{{CANDIDATE}}',
-                'absolute' => '"/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"/{{CANDIDATE}}"',
-                'relative' => '"/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="{{CANDIDATE}}"',
-            ],
-        ];
-        yield 'with-prefix - compress' => [
-            '1', 'compress',
-            [
-                '!absolute' => 'http://localhost/{{CANDIDATE}}',
-                '!relative' => 'http://localhost/{{CANDIDATE}}',
-                '!extension' => 'http://localhost/{{CANDIDATE}}',
-                'absolute' => '"http://localhost/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"http://localhost/{{CANDIDATE}}"',
-                'relative' => '"http://localhost/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"http://localhost/typo3temp/assets/compressed/{{CANDIDATE-FILENAME}}-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="http://localhost{{CANDIDATE}}"',
-            ],
-        ];
-        // concatenation & compression
-        yield 'no prefix - concatenate-and-compress' => [
-            '0', 'concatenate-and-compress',
-            [
-                '!absolute' => '{{CANDIDATE}}',
-                '!relative' => '/{{CANDIDATE}}',
-                '!extension' => '/{{CANDIDATE}}',
-                'absolute' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"/{{CANDIDATE}}"',
-                'relative' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="{{CANDIDATE}}"',
-            ],
-        ];
-        yield 'with prefix - concatenate-and-compress' => [
-            '1', 'concatenate-and-compress',
-            [
-                '!absolute' => 'http://localhost/{{CANDIDATE}}',
-                '!relative' => 'http://localhost/{{CANDIDATE}}',
-                '!extension' => 'http://localhost/{{CANDIDATE}}',
-                'absolute' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'local' => '"http://localhost/{{CANDIDATE}}"',
-                'relative' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'extension' => '"http://localhost/typo3temp/assets/compressed/merged-[a-z0-9]+-[a-z0-9]+\.{{CANDIDATE-EXTENSION}}\?\d+"',
-                'external' => '"{{CANDIDATE}}"',
-                'link' => 'href="http://localhost{{CANDIDATE}}"',
+                'fal' => ['url' => 'href="http://localhost/{{CANDIDATE}}"', 'count' => 1],
             ],
         ];
     }
 
     #[DataProvider('urisAreRenderedUsingForceAbsoluteUrlsDataProvider')]
     #[Test]
-    public function urisAreRenderedUsingAbsRefPrefix(string $useAbsoluteUrls, string $compressorAspect, array $expectations): void
+    public function urisAreRenderedUsingAbsRefPrefix(string $useAbsoluteUrls, array $expectations): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withQueryParameters([
+            new InternalRequest()->withQueryParameters([
                 'id' => 1,
                 'useAbsoluteUrls' => $useAbsoluteUrls,
-                'testCompressor' => $compressorAspect,
             ])
         );
         $content = (string)$response->getBody();
@@ -250,7 +181,7 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
                         preg_quote($pathInfo['filename'], '#'),
                         preg_quote($pathInfo['extension'] ?? '', '#'),
                     ],
-                    $expectation
+                    $expectation['url']
                 );
 
                 if ($shallExist) {
@@ -264,6 +195,8 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
                         $content
                     );
                 }
+                preg_match_all('#' . $pattern . '#', $content, $matches);
+                self::assertCount($expectation['count'], $matches[0]);
             }
         }
     }
@@ -271,7 +204,7 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
     /**
      * Adds TypoScript constants snippet to the existing template record
      */
-    protected function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
+    private function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
     {
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_template');
 
@@ -288,7 +221,7 @@ final class AbsoluteUriPrefixRenderingTest extends FunctionalTestCase
         );
     }
 
-    protected function compileTypoScriptConstants(array $constants): string
+    private function compileTypoScriptConstants(array $constants): string
     {
         $lines = [];
         foreach ($constants as $constantName => $constantValue) {

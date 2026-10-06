@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Backend\ElementBrowser;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\PageRendererBackendSetupTrait;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -46,24 +47,9 @@ abstract class AbstractElementBrowser
     protected string $identifier = '';
 
     /**
-     * Active with TYPO3 Element Browser: Contains the name of the form field for which this window
-     * opens - thus allows us to make references back to the main window in which the form is.
-     * Example value: "data[pages][39][bodytext]|||tt_content|"
-     * or "data[tt_content][NEW3fba56fde763d][image]|||gif,jpg,jpeg,tif,bmp,pcx,tga,png,pdf,ai|"
-     * Values:
-     * 0: form field name reference, eg. "data[tt_content][123][image]"
-     * 1: htmlArea RTE parameters: editorNo:contentTypo3Language
-     * 2: RTE config parameters: RTEtsConfigParams
-     * 3: allowed types. Eg. "tt_content" or "gif,jpg,jpeg,tif,bmp,pcx,tga,png,pdf,ai"
-     * 4: IRRE uniqueness: target level object-id to perform actions/checks on, eg. "data-4-pages-4-nav_icon-sys_file_reference" ("data-<uid>-<table>-<pid>-<field>-<foreign_table>")
-     *
-     * $pArr = explode('|', $this->bparams);
-     * $formFieldName = $pArr[0];
-     * $allowedTablesOrFileTypes = $pArr[3];
-     *
-     * @var string
+     * Typed DTO containing all browser parameters.
      */
-    protected $bparams = '';
+    protected ElementBrowserParameters $browserParameters;
 
     protected ?ServerRequestInterface $request = null;
     protected ViewInterface $view;
@@ -75,6 +61,7 @@ abstract class AbstractElementBrowser
         protected readonly ExtensionConfiguration $extensionConfiguration,
         protected readonly BackendViewFactory $backendViewFactory,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly ComponentFactory $componentFactory,
     ) {}
 
     /**
@@ -86,7 +73,7 @@ abstract class AbstractElementBrowser
         $view = $this->backendViewFactory->create($request);
         $this->view = $view;
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/element-browser.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/viewport/resizable-navigation.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/hotkeys.js');
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_misc.xlf');
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_core.xlf');
         $this->initVariables($request);
@@ -102,7 +89,7 @@ abstract class AbstractElementBrowser
 
     protected function initVariables(ServerRequestInterface $request)
     {
-        $this->bparams = $request->getParsedBody()['bparams'] ?? $request->getQueryParams()['bparams'] ?? '';
+        $this->browserParameters = ElementBrowserParameters::fromRequest($request);
     }
 
     protected function getBodyTagParameters(): string
@@ -123,25 +110,13 @@ abstract class AbstractElementBrowser
     }
 
     /**
-     * Splits parts of $this->bparams and returns needed data attributes for the Javascript
+     * Returns data attributes for the body tag, used by the Javascript.
      *
-     * @return array<string, string> Data attributes for Javascript
+     * @return array<string, string|null> Data attributes for Javascript
      */
     protected function getBParamDataAttributes()
     {
-        $params = explode('|', $this->bparams);
-        $fieldRef = $params[0];
-        $rteParams = $params[1] ?? null;
-        $rteConfig = $params[2] ?? null;
-        $irreObjectId = $params[4] ?? null;
-
-        return [
-            'data-form-field-name' => 'data[' . $fieldRef . '][' . $rteParams . '][' . $rteConfig . ']',
-            'data-field-reference' => $fieldRef,
-            'data-rte-parameters' => $rteParams,
-            'data-rte-configuration' => $rteConfig,
-            'data-irre-object-id' => $irreObjectId,
-        ];
+        return $this->browserParameters->toDataAttributes();
     }
 
     public function setRequest(ServerRequestInterface $request): void

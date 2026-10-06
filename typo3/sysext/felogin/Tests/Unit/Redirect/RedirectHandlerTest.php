@@ -17,17 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\FrontendLogin\Tests\Unit\Redirect;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
-use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Context\Context;
-use TYPO3\CMS\Core\Context\UserAspect;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
-use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 use TYPO3\CMS\FrontendLogin\Configuration\RedirectConfiguration;
 use TYPO3\CMS\FrontendLogin\Redirect\RedirectHandler;
 use TYPO3\CMS\FrontendLogin\Redirect\RedirectMode;
@@ -35,23 +32,20 @@ use TYPO3\CMS\FrontendLogin\Redirect\RedirectModeHandler;
 use TYPO3\CMS\FrontendLogin\Validation\RedirectUrlValidator;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class RedirectHandlerTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
-    protected RedirectHandler $subject;
-    protected ServerRequestInterface $typo3Request;
-    protected MockObject&RedirectModeHandler $redirectModeHandler;
-    protected MockObject&RedirectUrlValidator $redirectUrlValidator;
+
+    private RedirectHandler $subject;
+    private MockObject&RedirectModeHandler $redirectModeHandler;
+    private MockObject&RedirectUrlValidator $redirectUrlValidator;
 
     protected function setUp(): void
     {
         parent::setUp();
-
         $this->redirectModeHandler = $this->createMock(RedirectModeHandler::class);
         $this->redirectUrlValidator = $this->createMock(RedirectUrlValidator::class);
-
-        $GLOBALS['TSFE'] = $this->getMockBuilder(TypoScriptFrontendController::class)->disableOriginalConstructor()->getMock();
-
         $this->subject = new RedirectHandler(
             $this->redirectModeHandler,
             $this->redirectUrlValidator,
@@ -69,22 +63,13 @@ final class RedirectHandlerTest extends UnitTestCase
     #[Test]
     public function processShouldReturnStringForLoginTypeLogout(string $expect, string $redirectMode): void
     {
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = new Request($serverRequest);
 
-        $this->redirectModeHandler->method('redirectModeLogout')->with($request, 0)->willReturn('');
+        $this->redirectModeHandler->expects($this->atMost(PHP_INT_MAX))->method('redirectModeLogout')->with($request, 0)->willReturn('');
 
         $result = $this->subject->processRedirect($request, 'logout', new RedirectConfiguration($redirectMode, '', 0, '', 0, 0), '');
         self::assertEquals($expect, $result);
-    }
-
-    protected function getContextMockWithUserLoggedIn(bool $userLoggedIn = true): Context
-    {
-        $mockUserAuthentication = $this->getMockBuilder(FrontendUserAuthentication::class)->disableOriginalConstructor()->getMock();
-        $mockUserAuthentication->user['uid'] = $userLoggedIn ? 1 : 0;
-        $context = new Context();
-        $context->setAspect('frontend.user', new UserAspect($mockUserAuthentication));
-        return $context;
     }
 
     public static function getLoginFormRedirectUrlDataProvider(): array
@@ -131,7 +116,7 @@ final class RedirectHandlerTest extends UnitTestCase
             new Context()
         );
 
-        $serverRequest = (new ServerRequest())->withQueryParams(['redirect_url' => $redirectUrl])->withAttribute('extbase', new ExtbaseRequestParameters());
+        $serverRequest = new ServerRequest()->withQueryParams(['redirect_url' => $redirectUrl])->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = new Request($serverRequest);
 
         if ($redirectUrl === $expected) {
@@ -145,7 +130,7 @@ final class RedirectHandlerTest extends UnitTestCase
     #[Test]
     public function getReferrerForLoginFormReturnsEmptyStringIfRedirectModeReferrerDisabled(): void
     {
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = new Request($serverRequest);
         $settings = ['redirectMode' => RedirectMode::LOGIN];
         self::assertEquals('', $this->subject->getReferrerForLoginForm($request, $settings));
@@ -155,7 +140,7 @@ final class RedirectHandlerTest extends UnitTestCase
     public function getReferrerForLoginFormReturnsReferrerGetParameter(): void
     {
         $expectedReferrer = 'https://example.com/page-referrer';
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withQueryParams(['referer' => $expectedReferrer]);
         $request = new Request($serverRequest);
         $this->redirectUrlValidator->expects($this->once())->method('isValid')->with($request, $expectedReferrer)->willReturn(true);
@@ -167,7 +152,7 @@ final class RedirectHandlerTest extends UnitTestCase
     public function getReferrerForLoginFormReturnsReferrerPostParameter(): void
     {
         $expectedReferrer = 'https://example.com/page-referrer';
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withParsedBody(['referer' => $expectedReferrer]);
         $request = new Request($serverRequest);
         $this->redirectUrlValidator->expects($this->once())->method('isValid')->with($request, $expectedReferrer)->willReturn(true);
@@ -179,7 +164,7 @@ final class RedirectHandlerTest extends UnitTestCase
     public function getReferrerForLoginFormReturnsHttpReferrerParameter(): void
     {
         $expectedReferrer = 'https://example.com/page-referrer';
-        $serverRequest = (new ServerRequest('/login', 'GET', 'php://input', [], ['HTTP_REFERER' => $expectedReferrer]))
+        $serverRequest = new ServerRequest('/login', 'GET', 'php://input', [], ['HTTP_REFERER' => $expectedReferrer])
             ->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = new Request($serverRequest);
         $this->redirectUrlValidator->expects($this->once())->method('isValid')->with($request, $expectedReferrer)->willReturn(true);
@@ -191,7 +176,7 @@ final class RedirectHandlerTest extends UnitTestCase
     public function getReferrerForLoginFormReturnsOriginalRequestUrlIfCalledBySubRequest(): void
     {
         $expectedReferrer = 'https://example.com/original-page';
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('originalRequest', new ServerRequest($expectedReferrer));
         $request = new Request($serverRequest);
         $this->redirectUrlValidator->expects($this->once())->method('isValid')->with($request, $expectedReferrer)->willReturn(true);
@@ -202,13 +187,13 @@ final class RedirectHandlerTest extends UnitTestCase
     #[Test]
     public function getReferrerForLoginFormReturnsNoUrlIfRedirectReferrerIsOff(): void
     {
-        $serverRequest = (new ServerRequest(
+        $serverRequest = new ServerRequest(
             '/login',
             'GET',
             'php://input',
             [],
             ['HTTP_REFERER' => 'https://example.com/page-referrer']
-        ))->withQueryParams(['tx_felogin_login' => ['redirectReferrer' => 'off']])
+        )->withQueryParams(['tx_felogin_login' => ['redirectReferrer' => 'off']])
             ->withAttribute('extbase', new ExtbaseRequestParameters());
         $request = new Request($serverRequest);
         $this->redirectUrlValidator->expects($this->never())->method('isValid');

@@ -16,12 +16,19 @@ import { SeverityEnum } from './enum/severity';
 import AjaxDataHandler from './ajax-data-handler';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import InfoWindow from './info-window';
-import Modal from './modal';
+import Modal, { type ModalElement } from './modal';
 import ModuleMenu from './module-menu';
 import Notification from '@typo3/backend/notification';
 import Viewport from './viewport';
 import '@typo3/backend/new-record-wizard';
 import Utility from '@typo3/backend/utility';
+import { topLevelModuleImport } from '@typo3/backend/utility/top-level-module-import';
+import { html } from 'lit';
+import coreCommonLabels from '~labels/core.common';
+import cacheLabels from '~labels/core.cache';
+import listLabels from '~labels/core.mod_web_list';
+import layoutLabels from '~labels/backend.layout';
+import { openPageWizardModal } from '@typo3/backend/page-wizard/helper/wizard-helper';
 
 /**
  * @exports @typo3/backend/context-menu-actions
@@ -47,6 +54,7 @@ class ContextMenuActions {
       top.TYPO3.settings.FormEngine.moduleUrl
       + '&edit[' + table + '][' + uid + ']=edit'
       + overrideVals
+      + '&module=' + encodeURIComponent(top.TYPO3.ModuleMenu.App.getCurrentModule())
       + '&returnUrl=' + ContextMenuActions.getReturnUrl(),
     );
   }
@@ -61,6 +69,36 @@ class ContextMenuActions {
         previewWin.location.reload();
       }
     }
+  }
+
+  public static async showQrCode(table: string, uid: number, dataset: DOMStringMap): Promise<void> {
+    const previewUrl = dataset.previewUrl;
+    if (!previewUrl) {
+      return;
+    }
+    await topLevelModuleImport('@typo3/backend/element/qrcode-element.js');
+    Modal.advanced({
+      title: layoutLabels.get('showPageQrCode.modalTitle'),
+      size: Modal.sizes.small,
+      content: html`
+        <div class="text-center">
+          <typo3-qrcode
+            class="text-start"
+            content="${previewUrl}"
+            size="large"
+            show-url
+          ></typo3-qrcode>
+        </div>
+      `,
+      buttons: [
+        {
+          text: listLabels.get('button.close'),
+          btnClass: 'btn-default',
+          name: 'close',
+          trigger: (event: Event, modal: ModalElement) => modal.hideModal(),
+        },
+      ],
+    });
   }
 
   public static openInfoPopUp(table: string, uid: number): void {
@@ -103,6 +141,16 @@ class ContextMenuActions {
    * Create new records on the same level. Pages are being inserted "inside".
    */
   public static newRecord(table: string, uid: number): void {
+    if (table === 'pages') {
+      openPageWizardModal({
+        positionData: {
+          pageUid: parseInt(String(uid), 10),
+          insertPosition: 'inside'
+        }
+      });
+      return;
+    }
+
     Viewport.ContentContainer.setUrl(
       top.TYPO3.settings.FormEngine.moduleUrl + '&edit[' + table + '][' + (table !== 'pages' ? '-' : '') + uid + ']=new&returnUrl=' + ContextMenuActions.getReturnUrl(),
     );
@@ -116,13 +164,27 @@ class ContextMenuActions {
 
   public static openListModule(table: string, uid: number, dataset: DOMStringMap): void {
     const pageId = table === 'pages' ? uid : dataset.pageUid;
-    ModuleMenu.App.showModule('web_list', 'id=' + pageId);
+    ModuleMenu.App.showModule('records', 'id=' + pageId);
   }
 
   public static pagesSort(table: string, uid: number, dataset: DOMStringMap): void {
     const pagesSortUrl = dataset.pagesSortUrl;
     if (pagesSortUrl) {
       Viewport.ContentContainer.setUrl(pagesSortUrl);
+    }
+  }
+
+  public static openSiteSettings(table: string, uid: number, dataset: DOMStringMap): void {
+    const siteSettingsUrl = dataset.siteSettingsUrl;
+    if (siteSettingsUrl) {
+      Viewport.ContentContainer.setUrl(siteSettingsUrl + '&returnUrl=' + ContextMenuActions.getReturnUrl());
+    }
+  }
+
+  public static openSiteConfiguration(table: string, uid: number, dataset: DOMStringMap): void {
+    const siteConfigurationUrl = dataset.siteConfigurationUrl;
+    if (siteConfigurationUrl) {
+      Viewport.ContentContainer.setUrl(siteConfigurationUrl + '&returnUrl=' + ContextMenuActions.getReturnUrl());
     }
   }
 
@@ -173,13 +235,13 @@ class ContextMenuActions {
       dataset.message,
       SeverityEnum.warning, [
         {
-          text: dataset.buttonCloseText || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: dataset.buttonCloseText || coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: dataset.buttonOkText || TYPO3.lang['button.delete'] || 'Delete',
+          text: dataset.buttonOkText || listLabels.get('button.delete'),
           btnClass: 'btn-warning',
           name: 'delete',
         },
@@ -239,18 +301,25 @@ class ContextMenuActions {
    * Clear cache for given page uid
    */
   public static clearCache(table: string, uid: number): void {
-    (new AjaxRequest(TYPO3.settings.ajaxUrls.web_list_clearpagecache)).withQueryArguments({ id: uid }).get({ cache: 'no-cache' }).then(
+    (new AjaxRequest(TYPO3.settings.ajaxUrls.clearcache_page)).post({ id: uid }).then(
       async (response: AjaxResponse): Promise<void> => {
         const data = await response.resolve();
-        if (data.success === true) {
-          Notification.success(data.title, data.message, 1);
+        if (data?.success === false) {
+          Notification.error(
+            data.title ?? cacheLabels.get('notification.error.title'),
+            data.message ?? cacheLabels.get('notification.error.message'),
+          );
         } else {
-          Notification.error(data.title, data.message, 1);
+          Notification.success(
+            data?.title ?? cacheLabels.get('notification.success.title'),
+            data?.message ?? cacheLabels.get('notification.success.message'),
+          );
         }
       },
       (): void => {
         Notification.error(
-          'Clearing page caches went wrong on the server side.',
+          cacheLabels.get('notification.error.title'),
+          cacheLabels.get('notification.error.message')
         );
       }
     );
@@ -293,13 +362,13 @@ class ContextMenuActions {
       dataset.message,
       SeverityEnum.warning, [
         {
-          text: dataset.buttonCloseText || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: dataset.buttonCloseText || coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
         },
         {
-          text: dataset.buttonOkText || TYPO3.lang['button.ok'] || 'OK',
+          text: dataset.buttonOkText || coreCommonLabels.get('ok'),
           btnClass: 'btn-warning',
           name: 'ok',
         },

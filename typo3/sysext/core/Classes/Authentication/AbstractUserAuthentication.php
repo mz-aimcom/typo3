@@ -300,31 +300,26 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
     }
 
     /**
-     * Used to apply a cookie to a PSR-7 Response.
+     * The cookie behavior (send, remove or none) as evaluated during
+     * authentication, to be applied to the response by a middleware
+     * via SetCookieService::applyCookieToResponse().
      *
-     * @todo: should go into a middleware?
      * @internal
      */
-    public function appendCookieToResponse(ResponseInterface $response, ?NormalizedParams $normalizedParams = null): ResponseInterface
+    public function getCookieBehavior(): SetCookieBehavior
     {
-        if ($this->setCookie === SetCookieBehavior::None) {
-            return $response;
-        }
-        if ($normalizedParams === null) {
-            $normalizedParams = NormalizedParams::createFromRequest($GLOBALS['TYPO3_REQUEST']);
-        }
-        $setCookieService = SetCookieService::create($this->name, $this->loginType);
-        if ($this->setCookie === SetCookieBehavior::Send) {
-            $cookieObject = $setCookieService->setSessionCookie($this->userSession, $normalizedParams);
-            if ($cookieObject) {
-                $response = $response->withAddedHeader('Set-Cookie', $cookieObject->__toString());
-            }
-        }
-        if ($this->setCookie === SetCookieBehavior::Remove) {
-            $cookieObject = $setCookieService->removeCookie($normalizedParams);
-            $response = $response->withAddedHeader('Set-Cookie', $cookieObject->__toString());
-        }
-        return $response;
+        return $this->setCookie;
+    }
+
+    /**
+     * Used to apply a cookie to a PSR-7 Response.
+     *
+     * @internal use SetCookieService::applyCookieToResponse() instead
+     */
+    public function appendCookieToResponse(ResponseInterface $response, NormalizedParams $normalizedParams): ResponseInterface
+    {
+        return SetCookieService::create($this->name, $this->loginType)
+            ->applyCookieToResponse($response, $this->userSession, $this->setCookie, $normalizedParams);
     }
 
     /**
@@ -405,7 +400,7 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
         // Active logout (eg. with "logout" button)
         if ($type === LoginType::LOGOUT) {
             if ($this->writeStdLog) {
-                $this->writelog(SystemLogType::LOGIN, SystemLogLoginAction::LOGOUT, SystemLogErrorClassification::MESSAGE, null, 'User %s logged out', [$this->user['username']], '', 0);
+                $this->writelog(SystemLogType::LOGIN, SystemLogLoginAction::LOGOUT, SystemLogErrorClassification::MESSAGE, null, 'User %s logged out', [$this->user['username'] ?? ''], '', 0);
             }
             $this->logger->info('User logged out. Id: {session}', ['session' => sha1($this->userSession->getIdentifier())]);
             $this->logoff();
@@ -470,9 +465,14 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
 
             $requestTokenScopeMatches = ($requestToken->scope ?? null) === 'core/user-auth/' . strtolower($this->loginType);
             if (!$requestTokenScopeMatches) {
-                $this->logger->debug('Missing or invalid request token during login', ['requestToken' => $requestToken]);
+                $this->logger->warning('Missing or invalid request token during login', ['requestToken' => $requestToken]);
                 // important: disable `$activeLogin` state
                 $activeLogin = false;
+                // Announce the failed login attempt, since the credentials are never
+                // evaluated when the request token is missing or invalid
+                GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+                    new LoginAttemptFailedEvent($this, $request, $this->removeSensitiveLoginDataForLoggingInfo($loginData))
+                );
             } elseif ($requestToken instanceof RequestToken && $requestToken->getSigningSecretIdentifier() !== null) {
                 $securityAspect->getSigningSecretResolver()->revokeIdentifier(
                     $requestToken->getSigningSecretIdentifier()
@@ -591,12 +591,12 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
                 }
                 $this->logger->info('User {username} logged in from {ip}', [
                     'username' => $userRecordCandidate[$this->username_column],
-                    'ip' => GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                    'ip' => $request->getAttribute('normalizedParams')->getRemoteAddress(),
                 ]);
             } else {
                 $this->logger->debug('User {username} authenticated from {ip}', [
                     'username' => $userRecordCandidate[$this->username_column],
-                    'ip' => GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                    'ip' => $request->getAttribute('normalizedParams')->getRemoteAddress(),
                 ]);
             }
             // Check if multi-factor authentication is required
@@ -986,7 +986,7 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
      * The data is stored with the session ID, so you can even check upon retrieval
      * if the module data is from a previous session or from the current session.
      *
-     * @param string $module Is the identifier of the module, e.g. "web_info"
+     * @param string $module Is the identifier of the module, e.g. "content_status"
      * @param mixed $data Is the data you want to store for that module (array, string, ...)
      * @param bool $dontPersistImmediately If set, then the ->uc array (which carries all kinds of user data) is NOT written immediately, but must be written by some subsequent call.
      */
@@ -1007,7 +1007,7 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
     /**
      * Gets module data for a module (from a loaded ->uc array)
      *
-     * @param string $module Is the identifier of the module, e.g. "web_info"
+     * @param string $module Is the identifier of the module, e.g. "content_status"
      * @param string $type If $type = 'ses' then module data is returned only if it was stored in the current session, otherwise data from a previous session will be returned (if available).
      * @return mixed The module data if available: $this->uc['moduleData'][$module];
      */
@@ -1170,10 +1170,11 @@ abstract class AbstractUserAuthentication implements LoggerAwareInterface
         $authInfo = [];
         $authInfo['loginType'] = $this->loginType;
         $authInfo['request'] = $request;
-        $authInfo['refInfo'] = parse_url(GeneralUtility::getIndpEnv('HTTP_REFERER'));
-        $authInfo['HTTP_HOST'] = GeneralUtility::getIndpEnv('HTTP_HOST');
-        $authInfo['REMOTE_ADDR'] = GeneralUtility::getIndpEnv('REMOTE_ADDR');
-        $authInfo['REMOTE_HOST'] = GeneralUtility::getIndpEnv('REMOTE_HOST');
+        $normalizedParams = $request->getAttribute('normalizedParams');
+        $authInfo['refInfo'] = $normalizedParams ? parse_url($normalizedParams->getHttpReferer()) : null;
+        $authInfo['HTTP_HOST'] = $normalizedParams?->getHttpHost();
+        $authInfo['REMOTE_ADDR'] = $normalizedParams?->getRemoteAddress();
+        $authInfo['REMOTE_HOST'] = $normalizedParams?->getRemoteHost();
         // Can be overridden in localconf by SVCONF:
         $authInfo['db_user']['table'] = $this->user_table;
         $authInfo['db_user']['userid_column'] = $this->userid_column;

@@ -26,35 +26,30 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class BackendLayoutViewTest extends FunctionalTestCase
 {
-    private const RUNTIME_CACHE_ENTRY = 'backendUtilityBeGetRootLine';
+    private const string RUNTIME_CACHE_ENTRY = 'backendUtilityBeGetRootLine';
+
+    protected bool $initializeDatabase = false;
 
     private FrontendInterface $runtimeCache;
-    private BackendLayoutView $subject;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->runtimeCache = $this->get(CacheManager::class)->getCache('runtime');
-        $this->subject = $this->get(BackendLayoutView::class);
     }
 
     protected function tearDown(): void
     {
-        $this->runtimeCache->remove(self::RUNTIME_CACHE_ENTRY);
+        $this->runtimeCache->flush();
         parent::tearDown();
     }
 
-    #[DataProvider('selectedCombinedIdentifierIsDeterminedDataProvider')]
-    #[Test]
-    public function selectedCombinedIdentifierIsDetermined(false|string $expected, array $page, array $rootLine): void
+    private function mockRootLine(int $pageId, array $rootLine): void
     {
-        $pageId = $page['uid'];
-        if ($pageId !== false) {
-            $this->mockRootLine((int)$pageId, $rootLine);
-        }
-
-        $selectedCombinedIdentifier = $this->subject->getSelectedCombinedIdentifier($pageId);
-        self::assertEquals($expected, $selectedCombinedIdentifier);
+        $this->runtimeCache->set(self::RUNTIME_CACHE_ENTRY, [
+            $pageId . '--' => $rootLine, // plain, no overlay
+            $pageId . '--1' => $rootLine, // workspace overlay
+        ]);
     }
 
     public static function selectedCombinedIdentifierIsDeterminedDataProvider(): array
@@ -196,11 +191,17 @@ final class BackendLayoutViewTest extends FunctionalTestCase
         ];
     }
 
-    private function mockRootLine(int $pageId, array $rootLine): void
+    #[DataProvider('selectedCombinedIdentifierIsDeterminedDataProvider')]
+    #[Test]
+    public function selectedCombinedIdentifierIsDetermined(false|string $expected, array $page, array $rootLine): void
     {
-        $this->runtimeCache->set(self::RUNTIME_CACHE_ENTRY, [
-            $pageId . '--' => $rootLine, // plain, no overlay
-            $pageId . '--1' => $rootLine, // workspace overlay
-        ]);
+        $pageId = $page['uid'];
+        if ($pageId !== false) {
+            $this->mockRootLine((int)$pageId, $rootLine);
+        }
+        $subject = $this->get(BackendLayoutView::class);
+        $getSelectedCombinedIdentifierMethod = (new \ReflectionMethod($subject, 'getSelectedCombinedIdentifier'));
+        $result = $getSelectedCombinedIdentifierMethod->invoke($subject, $pageId);
+        self::assertEquals($expected, $result);
     }
 }

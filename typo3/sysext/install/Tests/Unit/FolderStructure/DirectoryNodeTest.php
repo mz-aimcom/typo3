@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\FolderStructure;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -29,6 +30,7 @@ use TYPO3\CMS\Install\FolderStructure\Exception\InvalidArgumentException;
 use TYPO3\CMS\Install\FolderStructure\NodeInterface;
 use TYPO3\CMS\Install\FolderStructure\RootNodeInterface;
 
+#[AllowMockObjectsWithoutExpectations]
 final class DirectoryNodeTest extends AbstractFolderStructureTestCase
 {
     #[Test]
@@ -44,7 +46,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionCode(1366226639);
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $structure = [
             'name' => 'foo/bar',
         ];
@@ -54,7 +56,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorCallsCreateChildrenIfChildrenAreSet(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getMockBuilder(DirectoryNode::class)
             ->onlyMethods(['createChildren'])
             ->disableOriginalConstructor()
@@ -73,7 +75,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorSetsParent(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(DirectoryNode::class, null, [], '', false);
         $structure = [
             'name' => 'foo',
@@ -85,7 +87,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorSetsTargetPermission(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(DirectoryNode::class, null, [], '', false);
         $targetPermission = '2550';
         $structure = [
@@ -99,7 +101,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     #[Test]
     public function constructorSetsName(): void
     {
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $name = StringUtility::getUniqueId('test_');
         $node = new DirectoryNode(['name' => $name], $parent);
         self::assertSame($name, $node->getName());
@@ -431,7 +433,7 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     public function getChildrenReturnsCreatedChild(): void
     {
         $node = $this->getAccessibleMock(DirectoryNode::class, null, [], '', false);
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $childName = StringUtility::getUniqueId('test_');
         $structure = [
             'name' => 'foo',
@@ -483,9 +485,11 @@ final class DirectoryNodeTest extends AbstractFolderStructureTestCase
     {
         $node = $this->getAccessibleMock(DirectoryNode::class, ['getAbsolutePath'], [], '', false);
         $testRoot = Environment::getVarPath() . '/tests/';
-        $this->testFilesToDelete[] = $testRoot;
         $path = $testRoot . StringUtility::getUniqueId('root_');
         GeneralUtility::mkdir_deep($path);
+        // Register the unique directory and not the shared root: other test cases
+        // keep their files below the same root and must not have them removed.
+        $this->testFilesToDelete[] = $path;
         $link = StringUtility::getUniqueId('link_');
         $dir = StringUtility::getUniqueId('dir_');
         mkdir($path . '/' . $dir);

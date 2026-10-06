@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Configuration\SiteTcaConfiguration;
 use TYPO3\CMS\Backend\Form\FormDataProvider\SiteDatabaseEditRow;
+use TYPO3\CMS\Core\Configuration\Processor\Placeholder\EnvPlaceholderProcessor;
 use TYPO3\CMS\Core\Configuration\SiteConfiguration;
 use TYPO3\CMS\Core\Core\ApplicationContext;
 use TYPO3\CMS\Core\Core\Environment;
@@ -35,7 +36,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
         $this->backupEnvironment = true;
         parent::setUp();
         Environment::initialize(
-            $this->createMock(ApplicationContext::class),
+            self::createStub(ApplicationContext::class),
             true,
             false,
             '',
@@ -54,7 +55,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'command' => 'new',
             'foo' => 'bar',
         ];
-        self::assertSame($input, (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input));
+        self::assertSame($input, new SiteDatabaseEditRow(self::createStub(SiteFinder::class), self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input));
     }
 
     #[Test]
@@ -66,7 +67,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
                 'foo' => 'bar',
             ],
         ];
-        self::assertSame($input, (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input));
+        self::assertSame($input, new SiteDatabaseEditRow(self::createStub(SiteFinder::class), self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input));
     }
 
     #[Test]
@@ -78,7 +79,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886234);
-        (new SiteDatabaseEditRow($this->createMock(SiteFinder::class), $this->createMock(SiteTcaConfiguration::class)))->addData($input);
+        new SiteDatabaseEditRow(self::createStub(SiteFinder::class), self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input);
     }
 
     #[Test]
@@ -104,11 +105,11 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             ],
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteMock = $this->createMock(Site::class);
-        $siteFinderMock->method('getSiteByRootPageId')->with(23)->willReturn($siteMock);
-        $siteMock->method('getIdentifier')->willReturn('testident');
+        $siteStub = self::createStub(Site::class);
+        $siteFinderMock->expects($this->atMost(PHP_INT_MAX))->method('getSiteByRootPageId')->with(23)->willReturn($siteStub);
+        $siteStub->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
-        $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        $siteConfiguration->expects($this->atMost(PHP_INT_MAX))->method('load')->with('testident')->willReturn($rowData);
         GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $siteTca = [
@@ -123,8 +124,8 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
                 ],
             ],
         ];
-        $siteTcaConfigurationMock = $this->createMock(SiteTcaConfiguration::class);
-        $siteTcaConfigurationMock->method('getTca')->willReturn($siteTca);
+        $siteTcaConfigurationStub = self::createStub(SiteTcaConfiguration::class);
+        $siteTcaConfigurationStub->method('getTca')->willReturn($siteTca);
 
         $expected = $input;
         $expected['databaseRow'] = [
@@ -136,7 +137,7 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'selectMultipleSideBySide' => 'foo/bar,baz',
         ];
 
-        self::assertEquals($expected, (new SiteDatabaseEditRow($siteFinderMock, $siteTcaConfigurationMock))->addData($input));
+        self::assertEquals($expected, new SiteDatabaseEditRow($siteFinderMock, $siteTcaConfigurationStub, self::createStub(EnvPlaceholderProcessor::class))->addData($input));
     }
 
     #[Test]
@@ -153,16 +154,16 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'foo' => 'bar',
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteMock = $this->createMock(Site::class);
-        $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
-        $siteMock->method('getIdentifier')->willReturn('testident');
+        $siteStub = self::createStub(Site::class);
+        $siteFinderMock->expects($this->atMost(PHP_INT_MAX))->method('getSiteByRootPageId')->with(5)->willReturn($siteStub);
+        $siteStub->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
-        $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        $siteConfiguration->expects($this->atMost(PHP_INT_MAX))->method('load')->with('testident')->willReturn($rowData);
         GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886092);
-        (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input);
+        new SiteDatabaseEditRow($siteFinderMock, self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input);
     }
 
     #[Test]
@@ -179,16 +180,16 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'foo' => 'bar',
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteMock = $this->createMock(Site::class);
-        $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
-        $siteMock->method('getIdentifier')->willReturn('testident');
+        $siteStub = self::createStub(Site::class);
+        $siteFinderMock->expects($this->atMost(PHP_INT_MAX))->method('getSiteByRootPageId')->with(5)->willReturn($siteStub);
+        $siteStub->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
-        $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        $siteConfiguration->expects($this->atMost(PHP_INT_MAX))->method('load')->with('testident')->willReturn($rowData);
         GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1520886092);
-        (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input);
+        new SiteDatabaseEditRow($siteFinderMock, self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input);
     }
 
     #[Test]
@@ -209,11 +210,11 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             ],
         ];
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteMock = $this->createMock(Site::class);
-        $siteFinderMock->method('getSiteByRootPageId')->with(5)->willReturn($siteMock);
-        $siteMock->method('getIdentifier')->willReturn('testident');
+        $siteStub = self::createStub(Site::class);
+        $siteFinderMock->expects($this->atMost(PHP_INT_MAX))->method('getSiteByRootPageId')->with(5)->willReturn($siteStub);
+        $siteStub->method('getIdentifier')->willReturn('testident');
         $siteConfiguration = $this->createMock(SiteConfiguration::class);
-        $siteConfiguration->method('load')->with('testident')->willReturn($rowData);
+        $siteConfiguration->expects($this->atMost(PHP_INT_MAX))->method('load')->with('testident')->willReturn($rowData);
         GeneralUtility::addInstance(SiteConfiguration::class, $siteConfiguration);
 
         $expected = $input;
@@ -223,6 +224,6 @@ final class SiteDatabaseEditRowTest extends UnitTestCase
             'pid' => 0,
         ];
 
-        self::assertEquals($expected, (new SiteDatabaseEditRow($siteFinderMock, $this->createMock(SiteTcaConfiguration::class)))->addData($input));
+        self::assertEquals($expected, new SiteDatabaseEditRow($siteFinderMock, self::createStub(SiteTcaConfiguration::class), self::createStub(EnvPlaceholderProcessor::class))->addData($input));
     }
 }

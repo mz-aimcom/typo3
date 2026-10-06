@@ -56,6 +56,7 @@ use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\TimestampDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\TinyBlobDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\TinyIntDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\TinyTextDataType;
+use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\UuidDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\VarBinaryDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\VarCharDataType;
 use TYPO3\CMS\Core\Database\Schema\Parser\AST\DataType\YearDataType;
@@ -91,8 +92,7 @@ class TableBuilder
         // Register custom data types as no connection might have
         // been established yet so the types would not be available
         // when building tables/columns.
-        $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
-        $connectionPool->registerDoctrineTypes();
+        ConnectionPool::registerDoctrineTypes();
         $this->platform = $platform ?: GeneralUtility::makeInstance(MySQLPlatform::class);
     }
 
@@ -256,10 +256,19 @@ class TableBuilder
                 $index->addFlag('spatial');
             }
 
+            // Doctrine keys the indexes by a normalized name of its own. Do not rely on that key
+            // here, but build the list explicitly from the index names, so that re-defining an
+            // index replaces the previously added one - independent of how Doctrine keys them.
+            $indexes = [];
+            foreach ($this->table->getIndexes() as $existingIndex) {
+                $indexes[strtolower($existingIndex->getName())] = $existingIndex;
+            }
+            $indexes[strtolower($index->getName())] = $index;
+
             $this->table = new Table(
                 $this->table->getQuotedName($this->platform),
                 $this->table->getColumns(),
-                array_merge($this->table->getIndexes(), [strtolower($indexName) => $index]),
+                array_values($indexes),
                 [],
                 $this->table->getForeignKeys(),
                 $this->table->getOptions()
@@ -394,6 +403,12 @@ class TableBuilder
                 // range of 1901 to 2155.
                 // Using a SMALLINT covers the value range and ensures database compatibility.
                 $doctrineType = Types::SMALLINT;
+                break;
+            case UuidDataType::class:
+                // UUID/GUID is only supported by PostgreSQL for now, but Doctrine DBAL implemented a fallback
+                // for other platforms and we can safely use `Types::GUID` here in case `UUID` has been set in
+                // `ext_tables.sql` for a table column.
+                $doctrineType = Types::GUID;
                 break;
             default:
                 throw new \RuntimeException(

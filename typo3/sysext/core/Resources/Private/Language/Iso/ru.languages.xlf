@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <xliff xmlns="urn:oasis:names:tc:xliff:document:1.2" version="1.2">
   <file source-language="en" target-language="ru" datatype="plaintext" original="EXT:core/Resources/Private/Language/countries.xlf" product-name="typo3/cms-core">
     <body>
@@ -190,10 +190,6 @@
         <source>Bulgarian</source>
         <target>болгарский</target>
       </trans-unit>
-      <trans-unit id="bh" approved="yes">
-        <source>Bihari languages</source>
-        <target>бихарские языки</target>
-      </trans-unit>
       <trans-unit id="bho" approved="yes">
         <source>Bhojpuri</source>
         <target>бходжпури</target>
@@ -201,6 +197,10 @@
       <trans-unit id="bi" approved="yes">
         <source>Bislama</source>
         <target>бислама</target>
+      </trans-unit>
+      <trans-unit id="bih" approved="yes">
+        <source>Bihari languages</source>
+        <target>бихарские языки</target>
       </trans-unit>
       <trans-unit id="bik" approved="yes">
         <source>Bikol</source>
@@ -223,8 +223,8 @@
         <target>бенгальский</target>
       </trans-unit>
       <trans-unit id="bnt" approved="yes">
-        <source>Bantu (Other)</source>
-        <target>банту (другие)</target>
+        <source>Bantu languages</source>
+        <target>языки банту</target>
       </trans-unit>
       <trans-unit id="bo" approved="yes">
         <source>Tibetan</source>
@@ -423,8 +423,8 @@
         <target>сливи (атабаскский)</target>
       </trans-unit>
       <trans-unit id="dgr" approved="yes">
-        <source>Dogrib</source>
-        <target>догриб</target>
+        <source>Tlicho; Dogrib</source>
+        <target>тличо; догриб</target>
       </trans-unit>
       <trans-unit id="din" approved="yes">
         <source>Dinka</source>
@@ -1211,11 +1211,11 @@
         <target>неаполитанский</target>
       </trans-unit>
       <trans-unit id="nb" approved="yes">
-        <source>Bokmål, Norwegian; Norwegian Bokmål</source>
-        <target>букмол, норвежский; норвежский букмол</target>
+        <source>Norwegian Bokmål</source>
+        <target>норвежский (букмол)</target>
       </trans-unit>
       <trans-unit id="nd" approved="yes">
-        <source>Ndebele, North; North Ndebele</source>
+        <source>North Ndebele</source>
         <target>северный ндебеле</target>
       </trans-unit>
       <trans-unit id="nds" approved="yes">
@@ -1227,8 +1227,8 @@
         <target>непальский</target>
       </trans-unit>
       <trans-unit id="new" approved="yes">
-        <source>Nepal Bhasa; Newari</source>
-        <target>непальский бхаса; неварский</target>
+        <source>Nepal Bhasa; Newar; Newari</source>
+        <target>непальский бхаса; невар; неварский</target>
       </trans-unit>
       <trans-unit id="ng" approved="yes">
         <source>Ndonga</source>
@@ -1251,8 +1251,8 @@
         <target>голландский; фламандский</target>
       </trans-unit>
       <trans-unit id="nn" approved="yes">
-        <source>Norwegian Nynorsk; Nynorsk, Norwegian</source>
-        <target>норвежский нюнорск</target>
+        <source>Norwegian Nynorsk</source>
+        <target>норвежский (нюнорск)</target>
       </trans-unit>
       <trans-unit id="no" approved="yes">
         <source>Norwegian</source>
@@ -1271,7 +1271,7 @@
         <target>энко</target>
       </trans-unit>
       <trans-unit id="nr" approved="yes">
-        <source>Ndebele, South; South Ndebele</source>
+        <source>South Ndebele</source>
         <target>южный ндебеле</target>
       </trans-unit>
       <trans-unit id="nso" approved="yes">
@@ -1311,8 +1311,8 @@
         <target>нзима</target>
       </trans-unit>
       <trans-unit id="oc" approved="yes">
-        <source>Occitan (post 1500); Provençal</source>
-        <target>окситанский (после 1500); провансальский</target>
+        <source>Occitan (post 1500)</source>
+        <target>окситанский (после 1500)</target>
       </trans-unit>
       <trans-unit id="oj" approved="yes">
         <source>Ojibwa</source>
@@ -1399,8 +1399,8 @@
         <target>языки пракрит</target>
       </trans-unit>
       <trans-unit id="pro" approved="yes">
-        <source>Provençal, Old (to 1500)</source>
-        <target>старопровансальский (до 1500)</target>
+        <source>Provençal, Old (to 1500); Occitan, Old (to 1500)</source>
+        <target>старопровансальский (до 1500); староокситанский (до 1500)</target>
       </trans-unit>
       <trans-unit id="ps" approved="yes">
         <source>Pushto; Pashto</source>
@@ -1475,8 +1475,8 @@
         <target>якутский</target>
       </trans-unit>
       <trans-unit id="sai" approved="yes">
-        <source>South American Indian (Other)</source>
-        <target>языки индейцев Южной Америки (другие)</target>
+        <source>South American Indian languages</source>
+        <target>языки индейцев Южной Америки</target>
       </trans-unit>
       <trans-unit id="sal" approved="yes">
         <source>Salishan languages</source>
@@ -1859,8 +1859,8 @@
         <target>вакашские языки</target>
       </trans-unit>
       <trans-unit id="wal" approved="yes">
-        <source>Walamo</source>
-        <target>воламо</target>
+        <source>Wolaitta; Wolaytta</source>
+        <target>волайтта; воламо</target>
       </trans-unit>
       <trans-unit id="war" approved="yes">
         <source>Waray</source>

@@ -46,7 +46,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @todo: The entire logic smells fishy and needs a major overhaul.
  */
-#[AsCommand('cleanup:missingrelations', 'Find all record references pointing to a non-existing record')]
+#[AsCommand('cleanup:missingrelations', 'Finds all record references pointing to a non-existing record')]
 class MissingRelationsCommand extends Command
 {
     public function __construct(
@@ -60,7 +60,7 @@ class MissingRelationsCommand extends Command
     /**
      * Configure the command by defining the name, options and arguments
      */
-    public function configure()
+    protected function configure(): void
     {
         $this
             ->setHelp('
@@ -134,7 +134,7 @@ If you want to get more detailed information, use the --verbose option.')
         }
 
         // Display soft references to offline version records
-        // These records are offline versions having a pid=-1 and references should never occur directly to their uids.
+        // These records are offline versions (t3ver_oid>0) and references should never occur directly to their uids.
         if ($io->isVerbose() && count($results['offlineVersionRecordsInSoftReferenceRelations'])) {
             $io->note([
                 'Found ' . count($results['offlineVersionRecordsInSoftReferenceRelations']) . ' soft-references pointing to offline versions, which should never be referenced directly.',
@@ -151,9 +151,9 @@ If you want to get more detailed information, use the --verbose option.')
         if ($io->isVerbose() && count($results['deletedRecords'])) {
             $io->note([
                 'Found ' . count($results['deletedRecords']) . ' references pointing to deleted records.',
-                'Keeping the references is useful if you undelete the referenced records later, otherwise the references' .
-                'are lost completely when the deleted records are flushed at some point. Notice that if those records listed' .
-                'are themselves deleted (marked with "DELETED") it is not a problem.',
+                'Keeping the references is useful if you undelete the referenced records later, otherwise the references'
+                . 'are lost completely when the deleted records are flushed at some point. Notice that if those records listed'
+                . 'are themselves deleted (marked with "DELETED") it is not a problem.',
             ]);
             $io->listing($results['deletedRecords']);
         }
@@ -162,9 +162,9 @@ If you want to get more detailed information, use the --verbose option.')
         if ($io->isVerbose() && count($results['deletedRecordsInSoftReferenceRelations'])) {
             $io->note([
                 'Found ' . count($results['deletedRecordsInSoftReferenceRelations']) . ' soft references pointing  to deleted records.',
-                'Keeping the references is useful if you undelete the referenced records later, otherwise the references' .
-                'are lost completely when the deleted records are flushed at some point. Notice that if those records listed' .
-                'are themselves deleted (marked with "DELETED") it is not a problem.',
+                'Keeping the references is useful if you undelete the referenced records later, otherwise the references'
+                . 'are lost completely when the deleted records are flushed at some point. Notice that if those records listed'
+                . 'are themselves deleted (marked with "DELETED") it is not a problem.',
             ]);
             $io->listing($results['deletedRecordsInSoftReferenceRelations']);
         }
@@ -172,8 +172,8 @@ If you want to get more detailed information, use the --verbose option.')
         // Find missing references
         if (count($results['offlineVersionRecords']) || count($results['nonExistingRecords'])) {
             $io->note([
-                'Found ' . count($results['nonExistingRecords']) . ' references to non-existing records ' .
-                'and ' . count($results['offlineVersionRecords']) . ' references directly linked to offline versions.',
+                'Found ' . count($results['nonExistingRecords']) . ' references to non-existing records '
+                . 'and ' . count($results['offlineVersionRecords']) . ' references directly linked to offline versions.',
             ]);
 
             $this->removeReferencesToMissingRecords(
@@ -311,7 +311,7 @@ If you want to get more detailed information, use the --verbose option.')
             // Non-existing records to which there are references (softref)
             'nonExistingRecordsInSoftReferenceRelations' => ArrayUtility::sortByKeyRecursive($nonExistingRecordsInSoftReferenceRelations),
             // Offline version records (managed)
-            // These records are offline versions having a pid=-1 and references should never occur directly to their uids.
+            // These records are offline versions (t3ver_oid>0) and references should never occur directly to their uids.
             'offlineVersionRecords' => ArrayUtility::sortByKeyRecursive($offlineVersionRecords),
             // Offline version records (softref)
             'offlineVersionRecordsInSoftReferenceRelations' => ArrayUtility::sortByKeyRecursive($offlineVersionRecordsInSoftReferenceRelations),
@@ -485,9 +485,6 @@ If you want to get more detailed information, use the --verbose option.')
                 // Data Array, now ready to be sent to DataHandler, execute CMD array:
                 $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
                 $dataHandler->dontProcessTransformations = true;
-                $dataHandler->bypassWorkspaceRestrictions = true;
-                // Otherwise this may lead to permission issues if user is not admin
-                $dataHandler->bypassAccessCheckForRecords = true;
                 // Check has been done previously that there is a backend user which is Admin and also in live workspace
                 $dataHandler->start($dataArray, []);
                 $dataHandler->process_datamap();

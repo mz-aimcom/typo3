@@ -125,6 +125,19 @@ final class QueryHelperTest extends UnitTestCase
                     ['be_groups.title', null],
                 ],
             ],
+            'with FIND_IN_SET' => [
+                'ORDER BY FIND_IN_SET(aField, "1,2,3")',
+                [
+                    ['FIND_IN_SET(aField, "1,2,3")', null],
+                ],
+            ],
+            'with FIND_IN_SET and column' => [
+                'ORDER BY FIND_IN_SET(aField, "1,2,3"), bField ASC',
+                [
+                    ['FIND_IN_SET(aField, "1,2,3")', null],
+                    ['bField', 'ASC'],
+                ],
+            ],
         ];
     }
 
@@ -446,8 +459,8 @@ final class QueryHelperTest extends UnitTestCase
     #[Test]
     public function quoteDatabaseIdentifiers(string $input, string $expected): void
     {
-        $connectionMock = $this->createMock(Connection::class);
-        $connectionMock->method('quoteIdentifier')->willReturnCallback(static function (string $identifier): string {
+        $connectionStub = self::createStub(Connection::class);
+        $connectionStub->method('quoteIdentifier')->willReturnCallback(static function (string $identifier): string {
             $parts = array_map(
                 static function (string $identifier): string {
                     return '"' . $identifier . '"';
@@ -458,6 +471,6 @@ final class QueryHelperTest extends UnitTestCase
             return implode('.', $parts);
         });
 
-        self::assertSame($expected, QueryHelper::quoteDatabaseIdentifiers($connectionMock, $input));
+        self::assertSame($expected, QueryHelper::quoteDatabaseIdentifiers($connectionStub, $input));
     }
 }

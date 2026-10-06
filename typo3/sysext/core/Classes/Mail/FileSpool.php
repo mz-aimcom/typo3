@@ -18,16 +18,19 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Mail;
 
 use Psr\Log\LoggerInterface;
-use Symfony\Component\Mailer\DelayedEnvelope;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\AbstractTransport;
 use Symfony\Component\Mailer\Transport\TransportInterface;
-use Symfony\Component\Mime\Email;
-use Symfony\Component\Mime\Message;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Header\HeaderInterface;
+use Symfony\Component\Mime\Header\Headers;
+use Symfony\Component\Mime\Part\AbstractPart;
+use Symfony\Component\Mime\Part\File;
 use Symfony\Component\Mime\RawMessage;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Serializer\PolymorphicDeserializer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -58,7 +61,8 @@ class FileSpool extends AbstractTransport implements DelayedTransportInterface
     public function __construct(
         protected string $path,
         ?EventDispatcherInterface $dispatcher = null,
-        protected readonly ?LoggerInterface $logger = null
+        protected readonly ?LoggerInterface $logger = null,
+        protected readonly PolymorphicDeserializer $deserializer = new PolymorphicDeserializer(),
     ) {
         parent::__construct($dispatcher, $logger);
 
@@ -140,20 +144,44 @@ class FileSpool extends AbstractTransport implements DelayedTransportInterface
 
             /* We try a rename, it's an atomic operation, and avoid locking the file */
             if (rename($file, $file . '.sending')) {
-                $message = unserialize((string)file_get_contents($file . '.sending'), [
-                    'allowedClasses' => [
-                        RawMessage::class,
-                        Message::class,
-                        Email::class,
-                        DelayedEnvelope::class,
-                        Envelope::class,
-                    ],
-                ]);
-
-                $transport->send($message->getMessage(), $message->getEnvelope());
-                $count++;
-
-                unlink($file . '.sending');
+                try {
+                    $message = $this->deserializer->deserialize(
+                        (string)file_get_contents($file . '.sending'),
+                        [
+                            SentMessage::class,
+                            RawMessage::class,
+                            Envelope::class,
+                            Address::class,
+                            AbstractPart::class,
+                            File::class, // This one does not extend AbstractPart
+                            Headers::class,
+                            HeaderInterface::class,
+                        ]
+                    );
+                } catch (\Throwable $e) {
+                    $this->logger?->error(
+                        'Serialized message from {fileName} was rejected, because it contains a disallowed class object.',
+                        ['fileName' => $file, 'exception' => $e],
+                    );
+                    rename($file . '.sending', $file . '.invalid');
+                    continue;
+                }
+                if ($message instanceof SentMessage) {
+                    // This may throw an exception if something goes wrong.
+                    // That is expected and will cause the `.sending` file to remain within the spooler.
+                    $transport->send($message->getMessage(), $message->getEnvelope());
+                    $count++;
+                    unlink($file . '.sending');
+                } else {
+                    $this->logger?->error(
+                        'Serialized message from {fileName} was rejected, because {className} is not an instance of SentMessage.',
+                        [
+                            'fileName' => $file,
+                            'className' => get_debug_type($message),
+                        ],
+                    );
+                    rename($file . '.sending', $file . '.invalid');
+                }
             } else {
                 /* This message has just been caught by another process */
                 continue;

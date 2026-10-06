@@ -17,26 +17,30 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Log;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LogLevel;
+use TYPO3\CMS\Core\Core\RequestId;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Log\Processor\NullProcessor;
 use TYPO3\CMS\Core\Log\Writer\NullWriter;
+use TYPO3\CMS\Core\Tests\Unit\Log\Fixtures\WriterFixture;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class LogManagerTest extends UnitTestCase
 {
     #[Test]
     public function logManagerTurnsUnderScoreStyleLoggerNamesIntoDotStyleLoggerNames(): void
     {
-        self::assertSame('test.a.b', (new LogManager())->getLogger('test_a_b')->getName());
+        self::assertSame('test.a.b', new LogManager()->getLogger('test_a_b')->getName());
     }
 
     #[Test]
     public function logManagerTurnsNamespaceStyleLoggerNamesIntoDotStyleLoggerNames(): void
     {
-        self::assertSame('test.a.b', (new LogManager())->getLogger('test\\a\\b')->getName());
+        self::assertSame('test.a.b', new LogManager()->getLogger('test\\a\\b')->getName());
     }
 
     #[Test]
@@ -61,7 +65,7 @@ final class LogManagerTest extends UnitTestCase
                 $writer => [],
             ],
         ];
-        $logger = (new LogManager())->getLogger($component);
+        $logger = new LogManager()->getLogger($component);
         $writers = $logger->getWriters();
         self::assertInstanceOf($writer, $writers[$level][0]);
     }
@@ -77,8 +81,44 @@ final class LogManagerTest extends UnitTestCase
                 $processor => [],
             ],
         ];
-        $logger = (new LogManager())->getLogger($component);
+        $logger = new LogManager()->getLogger($component);
         $processors = $logger->getProcessors();
         self::assertInstanceOf($processor, $processors[$level][0]);
+    }
+
+    #[Test]
+    public function logRecordWrittenByConfiguredWriterContainsRequestId(): void
+    {
+        $component = StringUtility::getUniqueId('test');
+        $GLOBALS['TYPO3_CONF_VARS']['LOG'][$component]['writerConfiguration'] = [
+            LogLevel::DEBUG => [
+                WriterFixture::class => [],
+            ],
+        ];
+        $requestId = new RequestId();
+        $logger = new LogManager($requestId)->getLogger($component);
+        $logger->warning('test message');
+        $writer = $logger->getWriters()[LogLevel::WARNING][0];
+        self::assertInstanceOf(WriterFixture::class, $writer);
+        $records = $writer->getRecords();
+        self::assertCount(1, $records);
+        self::assertSame((string)$requestId, $records[0]->getRequestId());
+    }
+
+    #[Test]
+    public function requestIdProcessorDoesNotRaiseMinimumLogLevel(): void
+    {
+        $component = StringUtility::getUniqueId('test');
+        $GLOBALS['TYPO3_CONF_VARS']['LOG'][$component]['writerConfiguration'] = [
+            LogLevel::WARNING => [
+                WriterFixture::class => [],
+            ],
+        ];
+        $logger = new LogManager()->getLogger($component);
+        $logger->debug('below minimum level');
+        $writer = $logger->getWriters()[LogLevel::WARNING][0];
+        self::assertInstanceOf(WriterFixture::class, $writer);
+        self::assertSame([], $writer->getRecords());
+        self::assertArrayNotHasKey(LogLevel::DEBUG, $logger->getProcessors());
     }
 }

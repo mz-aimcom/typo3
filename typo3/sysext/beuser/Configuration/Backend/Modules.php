@@ -8,13 +8,13 @@ use TYPO3\CMS\Beuser\Controller\PermissionController;
  */
 return [
     'permissions_pages' => [
-        'parent' => 'system',
-        'position' => ['before' => '*'],
+        'parent' => 'admin',
+        'position' => ['after' => 'scheduler'],
         'access' => 'admin',
-        'path' => '/module/system/permissions',
+        'path' => '/module/users/permissions',
         'iconIdentifier' => 'module-permission',
         'navigationComponent' => '@typo3/backend/tree/page-tree-element',
-        'labels' => 'LLL:EXT:beuser/Resources/Private/Language/locallang_mod_permission.xlf',
+        'labels' => 'beuser.modules.permissions',
         'aliases' => ['system_BeuserTxPermission'],
         'routes' => [
             '_default' => [
@@ -23,12 +23,12 @@ return [
         ],
     ],
     'backend_user_management' => [
-        'parent' => 'system',
-        'position' => ['after' => 'permissions_pages'],
+        'parent' => 'admin',
+        'position' => ['before' => '*'],
         'access' => 'admin',
-        'path' => '/module/system/user-management',
-        'iconIdentifier' => 'module-beuser',
-        'labels' => 'LLL:EXT:beuser/Resources/Private/Language/locallang_mod.xlf',
+        'path' => '/module/users/management',
+        'iconIdentifier' => 'module-user',
+        'labels' => 'beuser.modules.user_management',
         'aliases' => ['system_BeuserTxBeuser'],
         'extensionName' => 'Beuser',
         'controllerActions' => [

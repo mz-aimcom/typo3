@@ -12,9 +12,8 @@
  */
 
 import { html, LitElement, nothing, type TemplateResult } from 'lit';
-import { customElement, property, query } from 'lit/decorators';
-import { until } from 'lit/directives/until';
-import { lll } from '@typo3/core/lit-helper';
+import { customElement, property, query } from 'lit/decorators.js';
+import { until } from 'lit/directives/until.js';
 import { PageTree } from '@typo3/backend/tree/page-tree';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import '@typo3/backend/tree/tree-toolbar';
@@ -22,6 +21,7 @@ import ElementBrowser from '@typo3/backend/element-browser';
 import LinkBrowser from '@typo3/backend/link-browser';
 import '@typo3/backend/element/icon-element';
 import Persistent from '@typo3/backend/storage/persistent';
+import coreLabels from '~labels/core.core';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import type { TreeToolbar } from '@typo3/backend/tree/tree-toolbar';
 import type { TreeNodeInterface } from './tree-node';
@@ -78,14 +78,12 @@ export class PageBrowserTree extends PageTree {
   }
 
   /**
-   * The following page doktypes can be browsed, but not directly added as "action":
-   * - Spacer
-   * - SysFolder
-   * - Recycler
+   * Check if a page can be linked based on TCA configuration.
+   * Non-viewable doktypes are provided by the backend configuration endpoint.
    */
   private isLinkable(node: TreeNodeInterface): boolean {
-    const nonLinkableDoktypes = ['199', '254', '255'];
-    return nonLinkableDoktypes.includes(String(node.recordType)) === false;
+    const nonViewableDoktypes: number[] = this.settings.nonViewableDoktypes ?? [199, 254];
+    return !nonViewableDoktypes.includes(node.doktype);
   }
 
   /**
@@ -109,7 +107,7 @@ export class PageBrowserTree extends PageTree {
 @customElement('typo3-backend-component-page-browser')
 export class PageBrowser extends LitElement {
   @property({ type: String }) mountPointPath: string = null;
-  @query('.tree-wrapper') tree: PageBrowserTree;
+  @query('typo3-backend-component-page-browser-tree') tree: PageBrowserTree;
 
   private activePageId: number = 0;
   // selectPage
@@ -159,9 +157,7 @@ export class PageBrowser extends LitElement {
 
   protected override render(): TemplateResult {
     return html`
-      <div class="tree">
       ${until(this.renderTree(), '')}
-      </div>
     `;
   }
 
@@ -169,19 +165,28 @@ export class PageBrowser extends LitElement {
     return this.getConfiguration()
       .then((configuration: Configuration): TemplateResult => {
         const initialized = () => {
-          this.tree.addEventListener('typo3:tree:node-selected', this.loadRecordsOfPage);
-          this.tree.addEventListener('typo3:tree:nodes-prepared', this.selectActivePageInTree);
+          if (this.activePageId) {
+            this.tree.ensureActiveNodeLoaded(this.activePageId);
+          }
           // set up toolbar now with updated properties
           const toolbar = this.querySelector('typo3-backend-tree-toolbar') as TreeToolbar;
           toolbar.tree = this.tree;
         };
 
         return html`
-          <typo3-backend-tree-toolbar .tree="${this.tree}"></typo3-backend-tree-toolbar>
-          <div class="navigation-tree-container">
-            ${this.renderMountPoint()}
-            <typo3-backend-component-page-browser-tree id="typo3-pagetree-tree" class="tree-wrapper" .setup=${configuration} @tree:initialized=${initialized}></typo3-backend-component-page-browser-tree>
-          </div>
+          <typo3-backend-tree-toolbar
+            .tree="${this.tree}"
+          >
+          </typo3-backend-tree-toolbar>
+          ${this.renderMountPoint()}
+          <typo3-backend-component-page-browser-tree
+            id="typo3-pagetree-tree"
+            .setup=${configuration}
+            @tree:initialized=${initialized}
+            @typo3:tree:node-selected=${this.loadRecordsOfPage}
+            @typo3:tree:nodes-prepared=${this.selectActivePageInTree}
+          >
+          </typo3-backend-component-page-browser-tree>
         `;
       });
   }
@@ -235,7 +240,7 @@ export class PageBrowser extends LitElement {
       <div class="node-mount-point">
         <div class="node-mount-point__icon"><typo3-backend-icon identifier="actions-info-circle" size="small"></typo3-backend-icon></div>
         <div class="node-mount-point__text">${this.mountPointPath}</div>
-        <div class="node-mount-point__icon mountpoint-close" @click="${() => this.unsetTemporaryMountPoint()}" title="${lll('labels.temporaryPageTreeEntryPoints')}">
+        <div class="node-mount-point__icon mountpoint-close" @click="${() => this.unsetTemporaryMountPoint()}" title="${coreLabels.get('labels.temporaryPageTreeEntryPoints')}">
           <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon>
         </div>
       </div>

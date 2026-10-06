@@ -228,12 +228,7 @@ abstract class AbstractGenerator
         if (!empty($data) || !empty($commands)) {
             $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
             $dataHandler->enableLogging = false;
-            $dataHandler->bypassAccessCheckForRecords = true;
-            $dataHandler->bypassWorkspaceRestrictions = true;
             $dataHandler->start($data, $commands);
-            if (Environment::isCli()) {
-                $dataHandler->clear_cacheCmd('all');
-            }
 
             empty($data) ?: $dataHandler->process_datamap();
             empty($commands) ?: $dataHandler->process_cmdmap();
@@ -242,6 +237,18 @@ abstract class AbstractGenerator
             if (!Environment::isCli()) {
                 BackendUtility::setUpdateSignal('updatePageTree');
             }
+        }
+    }
+
+    /**
+     * Flushing all caches is expensive, call this once after all records have been written
+     */
+    protected function clearAllCachesOnCli(): void
+    {
+        if (Environment::isCli()) {
+            $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+            $dataHandler->start([], []);
+            $dataHandler->clear_cacheCmd('all');
         }
     }
 }

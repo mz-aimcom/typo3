@@ -21,12 +21,13 @@ use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route as SymfonyRoute;
-use TYPO3\CMS\Backend\Routing\Exception\MethodNotAllowedException;
+use TYPO3\CMS\Backend\Routing\Exception\ResourceNotFoundException;
 use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\Exception\RouteTypeNotAllowedException;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
+use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
 use TYPO3\CMS\Core\Http\ServerRequestFactory;
 use TYPO3\CMS\Core\Http\Uri;
 use TYPO3\CMS\Core\Routing\RequestContextFactory;
@@ -92,6 +93,7 @@ class UriBuilder implements SingletonInterface
      * @param string $referenceType The type of reference to be generated (one of the constants)
      * @return UriInterface The generated Uri
      * @throws RouteNotFoundException If the named route doesn't exist
+     * @throws ResourceNotFoundException If no route matches the path info
      */
     public function buildUriFromRoutePath($pathInfo, $parameters = [], $referenceType = self::ABSOLUTE_PATH)
     {
@@ -167,8 +169,8 @@ class UriBuilder implements SingletonInterface
             $parameters
         );
 
-        // If the route is not shareable and doesn't have the "public" option set, a token must be generated.
-        if ($referenceType !== self::SHAREABLE_URL && (!$route->hasOption('access') || $route->getOption('access') !== 'public')) {
+        // If the route is not shareable and requires a request token (see RouteAccess), a token must be generated.
+        if ($referenceType !== self::SHAREABLE_URL && RouteAccess::fromRoute($route)->requiresRequestToken()) {
             $parameters = [
                 'token' => $this->formProtectionFactory->createForType('backend')->generateToken('route', $name),
             ] + $parameters;

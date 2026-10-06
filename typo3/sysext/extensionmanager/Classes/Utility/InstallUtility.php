@@ -18,8 +18,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extensionmanager\Utility;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -36,10 +34,8 @@ use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
  *
  * @internal This class is a specific ExtensionManager implementation and is not part of the Public TYPO3 API.
  */
-class InstallUtility implements LoggerAwareInterface
+class InstallUtility
 {
-    use LoggerAwareTrait;
-
     private LanguageService $languageService;
 
     public function __construct(
@@ -129,14 +125,13 @@ class InstallUtility implements LoggerAwareInterface
     public function enrichExtensionWithDetails(string $extensionKey, bool $loadTerInformation = true): array
     {
         $extension = $this->getExtensionArray($extensionKey);
-        if (!$loadTerInformation) {
-            $availableAndInstalledExtensions = $this->listUtility->enrichExtensionsWithEmConfInformation([$extensionKey => $extension]);
-        } else {
-            $availableAndInstalledExtensions = $this->listUtility->enrichExtensionsWithEmConfAndTerInformation([$extensionKey => $extension]);
+        $availableAndInstalledExtensions = [$extensionKey => $extension];
+        if ($loadTerInformation) {
+            $availableAndInstalledExtensions = $this->listUtility->enrichExtensionsWithTerInformation($availableAndInstalledExtensions);
         }
         if (!isset($availableAndInstalledExtensions[$extensionKey])) {
             throw new ExtensionManagerException(
-                'Please check your uploaded extension "' . $extensionKey . '". The configuration file "ext_emconf.php" seems to be invalid.',
+                'Please check your uploaded extension "' . $extensionKey . '". Its "composer.json" seems to be invalid.',
                 1391432222
             );
         }

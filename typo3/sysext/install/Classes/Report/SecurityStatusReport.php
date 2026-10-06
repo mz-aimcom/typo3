@@ -41,8 +41,8 @@ final class SecurityStatusReport implements RequestAwareStatusProviderInterface
             $this->removeInstallToolEnableFilesIfRequested($request);
         }
         return [
-            'installToolProtection' => $this->getInstallToolProtectionStatus(),
-            'serverResponseStatus' => GeneralUtility::makeInstance(ServerResponseCheck::class)->asStatus(),
+            'installToolProtection' => $this->getInstallToolProtectionStatus($request),
+            'serverResponseStatus' => GeneralUtility::makeInstance(ServerResponseCheck::class)->asStatus($request),
         ];
     }
 
@@ -56,7 +56,7 @@ final class SecurityStatusReport implements RequestAwareStatusProviderInterface
      *
      * @return Status An object representing whether ENABLE_INSTALL_TOOL exists
      */
-    private function getInstallToolProtectionStatus(): Status
+    private function getInstallToolProtectionStatus(?ServerRequestInterface $request): Status
     {
         $enableInstallToolFile = EnableFileService::getBestLocationForInstallToolEnableFile();
         // @todo: Note $this->getLanguageService() is declared to allow null. Calling ->sL() may fatal?!
@@ -66,35 +66,32 @@ final class SecurityStatusReport implements RequestAwareStatusProviderInterface
         if (EnableFileService::installToolEnableFileExists()) {
             if (EnableFileService::isInstallToolEnableFilePermanent()) {
                 $severity = ContextualFeedbackSeverity::WARNING;
-                // @todo: See todo on removeInstallToolEnableFilesIfRequested() when this GU::getIndpEnv() is about to be removed.
-                $disableInstallToolUrl = GeneralUtility::getIndpEnv('TYPO3_REQUEST_URL') . '&adminCmd=remove_ENABLE_INSTALL_TOOL';
+                $disableInstallToolUrl = $request?->getAttribute('normalizedParams')?->getRequestUrl() . '&adminCmd=remove_ENABLE_INSTALL_TOOL';
                 $value = $this->getLanguageService()->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_enabledPermanently');
                 $message = sprintf(
                     $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_enabled'),
                     '<code style="white-space: nowrap;">' . $enableInstallToolFile . '</code>'
                 );
-                $message .= ' <a href="' . htmlspecialchars($disableInstallToolUrl) . '">' .
-                    $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_enabled_cmd') . '</a>';
+                $message .= ' <a href="' . htmlspecialchars($disableInstallToolUrl) . '">'
+                    . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_enabled_cmd') . '</a>';
             } else {
                 if (EnableFileService::installToolEnableFileLifetimeExpired()) {
                     EnableFileService::removeInstallToolEnableFile();
                 } else {
                     $severity = ContextualFeedbackSeverity::NOTICE;
-                    // @todo: See todo on removeInstallToolEnableFilesIfRequested() when this GU::getIndpEnv() is about to be removed.
-                    $disableInstallToolUrl = GeneralUtility::getIndpEnv('TYPO3_REQUEST_URL') . '&adminCmd=remove_ENABLE_INSTALL_TOOL';
+                    $disableInstallToolUrl = $request?->getAttribute('normalizedParams')?->getRequestUrl() . '&adminCmd=remove_ENABLE_INSTALL_TOOL';
                     $value = $this->getLanguageService()->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_enabledTemporarily');
                     $message = sprintf(
                         $this->getLanguageService()->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_installEnabledTemporarily'),
                         '<code style="white-space: nowrap;">' . $enableInstallToolFile . '</code>',
                         floor((@filemtime($enableInstallToolFile) + EnableFileService::INSTALL_TOOL_ENABLE_FILE_LIFETIME - time()) / 60)
                     );
-                    $message .= ' <a href="' . htmlspecialchars($disableInstallToolUrl) . '">' .
-                        $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_enabled_cmd') . '</a>';
+                    $message .= ' <a href="' . htmlspecialchars($disableInstallToolUrl) . '">'
+                        . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_enabled_cmd') . '</a>';
                 }
             }
         }
-        return GeneralUtility::makeInstance(
-            Status::class,
+        return new Status(
             $this->getLanguageService()->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_installTool'),
             $value,
             $message,

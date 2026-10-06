@@ -19,18 +19,15 @@ namespace TYPO3\CMS\Frontend\ContentObject;
 
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
-use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Frontend\ContentObject\Exception\ContentRenderingException;
-use TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController;
 
 /**
  * Contains an abstract class for all tslib content class implementations.
  */
 abstract class AbstractContentObject
 {
-    protected ?PageRenderer $pageRenderer = null;
-
     /**
      * Always set via setRequest() by ContentObjectFactory after instantiation
      */
@@ -41,7 +38,7 @@ abstract class AbstractContentObject
     /**
      * Renders the content object.
      *
-     * @param array $conf
+     * @param mixed $conf Array of TypoScript properties (marked as "mixed" currently because we don't know what we're receiving)
      * @return string
      * @throws ContentRenderingException
      * @throws \Exception
@@ -50,7 +47,7 @@ abstract class AbstractContentObject
 
     public function getContentObjectRenderer(): ContentObjectRenderer
     {
-        return $this->cObj ?? $this->getTypoScriptFrontendController()->cObj;
+        return $this->cObj;
     }
 
     public function setRequest(ServerRequestInterface $request): void
@@ -68,34 +65,23 @@ abstract class AbstractContentObject
         $this->request = $this->request->withAttribute('currentContentObject', $cObj);
     }
 
-    protected function hasTypoScriptFrontendController(): bool
-    {
-        return $this->cObj?->getTypoScriptFrontendController() instanceof TypoScriptFrontendController;
-    }
-
-    /**
-     * @throws ContentRenderingException
-     */
-    protected function getTypoScriptFrontendController(): TypoScriptFrontendController
-    {
-        if (!$this->hasTypoScriptFrontendController()) {
-            throw new ContentRenderingException('TypoScriptFrontendController is not available.', 1655723512);
-        }
-
-        return $this->cObj->getTypoScriptFrontendController();
-    }
-
     protected function getPageRepository(): PageRepository
     {
         return GeneralUtility::makeInstance(PageRepository::class);
     }
 
-    protected function getPageRenderer(): PageRenderer
+    protected function generateNotCachedContentPlaceholder(ServerRequestInterface $request, array $conf): string
     {
-        if ($this->pageRenderer === null) {
-            $this->pageRenderer = GeneralUtility::makeInstance(PageRenderer::class);
-        }
-
-        return $this->pageRenderer;
+        $this->cObj->setUserObjectType(ContentObjectRenderer::OBJECTTYPE_USER_INT);
+        $substKey = 'INT_SCRIPT.' . md5(StringUtility::getUniqueId());
+        $pageParts = $request->getAttribute('frontend.page.parts');
+        $pageParts->addNotCachedContentElement([
+            'substKey' => $substKey,
+            'conf' => $conf,
+            'cObjData' => serialize($this->cObj->getState()),
+            'type' => 'FUNC',
+        ]);
+        $this->cObj->setUserObjectType(false);
+        return '<!--' . $substKey . '-->';
     }
 }

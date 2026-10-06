@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Tests\Unit\Utility;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Extbase\Tests\Unit\Utility\Fixtures\ExtensionUtilityAccessibleProxy;
@@ -26,6 +27,7 @@ use TYPO3\CMS\Extbase\Tests\Unit\Utility\Fixtures\MyExtension\Controller\ThirdCo
 use TYPO3\CMS\Extbase\Utility\ExtensionUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class ExtensionUtilityTest extends UnitTestCase
 {
     #[Test]
@@ -37,7 +39,10 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Pi1',
             [FirstController::class => ['index']],
         );
-        $staticTypoScript = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.']['defaultContentRendering'];
+
+        /** @var array<string, string> $defaultTypoScriptSetup */
+        $defaultTypoScriptSetup = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.'];
+        $staticTypoScript = $defaultTypoScriptSetup['defaultContentRendering'];
         self::assertStringContainsString('tt_content.myextension_pi1 =< lib.contentElement', $staticTypoScript);
         self::assertStringContainsString('
     20 = EXTBASEPLUGIN
@@ -56,7 +61,9 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Pi1',
             [FirstController::class => ['index']],
         );
-        $staticTypoScript = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.']['defaultContentRendering'];
+        /** @var array<string, string> $defaultTypoScriptSetup */
+        $defaultTypoScriptSetup = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.'];
+        $staticTypoScript = $defaultTypoScriptSetup['defaultContentRendering'];
         self::assertStringContainsString('tt_content.myextension_pi1 =< lib.contentElement', $staticTypoScript);
     }
 
@@ -69,7 +76,9 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Pi1',
             [FirstController::class => ['index']],
         );
-        $staticTypoScript = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.']['defaultContentRendering'];
+        /** @var array<string, string> $defaultTypoScriptSetup */
+        $defaultTypoScriptSetup = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.'];
+        $staticTypoScript = $defaultTypoScriptSetup['defaultContentRendering'];
         self::assertStringContainsString('tt_content.myextension_pi1 =< lib.contentElement', $staticTypoScript);
         self::assertStringContainsString('
     20 = EXTBASEPLUGIN
@@ -122,7 +131,9 @@ final class ExtensionUtilityTest extends UnitTestCase
             [FirstController::class => ['index', 'show', 'new', 'create', 'delete', 'edit', 'update']],
             [FirstController::class => ['index', 'show']],
         );
-        $staticTypoScript = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.']['defaultContentRendering'];
+        /** @var array<string, string> $defaultTypoScriptSetup */
+        $defaultTypoScriptSetup = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.'];
+        $staticTypoScript = $defaultTypoScriptSetup['defaultContentRendering'];
         self::assertStringContainsString('tt_content.myextension_pi1 =< lib.contentElement', $staticTypoScript);
         self::assertStringContainsString('
     20 = EXTBASEPLUGIN
@@ -152,7 +163,9 @@ final class ExtensionUtilityTest extends UnitTestCase
             [FirstController::class => ['index', 'show', 'new', 'create', 'delete', 'edit', 'update']],
             [FirstController::class => ['new', 'show']],
         );
-        $staticTypoScript = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.']['defaultContentRendering'];
+        /** @var array<string, string> $defaultTypoScriptSetup */
+        $defaultTypoScriptSetup = $GLOBALS['TYPO3_CONF_VARS']['FE']['defaultTypoScript_setup.'];
+        $staticTypoScript = $defaultTypoScriptSetup['defaultContentRendering'];
         self::assertStringContainsString('tt_content.myextension_pi1 =< lib.contentElement', $staticTypoScript);
         self::assertStringContainsString('
     20 = EXTBASEPLUGIN
@@ -310,14 +323,12 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Pi2',
             'Testing'
         );
-        self::assertSame(
-            'content-plugin',
-            $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][0]['icon']
-        );
-        self::assertSame(
-            'indexedsearch_pi2',
-            $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][0]['value']
-        );
+
+        /** @var array<int, array{icon: string, value: string}> $items */
+        $items = $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'];
+
+        self::assertSame('content-plugin', $items[0]['icon']);
+        self::assertSame('indexedsearch_pi2', $items[0]['value']);
     }
 
     #[Test]
@@ -345,14 +356,12 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Pi2',
             'Testing'
         );
-        self::assertSame(
-            'content-plugin',
-            $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][0]['icon']
-        );
-        self::assertSame(
-            'indexedsearch_pi2',
-            $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][0]['value']
-        );
+
+        /** @var array<int, array{icon: string, value: string}> $items */
+        $items = $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'];
+
+        self::assertSame('content-plugin', $items[0]['icon']);
+        self::assertSame('indexedsearch_pi2', $items[0]['value']);
     }
 
     /**
@@ -369,10 +378,11 @@ final class ExtensionUtilityTest extends UnitTestCase
             'Testing',
             'EXT:indexed_search/foo.gif'
         );
-        self::assertEquals(
-            'EXT:indexed_search/foo.gif',
-            $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'][0]['icon']
-        );
+
+        /** @var array<int, array{icon: string, value: string}> $items */
+        $items = $GLOBALS['TCA']['tt_content']['columns']['CType']['config']['items'];
+
+        self::assertEquals('EXT:indexed_search/foo.gif', $items[0]['icon']);
     }
 
     public static function checkResolveControllerAliasFromControllerClassNameDataProvider(): array

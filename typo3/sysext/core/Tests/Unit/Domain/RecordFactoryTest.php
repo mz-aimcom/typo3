@@ -22,10 +22,12 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\RecordFieldTransformer;
+use TYPO3\CMS\Core\Domain\Page;
 use TYPO3\CMS\Core\Domain\Record;
 use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -38,18 +40,20 @@ final class RecordFactoryTest extends UnitTestCase
     {
         $this->expectExceptionCode(1715266929);
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
         $schemaFactory->load(['existing_schema' => ['ctrl' => [], 'columns' => []]]);
         $subject = new RecordFactory(
             $schemaFactory,
-            $this->createMock(RecordFieldTransformer::class),
-            $this->createMock(EventDispatcherInterface::class),
+            self::createStub(RecordFieldTransformer::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $subject->createFromDatabaseRow('foo', ['foo' => 1]);
     }
@@ -58,10 +62,12 @@ final class RecordFactoryTest extends UnitTestCase
     public function createFromDatabaseRowAddsTypeField(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -74,8 +80,8 @@ final class RecordFactoryTest extends UnitTestCase
         ]);
         $subject = new RecordFactory(
             $schemaFactory,
-            $this->createMock(RecordFieldTransformer::class),
-            $this->createMock(EventDispatcherInterface::class),
+            self::createStub(RecordFieldTransformer::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         $time = time();
         /** @var Record $recordObject */
@@ -89,10 +95,12 @@ final class RecordFactoryTest extends UnitTestCase
     public function resolvedRecordOnlyContainsFieldsInSubSchema(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $schemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -105,8 +113,8 @@ final class RecordFactoryTest extends UnitTestCase
         ]);
         $subject = new RecordFactory(
             $schemaFactory,
-            $this->createMock(RecordFieldTransformer::class),
-            $this->createMock(EventDispatcherInterface::class),
+            self::createStub(RecordFieldTransformer::class),
+            self::createStub(EventDispatcherInterface::class),
         );
         /** @var Record $recordObject */
         $recordObject = $subject->createFromDatabaseRow('foo', ['uid' => 1, 'pid' => 2, 'type' => 'foo', 'foo' => 'fooValue', 'bar' => 'barValue']);
@@ -115,5 +123,64 @@ final class RecordFactoryTest extends UnitTestCase
         self::assertIsArray($recordObject->toArray(true)['_system']);
         self::assertTrue($recordObject->getRawRecord()->has('foo'));
         self::assertTrue($recordObject->getRawRecord()->has('bar'));
+    }
+
+    #[Test]
+    public function createRawRecordCanBeCalledOnArrayRepresentationOfRawRecord(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $schemaFactory = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+        $schemaFactory->load(
+            [
+                'foo' => [
+                    'ctrl' => ['type' => 'type'],
+                    'columns' => [
+                        'type' => [
+                            'config' => [
+                                'type' => 'select',
+                                'items' => [['value' => 'bar', 'label' => 'bar']],
+                            ],
+                        ],
+                        'foo' => ['config' => ['type' => 'input']],
+                        'bar' => ['config' => ['type' => 'input']],
+                    ],
+                    'types' => ['foo' => ['showitem' => 'foo']],
+                ],
+            ]
+        );
+        $subject = new RecordFactory(
+            $schemaFactory,
+            self::createStub(RecordFieldTransformer::class),
+            self::createStub(EventDispatcherInterface::class),
+        );
+        $rawRecord = $subject->createRawRecord(
+            'foo',
+            [
+                'uid' => 1,
+                'pid' => 2,
+                'type' => 'foo',
+                'foo' => 'fooValue',
+                'bar' => 'barValue',
+                '_ORIG_uid' => 111,
+                '_LOCALIZED_UID' => 112,
+                '_REQUESTED_OVERLAY_LANGUAGE' => 2,
+                '_TRANSLATION_SOURCE' => new Page(['uid' => 222]),
+            ]
+        );
+        $arrayRepresentation = $rawRecord->toArray(true);
+        $rawRecord2 = $subject->createRawRecord('foo', $arrayRepresentation);
+
+        self::assertSame(111, $rawRecord2->getComputedProperties()->getVersionedUid());
+        self::assertSame(112, $rawRecord2->getComputedProperties()->getLocalizedUid());
+        self::assertSame(2, $rawRecord2->getComputedProperties()->getRequestedOverlayLanguageId());
+        self::assertSame(['uid' => 222, 'pid' => 0], $rawRecord2->getComputedProperties()->getTranslationSource()->toArray());
     }
 }

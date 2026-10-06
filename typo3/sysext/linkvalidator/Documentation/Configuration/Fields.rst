@@ -15,9 +15,13 @@ Fields checked by the Linkvalidator
     *   :typoscript:`sys_redirect = target`
     *   :typoscript:`sys_file_reference = link`
 
+..  versionchanged:: 14.0
+    Field `pages.url` has been removed in favour of the new `pages.link` field
+    as replacement and is used as default now.
+
 The following tables and fields are supported by default:
 
-*   :typoscript:`pages = url, canonical_link`
+*   :typoscript:`pages = link, canonical_link`
 *   :typoscript:`sys_redirect = target`
 *   :typoscript:`sys_file_reference = link`
 *   :typoscript:`tt_content = bodytext, header_link`
@@ -51,15 +55,29 @@ TCA configuration meets one of these criteria:
 
 *   at least one :ref:`softref <t3tca:tca_property_softref>`
 *   type is set to :ref:`link <t3tca:columns-link>`
-*   type is set to :ref:`email <t3tca:columns-email>`
 
 For this reason, it is currently not possible to check for
 `pages.media`. This will be fixed in the future.
 
+..  note::
+
+    Detecting a soft reference is not the same as validating it: a match is
+    only checked and reported as broken if it also resolves to one of the
+    registered link types (`db` for internal links, `record` for record links,
+    `external` or `file`).
+
+    Type :ref:`email <t3tca:columns-email>` automatically adds the soft
+    reference `email[subst]`, and the same soft reference can be added
+    manually to other field types. It is currently parsed but does not
+    resolve to any registered link type, so email addresses are neither
+    validated nor reported as broken links - this is why
+    `tt_content.subheader` is not part of the default configuration despite
+    having a soft reference.
+
 Examples for working fields:
 
 *   `pages.canonical_link` (:php:`'type' => 'link'`)
-*   `pages.url` (:php:`'softref' => 'url'`)
+*   `pages.link` (:php:`'type' => 'link'`)
 *   `sys_file_reference.link` (:php:`'type' => 'link'`)
 
 Example for not working fields:

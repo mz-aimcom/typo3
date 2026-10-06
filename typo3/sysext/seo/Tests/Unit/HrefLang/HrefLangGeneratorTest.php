@@ -17,10 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Seo\Tests\Unit\HrefLang;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\UriInterface;
+use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\DataProcessing\LanguageMenuProcessor;
@@ -28,9 +30,10 @@ use TYPO3\CMS\Seo\HrefLang\HrefLangGenerator;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class HrefLangGeneratorTest extends UnitTestCase
 {
-    protected MockObject&AccessibleObjectInterface&HrefLangGenerator $subject;
+    private MockObject&AccessibleObjectInterface&HrefLangGenerator $subject;
 
     public function setUp(): void
     {
@@ -40,8 +43,9 @@ final class HrefLangGeneratorTest extends UnitTestCase
             HrefLangGenerator::class,
             null,
             [
-                $this->getMockBuilder(ContentObjectRenderer::class)->disableOriginalConstructor()->getMock(),
-                $this->getMockBuilder(LanguageMenuProcessor::class)->disableOriginalConstructor()->getMock(),
+                self::createStub(ContentObjectRenderer::class),
+                self::createStub(LanguageMenuProcessor::class),
+                self::createStub(PageRepository::class),
             ]
         );
     }

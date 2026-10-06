@@ -21,11 +21,16 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Persistence\Generic\Exception\UnexpectedTypeException;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapFactory;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\AndInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\CoalesceInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConcatInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConstraintInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\DynamicOperandInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrderingInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\OrInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\QueryObjectModelFactory;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SelectorInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Qom\SourceInterface;
+use TYPO3\CMS\Extbase\Persistence\Generic\Qom\TrimInterface;
 use TYPO3\CMS\Extbase\Persistence\PersistenceManagerInterface;
 use TYPO3\CMS\Extbase\Persistence\QueryInterface;
 use TYPO3\CMS\Extbase\Persistence\QueryResultInterface;
@@ -44,26 +49,25 @@ class Query implements QueryInterface
     /**
      * An inner join.
      */
-    public const JCR_JOIN_TYPE_INNER = '{http://www.jcp.org/jcr/1.0}joinTypeInner';
+    public const string JCR_JOIN_TYPE_INNER = '{http://www.jcp.org/jcr/1.0}joinTypeInner';
 
     /**
      * A left-outer join.
      */
-    public const JCR_JOIN_TYPE_LEFT_OUTER = '{http://www.jcp.org/jcr/1.0}joinTypeLeftOuter';
+    public const string JCR_JOIN_TYPE_LEFT_OUTER = '{http://www.jcp.org/jcr/1.0}joinTypeLeftOuter';
 
     /**
      * A right-outer join.
      */
-    public const JCR_JOIN_TYPE_RIGHT_OUTER = '{http://www.jcp.org/jcr/1.0}joinTypeRightOuter';
+    public const string JCR_JOIN_TYPE_RIGHT_OUTER = '{http://www.jcp.org/jcr/1.0}joinTypeRightOuter';
 
     /**
      * Charset of strings in QOM
      */
-    public const CHARSET = 'utf-8';
+    public const string CHARSET = 'utf-8';
 
     /**
-     * @var string
-     * @phpstan-var class-string<T>
+     * @var class-string<T>
      */
     protected $type;
 
@@ -85,9 +89,9 @@ class Query implements QueryInterface
     protected $statement;
 
     /**
-     * @var array<string, string>
+     * @var array<string, string>|array<OrderingInterface>
      */
-    protected $orderings = [];
+    protected array $orderings = [];
 
     /**
      * @var int|null
@@ -99,12 +103,7 @@ class Query implements QueryInterface
      */
     protected $offset;
 
-    /**
-     * The query settings.
-     *
-     * @var QuerySettingsInterface
-     */
-    protected $querySettings;
+    protected QuerySettingsInterface $querySettings;
 
     /**
      * @var QueryInterface|null
@@ -125,7 +124,7 @@ class Query implements QueryInterface
     }
 
     /**
-     * @phpstan-param class-string<T> $type
+     * @param class-string<T> $type
      */
     public function setType(string $type): void
     {
@@ -151,33 +150,21 @@ class Query implements QueryInterface
     /**
      * Sets the Query Settings. These Query settings must match the settings expected by
      * the specific Storage Backend.
-     *
-     * @param QuerySettingsInterface $querySettings The Query Settings
      */
     public function setQuerySettings(QuerySettingsInterface $querySettings)
     {
         $this->querySettings = $querySettings;
     }
 
-    /**
-     * Returns the Query Settings.
-     *
-     * @throws Exception
-     * @return QuerySettingsInterface $querySettings The Query Settings
-     */
-    public function getQuerySettings()
+    public function getQuerySettings(): QuerySettingsInterface
     {
-        if (!$this->querySettings instanceof QuerySettingsInterface) {
-            throw new Exception('Tried to get the query settings without setting them before.', 1248689115);
-        }
         return $this->querySettings;
     }
 
     /**
      * Returns the type this query cares for.
      *
-     * @return string
-     * @phpstan-return class-string<T>
+     * @return class-string<T>
      */
     public function getType()
     {
@@ -216,15 +203,14 @@ class Query implements QueryInterface
      * Executes the query against the database and returns the result
      *
      * @param bool $returnRawQueryResult avoids the object mapping by the persistence
-     * @return QueryResultInterface|list<array<string,mixed>> The query result object or an array if $returnRawQueryResult is TRUE
-     * @phpstan-return ($returnRawQueryResult is true ? list<array<string,mixed>> : QueryResultInterface<int,T>)
+     * @return ($returnRawQueryResult is true ? list<array<string,mixed>> : QueryResultInterface<int,T>) The query result object or an array if $returnRawQueryResult is TRUE
      */
     public function execute($returnRawQueryResult = false)
     {
         if ($returnRawQueryResult) {
             return $this->persistenceManager->getObjectDataByQuery($this);
         }
-        /** @phpstan-var QueryResultInterface<int,T> $queryResult */
+        /** @var QueryResultInterface<int,T> $queryResult */
         $queryResult = $this->container->get(QueryResultInterface::class);
         $queryResult->setQuery($this);
         return $queryResult;
@@ -239,8 +225,7 @@ class Query implements QueryInterface
      * where 'foo' and 'bar' are property names.
      *
      * @param array $orderings The property names to order by
-     * @return QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setOrderings(array $orderings)
     {
@@ -255,11 +240,93 @@ class Query implements QueryInterface
      * 'bar' => \TYPO3\CMS\Extbase\Persistence\QueryInterface::ORDER_DESCENDING
      * )
      *
-     * @return array<string, string>
+     * @return array<string, string>|array<OrderingInterface>
      */
     public function getOrderings()
     {
         return $this->orderings;
+    }
+
+    /**
+     * Sets the ordering for the result by a single operand. Replaces any existing orderings.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or a dynamic operand
+     * @param string $order The order direction
+     * @return QueryInterface<T>
+     */
+    public function orderBy(string|DynamicOperandInterface $operand, string $order = QueryInterface::ORDER_ASCENDING)
+    {
+        $this->orderings = [];
+        return $this->addOrderBy($operand, $order);
+    }
+
+    /**
+     * Adds an ordering for the result. Appends to any existing orderings.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or a dynamic operand
+     * @param string $order The order direction
+     * @return QueryInterface<T>
+     */
+    public function addOrderBy(string|DynamicOperandInterface $operand, string $order = QueryInterface::ORDER_ASCENDING)
+    {
+        if (is_string($operand)) {
+            $operand = $this->qomFactory->propertyValue($operand, $this->getSelectorName());
+        }
+        if ($order === QueryInterface::ORDER_ASCENDING) {
+            $this->orderings[] = $this->qomFactory->ascending($operand);
+        } else {
+            $this->orderings[] = $this->qomFactory->descending($operand);
+        }
+        return $this;
+    }
+
+    /**
+     * Creates a CONCAT expression for ordering.
+     *
+     * @param string|DynamicOperandInterface ...$operands Property names or operand objects to concatenate
+     */
+    public function concat(string|DynamicOperandInterface ...$operands): ConcatInterface
+    {
+        $resolvedOperands = [];
+        foreach ($operands as $operand) {
+            if (is_string($operand)) {
+                $resolvedOperands[] = $this->qomFactory->propertyValue($operand, $this->getSelectorName());
+            } else {
+                $resolvedOperands[] = $operand;
+            }
+        }
+        return $this->qomFactory->concat(...$resolvedOperands);
+    }
+
+    /**
+     * Creates a TRIM expression for ordering.
+     *
+     * @param string|DynamicOperandInterface $operand The property name or operand to trim
+     */
+    public function trim(string|DynamicOperandInterface $operand): TrimInterface
+    {
+        if (is_string($operand)) {
+            $operand = $this->qomFactory->propertyValue($operand, $this->getSelectorName());
+        }
+        return $this->qomFactory->trim($operand);
+    }
+
+    /**
+     * Creates a COALESCE expression for ordering.
+     *
+     * @param string|DynamicOperandInterface ...$operands Property names or operand objects
+     */
+    public function coalesce(string|DynamicOperandInterface ...$operands): CoalesceInterface
+    {
+        $resolvedOperands = [];
+        foreach ($operands as $operand) {
+            if (is_string($operand)) {
+                $resolvedOperands[] = $this->qomFactory->propertyValue($operand, $this->getSelectorName());
+            } else {
+                $resolvedOperands[] = $operand;
+            }
+        }
+        return $this->qomFactory->coalesce(...$resolvedOperands);
     }
 
     /**
@@ -268,8 +335,7 @@ class Query implements QueryInterface
      *
      * @param int $limit
      * @throws \InvalidArgumentException
-     * @return QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setLimit($limit)
     {
@@ -284,7 +350,7 @@ class Query implements QueryInterface
      * Resets a previously set maximum size of the result set. Returns $this to allow
      * for chaining (fluid interface)
      *
-     * @return QueryInterface
+     * @return QueryInterface<T>
      */
     public function unsetLimit()
     {
@@ -308,8 +374,7 @@ class Query implements QueryInterface
      *
      * @param int $offset
      * @throws \InvalidArgumentException
-     * @return QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function setOffset($offset)
     {
@@ -335,8 +400,7 @@ class Query implements QueryInterface
      * for chaining (fluid interface)
      *
      * @param \TYPO3\CMS\Extbase\Persistence\Generic\Qom\ConstraintInterface $constraint
-     * @return QueryInterface
-     * @phpstan-return QueryInterface<T>
+     * @return QueryInterface<T>
      */
     public function matching($constraint)
     {
@@ -350,7 +414,7 @@ class Query implements QueryInterface
      *
      * @param string|\TYPO3\CMS\Core\Database\Query\QueryBuilder|\Doctrine\DBAL\Statement $statement The statement
      * @param array $parameters An array of parameters. These will be bound to placeholders '?' in the $statement.
-     * @return QueryInterface
+     * @return QueryInterface<T>
      */
     public function statement($statement, array $parameters = [])
     {
@@ -384,7 +448,6 @@ class Query implements QueryInterface
      */
     public function logicalAnd(ConstraintInterface ...$constraints): AndInterface
     {
-        $constraints = array_filter($constraints, fn(mixed $constraint): bool => $constraint instanceof ConstraintInterface);
         switch (count($constraints)) {
             case 0:
                 $alwaysTrue = $this->greaterThan('uid', 0);
@@ -407,7 +470,6 @@ class Query implements QueryInterface
      */
     public function logicalOr(ConstraintInterface ...$constraints): OrInterface
     {
-        $constraints = array_filter($constraints, fn(mixed $constraint): bool => $constraint instanceof ConstraintInterface);
         switch (count($constraints)) {
             case 0:
                 $alwaysFalse = $this->equals('uid', 0);
@@ -577,8 +639,9 @@ class Query implements QueryInterface
      */
     public function __wakeup()
     {
-        $this->persistenceManager = GeneralUtility::makeInstance(PersistenceManagerInterface::class);
-        $this->dataMapFactory = GeneralUtility::makeInstance(DataMapFactory::class);
+        $this->container = GeneralUtility::getContainer();
+        $this->persistenceManager = $this->container->get(PersistenceManagerInterface::class);
+        $this->dataMapFactory = $this->container->get(DataMapFactory::class);
         $this->qomFactory = GeneralUtility::makeInstance(QueryObjectModelFactory::class);
     }
 

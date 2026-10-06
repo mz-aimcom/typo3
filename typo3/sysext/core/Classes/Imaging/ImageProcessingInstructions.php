@@ -192,13 +192,13 @@ readonly class ImageProcessingInstructions
         }
 
         if (!empty($options['minWidth'])) {
-            if ($width < $options['minWidth'] || ($width === 0 && $cropArea->getWidth() < $options['minWidth'])) {
+            if (($width > 0 && $width < $options['minWidth']) || ($width === 0 && $cropArea->getWidth() < $options['minWidth'])) {
                 $width = (int)$options['minWidth'];
                 $height = max(1, (int)round($cropArea->getHeight() * ($width / $cropArea->getWidth())));
             }
         }
         if (!empty($options['minHeight'])) {
-            if ($height < $options['minHeight'] || ($height === 0 && $cropArea->getHeight() < $options['minHeight'])) {
+            if (($height > 0 && $height < $options['minHeight']) || ($height === 0 && $cropArea->getHeight() < $options['minHeight'])) {
                 $height = (int)$options['minHeight'];
                 $width = max(1, (int)round($cropArea->getWidth() * ($height / $cropArea->getHeight())));
             }
@@ -232,10 +232,10 @@ readonly class ImageProcessingInstructions
             }
         }
 
-        if ((int)$cropArea->getOffsetLeft() === 0 &&
-            (int)$cropArea->getOffsetTop() === 0 &&
-            (int)$cropArea->getWidth() === $incomingWidth &&
-            (int)$cropArea->getHeight() === $incomingHeight) {
+        if ((int)$cropArea->getOffsetLeft() === 0
+            && (int)$cropArea->getOffsetTop() === 0
+            && (int)$cropArea->getWidth() === $incomingWidth
+            && (int)$cropArea->getHeight() === $incomingHeight) {
             $cropArea = null;
         }
 
@@ -260,7 +260,6 @@ readonly class ImageProcessingInstructions
         int $cropOffsetVertical,
         int $cropOffsetHorizontal
     ): Area {
-        // @phpstan-ignore-next-line
         if (!($width > 0 && $height > 0 && $cropArea->getWidth() > 0 && $cropArea->getHeight() > 0)) {
             throw new \InvalidArgumentException('Apply crop scale must use concrete width and height', 1709810881);
         }
@@ -324,7 +323,9 @@ readonly class ImageProcessingInstructions
         }
 
         if (isset($options['crop'])) {
-            if (is_string($options['crop'])) {
+            if ($options['crop'] === '') {
+                unset($options['crop']);
+            } elseif (is_string($options['crop'])) {
                 // check if it is a json object
                 $cropData = json_decode($options['crop']);
                 if ($cropData) {
@@ -334,9 +335,11 @@ readonly class ImageProcessingInstructions
                     } else {
                         $options['crop'] = new Area((float)$cropData->x, (float)$cropData->y, (float)$cropData->width, (float)$cropData->height);
                     }
-                } else {
+                } elseif (substr_count($options['crop'], ',') === 3) {
                     [$offsetLeft, $offsetTop, $newWidth, $newHeight] = explode(',', $options['crop'], 4);
                     $options['crop'] = new Area((float)$offsetLeft, (float)$offsetTop, (float)$newWidth, (float)$newHeight);
+                } else {
+                    unset($options['crop']);
                 }
                 if (isset($options['crop']) && $options['crop']->isEmpty()) {
                     unset($options['crop']);

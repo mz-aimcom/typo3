@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\Hooks;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\FlexForm\Exception\InvalidIdentifierException;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
@@ -57,7 +58,7 @@ readonly class TcaItemsProcessorFunctions
             if ($schema->hasCapability(TcaSchemaCapability::AccessAdminOnly)) {
                 continue;
             }
-            $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($tableName, []);
+            $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($tableName, [], $this->tcaSchemaFactory->get($tableName));
             $fieldDefinition['items'][] = ['label' => $schema->getTitle(), 'value' => $tableName, 'icon' => $icon];
         }
     }
@@ -68,7 +69,7 @@ readonly class TcaItemsProcessorFunctions
             if (!$pageType->getValue()) {
                 continue;
             }
-            $icon = $this->iconFactory->mapRecordTypeToIconIdentifier('pages', ['doktype' => $pageType->getValue()]);
+            $icon = $this->iconFactory->mapRecordTypeToIconIdentifier('pages', ['doktype' => $pageType->getValue()], $this->tcaSchemaFactory->get('pages'));
             $fieldDefinition['items'][] = ['label' => $pageType->getLabel(), 'value' => $pageType->getValue(), 'icon' => $icon];
         }
     }
@@ -118,12 +119,12 @@ readonly class TcaItemsProcessorFunctions
                 $sectionHeader = $excludeFieldGroup['sectionHeader'] ?? '';
                 if (!isset($fieldDefinition['items'][$sectionHeader])) {
                     // there is no icon handling for plugins - we take the icon from the table
-                    $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($table, []);
+                    $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($table, [], $this->tcaSchemaFactory->get($table));
                     $fieldDefinition['items'][$sectionHeader] = ['label' => $sectionHeader, 'value' => '--div--', 'icon' => $icon];
                 }
             } elseif (!isset($fieldDefinition['items'][$table])) {
                 // Add header if not yet set for table
-                $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($table, []);
+                $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($table, [], $this->tcaSchemaFactory->get($table));
                 $fieldDefinition['items'][$table] = ['label' => $schema->getTitle(), 'value' => '--div--', 'icon' => $icon];
             }
             $fullField = $excludeFieldGroup['fullField'] ?? '';
@@ -197,6 +198,24 @@ readonly class TcaItemsProcessorFunctions
                     'description' => $helpText,
                 ];
             }
+        }
+    }
+
+    /**
+     * Populates the file storages the current backend user has access to
+     */
+    public function populateFileStorages(array &$fieldDefinition): void
+    {
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        if (!$backendUser instanceof BackendUserAuthentication) {
+            return;
+        }
+        foreach ($backendUser->getFileStorages() as $storage) {
+            $fieldDefinition['items'][] = [
+                'label' => $storage->getName(),
+                'value' => $storage->getUid(),
+                'icon' => 'mimetypes-x-sys_file_storage',
+            ];
         }
     }
 
@@ -442,8 +461,8 @@ readonly class TcaItemsProcessorFunctions
                     continue;
                 }
                 // Get Human Readable names of fields and table:
-                $allowOptions[$table . ':' . $field]['tableFieldLabel'] =
-                    $schema->getTitle($languageService->sL(...)) . ': '
+                $allowOptions[$table . ':' . $field]['tableFieldLabel']
+                    = $schema->getTitle($languageService->sL(...)) . ': '
                     . $languageService->sL($fieldDefinition->getLabel());
 
                 foreach ($fieldConfig['items'] as $item) {

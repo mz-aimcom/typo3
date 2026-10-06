@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Adminpanel\Tests\Unit\Modules;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
@@ -31,6 +33,8 @@ use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class PreviewModuleTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -39,14 +43,14 @@ final class PreviewModuleTest extends UnitTestCase
     {
         return [
             'timestamp' => [
-                (string)(new \DateTime('2018-01-01 12:00:15 UTC'))->getTimestamp(),
-                (new \DateTime('2018-01-01 12:00:15 UTC'))->getTimestamp(),
-                (new \DateTime('2018-01-01 12:00:00 UTC'))->getTimestamp(),
+                (string)new \DateTime('2018-01-01 12:00:15 UTC')->getTimestamp(),
+                new \DateTime('2018-01-01 12:00:15 UTC')->getTimestamp(),
+                new \DateTime('2018-01-01 12:00:00 UTC')->getTimestamp(),
             ],
             'timestamp_1970' => [
-                (string)(new \DateTime('1970-01-01 00:00:15 UTC'))->getTimestamp(),
-                (new \DateTime('1970-01-01 00:00:60 UTC'))->getTimestamp(),
-                (new \DateTime('1970-01-01 00:00:60 UTC'))->getTimestamp(),
+                (string)new \DateTime('1970-01-01 00:00:15 UTC')->getTimestamp(),
+                new \DateTime('1970-01-01 00:00:60 UTC')->getTimestamp(),
+                new \DateTime('1970-01-01 00:00:60 UTC')->getTimestamp(),
             ],
         ];
     }
@@ -65,25 +69,27 @@ final class PreviewModuleTest extends UnitTestCase
             ['preview', 'showHiddenRecords', ''],
             ['preview', 'showFluidDebug', ''],
         ];
-        $configurationService->method('getConfigurationOption')->withAnyParameters()->willReturnMap($valueMap);
+        $configurationService->method('getConfigurationOption')->willReturnMap($valueMap);
 
         $previewModule = new PreviewModule(
-            $this->createMock(CacheManager::class),
-            $this->createMock(ViewFactoryInterface::class),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(GroupResolver::class),
+            self::createStub(CacheManager::class),
+            self::createStub(ViewFactoryInterface::class),
+            self::createStub(LoggerInterface::class),
+            self::createStub(GroupResolver::class),
         );
         $previewModule->injectConfigurationService($configurationService);
         $previewModule->enrich(new ServerRequest());
 
-        self::assertSame($GLOBALS['SIM_EXEC_TIME'], $expectedExecTime, 'EXEC_TIME');
-        self::assertSame($GLOBALS['SIM_ACCESS_TIME'], $expectedAccessTime, 'ACCESS_TIME');
+        $dateAspect = GeneralUtility::makeInstance(Context::class)->getAspect('date');
+        self::assertSame($expectedExecTime, $GLOBALS['SIM_EXEC_TIME'], 'EXEC_TIME');
+        self::assertSame($expectedAccessTime, $dateAspect->getTimestampWithMinutePrecision(), 'ACCESS_TIME');
     }
 
     #[Test]
     public function initializeFrontendPreviewSetsUserGroupForSimulation(): void
     {
-        $request = (new ServerRequest())->withAttribute('frontend.user', $this->getMockBuilder(FrontendUserAuthentication::class)->getMock());
+        $frontendUser = self::createStub(FrontendUserAuthentication::class);
+        $request = new ServerRequest()->withAttribute('frontend.user', $frontendUser);
 
         $configurationService = $this->getMockBuilder(ConfigurationService::class)->disableOriginalConstructor()->getMock();
         $configurationService->expects($this->once())->method('getMainConfiguration')->willReturn([]);
@@ -95,27 +101,24 @@ final class PreviewModuleTest extends UnitTestCase
             ['preview', 'showHiddenRecords', '0'],
             ['preview', 'showFluidDebug', '0'],
         ];
-        $configurationService->method('getConfigurationOption')->withAnyParameters()->willReturnMap($valueMap);
+        $configurationService->method('getConfigurationOption')->willReturnMap($valueMap);
 
-        $context = $this->getMockBuilder(Context::class)->getMock();
-        $context->method('hasAspect')->with('frontend.preview')->willReturn(false);
-        $context->expects($this->any())->method('setAspect')
-            ->willReturnCallback(fn(string $name): bool => match (true) {
-                $name === 'date',
-                $name === 'visibility',
-                $name === 'frontend.user',
-                $name === 'frontend.preview' => true,
-                default => throw new \LogicException('Unexpected argument "' . $name . '" provided.', 1679482900),
-            });
+        $context = new Context();
         GeneralUtility::setSingletonInstance(Context::class, $context);
+        $groupResolver = self::createStub(GroupResolver::class);
+        $groupResolver->method('resolveGroupsForUser')->willReturn([['uid' => 1]]);
 
         $previewModule = new PreviewModule(
-            $this->createMock(CacheManager::class),
-            $this->createMock(ViewFactoryInterface::class),
-            $this->createMock(LoggerInterface::class),
-            $this->createMock(GroupResolver::class),
+            self::createStub(CacheManager::class),
+            self::createStub(ViewFactoryInterface::class),
+            self::createStub(LoggerInterface::class),
+            $groupResolver,
         );
         $previewModule->injectConfigurationService($configurationService);
         $previewModule->enrich($request);
+
+        self::assertSame('1', $frontendUser->user[$frontendUser->usergroup_column]);
+        self::assertSame([-2, 1], $context->getPropertyFromAspect('frontend.user', 'groupIds'));
+        self::assertTrue($context->getPropertyFromAspect('frontend.preview', 'isPreview'));
     }
 }

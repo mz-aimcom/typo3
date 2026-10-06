@@ -18,10 +18,8 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Install;
 
 use Psr\Container\ContainerInterface;
-use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
-use TYPO3\CMS\Core\Configuration\Loader\YamlFileLoader;
-use TYPO3\CMS\Core\Configuration\SiteWriter;
 use TYPO3\CMS\Core\Console\CommandRegistry;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Crypto\HashService;
@@ -29,31 +27,38 @@ use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\DependencyInjection\ContainerBuilder;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
+use TYPO3\CMS\Core\Html\SanitizerBuilderFactory;
 use TYPO3\CMS\Core\Http\MiddlewareDispatcher;
-use TYPO3\CMS\Core\Http\RequestFactory;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locales;
+use TYPO3\CMS\Core\Localization\TranslationDomainResolver;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Mail\Mailer;
+use TYPO3\CMS\Core\Mail\TemplatedEmailFactory;
 use TYPO3\CMS\Core\Middleware\NormalizedParamsAttribute as NormalizedParamsMiddleware;
 use TYPO3\CMS\Core\Middleware\ResponsePropagation as ResponsePropagationMiddleware;
-use TYPO3\CMS\Core\Middleware\VerifyHostHeader;
 use TYPO3\CMS\Core\Package\AbstractServiceProvider;
 use TYPO3\CMS\Core\Package\FailsafePackageManager;
 use TYPO3\CMS\Core\Package\PackageManager;
-use TYPO3\CMS\Core\Registry;
+use TYPO3\CMS\Core\Page\ResourceHashCollection;
+use TYPO3\CMS\Core\PasswordPolicy\Generator\PasswordGenerator;
+use TYPO3\CMS\Core\PasswordPolicy\PasswordService;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
+use TYPO3\CMS\Core\Service\SilentConfigurationUpgradeService;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\TypoScript\AST\CommentAwareAstBuilder;
 use TYPO3\CMS\Core\TypoScript\AST\Traverser\AstTraverser;
 use TYPO3\CMS\Core\TypoScript\Tokenizer\LosslessTokenizer;
-use TYPO3\CMS\Install\Database\PermissionsCheck;
+use TYPO3\CMS\Core\ViewHelpers\IconViewHelper;
+use TYPO3\CMS\Core\ViewHelpers\NormalizedUrlViewHelper;
+use TYPO3\CMS\Fluid\ViewHelpers\Be\InfoboxViewHelper;
+use TYPO3\CMS\Fluid\ViewHelpers\Sanitize\HtmlViewHelper;
 use TYPO3\CMS\Install\Service\LateBootService;
-use TYPO3\CMS\Install\Service\LoadTcaService;
 use TYPO3\CMS\Install\Service\SessionService;
-use TYPO3\CMS\Install\Service\SetupDatabaseService;
-use TYPO3\CMS\Install\Service\SetupService;
 use TYPO3\CMS\Install\Service\WebServerConfigurationFileService;
 
 /**
@@ -77,39 +82,34 @@ class ServiceProvider extends AbstractServiceProvider
             Authentication\AuthenticationService::class => self::getAuthenticationService(...),
             Http\Application::class => self::getApplication(...),
             Http\NotFoundRequestHandler::class => self::getNotFoundRequestHandler(...),
+            Factory\ImportMapFactory::class => self::getImportMapFactory(...),
             Service\ClearCacheService::class => self::getClearCacheService(...),
-            Service\ClearTableService::class => self::getClearTableService(...),
             Service\CoreUpdateService::class => self::getCoreUpdateService(...),
             Service\CoreVersionService::class => self::getCoreVersionService(...),
-            Service\LanguagePackService::class => self::getLanguagePackService(...),
             Service\LateBootService::class => self::getLateBootService(...),
-            Service\LoadTcaService::class => self::getLoadTcaService(...),
-            Service\SilentConfigurationUpgradeService::class => self::getSilentConfigurationUpgradeService(...),
             Service\SilentTemplateFileUpgradeService::class => self::getSilentTemplateFileUpgradeService(...),
             Service\WebServerConfigurationFileService::class => self::getWebServerConfigurationFileService(...),
-            Service\DatabaseUpgradeWizardsService::class => self::getDatabaseUpgradeWizardsService(...),
             Service\SessionService::class => self::getSessionService(...),
-            Service\SetupService::class => self::getSetupService(...),
-            Service\SetupDatabaseService::class => self::getSetupDatabaseService(...),
             Middleware\Installer::class => self::getInstallerMiddleware(...),
             Middleware\Maintenance::class => self::getMaintenanceMiddleware(...),
+            Middleware\AssetPublishing::class => self::getAssetPublishing(...),
+            Middleware\JavaScriptLanguageDomainProvider::class => self::getJavaScriptLanguageDomainProvider(...),
+            Middleware\PathGuard::class => self::getPathGuard(...),
             Controller\EnvironmentController::class => self::getEnvironmentController(...),
             Controller\IconController::class => self::getIconController(...),
-            Controller\InstallerController::class => self::getInstallerController(...),
             Controller\LayoutController::class => self::getLayoutController(...),
             Controller\LoginController::class => self::getLoginController(...),
             Controller\MaintenanceController::class => self::getMaintenanceController(...),
             Controller\SettingsController::class => self::getSettingsController(...),
-            Controller\ServerResponseCheckController::class => self::getServerResponseCheckController(...),
             Controller\UpgradeController::class => self::getUpgradeController(...),
-            Command\LanguagePackCommand::class => self::getLanguagePackCommand(...),
-            Command\UpgradeWizardRunCommand::class => self::getUpgradeWizardRunCommand(...),
-            Command\UpgradeWizardListCommand::class => self::getUpgradeWizardListCommand(...),
-            Command\UpgradeWizardMarkUndoneCommand::class => self::getUpgradeWizardMarkUndoneCommand(...),
             Command\PasswordSetCommand::class => self::getPasswordGenerateCommand(...),
             Command\SetupCommand::class => self::getSetupCommand(...),
             Command\SetupDefaultBackendUserGroupsCommand::class => self::getSetupDefaultBackendUserGroupsCommand(...),
-            Database\PermissionsCheck::class => self::getPermissionsCheck(...),
+            IconViewHelper::class => self::getIconViewHelper(...),
+            HtmlViewHelper::class => self::getHtmlViewHelper(...),
+            InfoboxViewHelper::class => self::getInfoboxViewHelper(...),
+            NormalizedUrlViewHelper::class => self::getNormalizedUrlViewHelper(...),
+            PasswordGenerator::class => self::getPasswordGenerator(...),
             Random::class => self::getRandom(...),
         ];
     }
@@ -121,13 +121,16 @@ class ServiceProvider extends AbstractServiceProvider
             'backend.modules' => [ static::class, 'configureBackendModules' ],
             'icons' => [ static::class, 'configureIcons' ],
             CommandRegistry::class => self::configureCommands(...),
+            DirectiveHashCollection::class => self::provideFallbackDirectiveHashCollection(...),
+            Service\SetupService::class => self::provideSetupService(...),
         ];
     }
 
     public static function getAuthenticationService(ContainerInterface $container): Authentication\AuthenticationService
     {
         return new Authentication\AuthenticationService(
-            $container->get(Mailer::class)
+            $container->get(Mailer::class),
+            $container->get(TemplatedEmailFactory::class)
         );
     }
 
@@ -140,6 +143,9 @@ class ServiceProvider extends AbstractServiceProvider
         $dispatcher->lazy(ResponsePropagationMiddleware::class);
         $dispatcher->lazy(Middleware\Installer::class);
         $dispatcher->add($container->get(Middleware\Maintenance::class));
+        $dispatcher->add($container->get(Middleware\AssetPublishing::class));
+        $dispatcher->add($container->get(Middleware\JavaScriptLanguageDomainProvider::class));
+        $dispatcher->add($container->get(Middleware\PathGuard::class));
         $dispatcher->lazy(NormalizedParamsMiddleware::class);
 
         return self::new($container, Http\Application::class, [
@@ -153,18 +159,19 @@ class ServiceProvider extends AbstractServiceProvider
         return new Http\NotFoundRequestHandler();
     }
 
+    public static function getImportMapFactory(ContainerInterface $container): Factory\ImportMapFactory
+    {
+        return new Factory\ImportMapFactory(
+            $container->get(FailsafePackageManager::class),
+            $container->get(HashService::class),
+        );
+    }
+
     public static function getClearCacheService(ContainerInterface $container): Service\ClearCacheService
     {
         return new Service\ClearCacheService(
             $container->get(Service\LateBootService::class),
             $container->get('cache.di')
-        );
-    }
-
-    public static function getClearTableService(ContainerInterface $container): Service\ClearTableService
-    {
-        return new Service\ClearTableService(
-            $container->get(FailsafePackageManager::class),
         );
     }
 
@@ -180,34 +187,11 @@ class ServiceProvider extends AbstractServiceProvider
         return new Service\CoreVersionService();
     }
 
-    public static function getLanguagePackService(ContainerInterface $container): Service\LanguagePackService
-    {
-        return new Service\LanguagePackService(
-            $container->get(EventDispatcherInterface::class),
-            $container->get(RequestFactory::class),
-            $container->get(LogManager::class)->getLogger(Service\LanguagePackService::class)
-        );
-    }
-
     public static function getLateBootService(ContainerInterface $container): Service\LateBootService
     {
         return new Service\LateBootService(
             $container->get(ContainerBuilder::class),
             $container
-        );
-    }
-
-    public static function getLoadTcaService(ContainerInterface $container): Service\LoadTcaService
-    {
-        return new Service\LoadTcaService(
-            $container->get(Service\LateBootService::class)
-        );
-    }
-
-    public static function getSilentConfigurationUpgradeService(ContainerInterface $container): Service\SilentConfigurationUpgradeService
-    {
-        return new Service\SilentConfigurationUpgradeService(
-            $container->get(ConfigurationManager::class)
         );
     }
 
@@ -223,42 +207,28 @@ class ServiceProvider extends AbstractServiceProvider
         return self::new($container, Service\WebServerConfigurationFileService::class);
     }
 
-    public static function getDatabaseUpgradeWizardsService(ContainerInterface $container): Service\DatabaseUpgradeWizardsService
-    {
-        return self::new($container, Service\DatabaseUpgradeWizardsService::class);
-    }
-
     public static function getSessionService(ContainerInterface $container): Service\SessionService
     {
         return new Service\SessionService(
+            $container->get(Service\LateBootService::class),
             $container->get(LogManager::class)->getLogger(Service\SessionService::class)
         );
     }
 
-    public static function getSetupService(ContainerInterface $container): Service\SetupService
+    public static function provideSetupService(ContainerInterface $container, ?Service\SetupService $setupService): Service\SetupService
     {
-        return new Service\SetupService(
-            $container->get(ConfigurationManager::class),
-            $container->get(SiteWriter::class),
-            $container->get(YamlFileLoader::class),
-            $container->get(FailsafePackageManager::class),
-        );
-    }
-
-    public static function getSetupDatabaseService(ContainerInterface $container): Service\SetupDatabaseService
-    {
-        return new Service\SetupDatabaseService(
-            $container->get(Service\LateBootService::class),
-            $container->get(ConfigurationManager::class),
-            $container->get(PermissionsCheck::class),
-            $container->get(Registry::class),
-        );
+        if ($setupService === null) {
+            $lateBootService = $container->get(Service\LateBootService::class);
+            $setupService = $lateBootService->getContainer(true)->get(Service\SetupService::class);
+            $lateBootService->unsetInternalContainerInstance();
+        }
+        return $setupService;
     }
 
     public static function getInstallerMiddleware(ContainerInterface $container): Middleware\Installer
     {
         return new Middleware\Installer(
-            $container,
+            $container->get(Service\LateBootService::class),
             $container->get(FormProtectionFactory::class),
             $container->get(SessionService::class),
         );
@@ -276,12 +246,34 @@ class ServiceProvider extends AbstractServiceProvider
         );
     }
 
+    public static function getJavaScriptLanguageDomainProvider(ContainerInterface $container): Middleware\JavaScriptLanguageDomainProvider
+    {
+        return new Middleware\JavaScriptLanguageDomainProvider(
+            $container->get(LanguageServiceFactory::class),
+            $container->get(TranslationDomainResolver::class),
+        );
+    }
+
+    public static function getPathGuard(ContainerInterface $container): Middleware\PathGuard
+    {
+        return new Middleware\PathGuard();
+    }
+
+    public static function getAssetPublishing(ContainerInterface $container): Middleware\AssetPublishing
+    {
+        return new Middleware\AssetPublishing(
+            $container->get(PackageManager::class),
+            $container->get(SystemResourcePublisherInterface::class),
+        );
+    }
+
     public static function getEnvironmentController(ContainerInterface $container): Controller\EnvironmentController
     {
         return new Controller\EnvironmentController(
             $container->get(Service\LateBootService::class),
             $container->get(FormProtectionFactory::class),
-            $container->get(Mailer::class)
+            $container->get(Mailer::class),
+            $container->get(TemplatedEmailFactory::class),
         );
     }
 
@@ -292,30 +284,16 @@ class ServiceProvider extends AbstractServiceProvider
         );
     }
 
-    public static function getInstallerController(ContainerInterface $container): Controller\InstallerController
-    {
-        return new Controller\InstallerController(
-            $container->get(Service\LateBootService::class),
-            $container->get(ConfigurationManager::class),
-            $container->get(FailsafePackageManager::class),
-            $container->get(VerifyHostHeader::class),
-            $container->get(FormProtectionFactory::class),
-            $container->get(SetupService::class),
-            $container->get(SetupDatabaseService::class),
-            $container->get(HashService::class),
-            $container->get(IconRegistry::class),
-        );
-    }
-
     public static function getLayoutController(ContainerInterface $container): Controller\LayoutController
     {
         return new Controller\LayoutController(
-            $container->get(FailsafePackageManager::class),
-            $container->get(Service\SilentConfigurationUpgradeService::class),
+            $container->get(SilentConfigurationUpgradeService::class),
             $container->get(Service\SilentTemplateFileUpgradeService::class),
             $container->get(BackendEntryPointResolver::class),
+            $container->get(Factory\ImportMapFactory::class),
             $container->get(HashService::class),
             $container->get(IconRegistry::class),
+            $container->get(DirectiveHashCollection::class),
         );
     }
 
@@ -332,7 +310,6 @@ class ServiceProvider extends AbstractServiceProvider
         return new Controller\MaintenanceController(
             $container->get(Service\LateBootService::class),
             $container->get(Service\ClearCacheService::class),
-            $container->get(Service\ClearTableService::class),
             $container->get(ConfigurationManager::class),
             $container->get(PasswordHashFactory::class),
             $container->get(Locales::class),
@@ -344,6 +321,7 @@ class ServiceProvider extends AbstractServiceProvider
     public static function getSettingsController(ContainerInterface $container): Controller\SettingsController
     {
         return new Controller\SettingsController(
+            $container->get(Service\LateBootService::class),
             $container->get(PackageManager::class),
             $container->get(LanguageServiceFactory::class),
             $container->get(CommentAwareAstBuilder::class),
@@ -351,13 +329,7 @@ class ServiceProvider extends AbstractServiceProvider
             $container->get(AstTraverser::class),
             $container->get(FormProtectionFactory::class),
             $container->get(ConfigurationManager::class),
-        );
-    }
-
-    public static function getServerResponseCheckController(ContainerInterface $container): Controller\ServerResponseCheckController
-    {
-        return new Controller\ServerResponseCheckController(
-            $container->get(HashService::class),
+            $container->get(PasswordService::class),
         );
     }
 
@@ -366,43 +338,7 @@ class ServiceProvider extends AbstractServiceProvider
         return new Controller\UpgradeController(
             $container->get(PackageManager::class),
             $container->get(Service\LateBootService::class),
-            $container->get(Service\DatabaseUpgradeWizardsService::class),
             $container->get(FormProtectionFactory::class),
-            $container->get(LoadTcaService::class)
-        );
-    }
-
-    public static function getLanguagePackCommand(ContainerInterface $container): Command\LanguagePackCommand
-    {
-        return new Command\LanguagePackCommand(
-            'language:update',
-            $container->get(Service\LateBootService::class)
-        );
-    }
-
-    public static function getUpgradeWizardRunCommand(ContainerInterface $container): Command\UpgradeWizardRunCommand
-    {
-        return new Command\UpgradeWizardRunCommand(
-            'upgrade:run',
-            $container->get(Service\LateBootService::class),
-            $container->get(Service\DatabaseUpgradeWizardsService::class),
-            $container->get(Service\SilentConfigurationUpgradeService::class)
-        );
-    }
-
-    public static function getUpgradeWizardListCommand(ContainerInterface $container): Command\UpgradeWizardListCommand
-    {
-        return new Command\UpgradeWizardListCommand(
-            'upgrade:list',
-            $container->get(Service\LateBootService::class),
-        );
-    }
-
-    public static function getUpgradeWizardMarkUndoneCommand(ContainerInterface $container): Command\UpgradeWizardMarkUndoneCommand
-    {
-        return new Command\UpgradeWizardMarkUndoneCommand(
-            'upgrade:mark:undone',
-            $container->get(Service\LateBootService::class),
         );
     }
 
@@ -410,10 +346,9 @@ class ServiceProvider extends AbstractServiceProvider
     {
         return new Command\SetupCommand(
             'setup',
-            $container->get(Service\SetupDatabaseService::class),
             $container->get(Service\SetupService::class),
-            $container->get(ConfigurationManager::class),
             $container->get(LateBootService::class),
+            $container->get(FailsafePackageManager::class),
         );
     }
 
@@ -431,13 +366,61 @@ class ServiceProvider extends AbstractServiceProvider
             'install:password:set',
             $container->get(PasswordHashFactory::class),
             $container->get(ConfigurationManager::class),
-            $container->get(Random::class)
+            $container->get(LanguageServiceFactory::class),
+            $container->get(PasswordService::class),
         );
     }
 
     public static function getPermissionsCheck(ContainerInterface $container): Database\PermissionsCheck
     {
         return new Database\PermissionsCheck();
+    }
+
+    public static function getIconViewHelper(ContainerInterface $container): IconViewHelper
+    {
+        return self::new($container, IconViewHelper::class, [
+            $container->get(IconFactory::class),
+        ]);
+    }
+
+    public static function getHtmlViewHelper(ContainerInterface $container): HtmlViewHelper
+    {
+        return self::new($container, HtmlViewHelper::class, [
+            new SanitizerBuilderFactory(),
+        ]);
+    }
+
+    public static function getInfoboxViewHelper(ContainerInterface $container): InfoboxViewHelper
+    {
+        return self::new($container, InfoboxViewHelper::class, [
+            $container->get(IconFactory::class),
+        ]);
+    }
+
+    public static function getNormalizedUrlViewHelper(ContainerInterface $container): NormalizedUrlViewHelper
+    {
+        return self::new($container, NormalizedUrlViewHelper::class, [
+            $container->get(SystemResourceFactory::class),
+            $container->get(SystemResourcePublisherInterface::class),
+        ]);
+    }
+
+    public static function getPasswordGenerator(ContainerInterface $container): PasswordGenerator
+    {
+        return self::new($container, PasswordGenerator::class, [$container->get(Random::class)]);
+    }
+
+    public static function provideFallbackDirectiveHashCollection(
+        ContainerInterface $container,
+        ?DirectiveHashCollection $directiveHashCollection = null,
+    ): DirectiveHashCollection {
+        return $directiveHashCollection ?? self::new($container, DirectiveHashCollection::class, [
+            new ResourceHashCollection(
+                $container->get(LogManager::class)->getLogger(ResourceHashCollection::class),
+                $container->get(SystemResourceFactory::class),
+                $container->get(CacheManager::class)->getCache('assets'),
+            ),
+        ]);
     }
 
     public static function getRandom(ContainerInterface $container): Random
@@ -448,41 +431,19 @@ class ServiceProvider extends AbstractServiceProvider
     public static function configureCommands(ContainerInterface $container, CommandRegistry $commandRegistry): CommandRegistry
     {
         $commandRegistry->addLazyCommand(
-            'language:update',
-            Command\LanguagePackCommand::class,
-            'Update the language files of all activated extensions',
-            false,
-            true
-        );
-        $commandRegistry->addLazyCommand(
-            'upgrade:run',
-            Command\UpgradeWizardRunCommand::class,
-            'Run upgrade wizard. Without arguments all available wizards will be run.'
-        );
-        $commandRegistry->addLazyCommand(
-            'upgrade:list',
-            Command\UpgradeWizardListCommand::class,
-            'List available upgrade wizards.'
-        );
-        $commandRegistry->addLazyCommand(
-            'upgrade:mark:undone',
-            Command\UpgradeWizardMarkUndoneCommand::class,
-            'Mark upgrade wizard as undone.'
-        );
-        $commandRegistry->addLazyCommand(
             'setup',
             Command\SetupCommand::class,
-            'Setup TYPO3 via CLI.'
+            'Sets up TYPO3 via CLI.'
         );
         $commandRegistry->addLazyCommand(
             'setup:begroups:default',
             Command\SetupDefaultBackendUserGroupsCommand::class,
-            'Setup default backend user groups "Editor" and "Advanced Editor".'
+            'Sets up default backend user groups "Editor" and "Advanced Editor".'
         );
         $commandRegistry->addLazyCommand(
             'install:password:set',
             Command\PasswordSetCommand::class,
-            'Set or generate a new install tool password'
+            'Sets or generate a new install tool password'
         );
         return $commandRegistry;
     }

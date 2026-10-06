@@ -20,17 +20,13 @@ namespace TYPO3\CMS\Filelist\Controller;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
-use TYPO3\CMS\Backend\Clipboard\Clipboard;
+use TYPO3\CMS\Backend\Breadcrumb\BreadcrumbContext;
 use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownDivider;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItem;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownRadio;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownToggle;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -58,6 +54,7 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\File\ExtendedFileUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Filelist\ElementBrowser\CreateFileBrowser;
 use TYPO3\CMS\Filelist\ElementBrowser\CreateFolderBrowser;
 use TYPO3\CMS\Filelist\FileList;
 use TYPO3\CMS\Filelist\Matcher\Matcher;
@@ -72,10 +69,8 @@ use TYPO3\CMS\Filelist\Type\ViewMode;
  * @internal this is a concrete TYPO3 controller implementation and solely used for EXT:filelist and not part of TYPO3's Core API.
  */
 #[AsController]
-class FileListController implements LoggerAwareInterface
+class FileListController
 {
-    use LoggerAwareTrait;
-
     protected string $id = '';
     protected string $cmd = '';
     protected string $searchTerm = '';
@@ -97,6 +92,9 @@ class FileListController implements LoggerAwareInterface
         protected readonly BackendViewFactory $viewFactory,
         protected readonly ResponseFactoryInterface $responseFactory,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly ComponentFactory $componentFactory,
+        protected readonly LoggerInterface $logger,
+        protected readonly FlashMessageService $flashMessageService,
     ) {}
 
     public function handleRequest(ServerRequestInterface $request): ResponseInterface
@@ -107,7 +105,7 @@ class FileListController implements LoggerAwareInterface
         $this->moduleData = $request->getAttribute('moduleData');
 
         $this->view = $this->moduleTemplateFactory->create($request);
-        $this->view->setTitle($lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:mlang_tabs_tab'));
+        $this->view->setTitle($lang->translate('title', 'filelist.module'));
 
         $queryParams = $request->getQueryParams();
         $parsedBody = $request->getParsedBody();
@@ -127,6 +125,8 @@ class FileListController implements LoggerAwareInterface
                 if ($storage !== null) {
                     $identifier = substr($this->id, strpos($this->id, ':') + 1);
                     if (!$storage->hasFolder($identifier)) {
+                        // @todo: should we redirect to form engine instead of implicitly showing the folder, when a file is requested?
+                        // (that way breadcrumb would not need to handle module-specific formegine routes)
                         $identifier = $storage->getFolderIdentifierFromFileIdentifier($identifier);
                     }
                     $this->folderObject = $storage->getFolder($identifier);
@@ -158,7 +158,7 @@ class FileListController implements LoggerAwareInterface
             }
         } catch (FolderDoesNotExistException|InsufficientFolderAccessPermissionsException $permissionException) {
             $this->folderObject = null;
-            if ($storage !== null && $storage->getDriverType() === 'Local' && !$storage->isOnline()) {
+            if ($storage->getDriverType() === 'Local' && !$storage->isOnline()) {
                 // If the base folder for a local storage does not exists, the storage is marked as offline and the
                 // access permission exception is thrown. In this case we however want to display another error message.
                 // @see https://forge.typo3.org/issues/85323
@@ -226,12 +226,14 @@ class FileListController implements LoggerAwareInterface
         $this->pageRenderer->loadJavaScriptModule('@typo3/filelist/file-delete.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/context-menu.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/clipboard-panel.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/localization.js');
+        $this->pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/Wizards/localization.xlf');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/multi-record-selection.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/column-selector-button.js');
 
         $this->pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_alt_doc.xlf', 'buttons');
 
-        $this->initializeModule($request);
+        $this->initializeModule();
 
         // In case the folderObject is NULL, the request is either invalid or the user
         // does not have necessary permissions. Just render and return the "empty" view.
@@ -262,7 +264,7 @@ class FileListController implements LoggerAwareInterface
         $this->registerFileListCheckboxes();
 
         // Register additional doc header buttons
-        $this->registerAdditionalDocHeaderButtons($request);
+        $this->registerAdditionalDocHeaderButtons();
 
         // Add additional view variables
         $this->view->assignMultiple([
@@ -273,20 +275,16 @@ class FileListController implements LoggerAwareInterface
 
         // Overwrite the default module title, adding the specific module headline (the folder name)
         $this->view->setTitle(
-            $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:mlang_tabs_tab'),
+            $lang->translate('title', 'filelist.module'),
             $this->getModuleHeadline()
         );
 
-        // Additional doc header information: current path and folder info
-        $this->view->getDocHeaderComponent()->setMetaInformation([
-            '_additional_info' => $this->filelist->getFolderInfo(),
-        ]);
-        $this->view->getDocHeaderComponent()->setMetaInformationForResource($this->folderObject);
+        $this->view->getDocHeaderComponent()->setBreadcrumbContext(new BreadcrumbContext($this->folderObject));
 
         return $this->view->renderResponse('File/List');
     }
 
-    protected function initializeModule(ServerRequestInterface $request): void
+    protected function initializeModule(): void
     {
         $userTsConfig = $this->getBackendUser()->getTSConfig();
 
@@ -401,7 +399,7 @@ class FileListController implements LoggerAwareInterface
             $this->view->assignMultiple([
                 'listHtml' => $this->filelist->render($searchDemand, $fileListView),
                 'listUrl' => $this->filelist->createModuleUri(),
-                'fileUploadUrl' => $this->getFileUploadUrl(),
+                'formUrl' => $this->filelist->createSearchFormUri(),
                 'totalItems' => $this->filelist->totalItems,
             ]);
 
@@ -500,40 +498,31 @@ class FileListController implements LoggerAwareInterface
     /**
      * Create the panel of buttons for submitting the form or otherwise perform operations.
      */
-    protected function registerAdditionalDocHeaderButtons(ServerRequestInterface $request): void
+    protected function registerAdditionalDocHeaderButtons(): void
     {
         $lang = $this->getLanguageService();
-        $buttonBar = $this->view->getDocHeaderComponent()->getButtonBar();
-
-        // Refresh
-        $refreshButton = $buttonBar->makeLinkButton()
-            ->setHref($request->getAttribute('normalizedParams')->getRequestUri())
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($refreshButton, ButtonBar::BUTTON_POSITION_RIGHT);
-
         // ViewMode
         $viewModeItems = [];
-        $viewModeItems[] = GeneralUtility::makeInstance(DropDownRadio::class)
+        $viewModeItems[] = $this->componentFactory->createDropDownRadio()
             ->setActive($this->moduleData->get('viewMode') === ViewMode::TILES->value)
             ->setHref($this->filelist->createModuleUri(['viewMode' => ViewMode::TILES->value]))
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.tiles'))
             ->setIcon($this->iconFactory->getIcon('actions-viewmode-tiles'));
-        $viewModeItems[] = GeneralUtility::makeInstance(DropDownRadio::class)
+        $viewModeItems[] = $this->componentFactory->createDropDownRadio()
             ->setActive($this->moduleData->get('viewMode') === ViewMode::LIST->value)
             ->setHref($this->filelist->createModuleUri(['viewMode' => ViewMode::LIST->value]))
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.list'))
             ->setIcon($this->iconFactory->getIcon('actions-viewmode-list'));
-        $viewModeItems[] = GeneralUtility::makeInstance(DropDownDivider::class);
+        $viewModeItems[] = $this->componentFactory->createDropDownDivider();
         if ($GLOBALS['TYPO3_CONF_VARS']['GFX']['thumbnails'] && ($this->getBackendUser()->getTSConfig()['options.']['file_list.']['enableDisplayThumbnails'] ?? '') === 'selectable') {
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownToggle()
                 ->setActive((bool)$this->moduleData->get('displayThumbs'))
                 ->setHref($this->filelist->createModuleUri(['displayThumbs' => $this->moduleData->get('displayThumbs') ? 0 : 1]))
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.showThumbnails'))
                 ->setIcon($this->iconFactory->getIcon('actions-image'));
         }
         if ($this->allowClipboard) {
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownToggle()
                 ->setActive((bool)$this->moduleData->get('clipBoard'))
                 ->setHref($this->filelist->createModuleUri(['clipBoard' => $this->moduleData->get('clipBoard') ? 0 : 1]))
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.showClipboard'))
@@ -541,8 +530,8 @@ class FileListController implements LoggerAwareInterface
         }
         if (($this->getBackendUser()->getTSConfig()['options.']['file_list.']['displayColumnSelector'] ?? true)
             && $this->moduleData->get('viewMode') === ViewMode::LIST->value) {
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownDivider::class);
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownItem::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownDivider();
+            $viewModeItems[] = $this->componentFactory->createDropDownItem()
                 ->setTag('typo3-backend-column-selector-button')
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.selectColumns'))
                 ->setAttributes([
@@ -562,7 +551,7 @@ class FileListController implements LoggerAwareInterface
                 ->setIcon($this->iconFactory->getIcon('actions-options'));
         }
 
-        $sortingButton = $buttonBar->makeDropDownButton()
+        $sortingButton = $this->componentFactory->createDropDownButton()
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting'))
             ->setIcon($this->iconFactory->getIcon($this->filelist->sortDirection->getIconIdentifier()))
             ->setShowLabelText(true);
@@ -573,24 +562,24 @@ class FileListController implements LoggerAwareInterface
             foreach ($sortableFields as $field) {
                 $label = $this->filelist->getFieldLabel($field);
 
-                $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+                $sortingModeButtons[] = $this->componentFactory->createDropDownRadio()
                     ->setActive($this->filelist->sortField === $field)
                     ->setHref($this->filelist->createModuleUri([
                         'sortField' => $field,
                         'currentPage' => 0,
-                        'sortDirection' => (int)($this->filelist->sortDirection === SortDirection::DESCENDING),
+                        'sortDirection' => $this->filelist->sortDirection->value,
                     ]))
                     ->setLabel($label);
             }
 
-            $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownDivider::class);
+            $sortingModeButtons[] = $this->componentFactory->createDropDownDivider();
         }
         $defaultSortingDirectionParams = ['sortField' => $this->filelist->sortField, 'currentPage' => 0];
-        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+        $sortingModeButtons[] = $this->componentFactory->createDropDownRadio()
             ->setActive($this->filelist->sortDirection === SortDirection::ASCENDING)
             ->setHref($this->filelist->createModuleUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::ASCENDING->value])))
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.asc'));
-        $sortingModeButtons[] = GeneralUtility::makeInstance(DropDownRadio::class)
+        $sortingModeButtons[] = $this->componentFactory->createDropDownRadio()
             ->setActive($this->filelist->sortDirection === SortDirection::DESCENDING)
             ->setHref($this->filelist->createModuleUri(array_merge($defaultSortingDirectionParams, ['sortDirection' => SortDirection::DESCENDING->value])))
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.sorting.desc'));
@@ -599,15 +588,16 @@ class FileListController implements LoggerAwareInterface
             $sortingButton->addItem($sortingModeButton);
         }
 
-        $buttonBar->addButton($sortingButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+        $this->view->addButtonToButtonBar($sortingButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
 
-        $viewModeButton = $buttonBar->makeDropDownButton()
+        $viewModeButton = $this->componentFactory->createDropDownButton()
             ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
+            ->setIcon($this->iconFactory->getIcon('actions-cog'))
             ->setShowLabelText(true);
         foreach ($viewModeItems as $viewModeItem) {
             $viewModeButton->addItem($viewModeItem);
         }
-        $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 3);
+        $this->view->addButtonToButtonBar($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 3);
 
         // Level up
         try {
@@ -616,7 +606,7 @@ class FileListController implements LoggerAwareInterface
             if ($currentStorage->isWithinFileMountBoundaries($parentFolder)
                 && $parentFolder->getIdentifier() !== $this->folderObject->getIdentifier()
             ) {
-                $levelUpButton = $buttonBar->makeLinkButton()
+                $levelUpButton = $this->componentFactory->createLinkButton()
                     ->setDataAttributes([
                         'tree-update-request' => htmlspecialchars('folder' . GeneralUtility::md5int($parentFolder->getCombinedIdentifier())),
                     ])
@@ -629,42 +619,45 @@ class FileListController implements LoggerAwareInterface
                     ->setShowLabelText(true)
                     ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.upOneLevel'))
                     ->setIcon($this->iconFactory->getIcon('actions-view-go-up', IconSize::SMALL));
-                $buttonBar->addButton($levelUpButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+                $this->view->addButtonToButtonBar($levelUpButton);
             }
         } catch (\Exception $e) {
         }
 
         // Shortcut
-        $shortCutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('media_management')
-            ->setDisplayName(sprintf(
+        $this->view->getDocHeaderComponent()->setShortcutContext(
+            'media_management',
+            sprintf(
                 '%s: %s',
-                $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:mlang_tabs_tab'),
+                $lang->translate('title', 'filelist.module'),
                 $this->folderObject->getName() ?: $this->folderObject->getIdentifier()
-            ))
-            ->setArguments(array_filter([
+            ),
+            array_filter([
                 'id' => $this->id,
                 'searchTerm' => $this->searchTerm,
-            ]));
-        $buttonBar->addButton($shortCutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+            ])
+        );
 
-        // Upload button (only if upload to this directory is allowed)
-        if ($this->folderObject
-            && $this->folderObject->checkActionPermission('write')
+        // New file button
+        if ($this->folderObject && $this->folderObject->checkActionPermission('write')
             && $this->folderObject->getStorage()->checkUserActionPermission('add', 'File')
         ) {
-            $uploadButton = $buttonBar->makeLinkButton()
-                ->setHref($this->getFileUploadUrl())
-                ->setClasses('t3js-drag-uploader-trigger')
+            $newButton = $this->componentFactory->createLinkButton()
+                ->setClasses('t3js-element-browser')
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser'))
+                ->setDataAttributes([
+                    'identifier' => $this->folderObject->getCombinedIdentifier(),
+                    'mode' => CreateFileBrowser::IDENTIFIER,
+                ])
                 ->setShowLabelText(true)
-                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:cm.upload'))
-                ->setIcon($this->iconFactory->getIcon('actions-edit-upload', IconSize::SMALL));
-            $buttonBar->addButton($uploadButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+                ->setTitle($lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.new_file'))
+                ->setIcon($this->iconFactory->getIcon('actions-file-add', IconSize::SMALL));
+            $this->view->addButtonToButtonBar($newButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
         }
 
         // New folder button
         if ($this->folderObject && $this->folderObject->checkActionPermission('write') && $this->folderObject->checkActionPermission('add')) {
-            $newButton = $buttonBar->makeLinkButton()
+            $newButton = $this->componentFactory->createLinkButton()
                 ->setClasses('t3js-element-browser')
                 ->setHref((string)$this->uriBuilder->buildUriFromRoute('wizard_element_browser'))
                 ->setDataAttributes([
@@ -672,33 +665,15 @@ class FileListController implements LoggerAwareInterface
                     'mode' => CreateFolderBrowser::IDENTIFIER,
                 ])
                 ->setShowLabelText(true)
-                ->setTitle($lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.create_folder'))
+                ->setTitle($lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.new_folder'))
                 ->setIcon($this->iconFactory->getIcon('actions-folder-add', IconSize::SMALL));
-            $buttonBar->addButton($newButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
+            $this->view->addButtonToButtonBar($newButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
         }
 
-        // New file button
-        if ($this->folderObject && $this->folderObject->checkActionPermission('write')
-            && $this->folderObject->getStorage()->checkUserActionPermission('add', 'File')
-        ) {
-            $newButton = $buttonBar->makeLinkButton()
-                ->setHref((string)$this->uriBuilder->buildUriFromRoute(
-                    'file_create',
-                    [
-                        'target' => $this->folderObject->getCombinedIdentifier(),
-                        'returnUrl' => $this->filelist->createModuleUri(),
-                    ]
-                ))
-                ->setShowLabelText(true)
-                ->setTitle($lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang.xlf:actions.create_file'))
-                ->setIcon($this->iconFactory->getIcon('actions-file-add', IconSize::SMALL));
-            $buttonBar->addButton($newButton, ButtonBar::BUTTON_POSITION_LEFT, 4);
-        }
-
-        // Add paste button if clipboard is initialized
-        if ($this->filelist->clipObj instanceof Clipboard && $this->folderObject->checkActionPermission('write')) {
+        // Add paste button
+        if ($this->folderObject->checkActionPermission('write')) {
             $elFromTable = $this->filelist->clipObj->elFromTable('_FILE');
-            if (!empty($elFromTable)) {
+            if ($elFromTable !== []) {
                 $addPasteButton = true;
                 foreach ($elFromTable as $element) {
                     $clipBoardElement = $this->resourceFactory->retrieveFileOrFolderObject($element);
@@ -714,19 +689,19 @@ class FileListController implements LoggerAwareInterface
                     $confirmText = $this->filelist->clipObj
                         ->confirmMsgText('_FILE', $this->folderObject->getReadablePath(), 'into');
                     $pastButtonTitle = $lang->sL('LLL:EXT:filelist/Resources/Private/Language/locallang_mod_file_list.xlf:clip_paste');
-                    $pasteButton = $buttonBar->makeLinkButton()
+                    $pasteButton = $this->componentFactory->createLinkButton()
                         ->setHref($this->filelist->clipObj
                             ->pasteUrl('_FILE', $this->folderObject->getCombinedIdentifier()))
                         ->setClasses('t3js-modal-trigger')
                         ->setDataAttributes([
                             'severity' => 'warning',
-                            'bs-content' => $confirmText,
+                            'content' => $confirmText,
                             'title' => $pastButtonTitle,
                         ])
                         ->setShowLabelText(true)
                         ->setTitle($pastButtonTitle)
                         ->setIcon($this->iconFactory->getIcon('actions-document-paste-into', IconSize::SMALL));
-                    $buttonBar->addButton($pasteButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
+                    $this->view->addButtonToButtonBar($pasteButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
                 }
             }
         }
@@ -770,24 +745,9 @@ class FileListController implements LoggerAwareInterface
      */
     protected function addFlashMessage(string $message, string $title = '', ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::INFO): void
     {
-        $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $title, $severity, true);
-        $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-        $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+        $flashMessage = new FlashMessage($message, $title, $severity, true);
+        $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
         $defaultFlashMessageQueue->enqueue($flashMessage);
-    }
-
-    /**
-     * Returns the URL for uploading files
-     */
-    protected function getFileUploadUrl(): string
-    {
-        return (string)$this->uriBuilder->buildUriFromRoute(
-            'file_upload',
-            [
-                'target' => $this->folderObject->getCombinedIdentifier(),
-                'returnUrl' => $this->filelist->createModuleUri(),
-            ]
-        );
     }
 
     protected function getLanguageService(): LanguageService

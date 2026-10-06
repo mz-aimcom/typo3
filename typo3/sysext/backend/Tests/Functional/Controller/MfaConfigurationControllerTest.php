@@ -22,12 +22,14 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\MfaConfigurationController;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Authentication\Mfa\MfaProviderRegistry;
 use TYPO3\CMS\Core\Authentication\Mfa\Provider\Totp;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -38,10 +40,10 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class MfaConfigurationControllerTest extends FunctionalTestCase
 {
-    protected MfaConfigurationController $subject;
-    protected ServerRequest $request;
-    protected HashService $hashService;
-    protected NormalizedParams $normalizedParams;
+    private MfaConfigurationController $subject;
+    private ServerRequest $request;
+    private HashService $hashService;
+    private NormalizedParams $normalizedParams;
 
     protected array $configurationToUseInTestInstance = [
         'BE' => [
@@ -58,16 +60,24 @@ final class MfaConfigurationControllerTest extends FunctionalTestCase
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($backendUser);
 
         $this->subject = new MfaConfigurationController(
+            $this->get(ComponentFactory::class),
             $this->get(IconFactory::class),
             $this->get(UriBuilder::class),
             $this->get(ModuleTemplateFactory::class),
+            $this->get(FlashMessageService::class),
         );
         $this->subject->injectMfaProviderRegistry($this->get(MfaProviderRegistry::class));
         $this->hashService = new HashService();
-        $this->request = (new ServerRequest('https://example.com/typo3/'))
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')
+            ->willReturn('/');
+        $normalizedParams->method('getRequestUri')
+            ->willReturn('/foo/bar/');
+        $this->request = new ServerRequest('https://example.com/typo3/')
+            ->withAttribute('normalizedParams', $normalizedParams)
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
-        $this->normalizedParams = new NormalizedParams([], [], '', '');
+        $this->normalizedParams = $normalizedParams;
     }
 
     #[Test]
@@ -126,7 +136,7 @@ final class MfaConfigurationControllerTest extends FunctionalTestCase
         $response->getBody()->rewind();
         $responseContent = $response->getBody()->getContents();
         self::assertStringContainsString('Multi-factor authentication required', $responseContent);
-        self::assertMatchesRegularExpression('/<div.*class="card card-size-fixed-small card-success".*id="totp-provider"/s', $responseContent);
+        self::assertMatchesRegularExpression('/<div.*class="card card-size-small card-success".*id="totp-provider"/s', $responseContent);
     }
 
     #[Test]
@@ -205,49 +215,49 @@ final class MfaConfigurationControllerTest extends FunctionalTestCase
             'setup',
             '',
             false,
-            'Selected MFA provider was not found!',
+            'Selected MFA provider was not found',
         ];
         yield 'Invalid provider' => [
             'setup',
             'unknown',
             false,
-            'Selected MFA provider was not found!',
+            'Selected MFA provider was not found',
         ];
         yield 'Inactive provider on edit' => [
             'edit',
             'totp',
             false,
-            'Selected MFA provider has to be active to perform this action!',
+            'This action requires an active MFA provider.',
         ];
         yield 'Inactive provider on update' => [
             'save',
             'totp',
             false,
-            'Selected MFA provider has to be active to perform this action!',
+            'This action requires an active MFA provider.',
         ];
         yield 'Inactive provider on deactivate' => [
             'deactivate',
             'totp',
             false,
-            'Selected MFA provider has to be active to perform this action!',
+            'This action requires an active MFA provider.',
         ];
         yield 'Inactive provider on unlock' => [
             'unlock',
             'totp',
             false,
-            'Selected MFA provider has to be active to perform this action!',
+            'This action requires an active MFA provider.',
         ];
         yield 'Active provider on setup' => [
             'setup',
             'totp',
             true,
-            'Selected MFA provider has to be inactive to perform this action!',
+            'This action requires an inactive MFA provider.',
         ];
         yield 'Active provider on activate' => [
             'activate',
             'totp',
             true,
-            'Selected MFA provider has to be inactive to perform this action!',
+            'This action requires an inactive MFA provider.',
         ];
     }
 
@@ -278,9 +288,9 @@ final class MfaConfigurationControllerTest extends FunctionalTestCase
 
         if ($action === 'activate') {
             $timestamp = $this->get(Context::class)->getPropertyFromAspect('date', 'timestamp');
-            $parsedBody['totp'] = (new Totp('KRMVATZTJFZUC53FONXW2ZJB'))->generateTotp((int)floor($timestamp / 30));
+            $parsedBody['totp'] = new Totp('KRMVATZTJFZUC53FONXW2ZJB')->generateTotp((int)floor($timestamp / 30));
             $parsedBody['secret'] = 'KRMVATZTJFZUC53FONXW2ZJB';
-            $parsedBody['checksum'] = $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup');
+            $parsedBody['checksum'] = $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup', HashAlgo::SHA3_256);
         }
 
         $request = $this->request

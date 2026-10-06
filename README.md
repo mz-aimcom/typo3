@@ -1,7 +1,7 @@
 # TYPO3 CMS
 
 TYPO3 is an open source PHP based web content management system released
-under the GNU GPL. TYPO3 is copyright © 1999-2025 by Kasper Skårhøj.
+under the GNU GPL. TYPO3 is copyright © 1999-2026 by Kasper Skårhøj.
 
 This document provides a basic introduction to TYPO3.
 
@@ -75,7 +75,7 @@ with each other and with the public. Several TYPO3 teams use Slack as a
 way to communicate internally and most channels are a welcome place for
 you to join and get yourself involved.
 
-* Register: https://my.typo3.org/about-mytypo3org/slack
+* Register: https://typo3.community/meet/slack/
 * Slack: https://typo3.slack.com/
 
 ### Exchange information, ask questions, get help

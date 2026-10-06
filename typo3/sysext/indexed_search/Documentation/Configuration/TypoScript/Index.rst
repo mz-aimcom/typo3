@@ -179,9 +179,31 @@ the :ref:`settings-editor`.
     An empty value (default) falls back to the current root page ID.
 
     ..  note::
-        By "root page" we mean a website root defined by a TypoScript record!
-        If you just want to search in branches of your site, use the possibility
-        of searching in levels.
+        By "root page" we mean the root page of a website, as it is stored in
+        the index field :sql:`rl0`. Setting a page from within the page tree
+        (for example a page below the site root) returns no results.
+        If you just want to search in branches of your site, restrict the
+        search to sections via
+        :ref:`defaultOptions.sections <defaultOptions-sections>`.
+
+..  _search-pagination-type:
+
+Pagination type
+---------------
+
+..  confval:: pagination_type
+
+    :Type: string (`simple` or `slidingWindow`)
+    :Default: `simple`
+    :Path: plugin.tx_indexedsearch.settings
+
+    Select the pagination implementation for search results:
+
+    *   :typoscript:`simple`: uses :php:`\TYPO3\CMS\Core\Pagination\SimplePagination`
+        and renders all result pages.
+    *   :typoscript:`slidingWindow`: uses
+        :php:`\TYPO3\CMS\Core\Pagination\SlidingWindowPagination` and limits the
+        displayed result pages to :ref:`page_links <search-page-links>`.
 
 ..  _search-page-links:
 
@@ -194,7 +216,8 @@ Page links
     :Default: 10
     :Path: plugin.tx_indexedsearch.settings
 
-    The maximum number of result pages is defined here.
+    Defines the maximum number of result pages shown for
+    :typoscript:`pagination_type = slidingWindow`.
 
 Default free index UID list
 ---------------------------
@@ -459,6 +482,21 @@ Default: Sections
     :Default: 0
     :Path: plugin.tx_indexedsearch.settings
 
+    Restricts the search to a branch of the page tree. The value is
+    :typoscript:`rl1_<uid>` or :typoscript:`rl2_<uid>`, with the page ID of
+    a page on the first or second level below the site root. Several page
+    IDs can be given comma-separated, for example :typoscript:`rl1_12,15`.
+
+    ..  code-block:: typoscript
+        :caption: EXT:my_site/Configuration/TypoScript/setup.typoscript
+
+        plugin.tx_indexedsearch.settings.defaultOptions.sections = rl2_42
+
+    ..  note::
+        The index stores only the first three levels of the rootline
+        (:sql:`rl0`, :sql:`rl1` and :sql:`rl2`). Pages on deeper levels
+        cannot be used as the starting point of a restricted search.
+
 ..  _defaultOptions-freeIndexUid:
 
 Default: Free index UID
@@ -539,6 +577,21 @@ Default: Extended resume
     :Default: 1
     :Path: plugin.tx_indexedsearch.settings
 
+..  _defaultOptions-extendedSearch:
+
+Default: Advanced search
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+..  confval:: defaultOptions.extendedSearch
+
+    :Type: boolean
+    :Default: 0
+    :Path: plugin.tx_indexedsearch.settings
+
+    Set to 1 to display the advanced search fields by default. The value
+    can be overridden per request via the `search[extendedSearch]`
+    parameter, which is sent via GET or POST.
+
 ..  _blind:
 
 Blind
@@ -597,6 +650,9 @@ Blind: Free index UID
     :Type: boolean
     :Default: 1
     :Path: plugin.tx_indexedsearch.settings
+
+    If set, the "Category" selector (indexing configurations) is not
+    displayed in the advanced search.
 
 ..  _blind-mediaType:
 
@@ -678,6 +734,9 @@ Blind: Extended resume
     :Type: boolean
     :Default: 1
     :Path: plugin.tx_indexedsearch.settings
+
+    If set, the "Extended resume" checkbox is not displayed in the advanced
+    search.
 
 
 [tsref:plugin.tx\_indexedsearch]

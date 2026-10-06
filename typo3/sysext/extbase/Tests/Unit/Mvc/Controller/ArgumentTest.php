@@ -21,21 +21,18 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Extbase\Mvc\Controller\Argument;
-use TYPO3\CMS\Extbase\Mvc\Controller\FileHandlingServiceConfiguration;
 use TYPO3\CMS\Extbase\Property\TypeConverter\PersistentObjectConverter;
 use TYPO3\CMS\Extbase\Validation\Validator\ValidatorInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ArgumentTest extends UnitTestCase
 {
-    protected Argument $simpleValueArgument;
-    protected Argument $objectArgument;
+    private Argument $simpleValueArgument;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->simpleValueArgument = new Argument('someName', 'string');
-        $this->objectArgument = new Argument('someName', 'DateTime');
     }
 
     #[Test]
@@ -44,14 +41,6 @@ final class ArgumentTest extends UnitTestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1232551853);
         new Argument('', 'Text');
-    }
-
-    #[Test]
-    public function constructingArgumentWithInvalidNameThrowsException(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionCode(1187951688);
-        new Argument(new \ArrayObject(), 'Text');
     }
 
     #[Test]
@@ -73,16 +62,12 @@ final class ArgumentTest extends UnitTestCase
         return [
             [''],
             ['as'],
-            [5],
         ];
     }
 
-    /**
-     * @param string|int $invalidShortName
-     */
     #[DataProvider('invalidShortNames')]
     #[Test]
-    public function shortNameShouldThrowExceptionIfInvalid($invalidShortName): void
+    public function shortNameShouldThrowExceptionIfInvalid(string $invalidShortName): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionCode(1195824959);
@@ -115,10 +100,10 @@ final class ArgumentTest extends UnitTestCase
     #[Test]
     public function setValidatorShouldProvideFluentInterfaceAndReallySetValidator(): void
     {
-        $mockValidator = $this->createMock(ValidatorInterface::class);
-        $returnedArgument = $this->simpleValueArgument->setValidator($mockValidator);
+        $validatorStub = self::createStub(ValidatorInterface::class);
+        $returnedArgument = $this->simpleValueArgument->setValidator($validatorStub);
         self::assertSame($this->simpleValueArgument, $returnedArgument, 'The returned argument is not the original argument.');
-        self::assertSame($mockValidator, $this->simpleValueArgument->getValidator());
+        self::assertSame($validatorStub, $this->simpleValueArgument->getValidator());
     }
 
     #[Test]
@@ -146,7 +131,8 @@ final class ArgumentTest extends UnitTestCase
     #[Test]
     public function fileHandlingServiceConfigurationInitializedForNewArgument(): void
     {
-        self::assertInstanceOf(FileHandlingServiceConfiguration::class, $this->simpleValueArgument->getFileHandlingServiceConfiguration());
+        self::assertCount(0, $this->simpleValueArgument->getFileHandlingServiceConfiguration()->getFileUploadConfigurations());
+        self::assertCount(0, $this->simpleValueArgument->getFileHandlingServiceConfiguration()->getFileUploadDeletionConfigurations());
     }
 
     #[Test]

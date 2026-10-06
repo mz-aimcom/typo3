@@ -28,9 +28,9 @@ namespace TYPO3\CMS\Core\Schema;
 final readonly class PassiveRelation
 {
     public function __construct(
-        protected string $fromTable,
-        protected ?string $fromField,
-        protected ?string $flexPointer,
+        private string $fromTable,
+        private ?string $fromField,
+        private ?string $flexPointer,
     ) {}
 
     public function fromTable(): string
@@ -41,6 +41,15 @@ final readonly class PassiveRelation
     public function fromField(): ?string
     {
         return $this->fromField;
+    }
+
+    /**
+     * Sheet and field identifier ("<sheet>/<field>") if the relation originates from within a FlexForm
+     * data structure, null otherwise.
+     */
+    public function flexPointer(): ?string
+    {
+        return $this->flexPointer;
     }
 
     public static function __set_state(array $state): self

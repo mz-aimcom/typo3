@@ -30,17 +30,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 class TextElement extends AbstractFormElement
 {
     /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
-    /**
      * Default field wizards enabled for this element.
      *
      * @var array
@@ -192,7 +181,6 @@ class TextElement extends AbstractFormElement
         $valuePickerHtml = [];
         if (is_array($config['valuePicker']['items'] ?? false)) {
             $valuePickerConfiguration = [
-                'mode' => $config['valuePicker']['mode'] ?? 'replace',
                 'linked-field' => '[data-formengine-input-name="' . $itemName . '"]',
             ];
             $valuePickerAttributes = array_merge(

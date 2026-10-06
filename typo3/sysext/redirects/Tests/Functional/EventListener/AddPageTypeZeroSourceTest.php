@@ -180,9 +180,9 @@ final class AddPageTypeZeroSourceTest extends FunctionalTestCase
                     $sources = $changeItem->getSourcesCollection()->all();
                     $sources[] = $source;
                     $changeItem = $changeItem
-                        ->withSourcesCollection(new RedirectSourceCollection(...array_values($sources)));
+                        ->withSourcesCollection(new RedirectSourceCollection(...$sources));
                     $event->setSlugRedirectChangeItem($changeItem);
-                } catch (\InvalidArgumentException | InvalidRouteArgumentsException $e) {
+                } catch (\InvalidArgumentException|InvalidRouteArgumentsException $e) {
                     throw new UnableToLinkToPageException(
                         sprintf(
                             'The link to the page with ID "%d" and type "%d" could not be generated: %s',
@@ -238,7 +238,7 @@ final class AddPageTypeZeroSourceTest extends FunctionalTestCase
         self::assertSame(1, $source->getPageType());
     }
 
-    protected function buildBaseSite(array $settings): void
+    private function buildBaseSite(array $settings): void
     {
         $configuration = [
             'rootPageId' => 1,
@@ -248,7 +248,7 @@ final class AddPageTypeZeroSourceTest extends FunctionalTestCase
         $this->buildSite($configuration);
     }
 
-    protected function buildSite(array $configuration): void
+    private function buildSite(array $configuration): void
     {
         $siteWriter = $this->get(SiteWriter::class);
         $siteWriter->write('testing', $configuration);

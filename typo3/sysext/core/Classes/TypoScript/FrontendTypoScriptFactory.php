@@ -401,7 +401,6 @@ final readonly class FrontendTypoScriptFactory
                 //        is currently blocked by functional tests that assert details?
                 //        Also, we need to still cache with full 'config' to handle multiple types.
                 $setupRawConfigAst = $setupAst->getChildByName('config');
-                // $setupAst->removeChildByName('config');
                 $frontendTypoScript->setSetupTree($setupAst);
                 $frontendTypoScript->setSetupArray($setupAst->toArray());
 
@@ -444,7 +443,7 @@ final readonly class FrontendTypoScriptFactory
 
             if (!$gotSetupConfigFromCache) {
                 // If we did not get merged 'config.' from cache above, create it now and cache it.
-                $mergedSetupConfigAst = (new SetupConfigMerger())->merge($setupRawConfigAst, $setupPageAst->getChildByName('config'));
+                $mergedSetupConfigAst = new SetupConfigMerger()->merge($setupRawConfigAst, $setupPageAst->getChildByName('config'));
                 if ($mergedSetupConfigAst->getChildByName('absRefPrefix') === null) {
                     // Make sure config.absRefPrefix is set, fallback to 'auto'.
                     $absRefPrefixNode = new ChildNode('absRefPrefix');

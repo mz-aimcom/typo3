@@ -12,14 +12,14 @@
  */
 
 import { LitElement, html, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators';
-import { classMap } from 'lit/directives/class-map';
-import { ifDefined } from 'lit/directives/if-defined';
+import { customElement, property, state } from 'lit/decorators.js';
+import { classMap } from 'lit/directives/class-map.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
 import type { AbstractAction } from './action-button/abstract-action';
 import { SeverityEnum } from './enum/severity';
 import Severity from './severity';
+import coreLabels from '~labels/core.core';
 import '@typo3/backend/element/icon-element';
-import { lll } from '@typo3/core/lit-helper';
 
 interface Action {
   label: string;
@@ -119,6 +119,7 @@ class Notification {
     if (this.messageContainer === null || document.getElementById('alert-container') === null) {
       this.messageContainer = document.createElement('div');
       this.messageContainer.setAttribute('id', 'alert-container');
+      this.messageContainer.setAttribute('popover', 'manual');
       this.notificationList = document.createElement('div');
       this.notificationList.setAttribute('class', 'alert-list');
       // Enable focusing for keyboard scrolling (accessibility)
@@ -128,7 +129,9 @@ class Notification {
       this.clearAllButton = <ClearNotificationMessages>document.createElement('typo3-notification-clear-all');
       this.containerItemVisibility();
       this.messageContainer.prepend(this.clearAllButton);
-      document.body.appendChild(this.messageContainer);
+      const target = document.querySelector('typo3-backend-modal:last-of-type .alert-container') ?? document.body;
+      target.appendChild(this.messageContainer);
+      this.messageContainer.showPopover();
 
       document.addEventListener('typo3-notification-open', () => {
         this.totalNotifications++;
@@ -165,7 +168,20 @@ class Notification {
 
   protected static containerItemVisibility() {
     this.clearAllButton.hidden = this.totalNotifications < this.showClearAllButtonCount;
-    this.messageContainer.hidden = this.totalNotifications === 0;
+    try {
+      // Always hide first to ensure we are moved into the foremost top-layer
+      this.messageContainer.hidePopover();
+    } catch (e: unknown) {
+      if (e instanceof DOMException && e.name === 'InvalidStateError') {
+        // Ignored, since popover does not signal showing state,
+        // but may throw when `hidePopover()` is called on a hidden element
+      } else {
+        throw e;
+      }
+    }
+    if (this.totalNotifications > 0) {
+      this.messageContainer.showPopover();
+    }
   }
 }
 
@@ -187,7 +203,7 @@ export class ClearNotificationMessages extends LitElement {
 
   protected override render(): TemplateResult {
     return html`<div><button @click=${() => this.clearAll()} class="btn btn-default">
-      <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon> ${lll('button.clearAll') || 'Clear all'}
+      <typo3-backend-icon identifier="actions-close" size="small"></typo3-backend-icon> ${coreLabels.get('notifications.button.clearAll')}
     </button></div>`;
   }
 

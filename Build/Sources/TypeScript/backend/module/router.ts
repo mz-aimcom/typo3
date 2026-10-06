@@ -12,7 +12,7 @@
  */
 
 import { html, css, LitElement, type TemplateResult, type HasChanged } from 'lit';
-import { customElement, property, query } from 'lit/decorators';
+import { customElement, property, query } from 'lit/decorators.js';
 import { ModuleUtility, type ModuleState } from '@typo3/backend/module';
 
 const IFRAME_COMPONENT = '@typo3/backend/module/iframe';
@@ -248,7 +248,7 @@ export class ModuleRouter extends LitElement {
       // @todo: rewrite installtool as webcomponent backend
       // module in order to advertise a proper module URL on it's own
       const controller = params.get('install[controller]');
-      url.pathname = this.entryPoint + 'module/tools/' + controller;
+      url.pathname = this.entryPoint + 'module/system/' + controller;
       url.search = '';
     } else {
       // non token-urls cannot be mapped by

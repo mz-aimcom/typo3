@@ -7,24 +7,34 @@ colorPalettes {
   colors {
     styleguideTypo3 {
       value = #ff8700
+      label = TYPO3 orange
     }
     styleguideBlue {
       value = #0080c9
+      label = Blue
     }
     styleguideDarkgrey {
       value = #515151
+      label = Dark grey
     }
     styleguideValid {
       value = #5abc55
+      label = styleguide.messages:elements.color.valid
+    }
+    styleguideInvalid {
+      value = #5abc65
+      # Might be interpreted as a language label domain, but tests fallback
+      label = styleguide:somethingelse_for_fallback
     }
     styleguideError {
       value = #dd123d
+      label = Error
     }
   }
 
   palettes {
-    styleguidePalette = styleguideTypo3, styleguideBlue, styleguideDarkgrey, styleguideValid, styleguideError
-    limitedStyleguidePalette = styleguideTypo3, styleguideValid, styleguideError
+    styleguidePalette = styleguideTypo3, styleguideBlue, styleguideDarkgrey, styleguideValid, styleguideInvalid, styleguideError
+    limitedStyleguidePalette = styleguideTypo3, styleguideValid, styleguideInvalid, styleguideError
   }
 }
 

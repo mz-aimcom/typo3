@@ -18,8 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\Security;
 
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mime\Exception\RfcComplianceException;
 use TYPO3\CMS\Core\Attribute\AsEventListener;
@@ -28,8 +27,8 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\Event\AfterUserLoggedInEvent;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\Http\ServerRequestFactory;
-use TYPO3\CMS\Core\Mail\FluidEmail;
 use TYPO3\CMS\Core\Mail\MailerInterface;
+use TYPO3\CMS\Core\Mail\TemplatedEmailFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
@@ -38,16 +37,14 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * Relevant settings:
  * $GLOBALS['TYPO3_CONF_VARS']['BE']['warning_mode']
  * $GLOBALS['TYPO3_CONF_VARS']['BE']['warning_email_addr']
- * $BE_USER->uc['emailMeAtLogin']
+ * $BE_USER->getUserSettings()->isEmailMeAtLoginEnabled()
  *
  * @internal this is not part of TYPO3 API as this is an internal hook
  */
-final class EmailLoginNotification implements LoggerAwareInterface
+final class EmailLoginNotification
 {
-    use LoggerAwareTrait;
-
-    private int $warningMode = 0;
-    private string $warningEmailRecipient = '';
+    private int $warningMode;
+    private string $warningEmailRecipient;
 
     /**
      * @var ServerRequestInterface
@@ -55,7 +52,9 @@ final class EmailLoginNotification implements LoggerAwareInterface
     private $request;
 
     public function __construct(
-        private readonly MailerInterface $mailer
+        private readonly MailerInterface $mailer,
+        private readonly TemplatedEmailFactory $emailFactory,
+        private readonly LoggerInterface $logger,
     ) {
         $this->warningMode = (int)($GLOBALS['TYPO3_CONF_VARS']['BE']['warning_mode'] ?? 0);
         $this->warningEmailRecipient = $GLOBALS['TYPO3_CONF_VARS']['BE']['warning_email_addr'] ?? '';
@@ -73,11 +72,12 @@ final class EmailLoginNotification implements LoggerAwareInterface
         $currentUser = $event->getUser();
         $user = $currentUser->user;
         $genericLoginWarning = $this->warningMode > 0 && !empty($this->warningEmailRecipient);
-        $userLoginNotification = ($currentUser->uc['emailMeAtLogin'] ?? null) && GeneralUtility::validEmail($user['email']);
+        $userLoginNotification = $currentUser->getUserSettings()->isEmailMeAtLoginEnabled() && GeneralUtility::validEmail($user['email']);
         if (!$genericLoginWarning && !$userLoginNotification) {
             return;
         }
-        $this->request = $event->getRequest() ?? $GLOBALS['TYPO3_REQUEST'] ?? ServerRequestFactory::fromGlobals()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $this->request = $event->getRequest() ?? $GLOBALS['TYPO3_REQUEST'] ?? ServerRequestFactory::fromGlobals()
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
 
         if ($genericLoginWarning) {
             $prefix = $currentUser->isAdmin() ? '[AdminLoginWarning]' : '[LoginWarning]';
@@ -98,18 +98,17 @@ final class EmailLoginNotification implements LoggerAwareInterface
     /**
      * Sends an email.
      */
-    protected function sendEmail(string $recipient, AbstractUserAuthentication $user, ?string $subjectPrefix = null): void
+    private function sendEmail(string $recipient, AbstractUserAuthentication $user, ?string $subjectPrefix = null): void
     {
         $headline = 'TYPO3 Backend Login notification';
         $recipients = explode(',', $recipient);
-        $email = GeneralUtility::makeInstance(FluidEmail::class)
+        $email = $this->emailFactory->create($this->request)
             ->to(...$recipients)
-            ->setRequest($this->request)
             ->setTemplate('Security/LoginNotification')
             ->assignMultiple([
                 'user' => $user->user,
                 'prefix' => $subjectPrefix,
-                'language' => ($user->user['lang'] ?? '') ?: 'default',
+                'language' => ($user->user['lang'] ?? '') ?: 'en',
                 'headline' => $headline,
             ]);
         try {

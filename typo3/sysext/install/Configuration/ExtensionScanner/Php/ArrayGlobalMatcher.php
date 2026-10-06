@@ -83,4 +83,10 @@ return [
             'Deprecation-105230-TypoScriptFrontendControllerAndGLOBALSTSFE.rst',
         ],
     ],
+    '$GLOBALS[\'TYPO3_USER_SETTINGS\']' => [
+        'restFiles' => [
+            'Deprecation-108843-ExtensionManagementUtilityAddFieldsToUserSettings.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
 ];

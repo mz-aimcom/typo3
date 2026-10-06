@@ -19,11 +19,11 @@ use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Service\UpgradeWizardsService;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Service\CoreVersionService;
 use TYPO3\CMS\Install\Service\Exception\RemoteFetchException;
-use TYPO3\CMS\Install\Service\UpgradeWizardsService;
 use TYPO3\CMS\Reports\Status;
 use TYPO3\CMS\Reports\StatusProviderInterface;
 
@@ -31,12 +31,15 @@ use TYPO3\CMS\Reports\StatusProviderInterface;
  * Provides an installation status report.
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
-final class InstallStatusReport implements StatusProviderInterface
+final readonly class InstallStatusReport implements StatusProviderInterface
 {
-    private const WRAP_FLAT = 1;
-    private const WRAP_NESTED = 2;
+    private const int WRAP_FLAT = 1;
+    private const int WRAP_NESTED = 2;
 
-    public function __construct(private readonly UpgradeWizardsService $upgradeWizardsService) {}
+    public function __construct(
+        private UpgradeWizardsService $upgradeWizardsService,
+        private UriBuilder $uriBuilder,
+    ) {}
 
     /**
      * Compiles a collection of system status checks as a status report.
@@ -79,7 +82,6 @@ final class InstallStatusReport implements StatusProviderInterface
         $checkWritable = [
             $sitePath . '/typo3temp/' => 2,
             $sitePath . '/typo3temp/assets/' => 2,
-            $sitePath . '/typo3temp/assets/compressed/' => 2,
             // only needed when GraphicalFunctions is used
             $sitePath . '/typo3temp/assets/images/' => 0,
             // used in PageGenerator (inlineStyle2Temp) and Backend + Language JS files
@@ -151,7 +153,7 @@ final class InstallStatusReport implements StatusProviderInterface
                 }
             }
         }
-        return GeneralUtility::makeInstance(Status::class, $languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_fileSystem'), $value, $message, $severity);
+        return new Status($languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_fileSystem'), $value, $message, $severity);
     }
 
     /**
@@ -160,7 +162,7 @@ final class InstallStatusReport implements StatusProviderInterface
      * Fetches all wizards that are not marked "done" in the registry and filters out
      * the ones that should not be rendered (= no upgrade required).
      */
-    protected function getIncompleteWizards(): array
+    private function getIncompleteWizards(): array
     {
         $incompleteWizards = $this->upgradeWizardsService->getUpgradeWizardsList();
         $incompleteWizards = array_filter(
@@ -183,18 +185,17 @@ final class InstallStatusReport implements StatusProviderInterface
         $value = $languageService->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_updateComplete');
         $message = '';
         $severity = ContextualFeedbackSeverity::OK;
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
         // check if there are update wizards left to perform
         $incompleteWizards = $this->getIncompleteWizards();
         if (count($incompleteWizards)) {
             // At least one incomplete wizard was found
             $value = $languageService->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_updateIncomplete');
             $severity = ContextualFeedbackSeverity::WARNING;
-            $url = (string)$uriBuilder->buildUriFromRoute('tools_toolsupgrade');
+            $url = (string)$this->uriBuilder->buildUriFromRoute('system_upgrade');
             $message = sprintf($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.install_update'), '<a href="' . htmlspecialchars($url) . '">', '</a>');
         }
 
-        return GeneralUtility::makeInstance(Status::class, $languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_remainingUpdates'), $value, $message, $severity);
+        return new Status($languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_remainingUpdates'), $value, $message, $severity);
     }
 
     /**
@@ -210,14 +211,13 @@ final class InstallStatusReport implements StatusProviderInterface
 
         // No updates for development versions
         if (!$coreVersionService->isInstalledVersionAReleasedVersion()) {
-            return GeneralUtility::makeInstance(Status::class, 'TYPO3', $typoVersion->getVersion(), $languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_isDevelopmentVersion'), ContextualFeedbackSeverity::NOTICE);
+            return new Status('TYPO3', $typoVersion->getVersion(), $languageService->sL('LLL:EXT:install/Resources/Private/Language/Report/locallang.xlf:status_isDevelopmentVersion'), ContextualFeedbackSeverity::NOTICE);
         }
 
         try {
             $versionMaintenanceWindow = $coreVersionService->getMaintenanceWindow();
         } catch (RemoteFetchException $remoteFetchException) {
-            return GeneralUtility::makeInstance(
-                Status::class,
+            return new Status(
                 'TYPO3',
                 $typoVersion->getVersion(),
                 $languageService->sL(
@@ -299,7 +299,7 @@ final class InstallStatusReport implements StatusProviderInterface
             }
         }
 
-        return GeneralUtility::makeInstance(Status::class, 'TYPO3', $typoVersion->getVersion(), $message, $status);
+        return new Status('TYPO3', $typoVersion->getVersion(), $message, $status);
     }
 
     private function wrapList(array $items, int $style): string

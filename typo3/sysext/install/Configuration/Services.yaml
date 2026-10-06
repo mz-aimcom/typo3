@@ -12,13 +12,16 @@ services:
     autoconfigure: true
     public: false
 
-  TYPO3\CMS\Install\Updates\:
-    resource: '../Classes/Updates/*'
+  TYPO3\CMS\Install\:
+    resource: '../Classes/*'
 
   TYPO3\CMS\Install\Controller\BackendModuleController:
     tags: ['backend.controller']
 
   TYPO3\CMS\Install\Controller\EntryPointRedirectController:
+    tags: ['backend.controller']
+
+  TYPO3\CMS\Install\Controller\ServerResponseCheckController:
     tags: ['backend.controller']
 
   TYPO3\CMS\Install\Service\Typo3tempFileService:
@@ -36,15 +39,7 @@ services:
     tags:
       - name: reports.status
 
-  TYPO3\CMS\Install\Updates\ReferenceIndexUpdatedPrerequisite:
+  TYPO3\CMS\Install\SystemEnvironment\ServerResponse\ServerResponseCheck:
     public: true
-
-  TYPO3\CMS\Install\Updates\RowUpdater\SysRedirectRootPageMoveMigration:
-    public: true
-
-  TYPO3\CMS\Install\Service\UpgradeWizardsService:
-    public: true
-
-  TYPO3\CMS\Install\Updates\UpgradeWizardRegistry:
     arguments:
-      $upgradeWizards: !tagged_locator { tag: 'install.upgradewizard', index_by: 'identifier' }
+      $useMarkup: true

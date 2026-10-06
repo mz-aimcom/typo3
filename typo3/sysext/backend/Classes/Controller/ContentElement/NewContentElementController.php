@@ -22,9 +22,11 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Controller\Event\ModifyNewContentElementWizardItemsEvent;
+use TYPO3\CMS\Backend\Form\Utility\FormEngineUtility;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Tree\View\ContentCreationPagePositionMap;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\BackendLayoutView;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Http\HtmlResponse;
@@ -39,7 +41,7 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 /**
  * New Content element wizard. This is the modal that pops up when clicking "+content" in page module, which
  * will trigger wizardAction() since there is a colPos given. Method positionMapAction() is triggered for
- * instance from the list module "+content" on tt_content table header, and from list module doc-header "+"
+ * instance from the records module "+content" on tt_content table header, and from records module doc-header "+"
  * and then "Click here for wizard".
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
@@ -62,8 +64,9 @@ class NewContentElementController
         protected readonly UriBuilder $uriBuilder,
         protected readonly BackendViewFactory $backendViewFactory,
         protected readonly EventDispatcherInterface $eventDispatcher,
-        protected DependencyOrderingService $dependencyOrderingService,
-        protected TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly DependencyOrderingService $dependencyOrderingService,
+        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly BackendLayoutView $backendLayoutView,
     ) {}
 
     /**
@@ -74,15 +77,10 @@ class NewContentElementController
         $parsedBody = $request->getParsedBody();
         $queryParams = $request->getQueryParams();
 
-        $action = (string)($parsedBody['action'] ?? $queryParams['action'] ?? 'wizard');
-        if (!in_array($action, ['wizard', 'positionMap'], true)) {
-            return new HtmlResponse('Action not allowed', 400);
-        }
-
         // Setting internal vars:
         $this->id = (int)($parsedBody['id'] ?? $queryParams['id'] ?? 0);
         $this->sys_language = (int)($parsedBody['sys_language_uid'] ?? $queryParams['sys_language_uid'] ?? 0);
-        $this->returnUrl = GeneralUtility::sanitizeLocalUrl($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '');
+        $this->returnUrl = GeneralUtility::sanitizeLocalUrl($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '', $request);
         $colPos = $parsedBody['colPos'] ?? $queryParams['colPos'] ?? null;
         $this->colPos = $colPos === null ? null : (int)$colPos;
         $this->uid_pid = (int)($parsedBody['uid_pid'] ?? $queryParams['uid_pid'] ?? 0);
@@ -90,8 +88,14 @@ class NewContentElementController
         // Getting the current page and receiving access information
         $this->pageInfo = BackendUtility::readPageAccess($this->id, $this->getBackendUser()->getPagePermsClause(Permission::PAGE_SHOW)) ?: [];
 
-        // Call action and return the response
-        return $this->{$action . 'Action'}($request);
+        $action = (string)($parsedBody['action'] ?? $queryParams['action'] ?? 'wizard');
+        if ($action === 'wizard') {
+            return $this->wizardAction($request);
+        }
+        if ($action === 'positionMap') {
+            return $this->positionMapAction($request);
+        }
+        return new HtmlResponse('Action not allowed', 400);
     }
 
     /**
@@ -109,7 +113,7 @@ class NewContentElementController
         // Get processed and modified wizard items
         $wizardItems = $this->eventDispatcher->dispatch(
             new ModifyNewContentElementWizardItemsEvent(
-                $this->getWizards(),
+                $this->getWizards($request),
                 $this->pageInfo,
                 $this->colPos,
                 $this->sys_language,
@@ -137,6 +141,7 @@ class NewContentElementController
                 $item = [
                     'identifier' => $wizardKey,
                     'icon' => $wizardItem['iconIdentifier'] ?? '',
+                    'iconOverlay' => $wizardItem['iconOverlay'] ?? '',
                     'label' => $wizardItem['title'] ?? '',
                     'description' => $wizardItem['description'] ?? '',
                     'defaultValues' => $defaultValues,
@@ -185,6 +190,7 @@ class NewContentElementController
                                     $this->uid_pid => 'new',
                                 ],
                             ],
+                            'module' => '_CURRENT_MODULE_',
                             'returnUrl' => $this->returnUrl,
                             'defVals' => [
                                 'tt_content' => array_replace($defaultValues, [
@@ -235,7 +241,7 @@ class NewContentElementController
      * Returns the array of elements in the wizard display.
      * For the plugin section there is support for adding elements there from a global variable.
      */
-    protected function getWizards(): array
+    protected function getWizards(ServerRequestInterface $request): array
     {
         $wizards = $this->loadAvailableWizards();
         $newContentElementWizardTsConfig = BackendUtility::getPagesTSconfig($this->id)['mod.']['wizards.']['newContentElement.'] ?? [];
@@ -243,27 +249,22 @@ class NewContentElementController
         $wizardsFromPageTSConfig = $this->migratePositionalCommonGroupToDefault($wizardsFromPageTSConfig);
         $wizards = $this->mergeContentElementWizardsWithPageTSConfigWizards($wizards, $wizardsFromPageTSConfig);
         $wizards = $this->removeWizardsByPageTs($wizards, $newContentElementWizardTsConfig);
+        $wizards = $this->removeWizardsByBackendLayoutColPosRestriction($wizards, $this->pageInfo, $this->colPos, $request);
         if ($wizards === []) {
             return [];
         }
         $wizardItems = [];
-        $appendWizards = $this->getAppendWizards((array)($wizards['elements.'] ?? []));
         foreach ($wizards as $groupKey => $wizardGroup) {
             $wizards[$groupKey] = $this->prepareDependencyOrdering($wizards[$groupKey], 'before');
             $wizards[$groupKey] = $this->prepareDependencyOrdering($wizards[$groupKey], 'after');
-            $wizards[$groupKey] = $this->prepareDependencyOrdering($wizards[$groupKey], 'contentElementAfter');
         }
         $orderedWizards = $this->orderWizards($wizards);
         foreach ($orderedWizards as $groupKey => $wizardGroup) {
             $groupKey = rtrim($groupKey, '.');
             $groupItems = [];
-            $appendWizardElements = $appendWizards[$groupKey . '.']['elements.'] ?? null;
-            if (is_array($appendWizardElements)) {
-                $wizardElements = array_merge((array)($wizardGroup['elements.'] ?? []), $appendWizardElements);
-            } else {
-                $wizardElements = $wizardGroup['elements.'] ?? [];
-            }
+            $wizardElements = $wizardGroup['elements.'] ?? [];
             if (is_array($wizardElements)) {
+                $wizardElements = $this->orderElements($wizardElements);
                 foreach ($wizardElements as $itemKey => $itemConf) {
                     $itemKey = rtrim($itemKey, '.');
                     if ($itemConf !== []) {
@@ -290,14 +291,8 @@ class NewContentElementController
         $items = $fieldConfig['items'] ?? [];
         $itemGroups = $fieldConfig['itemGroups'] ?? [];
         $groupedWizardItems = [];
-        // Auto-set positional information based on TCA itemGroups sorting.
-        $lastGroup = null;
         foreach (array_keys($itemGroups) as $groupIdentifier) {
             $groupedWizardItems[$groupIdentifier . '.']['header'] = $itemGroups[$groupIdentifier];
-            if ($lastGroup !== null) {
-                $groupedWizardItems[$groupIdentifier . '.']['contentElementAfter'] = $lastGroup;
-            }
-            $lastGroup = $groupIdentifier;
         }
         foreach ($items as $item) {
             $selectItem = SelectItem::fromTcaItemArray($item);
@@ -312,6 +307,7 @@ class NewContentElementController
             $itemDescription = $selectItem->getDescription();
             $wizardEntry = [
                 'iconIdentifier' => $selectItem->getIcon(),
+                'iconOverlay' => $selectItem->getIconOverlay(),
                 'title' => $selectItem->getLabel(),
                 'description' => $itemDescription['description'] ?? ($itemDescription ?? ''),
                 'defaultValues' => [
@@ -360,6 +356,63 @@ class NewContentElementController
     }
 
     /**
+     * Orders elements within a wizard group using before/after configuration.
+     * Similar to orderWizards() but for individual content elements.
+     */
+    protected function orderElements(array $elements): array
+    {
+        // Check if any element has before/after configuration
+        // and return early if no reordering is required.
+        if (!$this->hasPositionalArguments($elements)) {
+            return $elements;
+        }
+
+        // Prepare elements for dependency ordering.
+        // Create implicit chain based on initial order for consecutive elements
+        // without explicit dependencies, preserving relative order while allowing
+        // explicit positioning.
+        $preparedElements = [];
+
+        // First pass: prepare all elements with their explicit dependencies
+        foreach ($elements as $elementKey => $element) {
+            $preparedElement = $element;
+            // Prepare before/after values (they might be comma-separated strings)
+            $preparedElement = $this->prepareDependencyOrdering($preparedElement, 'before');
+            $preparedElement = $this->prepareDependencyOrdering($preparedElement, 'after');
+            $preparedElements[$elementKey] = $preparedElement;
+        }
+
+        // Second pass: add implicit chain for consecutive elements without explicit dependencies
+        // This preserves relative order within blocks, while explicit dependencies can reorder them
+        $previousIndependentElementKey = null;
+        foreach ($elements as $elementKey => $element) {
+            $isIndependent = empty($element['before']) && empty($element['after']);
+            if ($isIndependent) {
+                // Element without explicit dependency: chain with previous independent element
+                if ($previousIndependentElementKey !== null) {
+                    $existingAfter = $preparedElements[$elementKey]['after'] ?? [];
+                    if (!in_array($previousIndependentElementKey, $existingAfter, true)) {
+                        $preparedElements[$elementKey]['after'] = array_merge($existingAfter, [$previousIndependentElementKey]);
+                    }
+                }
+                $previousIndependentElementKey = $elementKey;
+            }
+        }
+        // Use dependency ordering service to order elements
+        return $this->dependencyOrderingService->orderByDependencies($preparedElements);
+    }
+
+    protected function hasPositionalArguments(array $elements): bool
+    {
+        foreach ($elements as $element) {
+            if (!empty($element['before']) || !empty($element['after'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * There are two separate ordering systems for wizard groups:
      * 1. TCA itemGroup sorting by associative array item order.
      * 2. PageTS defined order by "before" and "after".
@@ -383,13 +436,25 @@ class NewContentElementController
                 $wizards[$group]['pageTsAfter'] = $wizard['after'];
                 unset($wizards[$group]['after']);
             }
-            if (isset($wizard['contentElementAfter'])) {
-                $wizards[$group]['after'] = $wizard['contentElementAfter'];
-                unset($wizards[$group]['contentElementAfter']);
-            }
         }
         // No order defined by pageTS. Use TCA sorting.
         if (!$hasAtLeastOnePositionalArgument) {
+            $schema = $this->tcaSchemaFactory->get('tt_content');
+            // Foreign table support for TypeInformation is not supported in tt_content
+            $typeField = $schema->getSubSchemaTypeInformation()->getFieldName();
+            $fieldConfig = $schema->hasField($typeField) ? $schema->getField($typeField)->getConfiguration() : [];
+            $itemGroups = $fieldConfig['itemGroups'] ?? [];
+            // Auto-set positional information based on TCA itemGroups sorting.
+            $lastGroup = null;
+            foreach (array_keys($itemGroups) as $groupIdentifier) {
+                if (!array_key_exists($groupIdentifier . '.', $wizards)) {
+                    continue;
+                }
+                if ($lastGroup !== null) {
+                    $wizards[$groupIdentifier . '.']['after'] = [$lastGroup . '.'];
+                }
+                $lastGroup = $groupIdentifier;
+            }
             return $this->dependencyOrderingService->orderByDependencies($wizards);
         }
         // Override order by pageTsConfig.
@@ -461,17 +526,6 @@ class NewContentElementController
         return $wizards;
     }
 
-    protected function getAppendWizards(array $wizardElements): array
-    {
-        $returnElements = [];
-        foreach ($wizardElements as $key => $wizardItem) {
-            preg_match('/^[a-zA-Z0-9]+_/', $key, $group);
-            $wizardGroup = $group[0] ? substr($group[0], 0, -1) . '.' : $key;
-            $returnElements[$wizardGroup]['elements.'][substr($key, strlen($wizardGroup)) . '.'] = $wizardItem;
-        }
-        return $returnElements;
-    }
-
     protected function prepareWizardItem(array $itemConf): array
     {
         // Just replace the "known" keys of $itemConf. This way extensions are able to set custom keys, which are not
@@ -525,6 +579,46 @@ class NewContentElementController
         return $wizards;
     }
 
+    protected function removeWizardsByBackendLayoutColPosRestriction(array $wizardGroups, array $pageInfo, ?int $colPos, ServerRequestInterface $request): array
+    {
+        // Force colPos to 0 if null to apply restrictions for 0 by default.
+        $colPos = (int)$colPos;
+        // This is the page uid of a workspace overlay already so backend layouts of workspace
+        // changed or moved pages should be considered correctly.
+        $pid = (int)$pageInfo['uid'];
+        $backendLayout = $this->backendLayoutView->getBackendLayoutForPage($pid);
+        $columnConfiguration = $this->backendLayoutView->getColPosConfigurationForPage($backendLayout, $colPos, $pid, $request);
+        if (!empty($columnConfiguration['allowedContentTypes'])) {
+            $allowedContentTypes = GeneralUtility::trimExplode(',', $columnConfiguration['allowedContentTypes'], true);
+            foreach ($wizardGroups as $wizardGroupName => $wizards) {
+                foreach (($wizards['elements.'] ?? []) as $wizardKey => $wizard) {
+                    $cType = $wizard['defaultValues']['CType'] ?? $wizard['tt_content_defValues.']['CType'] ?? '';
+                    if (empty($cType)) {
+                        continue;
+                    }
+                    if (!in_array(trim($cType), $allowedContentTypes, true)) {
+                        unset($wizardGroups[$wizardGroupName]['elements.'][$wizardKey]);
+                    }
+                }
+            }
+        }
+        if (!empty($columnConfiguration['disallowedContentTypes'])) {
+            $disAllowedContentTypes = GeneralUtility::trimExplode(',', $columnConfiguration['disallowedContentTypes'], true);
+            foreach ($wizardGroups as $wizardGroupName => $wizards) {
+                foreach (($wizards['elements.'] ?? []) as $wizardKey => $wizard) {
+                    $cType = $wizard['defaultValues']['CType'] ?? $wizard['tt_content_defValues.']['CType'] ?? '';
+                    if (empty($cType)) {
+                        continue;
+                    }
+                    if (in_array(trim($cType), $disAllowedContentTypes, true)) {
+                        unset($wizardGroups[$wizardGroupName]['elements.'][$wizardKey]);
+                    }
+                }
+            }
+        }
+        return $wizardGroups;
+    }
+
     /**
      * Checks the array for elements which might contain invalid default values and will unset them!
      * Looks for the "defaultValues" key in each element and if found it will traverse that array
@@ -536,13 +630,19 @@ class NewContentElementController
         $removeItems = [];
         $keepItems = [];
         // Get TCEFORM from TSconfig of current page
-        $TCEFORM_TSconfig = BackendUtility::getTCEFORM_TSconfig('tt_content', ['pid' => $this->id]);
+        $TCEFORM_TSconfig = FormEngineUtility::getTCEFORM_TSconfig('tt_content', ['pid' => $this->id]);
         $backendUser = $this->getBackendUser();
         // Traverse wizard items:
         foreach ($wizardItems as $key => $cfg) {
             if (!is_array($cfg['defaultValues'] ?? false)) {
                 continue;
             }
+
+            // This is not a group; this is likely broken configuration
+            if ($cfg['defaultValues'] === []) {
+                unset($wizardItems[$key]);
+            }
+
             // If defaultValues are defined, check access by traversing all fields with default values:
             foreach ($cfg['defaultValues'] as $fieldName => $value) {
                 if (!$schema->hasField($fieldName)) {
@@ -586,9 +686,14 @@ class NewContentElementController
      */
     protected function prepareDependencyOrdering(array $wizardGroup, string $key): array
     {
-        if (isset($wizardGroup[$key])) {
-            $wizardGroup[$key] = GeneralUtility::trimExplode(',', $wizardGroup[$key]);
-            $wizardGroup[$key] = array_map(static fn(string|int $s): string => $s . '.', $wizardGroup[$key]);
+        if (is_string($wizardGroup[$key] ?? null)) {
+            $wizardGroup[$key] = GeneralUtility::trimExplode(',', $wizardGroup[$key], true);
+        }
+        if (is_array($wizardGroup[$key] ?? null)) {
+            $wizardGroup[$key] = array_map(
+                static fn(string $s): string => rtrim($s, '.') . '.',
+                $wizardGroup[$key]
+            );
         }
         return $wizardGroup;
     }

@@ -1,0 +1,13 @@
+<div class="styleguide-navigation">
+    <div class="sidebar list-group">
+        <f:for each="{actions}" as="action">
+            <f:be.link
+                route="{route}"
+                parameters="{action: action}"
+                class="list-group-item list-group-item-action {f:if(condition:'{currentAction} == {action}', then: 'active')}"
+            >
+                <f:translate key="action.{action}" domain="styleguide.messages" />
+            </f:be.link>
+        </f:for>
+    </div>
+</div>

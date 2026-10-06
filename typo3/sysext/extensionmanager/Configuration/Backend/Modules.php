@@ -4,7 +4,6 @@ use TYPO3\CMS\Backend\Security\SudoMode\Access\AccessLifetime;
 use TYPO3\CMS\Extensionmanager\Controller\ActionController;
 use TYPO3\CMS\Extensionmanager\Controller\DistributionController;
 use TYPO3\CMS\Extensionmanager\Controller\DownloadController;
-use TYPO3\CMS\Extensionmanager\Controller\ExtensionComposerStatusController;
 use TYPO3\CMS\Extensionmanager\Controller\ListController;
 use TYPO3\CMS\Extensionmanager\Controller\UpdateFromTerController;
 use TYPO3\CMS\Extensionmanager\Controller\UploadExtensionFileController;
@@ -14,22 +13,23 @@ use TYPO3\CMS\Extensionmanager\Controller\UploadExtensionFileController;
  */
 return [
     'extensionmanager' => [
-        'parent' => 'tools',
+        'parent' => 'system',
         'access' => 'systemMaintainer',
         'iconIdentifier' => 'module-extensionmanager',
-        'labels' => 'LLL:EXT:extensionmanager/Resources/Private/Language/locallang_mod.xlf',
+        'position' => ['before' => '*'],
+        'labels' => 'extensionmanager.module',
         'aliases' => ['tools_ExtensionmanagerExtensionmanager'],
-        'path' => '/module/tools/extensionmanager',
+        'path' => '/module/extensions',
         'extensionName' => 'Extensionmanager',
         'controllerActions' => [
             ListController::class => [
-                'index', 'unresolvedDependencies', 'ter', 'showAllVersions', 'distributions',
+                'index', 'ter', 'showAllVersions', 'distributions',
             ],
             ActionController::class => [
-                'toggleExtensionInstallationState', 'installExtensionWithoutSystemDependencyCheck', 'removeExtension', 'downloadExtensionZip', 'reloadExtensionData',
+                'checkExtensionDependencies', 'toggleExtensionInstallationState', 'installExtensionWithoutSystemDependencyCheck', 'removeExtension', 'downloadExtensionZip', 'reloadExtensionData',
             ],
             DownloadController::class => [
-                'checkDependencies', 'installFromTer', 'installExtensionWithoutSystemDependencyCheck', 'installDistribution', 'updateExtension', 'updateCommentForUpdatableVersions',
+                'checkDependencies', 'checkDistributionDependencies', 'installFromTer', 'installExtensionWithoutSystemDependencyCheck', 'installDistribution', 'installDistributionWithoutDependencyCheck', 'updateExtension', 'updateCommentForUpdatableVersions',
             ],
             UpdateFromTerController::class => [
                 'updateExtensionListFromTer',
@@ -39,9 +39,6 @@ return [
             ],
             DistributionController::class => [
                 'show',
-            ],
-            ExtensionComposerStatusController::class => [
-                'list', 'detail',
             ],
         ],
         'routeOptions' => [

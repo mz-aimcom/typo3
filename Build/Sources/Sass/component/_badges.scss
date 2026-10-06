@@ -47,10 +47,12 @@
     @include badge-use-variant('default');
     --typo3-badge-padding-y: calc(.34375em - 1px);
     --typo3-badge-padding-x: .65em;
-    --typo3-badge-border-radius: .25em;
+    --typo3-badge-border-radius: .75em;
     --typo3-badge-font-size: calc(1em / 12 * 11);
     background-color: var(--typo3-badge-bg);
     display: inline-flex;
+    gap: .35em;
+    align-items: center;
     padding: var(--typo3-badge-padding-y) var(--typo3-badge-padding-x);
     font-size: var(--typo3-badge-font-size);
     font-weight: 600;

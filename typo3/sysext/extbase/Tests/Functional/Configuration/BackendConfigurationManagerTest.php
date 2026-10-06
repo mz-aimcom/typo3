@@ -19,7 +19,10 @@ namespace TYPO3\CMS\Extbase\Tests\Functional\Configuration;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Configuration\SiteWriter;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Extbase\Configuration\BackendConfigurationManager;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -52,7 +55,7 @@ final class BackendConfigurationManagerTest extends FunctionalTestCase
                 'throwPageNotFoundExceptionIfActionCantBeResolved' => '0',
             ],
         ];
-        $request = (new ServerRequest())->withQueryParams(['id' => 1]);
+        $request = new ServerRequest()->withQueryParams(['id' => 1]);
         self::assertEquals($expectedResult, $subject->getConfiguration($request, [], 'CurrentExtensionName'));
     }
 
@@ -83,14 +86,14 @@ final class BackendConfigurationManagerTest extends FunctionalTestCase
                 'throwPageNotFoundExceptionIfActionCantBeResolved' => '0',
             ],
         ];
-        $request = (new ServerRequest())->withQueryParams(['id' => 1]);
+        $request = new ServerRequest()->withQueryParams(['id' => 1]);
         self::assertEquals($expectedResult, $subject->getConfiguration($request, [], 'CurrentExtensionName', 'CurrentPluginName'));
     }
 
     #[Test]
     public function getCurrentPageIdReturnsPageIdFromGet(): void
     {
-        $request = (new ServerRequest())->withQueryParams(['id' => 123]);
+        $request = new ServerRequest()->withQueryParams(['id' => 123]);
         $subject = $this->get(BackendConfigurationManager::class);
         $getCurrentPageIdReflectionMethod = (new \ReflectionMethod($subject, 'getCurrentPageId'));
         $actualResult = $getCurrentPageIdReflectionMethod->invoke($subject, $request);
@@ -100,7 +103,7 @@ final class BackendConfigurationManagerTest extends FunctionalTestCase
     #[Test]
     public function getCurrentPageIdReturnsPageIdFromPost(): void
     {
-        $request = (new ServerRequest())->withQueryParams(['id' => 123])->withParsedBody(['id' => 321]);
+        $request = new ServerRequest()->withQueryParams(['id' => 123])->withParsedBody(['id' => 321]);
         $subject = $this->get(BackendConfigurationManager::class);
         $getCurrentPageIdReflectionMethod = (new \ReflectionMethod($subject, 'getCurrentPageId'));
         $actualResult = $getCurrentPageIdReflectionMethod->invoke($subject, $request);
@@ -126,5 +129,33 @@ final class BackendConfigurationManagerTest extends FunctionalTestCase
         $getCurrentPageIdReflectionMethod = (new \ReflectionMethod($subject, 'getRecursiveStoragePids'));
         $actualResult = $getCurrentPageIdReflectionMethod->invoke($subject, [1, -6], 4);
         self::assertEquals([1, 2, 4, 5, 3, 6, 7], $actualResult);
+    }
+
+    #[Test]
+    public function getTypoScriptSetupRespectsTypoScriptRootWhenSiteIsTypoScriptRoot(): void
+    {
+        // Page 1 (global root) has a sys_template with 'site_a_value = from_site_a'.
+        // Page 2 (Site B root) has no sys_template but Site B has a setup.typoscript file,
+        // making Site::isTypoScriptRoot() return true.
+        // The backend must truncate the rootline at the site root (page 2) before fetching
+        // sys_template rows, so the global template on page 1 is NOT included.
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/BackendConfigurationManagerTypoScriptRoot.csv');
+
+        $this->get(SiteWriter::class)->write('site-b', [
+            'rootPageId' => 2,
+            'base' => 'https://site-b.example.com/',
+        ]);
+        // Write setup.typoscript to make Site::isTypoScriptRoot() return true for Site B.
+        file_put_contents(
+            Environment::getConfigPath() . '/sites/site-b/setup.typoscript',
+            '# Site B TypoScript root'
+        );
+
+        $site = $this->get(SiteFinder::class)->getSiteByPageId(2);
+        $request = new ServerRequest()->withQueryParams(['id' => 2])->withAttribute('site', $site);
+        $subject = $this->get(BackendConfigurationManager::class);
+        $setup = $subject->getTypoScriptSetup($request);
+
+        self::assertArrayNotHasKey('site_a_value', $setup);
     }
 }

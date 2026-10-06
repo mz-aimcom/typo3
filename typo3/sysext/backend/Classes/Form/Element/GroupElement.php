@@ -15,6 +15,7 @@
 
 namespace TYPO3\CMS\Backend\Form\Element;
 
+use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
@@ -28,17 +29,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  */
 class GroupElement extends AbstractFormElement
 {
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
     /**
      * Default field controls for this element.
      *
@@ -94,6 +84,10 @@ class GroupElement extends AbstractFormElement
             'renderType' => 'defaultLanguageDifferences',
             'after' => [ 'otherLanguageContent' ],
         ],
+        'shortcutValidation' => [
+            'renderType' => 'shortcutValidation',
+            'after' => [ 'defaultLanguageDifferences' ],
+        ],
     ];
 
     public function __construct(
@@ -132,8 +126,6 @@ class GroupElement extends AbstractFormElement
         }
         $fieldId = StringUtility::getUniqueId('tceforms-multiselect-');
 
-        $maxTitleLength = (int)$backendUser->uc['titleLen'];
-
         $listOfSelectedValues = [];
         $selectorOptionsHtml = [];
         foreach ($selectedItems as $selectedItem) {
@@ -143,9 +135,9 @@ class GroupElement extends AbstractFormElement
             if (empty($title)) {
                 $title = '[' . $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.no_title') . ']';
             }
-            $shortenedTitle = GeneralUtility::fixed_lgd_cs($title, $maxTitleLength);
-            $selectorOptionsHtml[] =
-                '<option value="' . htmlspecialchars($tableWithUid) . '" title="' . htmlspecialchars($title) . '">'
+            $shortenedTitle = BackendUtility::cropToTitleLength($title);
+            $selectorOptionsHtml[]
+                = '<option value="' . htmlspecialchars($tableWithUid) . '" title="' . htmlspecialchars($title) . '">'
                     . htmlspecialchars($this->appendValueToLabelInDebugMode($shortenedTitle, $tableWithUid))
                 . '</option>';
         }
@@ -255,29 +247,24 @@ class GroupElement extends AbstractFormElement
         if (!isset($config['hideSuggest']) || (bool)$config['hideSuggest'] !== true) {
             $html[] =   '<div class="form-wizards-item-top">';
             $html[] =       '<div class="autocomplete t3-form-suggest-container">';
-            $html[] =           '<div class="input-group">';
-            $html[] =               '<span class="input-group-text">';
-            $html[] =                   $this->iconFactory->getIcon('actions-search', IconSize::SMALL)->render();
-            $html[] =               '</span>';
-            $html[] =               '<input type="search" class="t3-form-suggest form-control"';
-            $html[] =                   ' placeholder="' . $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_alt_doc.xlf:search.find_record') . '"';
-            $html[] =                   ' data-fieldname="' . htmlspecialchars($fieldName) . '"';
-            $html[] =                   ' data-tablename="' . htmlspecialchars($table) . '"';
-            $html[] =                   ' data-field="' . htmlspecialchars($elementName) . '"';
-            $html[] =                   ' data-uid="' . htmlspecialchars($this->data['databaseRow']['uid']) . '"';
-            $html[] =                   ' data-pid="' . htmlspecialchars($this->data['parentPageRow']['uid'] ?? 0) . '"';
-            $html[] =                   ' data-fieldtype="' . htmlspecialchars($config['type']) . '"';
-            $html[] =                   ' data-minchars="' . htmlspecialchars((string)$suggestMinimumCharacters) . '"';
-            $html[] =                   ' data-datastructureidentifier="' . htmlspecialchars($dataStructureIdentifier) . '"';
-            $html[] =                   ' data-flexformsheetname="' . htmlspecialchars($flexFormSheetName) . '"';
-            $html[] =                   ' data-flexformfieldname="' . htmlspecialchars($flexFormFieldName) . '"';
-            $html[] =                   ' data-flexformcontainername="' . htmlspecialchars($flexFormContainerName) . '"';
-            $html[] =                   ' data-flexformcontainerfieldname="' . htmlspecialchars($flexFormContainerFieldName) . '"';
+            $html[] =           '<input type="search" autocomplete="off" class="t3-form-suggest form-control"';
+            $html[] =               ' placeholder="' . $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_alt_doc.xlf:search.find_record') . '"';
+            $html[] =               ' data-fieldname="' . htmlspecialchars($fieldName) . '"';
+            $html[] =               ' data-tablename="' . htmlspecialchars($table) . '"';
+            $html[] =               ' data-field="' . htmlspecialchars($elementName) . '"';
+            $html[] =               ' data-uid="' . htmlspecialchars($this->data['databaseRow']['uid']) . '"';
+            $html[] =               ' data-pid="' . htmlspecialchars($this->data['parentPageRow']['uid'] ?? 0) . '"';
+            $html[] =               ' data-fieldtype="' . htmlspecialchars($config['type']) . '"';
+            $html[] =               ' data-minchars="' . htmlspecialchars((string)$suggestMinimumCharacters) . '"';
+            $html[] =               ' data-datastructureidentifier="' . htmlspecialchars($dataStructureIdentifier) . '"';
+            $html[] =               ' data-flexformsheetname="' . htmlspecialchars($flexFormSheetName) . '"';
+            $html[] =               ' data-flexformfieldname="' . htmlspecialchars($flexFormFieldName) . '"';
+            $html[] =               ' data-flexformcontainername="' . htmlspecialchars($flexFormContainerName) . '"';
+            $html[] =               ' data-flexformcontainerfieldname="' . htmlspecialchars($flexFormContainerFieldName) . '"';
             if ($recordTypeValue !== null && $recordTypeValue !== '') {
-                $html[] =                   ' data-recordtypevalue="' . htmlspecialchars($recordTypeValue) . '"';
+                $html[] =               ' data-recordtypevalue="' . htmlspecialchars($recordTypeValue) . '"';
             }
-            $html[] =               '/>';
-            $html[] =           '</div>';
+            $html[] =           '/>';
             $html[] =       '</div>';
             $html[] =   '</div>';
         }

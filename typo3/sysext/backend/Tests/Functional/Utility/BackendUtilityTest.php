@@ -20,31 +20,32 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Utility;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform as DoctrinePostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform as DoctrineSQLitePlatform;
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
 use TYPO3\CMS\Core\TypoScript\PageTsConfig;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class BackendUtilityTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
         'DA' => ['id' => 1, 'title' => 'Dansk', 'locale' => 'da_DK.UTF8'],
         'DE' => ['id' => 2, 'title' => 'German', 'locale' => 'de_DE.UTF8'],
     ];
 
-    protected BackendUserAuthentication $backendUser;
+    private BackendUserAuthentication $backendUser;
 
     public function setUp(): void
     {
@@ -63,42 +64,6 @@ final class BackendUtilityTest extends FunctionalTestCase
         );
         $this->backendUser = $this->setUpBackendUser(1);
         $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->createFromUserPreferences($this->backendUser);
-    }
-
-    #[Test]
-    public function givenPageIdCanBeExpanded(): void
-    {
-        $this->backendUser->groupData['webmounts'] = '1';
-
-        BackendUtility::openPageTree(5, false);
-
-        $expectedSiteHash = [
-            '1_5' => '1',
-            '1_1' => '1',
-            '1_0' => '1',
-        ];
-        $actualSiteHash = $this->backendUser->uc['BackendComponents']['States']['Pagetree']['stateHash'];
-        self::assertSame($expectedSiteHash, $actualSiteHash);
-    }
-
-    #[Test]
-    public function otherBranchesCanBeClosedWhenOpeningPage(): void
-    {
-        $this->backendUser->groupData['webmounts'] = '1';
-
-        BackendUtility::openPageTree(5, false);
-        BackendUtility::openPageTree(4, true);
-
-        //the complete branch of uid => 5 should be closed here
-        $expectedSiteHash = [
-            '1_4' => '1',
-            '1_3' => '1',
-            '1_2' => '1',
-            '1_1' => '1',
-            '1_0' => '1',
-        ];
-        $actualSiteHash = $this->backendUser->uc['BackendComponents']['States']['Pagetree']['stateHash'];
-        self::assertSame($expectedSiteHash, $actualSiteHash);
     }
 
     #[Test]
@@ -144,6 +109,134 @@ final class BackendUtilityTest extends FunctionalTestCase
         );
     }
 
+    #[Test]
+    public function getRecordTitleUsesTypeSpecificLabelConfiguration(): void
+    {
+        $GLOBALS['TCA']['test_table'] = [
+            'ctrl' => [
+                'label' => 'title',
+                'type' => 'record_type',
+            ],
+            'columns' => [
+                'title' => ['config' => ['type' => 'input']],
+                'name' => ['config' => ['type' => 'input']],
+                'record_type' => ['config' => ['type' => 'select', 'items' => []]],
+            ],
+            'types' => [
+                'default' => ['showitem' => 'title,name,record_type'],
+                'special' => [
+                    'showitem' => 'title,name,record_type',
+                    'label' => 'name',
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        // Record with "default" type uses ctrl label
+        $recordDefault = ['uid' => 1, 'title' => 'Default Title', 'name' => 'Default Name', 'record_type' => 'default'];
+        self::assertSame('Default Title', BackendUtility::getRecordTitle('test_table', $recordDefault));
+
+        // Record with "special" type uses type-specific label
+        $recordSpecial = ['uid' => 2, 'title' => 'Special Title', 'name' => 'Special Name', 'record_type' => 'special'];
+        self::assertSame('Special Name', BackendUtility::getRecordTitle('test_table', $recordSpecial));
+    }
+
+    #[Test]
+    public function getRecordTitleUsesTypeSpecificLabelAltConfiguration(): void
+    {
+        $GLOBALS['TCA']['test_table'] = [
+            'ctrl' => [
+                'label' => 'title',
+                'type' => 'record_type',
+            ],
+            'columns' => [
+                'title' => ['config' => ['type' => 'input']],
+                'subtitle' => ['config' => ['type' => 'input']],
+                'description' => ['config' => ['type' => 'input']],
+                'record_type' => ['config' => ['type' => 'select', 'items' => []]],
+            ],
+            'types' => [
+                'default' => ['showitem' => 'title,subtitle,description,record_type'],
+                'article' => [
+                    'showitem' => 'title,subtitle,description,record_type',
+                    'label_alt' => 'subtitle',
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        // Record with "article" type and empty title falls back to type-specific label_alt
+        $recordArticle = ['uid' => 1, 'title' => '', 'subtitle' => 'Article Subtitle', 'description' => 'Desc', 'record_type' => 'article'];
+        self::assertSame('Article Subtitle', BackendUtility::getRecordTitle('test_table', $recordArticle));
+
+        // Record with "default" type and empty title shows [No title] (no label_alt defined)
+        $recordDefault = ['uid' => 2, 'title' => '', 'subtitle' => 'Default Subtitle', 'description' => 'Desc', 'record_type' => 'default'];
+        self::assertSame('[No title]', BackendUtility::getRecordTitle('test_table', $recordDefault));
+    }
+
+    #[Test]
+    public function getRecordTitleUsesTypeSpecificLabelAltForceConfiguration(): void
+    {
+        $GLOBALS['TCA']['test_table'] = [
+            'ctrl' => [
+                'label' => 'title',
+                'type' => 'record_type',
+            ],
+            'columns' => [
+                'title' => ['config' => ['type' => 'input']],
+                'event_date' => ['config' => ['type' => 'input']],
+                'location' => ['config' => ['type' => 'input']],
+                'record_type' => ['config' => ['type' => 'select', 'items' => []]],
+            ],
+            'types' => [
+                'default' => ['showitem' => 'title,event_date,location,record_type'],
+                'event' => [
+                    'showitem' => 'title,event_date,location,record_type',
+                    'label_alt' => 'event_date,location',
+                    'label_alt_force' => true,
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        // Record with "event" type shows title plus alt fields due to label_alt_force
+        $recordEvent = ['uid' => 1, 'title' => 'Conference', 'event_date' => '2024-12-01', 'location' => 'Berlin', 'record_type' => 'event'];
+        self::assertSame('Conference, 2024-12-01, Berlin', BackendUtility::getRecordTitle('test_table', $recordEvent));
+
+        // Record with "default" type only shows title
+        $recordDefault = ['uid' => 2, 'title' => 'Meeting', 'event_date' => '2024-12-02', 'location' => 'Munich', 'record_type' => 'default'];
+        self::assertSame('Meeting', BackendUtility::getRecordTitle('test_table', $recordDefault));
+    }
+
+    #[Test]
+    public function getRecordTitleFallsBackToCtrlLabelWhenTypeHasNoSpecificLabel(): void
+    {
+        $GLOBALS['TCA']['test_table'] = [
+            'ctrl' => [
+                'label' => 'title',
+                'label_alt' => 'fallback',
+                'type' => 'record_type',
+            ],
+            'columns' => [
+                'title' => ['config' => ['type' => 'input']],
+                'fallback' => ['config' => ['type' => 'input']],
+                'record_type' => ['config' => ['type' => 'select', 'items' => []]],
+            ],
+            'types' => [
+                'default' => ['showitem' => 'title,fallback,record_type'],
+                'custom' => [
+                    'showitem' => 'title,fallback,record_type',
+                    // No label override - should use ctrl settings
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        // Record with "custom" type but no label override uses ctrl label
+        $record = ['uid' => 1, 'title' => '', 'fallback' => 'Fallback Value', 'record_type' => 'custom'];
+        self::assertSame('Fallback Value', BackendUtility::getRecordTitle('test_table', $record));
+    }
+
     public static function enableFieldsStatementIsCorrectDataProvider(): array
     {
         // Expected sql should contain identifier escaped in mysql/mariadb identifier quotings "`", which are
@@ -161,14 +254,14 @@ final class BackendUtilityTest extends FunctionalTestCase
                     'starttime' => 'starttime',
                 ],
                 false,
-                ' AND `${tableName}`.`starttime` <= 1234567890',
+                ' AND `${tableName}`.`starttime` <= 1234567860',
             ],
             'endtime' => [
                 [
                     'endtime' => 'endtime',
                 ],
                 false,
-                ' AND ((`${tableName}`.`endtime` = 0) OR (`${tableName}`.`endtime` > 1234567890))',
+                ' AND ((`${tableName}`.`endtime` = 0) OR (`${tableName}`.`endtime` > 1234567860))',
             ],
             'disabled, starttime, endtime' => [
                 [
@@ -177,7 +270,7 @@ final class BackendUtilityTest extends FunctionalTestCase
                     'endtime' => 'endtime',
                 ],
                 false,
-                ' AND ((`${tableName}`.`disabled` = 0) AND (`${tableName}`.`starttime` <= 1234567890) AND (((`${tableName}`.`endtime` = 0) OR (`${tableName}`.`endtime` > 1234567890))))',
+                ' AND ((`${tableName}`.`disabled` = 0) AND (`${tableName}`.`starttime` <= 1234567860) AND (((`${tableName}`.`endtime` = 0) OR (`${tableName}`.`endtime` > 1234567860))))',
             ],
             'disabled inverted' => [
                 [
@@ -191,14 +284,14 @@ final class BackendUtilityTest extends FunctionalTestCase
                     'starttime' => 'starttime',
                 ],
                 true,
-                ' AND ((`${tableName}`.`starttime` <> 0) AND (`${tableName}`.`starttime` > 1234567890))',
+                ' AND ((`${tableName}`.`starttime` <> 0) AND (`${tableName}`.`starttime` > 1234567860))',
             ],
             'endtime inverted' => [
                 [
                     'endtime' => 'endtime',
                 ],
                 true,
-                ' AND ((`${tableName}`.`endtime` <> 0) AND (`${tableName}`.`endtime` <= 1234567890))',
+                ' AND ((`${tableName}`.`endtime` <> 0) AND (`${tableName}`.`endtime` <= 1234567860))',
             ],
             'disabled, starttime, endtime inverted' => [
                 [
@@ -207,7 +300,7 @@ final class BackendUtilityTest extends FunctionalTestCase
                     'endtime' => 'endtime',
                 ],
                 true,
-                ' AND ((`${tableName}`.`disabled` <> 0) OR (((`${tableName}`.`starttime` <> 0) AND (`${tableName}`.`starttime` > 1234567890))) OR (((`${tableName}`.`endtime` <> 0) AND (`${tableName}`.`endtime` <= 1234567890))))',
+                ' AND ((`${tableName}`.`disabled` <> 0) OR (((`${tableName}`.`starttime` <> 0) AND (`${tableName}`.`starttime` > 1234567860))) OR (((`${tableName}`.`endtime` <> 0) AND (`${tableName}`.`endtime` <= 1234567860))))',
             ],
         ];
     }
@@ -223,7 +316,8 @@ final class BackendUtilityTest extends FunctionalTestCase
             $GLOBALS['TCA'][$tableName]['columns'][$column]['config']['type'] = 'check';
         }
         $this->get(TcaSchemaFactory::class)->load($GLOBALS['TCA'], true);
-        $GLOBALS['SIM_ACCESS_TIME'] = 1234567890;
+        // 1234567890 is floored to the full minute 1234567860 when evaluating starttime / endtime
+        $this->get(Context::class)->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp(1234567890)));
         $statement = BackendUtility::BEenableFields($tableName, $inverted);
         $replaces = [
             '${tableName}' => $tableName,
@@ -261,6 +355,54 @@ final class BackendUtilityTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function getRecordWithFieldsAsStringSelectsSpecifiedFields(): void
+    {
+        $record = BackendUtility::getRecord('tt_content', 1, 'uid,pid,header');
+        self::assertIsArray($record);
+        self::assertArrayHasKey('uid', $record);
+        self::assertArrayHasKey('pid', $record);
+        self::assertArrayHasKey('header', $record);
+        self::assertCount(3, $record);
+    }
+
+    #[Test]
+    public function getRecordWithFieldsAsArraySelectsSpecifiedFields(): void
+    {
+        $record = BackendUtility::getRecord('tt_content', 1, ['uid', 'pid', 'header']);
+        self::assertIsArray($record);
+        self::assertArrayHasKey('uid', $record);
+        self::assertArrayHasKey('pid', $record);
+        self::assertArrayHasKey('header', $record);
+        self::assertCount(3, $record);
+    }
+
+    #[Test]
+    public function getRecordWithFieldsAsArrayReturnsEquivalentResultAsString(): void
+    {
+        $recordFromString = BackendUtility::getRecord('tt_content', 1, 'uid,pid,header');
+        $recordFromArray = BackendUtility::getRecord('tt_content', 1, ['uid', 'pid', 'header']);
+        self::assertSame($recordFromString, $recordFromArray);
+    }
+
+    #[Test]
+    public function getRecordWSOLWithFieldsAsArraySelectsSpecifiedFields(): void
+    {
+        $record = BackendUtility::getRecordWSOL('tt_content', 1, ['uid', 'header']);
+        self::assertIsArray($record);
+        self::assertArrayHasKey('uid', $record);
+        self::assertArrayHasKey('header', $record);
+        self::assertArrayNotHasKey('pid', $record);
+    }
+
+    #[Test]
+    public function getRecordWSOLWithFieldsAsArrayReturnsEquivalentResultAsString(): void
+    {
+        $recordFromString = BackendUtility::getRecordWSOL('tt_content', 1, 'uid,header');
+        $recordFromArray = BackendUtility::getRecordWSOL('tt_content', 1, ['uid', 'header']);
+        self::assertSame($recordFromString, $recordFromArray);
+    }
+
+    #[Test]
     public function pageTSconfigWorksCorrectly(): void
     {
         // root page: some_property set in TSconfig
@@ -284,7 +426,7 @@ final class BackendUtilityTest extends FunctionalTestCase
     public function pageTSconfigCacheWorks(): void
     {
         /** @var FrontendInterface $cache */
-        $cache = GeneralUtility::makeInstance(CacheManager::class)->getCache('runtime');
+        $cache = $this->get(CacheManager::class)->getCache('runtime');
 
         BackendUtility::getPagesTSconfig(1);
         $cacheKey1 = $cache->get('pageTsConfig-pid-to-hash-1');
@@ -802,6 +944,271 @@ final class BackendUtilityTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function getProcessedValueResolvesAddedSelectItemFromCTypeSpecificPageTsConfig(): void
+    {
+        $fieldName = 'test_select';
+
+        $GLOBALS['TCA']['tt_content']['columns'][$fieldName] = [
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'items' => [
+                    [
+                        'label' => 'Default item',
+                        'value' => 'default',
+                    ],
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        $this->get(ConnectionPool::class)
+            ->getConnectionForTable('pages')
+            ->update(
+                'pages',
+                [
+                    'TSconfig' => <<<TS
+                    TCEFORM.tt_content.$fieldName.types.textmedia {
+                        addItems.specialValue = Item from CType-specific Page TSconfig
+                    }
+                    TS,
+                ],
+                [
+                    'uid' => 1,
+                ]
+            );
+        $this->get(CacheManager::class)->getCache('runtime')->flush();
+
+        $record = [
+            'uid' => 123,
+            'pid' => 1,
+            'CType' => 'textmedia',
+            $fieldName => 'specialValue',
+        ];
+
+        self::assertSame(
+            'Item from CType-specific Page TSconfig',
+            BackendUtility::getProcessedValue(
+                'tt_content',
+                $fieldName,
+                $record[$fieldName],
+                0,
+                false,
+                false,
+                $record['uid'],
+                true,
+                $record['pid'],
+                $record,
+            )
+        );
+    }
+
+    #[Test]
+    public function getProcessedValueResolvesOverriddenSelectLabelFromTypeSpecificPageTsConfig(): void
+    {
+        $tableName = 'test_table';
+        $typeFieldName = 'record_type';
+        $selectFieldName = 'select_field';
+
+        $GLOBALS['TCA'][$tableName] = [
+            'ctrl' => [
+                'title' => 'Test table',
+                'label' => 'title',
+                'type' => $typeFieldName,
+            ],
+            'columns' => [
+                'title' => [
+                    'config' => [
+                        'type' => 'input',
+                    ],
+                ],
+                $typeFieldName => [
+                    'config' => [
+                        'type' => 'select',
+                        'renderType' => 'selectSingle',
+                        'items' => [
+                            [
+                                'label' => 'Default type',
+                                'value' => 'default',
+                            ],
+                            [
+                                'label' => 'Special type',
+                                'value' => 'special',
+                            ],
+                        ],
+                    ],
+                ],
+                $selectFieldName => [
+                    'config' => [
+                        'type' => 'select',
+                        'renderType' => 'selectSingle',
+                        'items' => [
+                            [
+                                'label' => 'Default label',
+                                'value' => 'foo',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'types' => [
+                'default' => [
+                    'showitem' => 'title,record_type,select_field',
+                ],
+                'special' => [
+                    'showitem' => 'title,record_type,select_field',
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        $this->get(ConnectionPool::class)
+            ->getConnectionForTable('pages')
+            ->update(
+                'pages',
+                [
+                    'TSconfig' => <<<TS
+                    TCEFORM.$tableName.$selectFieldName.types.special {
+                        altLabels.foo = Type-specific label
+                    }
+                    TS,
+                ],
+                [
+                    'uid' => 1,
+                ]
+            );
+        $this->get(CacheManager::class)->getCache('runtime')->flush();
+
+        $record = [
+            'uid' => 123,
+            'pid' => 1,
+            'title' => 'Test record',
+            $typeFieldName => 'special',
+            $selectFieldName => 'foo',
+        ];
+
+        self::assertSame(
+            'Type-specific label',
+            BackendUtility::getProcessedValue(
+                $tableName,
+                $selectFieldName,
+                $record[$selectFieldName],
+                0,
+                false,
+                false,
+                $record['uid'],
+                true,
+                $record['pid'],
+                $record,
+            )
+        );
+    }
+
+    #[Test]
+    public function getProcessedValueKeepsFieldLevelPageTsConfigForTypeSpecificRecords(): void
+    {
+        $tableName = 'test_table';
+        $typeFieldName = 'record_type';
+        $selectFieldName = 'select_field';
+
+        $GLOBALS['TCA'][$tableName] = [
+            'ctrl' => [
+                'title' => 'Test table',
+                'label' => 'title',
+                'type' => $typeFieldName,
+            ],
+            'columns' => [
+                'title' => [
+                    'config' => [
+                        'type' => 'input',
+                    ],
+                ],
+                $typeFieldName => [
+                    'config' => [
+                        'type' => 'select',
+                        'renderType' => 'selectSingle',
+                        'items' => [
+                            [
+                                'label' => 'Default type',
+                                'value' => 'default',
+                            ],
+                            [
+                                'label' => 'Special type',
+                                'value' => 'special',
+                            ],
+                        ],
+                    ],
+                ],
+                $selectFieldName => [
+                    'config' => [
+                        'type' => 'select',
+                        'renderType' => 'selectSingle',
+                        'items' => [
+                            [
+                                'label' => 'Default label',
+                                'value' => 'foo',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'types' => [
+                'default' => [
+                    'showitem' => 'title,record_type,select_field',
+                ],
+                'special' => [
+                    'showitem' => 'title,record_type,select_field',
+                ],
+            ],
+        ];
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
+        $this->get(ConnectionPool::class)
+            ->getConnectionForTable('pages')
+            ->update(
+                'pages',
+                [
+                    'TSconfig' => <<<TS
+                    TCEFORM.$tableName.$selectFieldName {
+                        altLabels.foo = Field level label
+                        types.special {
+                            addItems.bar = Type specific item
+                        }
+                    }
+                    TS,
+                ],
+                [
+                    'uid' => 1,
+                ]
+            );
+        $this->get(CacheManager::class)->getCache('runtime')->flush();
+
+        $record = [
+            'uid' => 123,
+            'pid' => 1,
+            'title' => 'Test record',
+            $typeFieldName => 'special',
+            $selectFieldName => 'foo',
+        ];
+
+        self::assertSame(
+            'Field level label',
+            BackendUtility::getProcessedValue(
+                $tableName,
+                $selectFieldName,
+                $record[$selectFieldName],
+                0,
+                false,
+                false,
+                $record['uid'],
+                true,
+                $record['pid'],
+                $record,
+            )
+        );
+    }
+
+    #[Test]
     public function getProcessedValueReturnsLabelsFormItemsProcFuncUsingRow(): void
     {
         $table = 'test_table';
@@ -868,417 +1275,11 @@ final class BackendUtilityTest extends FunctionalTestCase
         self::assertEquals('invalidKey', $label);
     }
 
-    public static function getLabelFromItemlistReturnsCorrectFieldsDataProvider(): array
-    {
-        return [
-            'item set' => [
-                'table' => 'tt_content',
-                'col' => 'menu_type',
-                'key' => '1',
-                'tca' => [
-                    'columns' => [
-                        'menu_type' => [
-                            'config' => [
-                                'type' => 'select',
-                                'items' => [
-                                    ['label' => 'Item 1', 'value' => '0'],
-                                    ['label' => 'Item 2', 'value' => '1'],
-                                    ['label' => 'Item 3', 'value' => '3'],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                'expectedLabel' => 'Item 2',
-            ],
-            'item set twice' => [
-                'table' => 'tt_content',
-                'col' => 'menu_type',
-                'key' => '1',
-                'tca' => [
-                    'columns' => [
-                        'menu_type' => [
-                            'config' => [
-                                'type' => 'select',
-                                'items' => [
-                                    ['label' => 'Item 1', 'value' => '0'],
-                                    ['label' => 'Item 2a', 'value' => '1'],
-                                    ['label' => 'Item 2b', 'value' => '1'],
-                                    ['label' => 'Item 3', 'value' => '3'],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                'expectedLabel' => 'Item 2a',
-            ],
-            'item not found' => [
-                'table' => 'tt_content',
-                'col' => 'menu_type',
-                'key' => '5',
-                'tca' => [
-                    'columns' => [
-                        'menu_type' => [
-                            'config' => [
-                                'type' => 'select',
-                                'items' => [
-                                    ['label' => 'Item 1', 'value' => '0'],
-                                    ['label' => 'Item 2', 'value' => '1'],
-                                    ['label' => 'Item 3', 'value' => '2'],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                'expectedLabel' => null,
-            ],
-            'item from itemsProcFunc' => [
-                'table' => 'tt_content',
-                'col' => 'menu_type',
-                'key' => '1',
-                'tca' => [
-                    'columns' => [
-                        'menu_type' => [
-                            'config' => [
-                                'type' => 'radio',
-                                'items' => [],
-                                'itemsProcFunc' => static function (array $parameters, $pObj) {
-                                    $parameters['items'] = [
-                                        ['label' => 'Item 1', 'value' => '0'],
-                                        ['label' => 'Item 2', 'value' => '1'],
-                                        ['label' => 'Item 3', 'value' => '2'],
-                                    ];
-                                },
-                            ],
-                        ],
-                    ],
-                ],
-                'expectedLabel' => 'Item 2',
-            ],
-        ];
-    }
-
-    #[DataProvider('getLabelFromItemlistReturnsCorrectFieldsDataProvider')]
-    #[Test]
-    public function getLabelFromItemlistReturnsCorrectFields(
-        string $table,
-        string $col,
-        string $key,
-        array $tca,
-        ?string $expectedLabel = ''
-    ): void {
-        $GLOBALS['TCA'][$table] = $tca;
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        $label = BackendUtility::getLabelFromItemlist($table, $col, $key);
-        self::assertEquals($expectedLabel, $label);
-    }
-
-    public static function getLabelsFromItemsListDataProvider(): array
-    {
-        return [
-            'return value if found' => [
-                'foobar', // table
-                'someColumn', // col
-                'foo, bar', // keyList
-                [ // TCA
-                    'columns' => [
-                        'someColumn' => [
-                            'config' => [
-                                'type' => 'select',
-                                'items' => [
-                                    ['label' => 'aFooLabel', 'value' => 'foo'],
-                                    ['label' => 'aBarLabel', 'value' => 'bar'],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                [], // page TSconfig
-                'aFooLabel, aBarLabel', // expected
-            ],
-            'page TSconfig overrules TCA' => [
-                'foobar', // table
-                'someColumn', // col
-                'foo,bar,add', // keyList
-                [ // TCA
-                    'columns' => [
-                        'someColumn' => [
-                            'config' => [
-                                'type' => 'select',
-                                'items' => [
-                                    ['label' => 'aFooLabel', 'value' => 'foo'],
-                                    ['label' => 'aBarLabel', 'value' => 'bar'],
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-                [ // page TSconfig
-                    'addItems.' => ['add' => 'aNewLabel'],
-                    'altLabels.' => ['bar' => 'aBarDiffLabel'],
-                ],
-                'aFooLabel, aBarDiffLabel, aNewLabel', // expected
-            ],
-            'itemsProcFunc is evaluated' => [
-                'foobar', // table
-                'someColumn', // col
-                'foo,bar', // keyList
-                [ // TCA
-                    'columns' => [
-                        'someColumn' => [
-                            'config' => [
-                                'type' => 'select',
-                                'itemsProcFunc' => static function (array $parameters, $pObj) {
-                                    $parameters['items'] = [
-                                        ['label' => 'aFooLabel', 'value' => 'foo'],
-                                        ['label' => 'aBarLabel', 'value' => 'bar'],
-                                    ];
-                                },
-                            ],
-                        ],
-                    ],
-                ],
-                [],
-                'aFooLabel, aBarLabel', // expected
-            ],
-        ];
-    }
-
-    #[DataProvider('getLabelsFromItemsListDataProvider')]
-    #[Test]
-    public function getLabelsFromItemsListReturnsCorrectValue(
-        string $table,
-        string $col,
-        string $keyList,
-        array $tca,
-        array $pageTsConfig,
-        string $expectedLabel
-    ): void {
-        $GLOBALS['TCA'][$table] = $tca;
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        $label = BackendUtility::getLabelsFromItemsList($table, $col, $keyList, $pageTsConfig);
-        self::assertEquals($expectedLabel, $label);
-    }
-
-    public static function getCommonSelectFieldsReturnsCorrectFieldsDataProvider(): array
-    {
-        return [
-            'minimum fields' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [],
-                'expectedFields' => 'uid,pid',
-            ],
-            'label set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'label' => 'label',
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,label',
-            ],
-            'label_alt set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'label' => 'label', // @todo This is a bug, see #107143
-                        'label_alt' => 'label2,label3',
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,label,label2,label3',
-            ],
-            'versioningWS set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'versioningWS' => true,
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,t3ver_state,t3ver_wsid',
-            ],
-            'selicon_field set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'selicon_field' => 'field',
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,field',
-            ],
-            'typeicon_column set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'typeicon_column' => 'field',
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,field',
-            ],
-            'enablecolumns set' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'enablecolumns' => [
-                            'disabled' => 'hidden',
-                            'starttime' => 'start',
-                            'endtime' => 'stop',
-                            'fe_group' => 'groups',
-                        ],
-                    ],
-                    'columns' => [
-                        'hidden' => ['config' => ['type' => 'check']],
-                        'start' => ['config' => ['type' => 'check']],
-                        'stop' => ['config' => ['type' => 'check']],
-                        'groups' => ['config' => ['type' => 'check']],
-                    ],
-                ],
-                'expectedFields' => 'uid,pid,hidden,start,stop,groups',
-            ],
-            'label set to uid' => [
-                'table' => 'test_table',
-                'prefix' => '',
-                'presetFields' => [],
-                'tca' => [
-                    'ctrl' => [
-                        'label' => 'uid',
-                    ],
-                ],
-                'expectedFields' => 'uid,pid',
-            ],
-            'prefix used' => [
-                'table' => 'test_table',
-                'prefix' => 'prefix.',
-                'presetFields' => [
-                    'preset',
-                ],
-                'tca' => [
-                    'ctrl' => [
-                        'label' => 'label',
-                        'label_alt' => 'label2,label3', ],
-                ],
-                'expectedFields' => 'prefix.preset,prefix.uid,prefix.pid,prefix.label,prefix.label2,prefix.label3',
-            ],
-        ];
-    }
-
-    #[DataProvider('getCommonSelectFieldsReturnsCorrectFieldsDataProvider')]
-    #[IgnoreDeprecations]
-    #[Test]
-    public function getCommonSelectFieldsReturnsCorrectFields(
-        string $table,
-        string $prefix,
-        array $presetFields,
-        array $tca,
-        string $expectedFields = ''
-    ): void {
-        $GLOBALS['TCA'][$table] = $tca;
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        $selectFields = BackendUtility::getCommonSelectFields($table, $prefix, $presetFields);
-        self::assertEquals($expectedFields, $selectFields);
-    }
-
     #[Test]
     public function getAllowedFieldsForTableReturnsEmptyArrayOnBrokenTca(): void
     {
         $GLOBALS['BE_USER'] = $this->setUpBackendUser(1);
         self::assertEmpty(BackendUtility::getAllowedFieldsForTable('nonExistentTable', false));
-    }
-
-    #[IgnoreDeprecations]
-    #[Test]
-    public function returnNullForMissingTcaConfigInResolveFileReferences(): void
-    {
-        $tableName = 'test_table';
-        $fieldName = 'field_a';
-        $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'] = [];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        self::assertNull(BackendUtility::resolveFileReferences($tableName, $fieldName, []));
-    }
-
-    public static function unfitResolveFileReferencesTableConfig(): array
-    {
-        return [
-            'invalid table' => [
-                [
-                    'type' => 'inline',
-                    'foreign_table' => 'table_b',
-                ],
-            ],
-            'empty table' => [
-                [
-                    'type' => 'inline',
-                    'foreign_table' => '',
-                ],
-            ],
-            'invalid type' => [
-                [
-                    'type' => 'select',
-                    'foreign_table' => 'sys_file_reference',
-                ],
-            ],
-            'empty type' => [
-                [
-                    'type' => '',
-                    'foreign_table' => 'sys_file_reference',
-                ],
-            ],
-            'empty' => [
-                [
-                    'type' => '',
-                    'foreign_table' => '',
-                ],
-            ],
-        ];
-    }
-
-    #[DataProvider('unfitResolveFileReferencesTableConfig')]
-    #[IgnoreDeprecations]
-    #[Test]
-    public function returnNullForUnfitTableConfigInResolveFileReferences(array $config): void
-    {
-        $tableName = 'test_table';
-        $fieldName = 'field_a';
-        $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'] = $config;
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        self::assertNull(BackendUtility::resolveFileReferences($tableName, $fieldName, []));
-    }
-
-    #[IgnoreDeprecations]
-    #[Test]
-    public function resolveFileReferencesReturnsEmptyResultForNoReferencesAvailable(): void
-    {
-        $tableName = 'test_table';
-        $fieldName = 'field_a';
-        $elementData = [
-            $fieldName => '',
-            'uid' => 42,
-        ];
-        $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'] = [
-            'type' => 'file',
-            'foreign_table' => 'sys_file_reference',
-        ];
-        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
-
-        self::assertEmpty(BackendUtility::resolveFileReferences($tableName, $fieldName, $elementData));
     }
 
     public static function calcAgeDataProvider(): array
@@ -1449,5 +1450,41 @@ final class BackendUtilityTest extends FunctionalTestCase
         $tableName = 'table_a';
         $uid = 42;
         self::assertSame(42, BackendUtility::wsMapId($tableName, $uid));
+    }
+
+    #[Test]
+    public function daysUntilCalculatesResultWithIntegerInput(): void
+    {
+        $GLOBALS['EXEC_TIME'] = mktime(0, 0, 0, 10, 28, 2026);
+
+        $tstamp = mktime(0, 0, 0, 10, 28, 1979);
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(-17167, $daysUntil);
+
+        $tstamp = mktime(0, 0, 0, 10, 28, 2027);
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(365, $daysUntil);
+    }
+
+    #[Test]
+    public function daysUntilCalculatesResultWithDateTimeInterfaceInput(): void
+    {
+        $GLOBALS['EXEC_TIME'] = mktime(0, 0, 0, 10, 28, 2026);
+
+        $tstamp = new \DateTimeImmutable('1979-10-28 00:00:00');
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(-17167, $daysUntil);
+
+        $tstamp = new \DateTimeImmutable('2027-10-28 00:00:00');
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(365, $daysUntil);
+
+        $tstamp = new \DateTime('1979-10-28 00:00:00');
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(-17167, $daysUntil);
+
+        $tstamp = new \DateTime('2027-10-28 00:00:00');
+        $daysUntil = BackendUtility::daysUntil($tstamp);
+        self::assertSame(365, $daysUntil);
     }
 }

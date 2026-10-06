@@ -18,10 +18,10 @@ declare(strict_types=1);
 namespace TYPO3\CMS\FrontendLogin\Controller;
 
 use Psr\Http\Message\ResponseInterface;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
 use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\Exception\AspectNotFoundException;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
@@ -29,6 +29,7 @@ use TYPO3\CMS\Core\PasswordPolicy\Event\EnrichPasswordValidationContextDataEvent
 use TYPO3\CMS\Core\PasswordPolicy\PasswordPolicyAction;
 use TYPO3\CMS\Core\PasswordPolicy\PasswordPolicyValidator;
 use TYPO3\CMS\Core\PasswordPolicy\Validator\Dto\ContextData;
+use TYPO3\CMS\Core\RateLimiter\RateLimiterFactoryInterface;
 use TYPO3\CMS\Core\Session\SessionManager;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Error\Error;
@@ -54,7 +55,7 @@ class PasswordRecoveryController extends ActionController
         protected RecoveryConfiguration $recoveryConfiguration,
         protected readonly Features $features,
         protected readonly PageRepository $pageRepository,
-        protected readonly RateLimiterFactory $rateLimiterFactory
+        protected RateLimiterFactoryInterface $rateLimiterFactory
     ) {}
 
     /**
@@ -73,12 +74,12 @@ class PasswordRecoveryController extends ActionController
 
         $userData = $this->userRepository->findUserByUsernameOrEmailOnPages($userIdentifier, $storagePageIds);
 
-        if ($userData &&
-            GeneralUtility::validEmail($userData['email']) &&
-            !$this->hasExceededMaximumAttemptsForReset($userData['email'])
+        if ($userData
+            && GeneralUtility::validEmail($userData['email'])
+            && !$this->hasExceededMaximumAttemptsForReset($userData['email'])
         ) {
             $hash = $this->recoveryConfiguration->getForgotHash();
-            $this->userRepository->updateForgotHashForUserByUid($userData['uid'], $this->hashService->hmac($hash, self::class));
+            $this->userRepository->updateForgotHashForUserByUid($userData['uid'], $this->hashService->hmac($hash, self::class, HashAlgo::SHA3_256));
             $this->recoveryService->sendRecoveryEmail($this->request, $userData, $hash);
         }
 
@@ -123,7 +124,7 @@ class PasswordRecoveryController extends ActionController
         $currentTimestamp = GeneralUtility::makeInstance(Context::class)->getPropertyFromAspect('date', 'timestamp');
 
         // timestamp is expired or hash can not be assigned to a user
-        if ($currentTimestamp > $timestamp || !$this->userRepository->existsUserWithHash($this->hashService->hmac($hash, self::class))) {
+        if ($currentTimestamp > $timestamp || !$this->userRepository->existsUserWithHash($this->hashService->hmac($hash, self::class, HashAlgo::SHA3_256))) {
             /** @var ExtbaseRequestParameters $extbaseRequestParameters */
             $extbaseRequestParameters = clone $this->request->getAttribute('extbase');
             $originalResult = $extbaseRequestParameters->getOriginalRequestMappingResults();
@@ -131,7 +132,7 @@ class PasswordRecoveryController extends ActionController
             $extbaseRequestParameters->setOriginalRequestMappingResults($originalResult);
             $this->request = $this->request->withAttribute('extbase', $extbaseRequestParameters);
 
-            return (new ForwardResponse('recovery'))
+            return new ForwardResponse('recovery')
                 ->withControllerName('PasswordRecovery')
                 ->withExtensionName('felogin')
                 ->withArgumentsValidationResult($originalResult);
@@ -184,7 +185,7 @@ class PasswordRecoveryController extends ActionController
                 1554971665
             ));
 
-            return (new ForwardResponse('showChangePassword'))
+            return new ForwardResponse('showChangePassword')
                 ->withControllerName('PasswordRecovery')
                 ->withExtensionName('felogin')
                 ->withArguments(['hash' => $this->request->getArgument('hash')])
@@ -195,7 +196,7 @@ class PasswordRecoveryController extends ActionController
 
         // if an error exists, forward with all messages to the change password form
         if ($originalResult->hasErrors()) {
-            return (new ForwardResponse('showChangePassword'))
+            return new ForwardResponse('showChangePassword')
                 ->withControllerName('PasswordRecovery')
                 ->withExtensionName('felogin')
                 ->withArguments(['hash' => $this->request->getArgument('hash')])
@@ -219,11 +220,13 @@ class PasswordRecoveryController extends ActionController
             ->getDefaultHashInstance('FE')
             ->getHashedPassword($newPass);
 
-        $user = $this->userRepository->findOneByForgotPasswordHash($this->hashService->hmac($hash, self::class));
+        $hmac = $this->hashService->hmac($hash, self::class, HashAlgo::SHA3_256);
+        $user = $this->userRepository->findOneByForgotPasswordHash($hmac);
+
         $event = new PasswordChangeEvent($user, $hashedPassword, $newPass, $this->request);
         $this->eventDispatcher->dispatch($event);
 
-        $this->userRepository->updatePasswordAndInvalidateHash($this->hashService->hmac($hash, self::class), $hashedPassword);
+        $this->userRepository->updatePasswordAndInvalidateHash($hmac, $hashedPassword);
         $this->invalidateUserSessions($user['uid']);
 
         $this->addFlashMessage($this->getTranslation('change_password_done_message'));
@@ -244,7 +247,7 @@ class PasswordRecoveryController extends ActionController
         }
 
         $hash = $this->request->getArgument('hash');
-        $userData = $this->userRepository->findOneByForgotPasswordHash($this->hashService->hmac($hash, self::class));
+        $userData = $this->userRepository->findOneByForgotPasswordHash($this->hashService->hmac($hash, self::class, HashAlgo::SHA3_256));
 
         // Validate against password policy
         $passwordPolicyValidator = $this->getPasswordPolicyValidator();

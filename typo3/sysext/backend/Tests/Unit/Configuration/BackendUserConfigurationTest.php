@@ -17,16 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Configuration;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Configuration\BackendUserConfiguration;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class BackendUserConfigurationTest extends UnitTestCase
 {
-    protected BackendUserConfiguration $backendUserConfiguration;
-    protected BackendUserAuthentication&MockObject $backendUserMock;
+    private BackendUserConfiguration $backendUserConfiguration;
+    private BackendUserAuthentication&MockObject $backendUserMock;
 
     protected function setUp(): void
     {

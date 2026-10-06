@@ -58,15 +58,14 @@ trait LogDataTrait
         // Handles placeholders with "%" first
         try {
             $detailString = vsprintf($detailString, $substitutes);
-        } catch (\ValueError|\ArgumentCountError) {
+        } catch (\ValueError) {
             // Ignore if $substitutes doesn't contain the number of "%" found in $detailString
         }
 
         // Handles placeholders with "{myPlaceholder}"
         $detailString = preg_replace_callback('/{([A-z]+)}/', static function (array $matches) use ($substitutes) {
             // $matches[0] contains the unsubstituted placeholder
-            /** @var array{0: non-falsy-string, 1?: non-falsy-string} $matches added to mitigate false-positives PHPStan reportings */
-            return $substitutes[$matches[1] ?? null] ?? $matches[0];
+            return $substitutes[$matches[1]] ?? $matches[0];
         }, $detailString);
 
         // Remove possible pending %s

@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Webhooks\Tests\Functional;
 
 use Doctrine\DBAL\Types\JsonType;
+use GuzzleHttp\Promise\FulfilledPromise;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\RequestInterface;
@@ -48,7 +49,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    private const LANGUAGE_PRESETS = [
+    private const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -78,8 +79,10 @@ final class WebhookExecutionTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['HTTP']['handler']['logger'] = function () use ($inspector) {
             return function (RequestInterface $request) use ($inspector) {
                 $inspector($request);
-                return (new ResponseFactory())->createResponse()
-                    ->withBody((new StreamFactory())->createStream('success'));
+                return new FulfilledPromise(
+                    new ResponseFactory()->createResponse()
+                        ->withBody(new StreamFactory()->createStream('success'))
+                );
             };
         };
     }
@@ -97,23 +100,20 @@ final class WebhookExecutionTest extends FunctionalTestCase
         $this->registerRequestInspector($inspector);
 
         // Catch any requests, evaluate their payload
-        (new ActionService())->modifyRecord('pages', 10, ['title' => 'Dummy Modified']);
+        new ActionService()->modifyRecord('pages', 10, ['title' => 'Dummy Modified']);
         self::assertEquals(1, $numberOfRequestsFired);
     }
 
-    /**
-     * @todo This test might not test what should be tested.
-     */
     #[Test]
     public function oneMessageWithMultipleRequestsIsTriggeredAndDispatched(): void
     {
-        $numberOfRequestsFired = 0;
-        $inspector = function (RequestInterface $request) use (&$numberOfRequestsFired) {
+        $requestUrls = [];
+        $inspector = function (RequestInterface $request) use (&$requestUrls) {
             $payload = json_decode($request->getBody()->getContents(), true);
             self::assertSame('backend', $payload['context']);
             self::assertSame('han-solo', $payload['loginData']['uname']);
             self::assertSame('********', $payload['loginData']['uident']);
-            $numberOfRequestsFired++;
+            $requestUrls[] = (string)$request->getUri();
         };
         $this->registerRequestInspector($inspector);
         $securityAspect = SecurityAspect::provideIn($this->get(Context::class));
@@ -131,9 +131,10 @@ final class WebhookExecutionTest extends FunctionalTestCase
 
         $userRequest = GeneralUtility::makeInstance(BackendUserAuthentication::class);
         $userRequest->start($request);
-        // second request
-        $userRequest->start($request);
-        self::assertEquals(2, $numberOfRequestsFired);
+        self::assertEqualsCanonicalizing(
+            ['https://localhost', 'https://t3main.devbox.example.com/'],
+            $requestUrls
+        );
     }
 
     #[Test]
@@ -148,7 +149,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
         $this->registerRequestInspector($inspector);
 
         // Catch any requests, evaluate their payload
-        (new ActionService())->modifyRecord('pages', 10, ['title' => 'Dummy Modified']);
+        new ActionService()->modifyRecord('pages', 10, ['title' => 'Dummy Modified']);
         self::assertEquals(0, $numberOfRequestsFired);
     }
 
@@ -159,6 +160,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
             'record' => [
                 'pid' => 0,
                 'name' => 'test-001',
+                'identifier' => 'f2c49559-a87f-416a-9d97-31771368326b',
                 'secret' => 'some-secret-hash',
                 'webhook_type' => 'typo3/file-added',
                 'verify_ssl' => 1,
@@ -168,6 +170,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
             'expectedRow' => [
                 'pid' => 0,
                 'name' => 'test-001',
+                'identifier' => 'f2c49559-a87f-416a-9d97-31771368326b',
                 'secret' => 'some-secret-hash',
                 'webhook_type' => 'typo3/file-added',
                 'verify_ssl' => 1,
@@ -180,6 +183,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
             'record' => [
                 'pid' => 0,
                 'name' => 'test-001',
+                'identifier' => '68242dd3-9ad0-4f69-9b16-265cfcc79d14',
                 'secret' => 'some-secret-hash',
                 'webhook_type' => 'typo3/file-added',
                 'verify_ssl' => 1,
@@ -191,6 +195,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
             'expectedRow' => [
                 'pid' => 0,
                 'name' => 'test-001',
+                'identifier' => '68242dd3-9ad0-4f69-9b16-265cfcc79d14',
                 'secret' => 'some-secret-hash',
                 'webhook_type' => 'typo3/file-added',
                 'verify_ssl' => 1,
@@ -217,7 +222,7 @@ final class WebhookExecutionTest extends FunctionalTestCase
         self::assertIsInt($recordId);
         self::assertGreaterThan(0, $recordId);
 
-        $connection = (new ConnectionPool())->getConnectionForTable('sys_webhook');
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_webhook');
         $row = $connection
             ->select(
                 array_keys($expectedRow),

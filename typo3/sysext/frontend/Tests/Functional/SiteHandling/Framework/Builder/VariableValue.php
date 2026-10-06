@@ -37,7 +37,7 @@ class VariableValue
 
     public static function create(string $value, ?Variables $defaultVariables = null): self
     {
-        return new static($value, $defaultVariables);
+        return new self($value, $defaultVariables);
     }
 
     public static function createUrlEncodedParams(
@@ -83,7 +83,7 @@ class VariableValue
         }
 
         return str_replace(
-            array_map([self::class, 'wrap'], $variables->keys()),
+            array_map(self::wrap(...), $variables->keys()),
             $variables->values(),
             $this->value
         );
@@ -133,7 +133,7 @@ class VariableValue
     private static function urlEncodeParams(string $value, string $prefix = '&'): string
     {
         $variableNames = self::extractVariableNames($value);
-        $variableItems = array_map([self::class, 'wrap'], $variableNames);
+        $variableItems = array_map(self::wrap(...), $variableNames);
         $substitutes = array_map(static fn(): string => bin2hex(random_bytes(20)), $variableNames);
         $value = str_replace($variableItems, $substitutes, $value);
         parse_str($value, $params);

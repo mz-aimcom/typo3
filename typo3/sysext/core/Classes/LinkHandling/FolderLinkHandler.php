@@ -30,17 +30,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 class FolderLinkHandler implements LinkHandlingInterface
 {
-    /**
-     * The Base URN
-     * @var string
-     */
-    protected $baseUrn = 't3://folder';
+    protected string $baseUrn = 't3://folder';
 
-    /**
-     * The resource factory to resolve
-     * @var \TYPO3\CMS\Core\Resource\ResourceFactory
-     */
-    protected $resourceFactory;
+    protected ?ResourceFactory $resourceFactory = null;
 
     /**
      * Returns a link notation to a folder
@@ -51,8 +43,8 @@ class FolderLinkHandler implements LinkHandlingInterface
             return '';
         }
         // the magic with prepending slash if it is missing will not work on windows
-        return $this->baseUrn . '?storage=' . $parameters['folder']->getStorage()->getUid() .
-        '&identifier=' . urlencode('/' . ltrim($parameters['folder']->getIdentifier(), '/'));
+        return $this->baseUrn . '?storage=' . $parameters['folder']->getStorage()->getUid()
+        . '&identifier=' . urlencode('/' . ltrim($parameters['folder']->getIdentifier(), '/'));
     }
 
     /**

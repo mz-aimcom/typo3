@@ -29,7 +29,9 @@ use TYPO3\CMS\Core\Authentication\Mfa\Provider\Totp;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
@@ -38,9 +40,9 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class MfaSetupControllerTest extends FunctionalTestCase
 {
-    protected MfaSetupController $subject;
-    protected ServerRequest $request;
-    protected HashService $hashService;
+    private MfaSetupController $subject;
+    private ServerRequest $request;
+    private HashService $hashService;
 
     /**
      * Some tests trigger backendUser->logOff() which destroys the backend user session.
@@ -71,11 +73,15 @@ final class MfaSetupControllerTest extends FunctionalTestCase
             $this->get(ExtensionConfiguration::class),
             new NullLogger(),
             $this->get(BackendViewFactory::class),
+            $this->get(FlashMessageService::class),
         );
         $this->subject->injectMfaProviderRegistry($this->get(MfaProviderRegistry::class));
         $this->hashService = new HashService();
-        $this->request = (new ServerRequest('https://example.com/typo3/'))
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')->willReturn('/');
+        $this->request = new ServerRequest('https://example.com/typo3/')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', $normalizedParams)
             ->withAttribute('route', new Route('path', ['packageName' => 'typo3/cms-backend']));
     }
 
@@ -225,7 +231,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
     {
         $queryParams = [
             'action' => 'activate',
-            'redirect' => 'web_list',
+            'redirect' => 'records',
             'redirectParams' => 'some=param',
         ];
 
@@ -238,7 +244,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
         self::assertStringContainsString('/typo3/setup/mfa', $redirectUrl['path']);
 
         // Also redirect parameters are still kept
-        self::assertStringContainsString('redirect=web_list&redirectParams=some%3Dparam', $redirectUrl['query']);
+        self::assertStringContainsString('redirect=records&redirectParams=some%3Dparam', $redirectUrl['query']);
     }
 
     #[Test]
@@ -246,7 +252,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
     {
         $queryParams = [
             'action' => 'activate',
-            'redirect' => 'web_list',
+            'redirect' => 'records',
             'redirectParams' => 'some=param',
         ];
 
@@ -263,7 +269,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
         self::assertStringContainsString('/typo3/setup/mfa', $redirectUrl['path']);
 
         // Also redirect parameters are still kept
-        self::assertStringContainsString('redirect=web_list&redirectParams=some%3Dparam', $redirectUrl['query']);
+        self::assertStringContainsString('redirect=records&redirectParams=some%3Dparam', $redirectUrl['query']);
     }
 
     #[Test]
@@ -271,16 +277,16 @@ final class MfaSetupControllerTest extends FunctionalTestCase
     {
         $queryParams = [
             'action' => 'activate',
-            'redirect' => 'web_list',
+            'redirect' => 'records',
             'redirectParams' => 'some=param',
         ];
 
         $timestamp = $this->get(Context::class)->getPropertyFromAspect('date', 'timestamp');
         $parsedBody = [
             'identifier' => 'totp',
-            'totp' => (new Totp('KRMVATZTJFZUC53FONXW2ZJB'))->generateTotp((int)floor($timestamp / 30)),
+            'totp' => new Totp('KRMVATZTJFZUC53FONXW2ZJB')->generateTotp((int)floor($timestamp / 30)),
             'secret' => 'KRMVATZTJFZUC53FONXW2ZJB',
-            'checksum' => $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup'),
+            'checksum' => $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup', HashAlgo::SHA3_256),
         ];
 
         $request = $this->request->withMethod('POST')->withQueryParams($queryParams)->withParsedBody($parsedBody);
@@ -311,7 +317,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
         );
 
         // Also redirect parameters are still kept
-        self::assertStringContainsString('redirect=web_list&redirectParams=some%3Dparam', $redirectUrl['query']);
+        self::assertStringContainsString('redirect=records&redirectParams=some%3Dparam', $redirectUrl['query']);
     }
 
     #[Test]
@@ -319,7 +325,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
     {
         $queryParams = [
             'action' => 'activate',
-            'redirect' => 'web_list',
+            'redirect' => 'records',
             'redirectParams' => 'some=param',
         ];
 
@@ -327,7 +333,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
             'identifier' => 'totp',
             'totp' => '123456', // invalid !!!
             'secret' => 'KRMVATZTJFZUC53FONXW2ZJB',
-            'checksum' => $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup'),
+            'checksum' => $this->hashService->hmac('KRMVATZTJFZUC53FONXW2ZJB', 'totp-setup', HashAlgo::SHA3_256),
         ];
 
         $request = $this->request->withMethod('POST')->withQueryParams($queryParams)->withParsedBody($parsedBody);
@@ -343,7 +349,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
         self::assertStringContainsString('identifier=totp&hasErrors=1', $redirectUrl['query']);
 
         // Also redirect parameters are still kept
-        self::assertStringContainsString('redirect=web_list&redirectParams=some%3Dparam', $redirectUrl['query']);
+        self::assertStringContainsString('redirect=records&redirectParams=some%3Dparam', $redirectUrl['query']);
     }
 
     #[Test]
@@ -351,7 +357,7 @@ final class MfaSetupControllerTest extends FunctionalTestCase
     {
         $queryParams = [
             'action' => 'cancel',
-            'redirect' => 'web_list',
+            'redirect' => 'records',
             'redirectParams' => 'some=param',
         ];
 
@@ -364,6 +370,6 @@ final class MfaSetupControllerTest extends FunctionalTestCase
         self::assertEquals('/typo3/login', $redirectUrl['path']);
 
         // Also redirect parameters are still kept
-        self::assertStringContainsString('redirect=web_list&redirectParams=some%3Dparam', $redirectUrl['query']);
+        self::assertStringContainsString('redirect=records&redirectParams=some%3Dparam', $redirectUrl['query']);
     }
 }

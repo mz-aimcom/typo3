@@ -30,21 +30,15 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  */
 final class ListenerProviderPass implements CompilerPassInterface
 {
-    private string $tagName;
-
     private ContainerBuilder $container;
 
-    private DependencyOrderingService $orderer;
+    private readonly DependencyOrderingService $orderer;
 
-    public function __construct(string $tagName)
+    public function __construct(private readonly string $tagName)
     {
-        $this->tagName = $tagName;
         $this->orderer = new DependencyOrderingService();
     }
 
-    /**
-     * @param ContainerBuilder $container
-     */
     public function process(ContainerBuilder $container): void
     {
         $this->container = $container;
@@ -73,7 +67,7 @@ final class ListenerProviderPass implements CompilerPassInterface
     /**
      * Collects all listeners from the container.
      */
-    protected function collectListeners(ContainerBuilder $container): array
+    private function collectListeners(ContainerBuilder $container): array
     {
         $unorderedEventListeners = [];
         foreach ($container->findTaggedServiceIds($this->tagName) as $serviceName => $tags) {
@@ -81,7 +75,7 @@ final class ListenerProviderPass implements CompilerPassInterface
             $service->setPublic(true);
             foreach ($tags as $attributes) {
                 $eventIdentifiers = $attributes['event'] ?? $this->getParameterType($serviceName, $service, $attributes['method'] ?? '__invoke');
-                if (empty($eventIdentifiers)) {
+                if ($eventIdentifiers === null || $eventIdentifiers === '' || $eventIdentifiers === []) {
                     throw new \InvalidArgumentException(
                         'Service tag "event.listener" requires an event attribute to be defined or the listener method must declare a parameter type.  Missing in: ' . $serviceName,
                         1563217364
@@ -110,7 +104,7 @@ final class ListenerProviderPass implements CompilerPassInterface
      *
      * @return string[]|null A list of class types or NULL on failure
      */
-    protected function getParameterType(string $serviceName, Definition $definition, string $method = '__invoke'): ?array
+    private function getParameterType(string $serviceName, Definition $definition, string $method = '__invoke'): ?array
     {
         // A Reflection exception should never actually get thrown here, but linters want a try-catch just in case.
         try {
@@ -155,7 +149,7 @@ final class ListenerProviderPass implements CompilerPassInterface
      *
      * This method borrowed very closely from Symfony's AbstractRecurisvePass.
      */
-    protected function getReflectionMethod(string $serviceName, Definition $definition, string $method): \ReflectionFunctionAbstract
+    private function getReflectionMethod(string $serviceName, Definition $definition, string $method): \ReflectionFunctionAbstract
     {
         if (!$class = $definition->getClass()) {
             throw new RuntimeException(sprintf('Invalid service "%s": the class is not set.', $serviceName), 1623881310);

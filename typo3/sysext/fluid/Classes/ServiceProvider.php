@@ -18,9 +18,17 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Fluid;
 
 use Psr\Container\ContainerInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Core\RequestId;
 use TYPO3\CMS\Core\Package\AbstractServiceProvider;
+use TYPO3\CMS\Core\SystemResource\Identifier\SystemResourceIdentifierFactory;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
+use TYPO3\CMS\Fluid\Core\ViewHelper\ViewHelperResolverDelegateRegistry;
+use TYPO3Fluid\Fluid\Core\ViewHelper\ArgumentProcessorInterface;
+use TYPO3Fluid\Fluid\Core\ViewHelper\StrictArgumentProcessor;
 
 /**
  * @internal
@@ -50,6 +58,10 @@ class ServiceProvider extends AbstractServiceProvider
     {
         return [
             ViewFactoryInterface::class => self::provideFallbackViewFactory(...),
+            ViewHelpers\ResourceViewHelper::class => self::provideFallbackResourceViewHelper(...),
+            ViewHelpers\Security\NonceViewHelper::class => self::provideFallbackNonceViewHelper(...),
+            ViewHelpers\Uri\ResourceViewHelper::class => self::provideFallbackResourceUriViewHelper(...),
+            ArgumentProcessorInterface::class => self::provideFallbackArgumentProcessor(...),
         ] + parent::getExtensions();
     }
 
@@ -59,6 +71,7 @@ class ServiceProvider extends AbstractServiceProvider
             $container,
             $container->get(CacheManager::class),
             $container->get(Core\ViewHelper\ViewHelperResolverFactoryInterface::class),
+            $container->get(ArgumentProcessorInterface::class),
         ]);
     }
 
@@ -66,6 +79,11 @@ class ServiceProvider extends AbstractServiceProvider
     {
         return self::new($container, Core\ViewHelper\ViewHelperResolverFactory::class, [
             $container,
+            $container->get(EventDispatcherInterface::class),
+            // Don't provide resolver delegates (including component collections) to InstallTool
+            // because it currently doesn't use components and can avoid that additional complexity
+            $container->has(ViewHelperResolverDelegateRegistry::class) ? $container->get(ViewHelperResolverDelegateRegistry::class) : null,
+            $container->get('fluid.namespaces'),
         ]);
     }
 
@@ -82,5 +100,46 @@ class ServiceProvider extends AbstractServiceProvider
         return $viewFactory ?? new View\FluidViewFactory(
             $container->get(Core\Rendering\RenderingContextFactory::class),
         );
+    }
+
+    public static function provideFallbackResourceUriViewHelper(
+        ContainerInterface $container,
+        ?ViewHelpers\Uri\ResourceViewHelper $resourceViewHelper = null
+    ): ViewHelpers\Uri\ResourceViewHelper {
+        // Provide the ResourceViewHelper for the install tool when $resourceViewHelper is null (that means when we run without symfony DI)
+        return $resourceViewHelper ?? new ViewHelpers\Uri\ResourceViewHelper(
+            $container->get(SystemResourceFactory::class),
+            $container->get(SystemResourcePublisherInterface::class),
+            $container->get(SystemResourceIdentifierFactory::class),
+        );
+    }
+
+    public static function provideFallbackResourceViewHelper(
+        ContainerInterface $container,
+        ?ViewHelpers\ResourceViewHelper $resourceViewHelper = null
+    ): ViewHelpers\ResourceViewHelper {
+        // Provide the ResourceViewHelper for the install tool when $resourceViewHelper is null (that means when we run without symfony DI)
+        return $resourceViewHelper ?? new ViewHelpers\ResourceViewHelper(
+            $container->get(SystemResourceFactory::class),
+        );
+    }
+
+    public static function provideFallbackNonceViewHelper(
+        ContainerInterface $container,
+        ?ViewHelpers\Security\NonceViewHelper $nonceViewHelper = null
+    ): ViewHelpers\Security\NonceViewHelper {
+        // Provide the nonce view helper for the install tool when $nonceViewHelper is null (that means when we run without symfony DI).
+        // EXT:core ships it in the error page template, which the exception handlers render.
+        return $nonceViewHelper ?? new ViewHelpers\Security\NonceViewHelper(
+            $container->get(RequestId::class),
+        );
+    }
+
+    public static function provideFallbackArgumentProcessor(
+        ContainerInterface $container,
+        ?ArgumentProcessorInterface $argumentProcessor = null
+    ): ArgumentProcessorInterface {
+        // Provide the default argument processor for the install tool when $argumentProcessor is null (that means when we run without symfony DI)
+        return $argumentProcessor ?? new StrictArgumentProcessor();
     }
 }

@@ -19,7 +19,12 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
+use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\View\TemplateView;
@@ -53,17 +58,22 @@ final class MediaViewHelperTest extends FunctionalTestCase
             'show youtube video with title' => [
                 '<f:media file="{file}" title="Youtube Video Example" additionalConfig="{allowFullScreen: \'true\'}" />',
                 '1:/user_upload/example.youtube',
-                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2F" allowfullscreen title="Youtube Video Example" allow="fullscreen"></iframe>',
+                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2Fwww.example.com" allowfullscreen title="Youtube Video Example" allow="fullscreen"></iframe>',
             ],
             'show youtube video with empty title' => [
                 '<f:media file="{file}" title="" additionalConfig="{allowFullScreen: \'true\'}" />',
                 '1:/user_upload/example.youtube',
-                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2F" allowfullscreen allow="fullscreen"></iframe>',
+                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2Fwww.example.com" allowfullscreen allow="fullscreen"></iframe>',
             ],
             'show youtube video with title is null' => [
                 '<f:media file="{file}" title="null" additionalConfig="{allowFullScreen: \'true\'}" />',
                 '1:/user_upload/example.youtube',
-                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2F" allowfullscreen allow="fullscreen"></iframe>',
+                '<iframe src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2Fwww.example.com" allowfullscreen allow="fullscreen"></iframe>',
+            ],
+            'show youtube video with alternative src attribute' => [
+                '<f:media file="{file}" additionalConfig="{srcAttribute: \'data-src\'}" />',
+                '1:/user_upload/example.youtube',
+                '<iframe data-src="https://www.youtube-nocookie.com/embed/hsrAtnI9244?autohide=1&amp;controls=1&amp;enablejsapi=1&amp;origin=http%3A%2F%2Fwww.example.com" allowfullscreen allow="fullscreen"></iframe>',
             ],
             'evaluate file type "image"' => [
                 '<f:switch expression="{file.type}">
@@ -126,6 +136,15 @@ final class MediaViewHelperTest extends FunctionalTestCase
     #[Test]
     public function renderReturnsExpectedMarkup(string $template, string $file, string $expected): void
     {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setConfigArray([]);
+        $request = new ServerRequest('https://www.example.com/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript)
+            ->withAttribute('normalizedParams', NormalizedParams::createFromServerParams([
+                'HTTP_HOST' => 'www.example.com',
+            ]));
+        $GLOBALS['TYPO3_REQUEST'] = $request;
         $file = $this->get(ResourceFactory::class)->getFileObjectFromCombinedIdentifier($file);
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
@@ -135,5 +154,31 @@ final class MediaViewHelperTest extends FunctionalTestCase
         $view->assign('file', $file);
         $result = $view->render();
         self::assertEquals($expected, $result);
+    }
+
+    #[Test]
+    public function focusAreaAttributeIsRelativeToProcessedImage(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/ViewHelpers/MediaViewHelper/fal_image.csv');
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setConfigArray([]);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest('https://www.example.com/')
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.typoscript', $frontendTypoScript)
+            ->withAttribute('normalizedParams', NormalizedParams::createFromServerParams([
+                'HTTP_HOST' => 'www.example.com',
+            ]));
+        $fileReference = $this->get(ResourceFactory::class)->getFileReferenceObject(1);
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource('<f:media file="{file}" />');
+        $view = new TemplateView($context);
+        $view->assign('file', $fileReference);
+
+        // Source is 400x300 and cropped to 200x150. The focus area is stored
+        // relative to the crop area, so it must be based on the processed image.
+        self::assertMatchesRegularExpression(
+            '@^<img data-focus-area="\{&quot;x&quot;:100,&quot;y&quot;:75,&quot;width&quot;:50,&quot;height&quot;:75\}" src="fileadmin/_processed_/.*\.jpg" width="200" height="150".*/>$@',
+            $view->render(),
+        );
     }
 }

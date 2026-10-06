@@ -28,7 +28,7 @@ final class SvgImageRenderingTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8', 'iso' => 'en'],
     ];
 
@@ -136,7 +136,7 @@ final class SvgImageRenderingTest extends FunctionalTestCase
     public function svgsAreRenderedWithTyposcript(array $expectedAssets): void
     {
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withQueryParameters([
+            new InternalRequest()->withQueryParameters([
                 'id' => 1,
             ])
         );
@@ -151,7 +151,7 @@ final class SvgImageRenderingTest extends FunctionalTestCase
     /**
      * Adds TypoScript constants snippet to the existing template record
      */
-    protected function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
+    private function setTypoScriptConstantsToTemplateRecord(int $pageId, string $constants, bool $append = false): void
     {
         $connection = $this->get(ConnectionPool::class)->getConnectionForTable('sys_template');
 
@@ -168,7 +168,7 @@ final class SvgImageRenderingTest extends FunctionalTestCase
         );
     }
 
-    protected function compileTypoScriptConstants(array $constants): string
+    private function compileTypoScriptConstants(array $constants): string
     {
         $lines = [];
         foreach ($constants as $constantName => $constantValue) {

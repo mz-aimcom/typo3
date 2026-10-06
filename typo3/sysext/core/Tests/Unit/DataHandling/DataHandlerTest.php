@@ -17,26 +17,35 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\DataHandling;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
+use TYPO3\CMS\Backend\Domain\Repository\Localization\LocalizationRepository;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Configuration\Richtext;
+use TYPO3\CMS\Core\Crypto\PasswordHashing\InvalidPasswordHashException;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
+use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashInterface;
 use TYPO3\CMS\Core\Crypto\Random;
+use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\DataHandling\DataHandlerCheckModifyAccessListHookInterface;
+use TYPO3\CMS\Core\DataHandling\Localization\DataMapProcessor;
 use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\DataHandling\PagePermissionAssembler;
 use TYPO3\CMS\Core\DataHandling\ReferenceIndexUpdater;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
+use TYPO3\CMS\Core\LinkHandling\LinkService;
 use TYPO3\CMS\Core\LinkHandling\TypoLinkCodecService;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
@@ -44,10 +53,14 @@ use TYPO3\CMS\Core\PasswordPolicy\Event\EnrichPasswordValidationContextDataEvent
 use TYPO3\CMS\Core\PasswordPolicy\Validator\Dto\ContextData;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Security\PermissionSet\PrincipalRole;
 use TYPO3\CMS\Core\Service\OpcodeCacheService;
+use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\SysLog\Action;
 use TYPO3\CMS\Core\SysLog\Error;
+use TYPO3\CMS\Core\SysLog\Repository\LogEntryRepository;
 use TYPO3\CMS\Core\Tests\Unit\DataHandling\Fixtures\AllowAccessHookFixture;
 use TYPO3\CMS\Core\Tests\Unit\DataHandling\Fixtures\InvalidHookFixture;
 use TYPO3\CMS\Core\Tests\Unit\DataHandling\Fixtures\UserOddNumberFilter;
@@ -56,77 +69,92 @@ use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\AccessibleObjectInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class DataHandlerTest extends UnitTestCase
 {
-    protected DataHandler&MockObject&AccessibleObjectInterface $subject;
-    protected BackendUserAuthentication&MockObject $backendUserMock;
-    protected TcaSchemaFactory $tcaSchemaFactory;
+    private DataHandler&MockObject&AccessibleObjectInterface $subject;
+    private PasswordHashFactory&MockObject $passwordHashFactory;
+    private TcaSchemaFactory $tcaSchemaFactory;
 
     protected function setUp(): void
     {
         parent::setUp();
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atMost(PHP_INT_MAX))->method('has')->with(self::isString())->willReturn(false);
         $this->tcaSchemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
+        $connectionMock = self::createStub(Connection::class);
+        $connectionMock->method('insert')->willReturn(1);
+        $connectionMock->method('lastInsertId')->willReturn('1');
+        $connectionPoolMock = self::createStub(ConnectionPool::class);
+        $connectionPoolMock->method('getConnectionForTable')->willReturn($connectionMock);
+        $this->passwordHashFactory = $this->createMock(PasswordHashFactory::class);
         $constructorArguments = [
             new NoopEventDispatcher(),
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
+            self::createStub(CacheManager::class),
+            self::createStub(FrontendInterface::class),
+            $connectionPoolMock,
+            self::createStub(LoggerInterface::class),
             new PagePermissionAssembler(),
             $this->tcaSchemaFactory,
             new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
-            new PasswordHashFactory(),
+            self::createStub(FlexFormTools::class),
+            self::createStub(Richtext::class),
+            $this->passwordHashFactory,
             new Random(),
             new TypoLinkCodecService(new NoopEventDispatcher()),
             new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
+            self::createStub(FlashMessageService::class),
+            new LogEntryRepository($connectionPoolMock),
+            self::createStub(LocalizationRepository::class),
+            self::createStub(SiteFinder::class),
+            self::createStub(DataMapProcessor::class),
+            self::createStub(LinkService::class),
         ];
         $this->subject = $this->getAccessibleMock(DataHandler::class, null, $constructorArguments);
-        $this->backendUserMock = $this->createMock(BackendUserAuthentication::class);
-        $this->subject->start([], [], $this->backendUserMock, $this->createMock(ReferenceIndexUpdater::class));
+        $this->subject->start([], [], new BackendUserAuthentication(), self::createStub(ReferenceIndexUpdater::class));
     }
 
     #[Test]
     public function adminIsAllowedToModifyNonAdminTable(): void
     {
-        $this->subject->admin = true;
+        $this->subject->BE_USER->user['admin'] = 1;
         self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
     public function nonAdminIsNorAllowedToModifyNonAdminTable(): void
     {
-        $this->subject->admin = false;
+        $this->subject->BE_USER->user['admin'] = 0;
         self::assertFalse($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
     public function nonAdminWithTableModifyAccessIsAllowedToModifyNonAdminTable(): void
     {
-        $this->subject->admin = false;
-        $this->backendUserMock->groupData['tables_modify'] = 'tt_content';
+        $this->subject->BE_USER->user['admin'] = 0;
+        $this->subject->BE_USER->groupData['tables_modify'] = 'tt_content';
         self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
     #[Test]
     public function adminIsAllowedToModifyAdminTable(): void
     {
-        $this->subject->admin = true;
+        $this->subject->BE_USER->user['admin'] = 1;
         self::assertTrue($this->subject->_call('checkModifyAccessList', 'be_users'));
     }
 
     #[Test]
     public function nonAdminIsNotAllowedToModifyAdminTable(): void
     {
-        $this->subject->admin = false;
+        $this->subject->BE_USER->user['admin'] = 0;
         self::assertFalse($this->subject->_call('checkModifyAccessList', 'be_users'));
     }
 
@@ -141,8 +169,8 @@ final class DataHandlerTest extends UnitTestCase
                 ],
             ],
         ];
-        $this->subject->admin = false;
-        $this->backendUserMock->groupData['tables_modify'] = $tableName;
+        $this->subject->BE_USER->user['admin'] = 0;
+        $this->subject->BE_USER->groupData['tables_modify'] = $tableName;
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
         self::assertFalse($this->subject->_call('checkModifyAccessList', $tableName));
     }
@@ -233,8 +261,13 @@ final class DataHandlerTest extends UnitTestCase
     public function checkValuePasswordWithSaltedPasswordReturnsHashForSaltedPassword(): void
     {
         $inputValue = 'myPassword';
+        $passwordHash = $this->createMock(PasswordHashInterface::class);
+        $passwordHash->expects($this->once())->method('getHashedPassword')->with($inputValue)->willReturn('hashedPassword');
+        $this->passwordHashFactory->expects($this->once())->method('getDefaultHashInstance')->with('BE')->willReturn($passwordHash);
+        $this->passwordHashFactory->expects($this->once())->method('get')->with($inputValue, 'BE')->willThrowException(new InvalidPasswordHashException());
+
         $result = $this->subject->_call('checkValueForPassword', $inputValue, [], 'be_users', 0, 0);
-        self::assertNotSame($inputValue, $result['value']);
+        self::assertSame('hashedPassword', $result['value']);
     }
 
     #[Test]
@@ -243,26 +276,38 @@ final class DataHandlerTest extends UnitTestCase
         $event = new EnrichPasswordValidationContextDataEvent(new ContextData(), [], '');
         $eventDispatcher = $this->createMock(EventDispatcherInterface::class);
         $eventDispatcher->expects($this->once())->method('dispatch')->willReturn($event);
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
+        $passwordHash = $this->createMock(PasswordHashInterface::class);
+        $passwordHash->expects($this->once())->method('getHashedPassword')->with('myPassword')->willReturn('hashedPassword');
+        $passwordHashFactory = $this->createMock(PasswordHashFactory::class);
+        $passwordHashFactory->expects($this->once())->method('getDefaultHashInstance')->with('BE')->willReturn($passwordHash);
+        $passwordHashFactory->expects($this->once())->method('get')->with('myPassword', 'BE')->willThrowException(new InvalidPasswordHashException());
         $constructorArguments = [
             $eventDispatcher,
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
+            self::createStub(CacheManager::class),
+            self::createStub(FrontendInterface::class),
+            $connectionPoolStub,
+            self::createStub(LoggerInterface::class),
             new PagePermissionAssembler(),
             $this->tcaSchemaFactory,
             new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
-            new PasswordHashFactory(),
+            self::createStub(FlexFormTools::class),
+            self::createStub(Richtext::class),
+            $passwordHashFactory,
             new Random(),
             new TypoLinkCodecService(new NoopEventDispatcher()),
             new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
+            self::createStub(FlashMessageService::class),
+            new LogEntryRepository($connectionPoolStub),
+            self::createStub(LocalizationRepository::class),
+            self::createStub(SiteFinder::class),
+            self::createStub(DataMapProcessor::class),
+            self::createStub(LinkService::class),
         ];
         $subject = $this->getAccessibleMock(DataHandler::class, null, $constructorArguments, '');
         $inputValue = 'myPassword';
         $result = $subject->_call('checkValueForPassword', $inputValue, [], 'be_users', 0, 0);
-        self::assertNotSame($inputValue, $result['value']);
+        self::assertSame('hashedPassword', $result['value']);
     }
 
     public static function numberValueCheckRecognizesStringValuesAsIntegerValuesCorrectlyDataProvider(): array
@@ -354,10 +399,178 @@ final class DataHandlerTest extends UnitTestCase
     {
         $tcaFieldConf = [
             'type' => 'number',
-            'format' => 'decimal',
+            'scale' => 2,
         ];
         $returnValue = $this->subject->_call('checkValueForNumber', $input, $tcaFieldConf);
         self::assertSame($expected, $returnValue['value']);
+    }
+
+    public static function numberValueCheckRespectsScaleDataProvider(): iterable
+    {
+        yield 'scale zero decimals, decimal separator comma' => [
+            'config' => ['scale' => 0],
+            'input' => '1000,123456',
+            'expected' => '1000',
+        ];
+
+        yield 'scale one decimals, decimal separator comma' => [
+            'config' => ['scale' => 1],
+            'input' => '1000,123456',
+            'expected' => '1000.1',
+        ];
+
+        yield 'scale two decimals, decimal separator comma' => [
+            'config' => ['scale' => 2],
+            'input' => '1000,123456',
+            'expected' => '1000.12',
+        ];
+
+        yield 'scale of four keeps four decimals, decimal separator comma' => [
+            'config' => ['scale' => 4],
+            'input' => '1000,1234',
+            'expected' => '1000.1234',
+        ];
+
+        yield 'scale of four pads values with less decimals, decimal separator comma' => [
+            'config' => ['scale' => 4],
+            'input' => '1000,5',
+            'expected' => '1000.5000',
+        ];
+
+        yield 'scale given as string is casted to integer, decimal separator comma' => [
+            'config' => ['scale' => 3],
+            'input' => '1000,5',
+            'expected' => '1000.500',
+        ];
+
+        yield 'scale above the maximum is capped at 30, decimal separator comma' => [
+            'config' => ['scale' => 99],
+            'input' => '0,5',
+            'expected' => '0.' . str_pad('5', 30, '0'),
+        ];
+
+        yield 'high scale keeps the exact digits and does not fall back to float precision, decimal separator comma' => [
+            'config' => ['scale' => 30],
+            'input' => '2,000000001',
+            'expected' => '2.' . str_pad('000000001', 30, '0'),
+        ];
+
+        yield 'high scale keeps all given digits, decimal separator comma' => [
+            'config' => ['scale' => 30],
+            'input' => '2,000000001000000082740370999091',
+            'expected' => '2.000000001000000082740370999091',
+        ];
+
+        yield 'rounding up carries over to the integer digits, decimal separator comma' => [
+            'config' => ['scale' => 2],
+            'input' => '1,999',
+            'expected' => '2.00',
+        ];
+
+        yield 'rounding up creates an integer digit, decimal separator comma' => [
+            'config' => ['scale' => 2],
+            'input' => '0,999',
+            'expected' => '1.00',
+        ];
+
+        yield 'a value rounded to zero is not negative, decimal separator comma' => [
+            'config' => ['scale' => 2],
+            'input' => '-0,001',
+            'expected' => '0.00',
+        ];
+
+        yield 'a negative value is rounded away from zero, decimal separator comma' => [
+            'config' => ['scale' => 2],
+            'input' => '-1,005',
+            'expected' => '-1.01',
+        ];
+        yield 'scale zero decimals, decimal separator point' => [
+            'config' => ['scale' => 0],
+            'input' => '1000.123456',
+            'expected' => '1000',
+        ];
+
+        yield 'scale one decimals, decimal separator point' => [
+            'config' => ['scale' => 1],
+            'input' => '1000.123456',
+            'expected' => '1000.1',
+        ];
+
+        yield 'scale two decimals, decimal separator point' => [
+            'config' => ['scale' => 2],
+            'input' => '1000.123456',
+            'expected' => '1000.12',
+        ];
+
+        yield 'scale of four keeps four decimals, decimal separator point' => [
+            'config' => ['scale' => 4],
+            'input' => '1000.1234',
+            'expected' => '1000.1234',
+        ];
+
+        yield 'scale of four pads values with less decimals, decimal separator point' => [
+            'config' => ['scale' => 4],
+            'input' => '1000.5',
+            'expected' => '1000.5000',
+        ];
+
+        yield 'scale given as string is casted to integer, decimal separator point' => [
+            'config' => ['scale' => 3],
+            'input' => '1000.5',
+            'expected' => '1000.500',
+        ];
+
+        yield 'scale above the maximum is capped at 30, decimal separator point' => [
+            'config' => ['scale' => 99],
+            'input' => '0.5',
+            'expected' => '0.' . str_pad('5', 30, '0'),
+        ];
+
+        yield 'high scale keeps the exact digits and does not fall back to float precision, decimal separator point' => [
+            'config' => ['scale' => 30],
+            'input' => '2.000000001',
+            'expected' => '2.' . str_pad('000000001', 30, '0'),
+        ];
+
+        yield 'high scale keeps all given digits, decimal separator point' => [
+            'config' => ['scale' => 30],
+            'input' => '2.000000001000000082740370999091',
+            'expected' => '2.000000001000000082740370999091',
+        ];
+
+        yield 'rounding up carries over to the integer digits, decimal separator point' => [
+            'config' => ['scale' => 2],
+            'input' => '1.999',
+            'expected' => '2.00',
+        ];
+
+        yield 'rounding up creates an integer digit, decimal separator point' => [
+            'config' => ['scale' => 2],
+            'input' => '0.999',
+            'expected' => '1.00',
+        ];
+
+        yield 'a value rounded to zero is not negative, decimal separator point' => [
+            'config' => ['scale' => 2],
+            'input' => '-0.001',
+            'expected' => '0.00',
+        ];
+
+        yield 'a negative value is rounded away from zero, decimal separator point' => [
+            'config' => ['scale' => 2],
+            'input' => '-1.005',
+            'expected' => '-1.01',
+        ];
+
+    }
+
+    #[DataProvider('numberValueCheckRespectsScaleDataProvider')]
+    #[Test]
+    public function numberValueCheckRespectsScale(array $config, string $input, string $expected): void
+    {
+        $tcaFieldConf = array_replace(['type' => 'number'], $config);
+        $returnValue = $this->subject->_call('checkValueForNumber', $input, $tcaFieldConf);
+        self::assertEquals($expected, $returnValue['value']);
     }
 
     public static function inputValuesRangeDoubleDataProvider(): array
@@ -396,7 +609,7 @@ final class DataHandlerTest extends UnitTestCase
     {
         $tcaFieldConf = [
             'type' => 'number',
-            'format' => 'decimal',
+            'scale' => 2,
             'range' => [
                 'lower' => '0',
                 'upper' => '42',
@@ -412,7 +625,7 @@ final class DataHandlerTest extends UnitTestCase
     {
         $tcaFieldConf = [
             'type' => 'number',
-            'format' => 'decimal',
+            'scale' => 2,
             'range' => [
                 'lower' => '0',
                 'upper' => '42',
@@ -635,6 +848,11 @@ final class DataHandlerTest extends UnitTestCase
                 '',
                 1606323240,
             ],
+            'timestamp with format=datetimesec' => [
+                '2020-11-25T18:54:13+02:00',
+                '',
+                1606323253,
+            ],
         ];
     }
 
@@ -756,9 +974,21 @@ final class DataHandlerTest extends UnitTestCase
                 true,
                 null,
             ],
+            'Null on nullable datetimesec' => [
+                null,
+                'datetimesec',
+                true,
+                null,
+            ],
             'Null on not nullable timesec' => [
                 null,
                 'timesec',
+                false,
+                0,
+            ],
+            'Null on not nullable datetimesec' => [
+                null,
+                'datetimesec',
                 false,
                 0,
             ],
@@ -898,53 +1128,22 @@ final class DataHandlerTest extends UnitTestCase
         self::assertTrue($this->subject->_call('checkModifyAccessList', 'tt_content'));
     }
 
-    public static function checkValue_flex_procInData_travDSDataProvider(): iterable
+    public static function checkFlexFormDataDataProvider(): iterable
     {
         yield 'Flat structure' => [
-            'dataValues' => [
-                'field1' => [
-                    'vDEF' => 'wrong input',
-                ],
-            ],
-            'DSelements' => [
-                'field1' => [
-                    'label' => 'A field',
-                    'config' => [
-                        'type' => 'number',
-                        'required' => true,
-                    ],
-                ],
-            ],
-            'expected' => [
-                'field1' => [
-                    'vDEF' => 0,
-                ],
-            ],
-        ];
-
-        yield 'Array structure' => [
-            'dataValues' => [
-                'section' => [
-                    'el' => [
-                        '1' => [
-                            'container1' => [
-                                'el' => [
-                                    'field1' => [
-                                        'vDEF' => 'wrong input',
-                                    ],
-                                ],
-                            ],
+            'data' => [
+                'sDEF' => [
+                    'lDEF' => [
+                        'field1' => [
+                            'vDEF' => 'wrong input',
                         ],
                     ],
                 ],
             ],
-            'DSelements' => [
-                'section' => [
-                    'type' => 'array',
-                    'section' => true,
-                    'el' => [
-                        'container1' => [
-                            'type' => 'array',
+            'dataStructure' => [
+                'sheets' => [
+                    'sDEF' => [
+                        'ROOT' => [
                             'el' => [
                                 'field1' => [
                                     'label' => 'A field',
@@ -959,13 +1158,76 @@ final class DataHandlerTest extends UnitTestCase
                 ],
             ],
             'expected' => [
-                'section' => [
-                    'el' => [
-                        '1' => [
-                            'container1' => [
-                                'el' => [
-                                    'field1' => [
-                                        'vDEF' => 0,
+                'sDEF' => [
+                    'lDEF' => [
+                        'field1' => [
+                            'vDEF' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        yield 'Array structure' => [
+            'data' => [
+                'sDEF' => [
+                    'lDEF' => [
+                        'section' => [
+                            'el' => [
+                                '1' => [
+                                    'container1' => [
+                                        'el' => [
+                                            'field1' => [
+                                                'vDEF' => 'wrong input',
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'dataStructure' => [
+                'sheets' => [
+                    'sDEF' => [
+                        'ROOT' => [
+                            'el' => [
+                                'section' => [
+                                    'type' => 'array',
+                                    'section' => true,
+                                    'el' => [
+                                        'container1' => [
+                                            'type' => 'array',
+                                            'el' => [
+                                                'field1' => [
+                                                    'label' => 'A field',
+                                                    'config' => [
+                                                        'type' => 'number',
+                                                        'required' => true,
+                                                    ],
+                                                ],
+                                            ],
+                                        ],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'expected' => [
+                'sDEF' => [
+                    'lDEF' => [
+                        'section' => [
+                            'el' => [
+                                '1' => [
+                                    'container1' => [
+                                        'el' => [
+                                            'field1' => [
+                                                'vDEF' => 0,
+                                            ],
+                                        ],
                                     ],
                                 ],
                             ],
@@ -979,49 +1241,51 @@ final class DataHandlerTest extends UnitTestCase
     /**
      * This test ensures, that the eval method checkValue_SW is called on flexform structures.
      */
-    #[DataProvider('checkValue_flex_procInData_travDSDataProvider')]
+    #[DataProvider('checkFlexFormDataDataProvider')]
     #[Test]
-    public function checkValue_flex_procInData_travDS(array $dataValues, array $DSelements, array $expected): void
+    public function checkFlexFormData(array $data, array $dataStructure, array $expected): void
     {
-        $pParams = [
-            'tt_content',
-            777,
-            '<?xml ... ?>',
-            'update',
-            1,
-            'tt_content:777:pi_flexform',
-            0,
-        ];
-
-        $GLOBALS['LANG'] = $this->createMock(LanguageService::class);
-        $this->subject->checkValue_flex_procInData_travDS($dataValues, [], $DSelements, $pParams, '', '');
-        self::assertSame($expected, $dataValues);
+        $GLOBALS['LANG'] = self::createStub(LanguageService::class);
+        $result = new \ReflectionMethod($this->subject, 'checkFlexFormData')
+            ->invoke($this->subject, $data, [], $dataStructure, 'tt_content', 777, 'update', 1, 'tt_content:777:pi_flexform', 0);
+        self::assertSame($expected, $result);
     }
 
     #[Test]
     public function logCallsWriteLogOfBackendUserIfLoggingIsEnabled(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->expects($this->once())->method('writelog');
+        $backendUser = self::createStub(BackendUserAuthentication::class);
+        $backendUser->method('getRole')->willReturn(PrincipalRole::USER);
+        $backendUser->method('getUserId')->willReturn(1);
+        $backendUser->workspace = 0;
         $this->subject->enableLogging = true;
         $this->subject->BE_USER = $backendUser;
-        $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
+        $result = $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
+        // When logging is enabled, a log entry ID should be returned
+        self::assertGreaterThan(0, $result);
     }
 
     #[Test]
     public function logDoesNotCallWriteLogOfBackendUserIfLoggingIsDisabled(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
-        $backendUser->expects($this->never())->method('writelog');
+        $backendUser = self::createStub(BackendUserAuthentication::class);
+        $backendUser->method('getRole')->willReturn(PrincipalRole::USER);
+        $backendUser->method('getUserId')->willReturn(1);
+        $backendUser->workspace = 0;
         $this->subject->enableLogging = false;
         $this->subject->BE_USER = $backendUser;
-        $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
+        $result = $this->subject->log('', 23, Action::UNDEFINED, null, Error::MESSAGE, 'details');
+        // When logging is disabled, 0 should be returned
+        self::assertEquals(0, $result);
     }
 
     #[Test]
     public function logAddsEntryToLocalErrorLogArray(): void
     {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser = self::createStub(BackendUserAuthentication::class);
+        $backendUser->method('getRole')->willReturn(PrincipalRole::USER);
+        $backendUser->method('getUserId')->willReturn(1);
+        $backendUser->workspace = 0;
         $this->subject->BE_USER = $backendUser;
         $this->subject->enableLogging = true;
         $this->subject->errorLog = [];
@@ -1034,23 +1298,34 @@ final class DataHandlerTest extends UnitTestCase
     #[Test]
     public function logFormatsDetailMessageWithAdditionalDataInLocalErrorArray(): void
     {
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
         $subject = new DataHandler(
             new NoopEventDispatcher(),
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
+            self::createStub(CacheManager::class),
+            self::createStub(FrontendInterface::class),
+            $connectionPoolStub,
+            self::createStub(LoggerInterface::class),
             new PagePermissionAssembler(),
             $this->tcaSchemaFactory,
             new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
+            self::createStub(FlexFormTools::class),
+            self::createStub(Richtext::class),
             new PasswordHashFactory(),
             new Random(),
             new TypoLinkCodecService(new NoopEventDispatcher()),
             new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
+            self::createStub(FlashMessageService::class),
+            new LogEntryRepository($connectionPoolStub),
+            self::createStub(LocalizationRepository::class),
+            self::createStub(SiteFinder::class),
+            self::createStub(DataMapProcessor::class),
+            self::createStub(LinkService::class),
         );
-        $subject->start([], [], $this->createMock(BackendUserAuthentication::class), $this->createMock(ReferenceIndexUpdater::class));
+        $backendUser = self::createStub(BackendUserAuthentication::class);
+        $backendUser->method('getRole')->willReturn(PrincipalRole::USER);
+        $backendUser->method('getUserId')->willReturn(1);
+        $backendUser->workspace = 0;
+        $subject->start([], [], $backendUser, self::createStub(ReferenceIndexUpdater::class));
         $logDetails = StringUtility::getUniqueId('details');
         $subject->log('', 23, Action::UNDEFINED, null, Error::USER_ERROR, '%1$s' . $logDetails . '%2$s', null, ['foo', 'bar']);
         $expected = 'foo' . $logDetails . 'bar';
@@ -1060,23 +1335,34 @@ final class DataHandlerTest extends UnitTestCase
     #[Test]
     public function logFormatsDetailMessageWithPlaceholders(): void
     {
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
         $subject = new DataHandler(
             new NoopEventDispatcher(),
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
+            self::createStub(CacheManager::class),
+            self::createStub(FrontendInterface::class),
+            $connectionPoolStub,
+            self::createStub(LoggerInterface::class),
             new PagePermissionAssembler(),
             $this->tcaSchemaFactory,
             new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
+            self::createStub(FlexFormTools::class),
+            self::createStub(Richtext::class),
             new PasswordHashFactory(),
             new Random(),
             new TypoLinkCodecService(new NoopEventDispatcher()),
             new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
+            self::createStub(FlashMessageService::class),
+            new LogEntryRepository($connectionPoolStub),
+            self::createStub(LocalizationRepository::class),
+            self::createStub(SiteFinder::class),
+            self::createStub(DataMapProcessor::class),
+            self::createStub(LinkService::class),
         );
-        $subject->start([], [], $this->createMock(BackendUserAuthentication::class), $this->createMock(ReferenceIndexUpdater::class));
+        $backendUser = self::createStub(BackendUserAuthentication::class);
+        $backendUser->method('getRole')->willReturn(PrincipalRole::USER);
+        $backendUser->method('getUserId')->willReturn(1);
+        $backendUser->workspace = 0;
+        $subject->start([], [], $backendUser, self::createStub(ReferenceIndexUpdater::class));
         $logDetails = 'An error occurred on {table}:{uid} when localizing';
         $subject->log('', 23, Action::UNDEFINED, null, Error::USER_ERROR, $logDetails, null, ['table' => 'tx_sometable', 0 => 'some random value']);
         // UID is kept as non-replaced, and other properties are not replaced.
@@ -1479,25 +1765,32 @@ final class DataHandlerTest extends UnitTestCase
     public function clearPrefixFromValueRemovesPrefix(string $input, string $expected): void
     {
         $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceMock->method('sL')->with('testLabel')->willReturn('(copy %s)');
+        $languageServiceMock->expects($this->atMost(PHP_INT_MAX))->method('sL')->with('testLabel')->willReturn('(copy %s)');
         $GLOBALS['LANG'] = $languageServiceMock;
         $GLOBALS['TCA']['testTable']['ctrl']['prependAtCopy'] = 'testLabel';
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
+        $connectionPoolStub = self::createStub(ConnectionPool::class);
         $subject = new DataHandler(
             new NoopEventDispatcher(),
-            $this->createMock(CacheManager::class),
-            $this->createMock(FrontendInterface::class),
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(LoggerInterface::class),
+            self::createStub(CacheManager::class),
+            self::createStub(FrontendInterface::class),
+            $connectionPoolStub,
+            self::createStub(LoggerInterface::class),
             new PagePermissionAssembler(),
             $this->tcaSchemaFactory,
             new PageDoktypeRegistry($this->tcaSchemaFactory),
-            $this->createMock(FlexFormTools::class),
+            self::createStub(FlexFormTools::class),
+            self::createStub(Richtext::class),
             new PasswordHashFactory(),
             new Random(),
             new TypoLinkCodecService(new NoopEventDispatcher()),
             new OpcodeCacheService(),
-            $this->createMock(FlashMessageService::class),
+            self::createStub(FlashMessageService::class),
+            new LogEntryRepository($connectionPoolStub),
+            self::createStub(LocalizationRepository::class),
+            self::createStub(SiteFinder::class),
+            self::createStub(DataMapProcessor::class),
+            self::createStub(LinkService::class),
         );
         self::assertEquals($expected, $subject->clearPrefixFromValue('testTable', $input));
     }
@@ -1671,7 +1964,8 @@ final class DataHandlerTest extends UnitTestCase
             ],
         ];
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
-        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        $defaultValues = $this->subject->newFieldArray('tx_my_testtable');
         self::assertArrayHasKey($column, $defaultValues);
         self::assertEquals($expected, $defaultValues[$column]);
     }
@@ -1753,7 +2047,8 @@ final class DataHandlerTest extends UnitTestCase
             ],
         ];
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
-        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
+        $defaultValues = $this->subject->newFieldArray('tx_my_testtable');
         self::assertEquals('test', $defaultValues['input_3']);
         self::assertArrayNotHasKey($column, $defaultValues);
     }
@@ -1777,7 +2072,7 @@ final class DataHandlerTest extends UnitTestCase
     #[Test]
     public function newFieldArrayNoTcaTable(): void
     {
-        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        $defaultValues = $this->subject->newFieldArray('tx_my_testtable');
         self::assertEquals([], $defaultValues);
     }
 
@@ -1799,8 +2094,9 @@ final class DataHandlerTest extends UnitTestCase
             ],
         ];
         $this->tcaSchemaFactory->load($GLOBALS['TCA'], true);
+        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->tcaSchemaFactory);
         $this->subject->defaultValues['tx_my_testtable']['input_1'] = 'foo';
-        $defaultValues = $this->subject->_call('newFieldArray', 'tx_my_testtable');
+        $defaultValues = $this->subject->newFieldArray('tx_my_testtable');
         self::assertEquals('foo', $defaultValues['input_1']);
     }
 }

@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Backend\LinkHandler;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Controller\AbstractLinkBrowserController;
+use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\RecordList\ElementBrowserRecordList;
 use TYPO3\CMS\Backend\Tree\View\LinkParameterProviderInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -62,19 +63,19 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
     /**
      * Configuration key in TSconfig TCEMAIN.linkHandler.<identifier>
      */
-    protected string $identifier;
+    private string $identifier;
 
     /**
      * Specific TSconfig for the current instance (corresponds to TCEMAIN.linkHandler.record.<identifier>.configuration)
      */
-    protected array $configuration = [];
+    private array $configuration = [];
 
     /**
      * Parts of the current link
      */
-    protected array $linkParts = [];
+    private array $linkParts = [];
 
-    protected int $expandPage = 0;
+    private int $expandPage = 0;
 
     public function __construct(
         private readonly ElementBrowserRecordList $elementBrowserRecordList,
@@ -147,8 +148,8 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
     public function render(ServerRequestInterface $request): string
     {
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/record-link-handler.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/recordlist.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/record-search.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/viewport/resizable-navigation.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/column-selector-button.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/tree/page-browser.js');
         $this->getBackendUser()->initializeWebmountsForElementBrowser();
@@ -194,7 +195,7 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
      * Returns all parameters needed to build a URL with all the necessary information.
      *
      * @param array $values Array of values to include into the parameters or which might influence the parameters
-     * @return string[] Array of parameters which have to be added to URLs
+     * @return array Array of parameters which have to be added to URLs
      */
     public function getUrlParameters(array $values): array
     {
@@ -213,7 +214,7 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
     /**
      * Render elements of configured table
      */
-    protected function renderTableRecords(ServerRequestInterface $request): string
+    private function renderTableRecords(ServerRequestInterface $request): string
     {
         $html = [];
         $backendUser = $this->getBackendUser();
@@ -230,11 +231,13 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
         $pointer = (int)($request->getParsedBody()['pointer'] ?? $request->getQueryParams()['pointer'] ?? 0);
         $searchLevels = (int)($request->getParsedBody()['search_levels'] ?? $request->getQueryParams()['search_levels'] ?? $modTSconfig['searchLevel.']['default'] ?? 0);
 
+        $existingModuleData = $backendUser->getModuleData('records');
+        $moduleData = new ModuleData('records', is_array($existingModuleData) ? $existingModuleData : []);
+
         // If table is 'pages', add a pre-entry to make selected page selectable directly.
-        $titleLen = (int)$backendUser->uc['titleLen'];
         $mainPageRecord = BackendUtility::getRecordWSOL('pages', $selectedPage);
         if (is_array($mainPageRecord)) {
-            $pText = htmlspecialchars(GeneralUtility::fixed_lgd_cs($mainPageRecord['title'], $titleLen));
+            $pText = htmlspecialchars(BackendUtility::cropToTitleLength($mainPageRecord['title']));
             $html[] = '<p>' . $this->iconFactory->getIconForRecord('pages', $mainPageRecord, IconSize::SMALL)->render() . '&nbsp;';
             if ($table === 'pages') {
                 $html[] = '<span data-uid="' . htmlspecialchars((string)$mainPageRecord['uid']) . '" data-table="pages" data-title="' . htmlspecialchars($mainPageRecord['title']) . '">';
@@ -249,6 +252,7 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
 
         $dbList = $this->elementBrowserRecordList;
         $dbList->setRequest($request);
+        $dbList->setModuleData($moduleData);
         $dbList->setOverrideUrlParameters(array_merge($this->getUrlParameters([]), ['mode' => 'db', 'expandPage' => $selectedPage]), $request);
         $dbList->setIsEditable(false);
         $dbList->calcPerms = new Permission($backendUser->calcPerms($pageInfo));
@@ -262,7 +266,7 @@ final class RecordLinkHandler extends AbstractLinkHandler implements LinkHandler
             ->setAllowedSearchLevels((array)($modTSconfig['searchLevel.']['items.'] ?? []))
             ->setSearchLevel($searchLevels)
             ->setSearchWord($searchWord)
-            ->render($request, $dbList->listURL('', '-1', 'pointer,searchTerm'));
+            ->render($request, $dbList->listURL('', null, 'pointer,searchTerm'));
         $html[] = $dbList->generateList();
 
         return implode("\n", $html);

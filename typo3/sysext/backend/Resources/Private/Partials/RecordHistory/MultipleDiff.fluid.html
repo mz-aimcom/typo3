@@ -1,0 +1,72 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+<h2>{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:mergedDifferences')}</h2>
+
+<f:if condition="{multipleDiff}">
+    <f:then>
+        <p><f:translate key="LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:mergedDifferences.description" /></p>
+
+        <div class="diff-group">
+            <f:for each="{multipleDiff}" as="historyRow">
+                <h3>{historyRow.title}</h3>
+                <div class="row">
+                    <div class="col">
+                        <f:if condition="{historyRow.insertDelete} || {historyRow.movedBackToPage} || {historyRow.movedBackWithinPage} || {historyRow.fieldNames} || {historyRow.differences -> f:count()}">
+                            <div class="diff-group">
+                                <f:if condition="{historyRow.insertDelete} == 'delete'">
+                                    <p><strong>{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.plannedAction.delete')}</strong></p>
+                                </f:if>
+                                <f:if condition="{historyRow.insertDelete} == 'insert'">
+                                    <p><strong>{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.plannedAction.insert')}</strong></p>
+                                </f:if>
+                                <f:if condition="{historyRow.movedBackToPage}">
+                                    <p><strong><f:translate key="LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.plannedAction.move" arguments="{0: historyRow.movedBackToPage}" /></strong></p>
+                                </f:if>
+                                <f:if condition="{historyRow.movedBackWithinPage}">
+                                    <p><strong>{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.plannedAction.moveWithinPage')}</strong></p>
+                                </f:if>
+                                <f:if condition="{historyRow.fieldNames}">
+                                    <p>{historyRow.fieldNames}</p>
+                                </f:if>
+                                <f:if condition="{historyRow.differences}">
+                                    <f:render partial="RecordHistory/Diff" arguments="{differences: historyRow.differences}"/>
+                                </f:if>
+                            </div>
+                        </f:if>
+                    </div>
+                </div>
+                <button
+                    type="submit"
+                    form="record-history-rollback"
+                    name="rollbackFields"
+                    value="{historyRow.rollbackFields}"
+                    class="btn btn-default t3js-modal-trigger"
+                    data-severity="warning"
+                    data-title="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:revertRecord')}"
+                    data-content="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.confirm')}"
+                    data-button-close-text="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:cancel')}"
+                    data-button-ok-text="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.confirm.button')}"
+                >{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:revertRecord')}</button>
+            </f:for>
+        </div>
+        <button
+            type="submit"
+            form="record-history-rollback"
+            name="rollbackFields"
+            value="ALL"
+            class="btn btn-default t3js-modal-trigger"
+            data-severity="warning"
+            data-title="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:revertAll')}"
+            data-content="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.confirm')}"
+            data-button-close-text="{f:translate(key: 'LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:cancel')}"
+            data-button-ok-text="{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:rollback.confirm.button')}"
+        >{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:revertAll')}</button>
+    </f:then>
+    <f:else>
+        <p>{f:translate(key: 'LLL:EXT:backend/Resources/Private/Language/locallang_show_rechis.xlf:noDifferences')}</p>
+    </f:else>
+</f:if>
+
+</html>

@@ -76,7 +76,7 @@ class FlexFormElementContainer extends AbstractContainer
                         'label' => $languageService->sL(trim($flexFormFieldArray['label'] ?? '')),
                         'config' => $flexFormFieldArray['config'] ?? [],
                         'children' => $flexFormFieldArray['children'] ?? [],
-                        // https://docs.typo3.org/m/typo3/reference-tca/main/en-us/Columns/Properties/OnChange.html
+                        // https://docs.typo3.org/permalink/t3tca:confval-columns-onchange
                         'onChange' => $flexFormFieldArray['onChange'] ?? '',
                     ],
                     'fieldChangeFunc' => $parameterArray['fieldChangeFunc'],
@@ -87,7 +87,7 @@ class FlexFormElementContainer extends AbstractContainer
                     $fakeParameterArray['fieldConf']['description'] = $flexFormFieldArray['description'];
                 }
 
-                if (isset($fakeParameterArray['fieldConf']['onChange']) && $fakeParameterArray['fieldConf']['onChange'] === 'reload') {
+                if ($fakeParameterArray['fieldConf']['onChange'] === 'reload') {
                     $confirmation = $this->getBackendUserAuthentication()->jsConfirmation(JsConfirmation::TYPE_CHANGE);
                     $fakeParameterArray['fieldChangeFunc']['alert'] = new ReloadOnFieldChange($confirmation);
                 }
@@ -103,10 +103,10 @@ class FlexFormElementContainer extends AbstractContainer
                         $fakeParameterArray['fieldChangeFunc']['TBE_EDITOR_fieldChanged'] = $onFieldChange->withElementName($fakeParameterArray['itemFormElName']);
                     }
                 }
-                if (isset($flexFormRowData[$flexFormFieldName]['vDEF'])) {
+                if (array_key_exists('vDEF', $flexFormRowData[$flexFormFieldName] ?? [])) {
                     $fakeParameterArray['itemFormElValue'] = $flexFormRowData[$flexFormFieldName]['vDEF'];
                 } else {
-                    $fakeParameterArray['itemFormElValue'] = $fakeParameterArray['fieldConf']['config']['default'];
+                    $fakeParameterArray['itemFormElValue'] = $fakeParameterArray['fieldConf']['config']['default'] ?? '';
                 }
 
                 $options = $this->data;

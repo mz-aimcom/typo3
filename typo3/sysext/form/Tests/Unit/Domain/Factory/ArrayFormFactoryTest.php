@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Unit\Domain\Factory;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -26,6 +27,7 @@ use TYPO3\CMS\Form\Domain\Model\FormElements\Section;
 use TYPO3\CMS\Form\Domain\Model\FormElements\UnknownFormElement;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ArrayFormFactoryTest extends UnitTestCase
 {
     #[Test]
@@ -35,7 +37,8 @@ final class ArrayFormFactoryTest extends UnitTestCase
         $this->expectExceptionCode(1329289436);
 
         $section = new Section('test', 'page');
-        $arrayFormFactory = $this->getAccessibleMock(ArrayFormFactory::class, null, [new NoopEventDispatcher()]);
+        $arrayFormFactory = $this->getAccessibleMock(ArrayFormFactory::class, null);
+        $arrayFormFactory->injectEventDispatcher(new NoopEventDispatcher());
 
         $request = new ServerRequest();
         $arrayFormFactory->_call('addNestedRenderable', [], $section, $request);
@@ -45,13 +48,14 @@ final class ArrayFormFactoryTest extends UnitTestCase
     public function addNestedRenderableSkipChildElementRenderingIfCompositeElementIsUnknown(): void
     {
         $unknownElement = new UnknownFormElement('test-2', 'test');
-        $section = $this->createMock(Section::class);
-        $section->method('createElement')->with(self::anything())->willReturn($unknownElement);
+        $section = self::createStub(Section::class);
+        $section->method('createElement')->willReturn($unknownElement);
         $configuration = [
             'identifier' => 'test-3',
             'type' => 'Foo',
         ];
-        $arrayFormFactory = $this->getAccessibleMock(ArrayFormFactory::class, null, [new NoopEventDispatcher()]);
+        $arrayFormFactory = $this->getAccessibleMock(ArrayFormFactory::class, null);
+        $arrayFormFactory->injectEventDispatcher(new NoopEventDispatcher());
         $request = new ServerRequest();
         $result = $arrayFormFactory->_call('addNestedRenderable', $configuration, $section, $request);
         self::assertSame($unknownElement, $result);

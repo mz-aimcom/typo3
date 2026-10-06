@@ -25,7 +25,6 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Registry;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Reports\Status;
 use TYPO3\CMS\Reports\Status as ReportStatus;
@@ -34,8 +33,14 @@ use TYPO3\CMS\Reports\StatusProviderInterface;
 /**
  * Performs some checks about the install tool protection status
  */
-class ConfigurationStatus implements StatusProviderInterface
+readonly class ConfigurationStatus implements StatusProviderInterface
 {
+    public function __construct(
+        private UriBuilder $uriBuilder,
+        private Registry $registry,
+        private ConnectionPool $connectionPool,
+    ) {}
+
     /**
      * Determines the Install Tool's status, mainly concerning its protection.
      *
@@ -69,30 +74,29 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return \TYPO3\CMS\Reports\Status An object representing whether the reference index is empty or not
      */
-    protected function getReferenceIndexStatus()
+    protected function getReferenceIndexStatus(): ReportStatus
     {
         $value = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_ok');
         $message = '';
         $severity = ContextualFeedbackSeverity::OK;
 
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('sys_refindex');
-        $count = $queryBuilder
-            ->count('*')
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('sys_refindex');
+        $reference = $queryBuilder
+            ->select('hash')
             ->from('sys_refindex')
+            ->setMaxResults(1)
             ->executeQuery()
             ->fetchOne();
 
-        $registry = GeneralUtility::makeInstance(Registry::class);
-        $lastRefIndexUpdate = $registry->get('core', 'sys_refindex_lastUpdate');
+        $lastRefIndexUpdate = $this->registry->get('core', 'sys_refindex_lastUpdate');
 
-        $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-        if (!$count && $lastRefIndexUpdate) {
+        if (!$reference && $lastRefIndexUpdate) {
             $value = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_empty');
             $severity = ContextualFeedbackSeverity::WARNING;
-            $url = (string)$uriBuilder->buildUriFromRoute('system_dbint', ['id' => 0, 'SET' => ['function' => 'refindex']]);
+            $url = (string)$this->uriBuilder->buildUriFromRoute('system_maintenance');
             $message = sprintf($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.backend_reference_index'), '<a href="' . htmlspecialchars($url) . '">', '</a>', BackendUtility::datetime($lastRefIndexUpdate));
         }
-        return GeneralUtility::makeInstance(ReportStatus::class, $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_referenceIndex'), $value, $message, $severity);
+        return new ReportStatus($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_referenceIndex'), $value, $message, $severity);
     }
 
     /**
@@ -100,7 +104,7 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return bool TRUE if memcached is used, FALSE otherwise.
      */
-    protected function isMemcachedUsed()
+    protected function isMemcachedUsed(): bool
     {
         $memcachedUsed = false;
         $memcachedServers = $this->getConfiguredMemcachedServers();
@@ -115,14 +119,14 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return array An array of configured memcached server connections.
      */
-    protected function getConfiguredMemcachedServers()
+    protected function getConfiguredMemcachedServers(): array
     {
         $configurations = $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations'] ?? [];
         $memcachedServers = [];
         foreach ($configurations as $table => $conf) {
             if (is_array($conf)) {
                 foreach ($conf as $value) {
-                    if ($value === MemcachedBackend::class) {
+                    if ($value === MemcachedBackend::class && is_array($configurations[$table]['options']['servers'])) {
                         $memcachedServers = $configurations[$table]['options']['servers'];
                         break;
                     }
@@ -137,7 +141,7 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return \TYPO3\CMS\Reports\Status An object representing whether TYPO3 can connect to the configured memcached servers
      */
-    protected function getMemcachedConnectionStatus()
+    protected function getMemcachedConnectionStatus(): ReportStatus
     {
         $value = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_ok');
         $message = '';
@@ -146,7 +150,7 @@ class ConfigurationStatus implements StatusProviderInterface
         $defaultMemcachedPort = ini_get('memcache.default_port');
         $defaultMemcachedPort = MathUtility::canBeInterpretedAsInteger($defaultMemcachedPort) ? (int)$defaultMemcachedPort : 11211;
         $memcachedServers = $this->getConfiguredMemcachedServers();
-        if (function_exists('memcache_connect') && is_array($memcachedServers)) {
+        if (function_exists('memcache_connect') && $memcachedServers !== []) {
             foreach ($memcachedServers as $testServer) {
                 $configuredServer = $testServer;
                 if (str_starts_with($testServer, 'unix://')) {
@@ -177,7 +181,7 @@ class ConfigurationStatus implements StatusProviderInterface
             $severity = ContextualFeedbackSeverity::WARNING;
             $message = $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.memcache_not_usable') . '<br /><br /><ul><li>' . implode('</li><li>', $failedConnections) . '</li></ul>';
         }
-        return GeneralUtility::makeInstance(ReportStatus::class, $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_memcachedConfiguration'), $value, $message, $severity);
+        return new ReportStatus($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_memcachedConfiguration'), $value, $message, $severity);
     }
 
     /**
@@ -185,7 +189,7 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return \TYPO3\CMS\Reports\Status The writable status for 'others'
      */
-    protected function getCreatedFilesWorldWritableStatus()
+    protected function getCreatedFilesWorldWritableStatus(): ReportStatus
     {
         $value = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_ok');
         $message = '';
@@ -195,7 +199,7 @@ class ConfigurationStatus implements StatusProviderInterface
             $severity = ContextualFeedbackSeverity::WARNING;
             $message = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedFilePermissions.writable');
         }
-        return GeneralUtility::makeInstance(ReportStatus::class, $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedFilePermissions'), $value, $message, $severity);
+        return new ReportStatus($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedFilePermissions'), $value, $message, $severity);
     }
 
     /**
@@ -203,7 +207,7 @@ class ConfigurationStatus implements StatusProviderInterface
      *
      * @return \TYPO3\CMS\Reports\Status The writable status for 'others'
      */
-    protected function getCreatedDirectoriesWorldWritableStatus()
+    protected function getCreatedDirectoriesWorldWritableStatus(): ReportStatus
     {
         $value = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_ok');
         $message = '';
@@ -213,17 +217,15 @@ class ConfigurationStatus implements StatusProviderInterface
             $severity = ContextualFeedbackSeverity::WARNING;
             $message = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedDirectoryPermissions.writable');
         }
-        return GeneralUtility::makeInstance(ReportStatus::class, $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedDirectoryPermissions'), $value, $message, $severity);
+        return new ReportStatus($this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_CreatedDirectoryPermissions'), $value, $message, $severity);
     }
 
     /**
      * Checks if the default connection is a MySQL compatible database instance.
-     *
-     * @return bool
      */
-    protected function isMysqlUsed()
+    protected function isMysqlUsed(): bool
     {
-        $platform = GeneralUtility::makeInstance(ConnectionPool::class)
+        $platform = $this->connectionPool
             ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME)
             ->getDatabasePlatform();
 
@@ -232,14 +234,12 @@ class ConfigurationStatus implements StatusProviderInterface
 
     /**
      * Checks the character set of the default database and reports an error if it is not utf-8.
-     *
-     * @return ReportStatus
      */
-    protected function getMysqlDatabaseUtf8Status()
+    protected function getMysqlDatabaseUtf8Status(): ReportStatus
     {
         $collationConstraint = null;
         $charset = '';
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)
+        $connection = $this->connectionPool
             ->getConnectionByName(ConnectionPool::DEFAULT_CONNECTION_NAME);
         $connectionParams = $connection->getParams();
         $queryBuilder = $connection->createQueryBuilder();
@@ -342,8 +342,7 @@ class ConfigurationStatus implements StatusProviderInterface
             $message = $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_MysqlDatabaseCharacterSet_Ok');
         }
 
-        return GeneralUtility::makeInstance(
-            ReportStatus::class,
+        return new ReportStatus(
             $this->getLanguageService()->sL('LLL:EXT:reports/Resources/Private/Language/locallang_reports.xlf:status_MysqlDatabaseCharacterSet'),
             $statusValue,
             $message,

@@ -22,8 +22,15 @@ use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Backend\Controller\LiveSearchController;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Search\Event\BeforeLiveSearchFormIsBuiltEvent;
+use TYPO3\CMS\Backend\Search\Event\ModifyConstraintsForLiveSearchEvent;
+use TYPO3\CMS\Backend\Search\LiveSearch\DatabaseRecordProvider;
+use TYPO3\CMS\Backend\Search\LiveSearch\PageRecordProvider;
+use TYPO3\CMS\Backend\Search\LiveSearch\SearchDemand\DemandProperty;
+use TYPO3\CMS\Backend\Search\LiveSearch\SearchDemand\DemandPropertyName;
+use TYPO3\CMS\Backend\Search\LiveSearch\SearchDemand\SearchDemand;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -57,7 +64,9 @@ final class LiveSearchControllerTest extends FunctionalTestCase
         $listenerProvider = $container->get(ListenerProvider::class);
         $listenerProvider->addListener(BeforeLiveSearchFormIsBuiltEvent::class, 'modify-live-search-form-data-event-is-dispatched');
 
-        $request = (new ServerRequest('https://example.com/typo3/main'))
+        $request = (new ServerRequest('https://example.com/typo3/main'));
+        $request = $request
+            ->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/livesearch/form', ['packageName' => 'typo3/cms-backend', '_identifier' => 'livesearch_form']));
 
@@ -87,7 +96,9 @@ final class LiveSearchControllerTest extends FunctionalTestCase
         $listenerProvider = $container->get(ListenerProvider::class);
         $listenerProvider->addListener(BeforeLiveSearchFormIsBuiltEvent::class, 'modify-live-search-form-data-event-is-dispatched');
 
-        $request = (new ServerRequest('https://example.com/typo3/main'))
+        $request = (new ServerRequest('https://example.com/typo3/main'));
+        $request = $request
+            ->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/livesearch/form', ['packageName' => 'typo3/cms-backend', '_identifier' => 'livesearch_form']));
 
@@ -115,7 +126,9 @@ final class LiveSearchControllerTest extends FunctionalTestCase
         $listenerProvider = $container->get(ListenerProvider::class);
         $listenerProvider->addListener(BeforeLiveSearchFormIsBuiltEvent::class, 'modify-live-search-form-data-event-is-dispatched');
 
-        $request = (new ServerRequest('https://example.com/typo3/main'))
+        $request = (new ServerRequest('https://example.com/typo3/main'));
+        $request = $request
+            ->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/livesearch/form', ['packageName' => 'typo3/cms-backend', '_identifier' => 'livesearch_form']));
 
@@ -144,7 +157,9 @@ final class LiveSearchControllerTest extends FunctionalTestCase
         $listenerProvider = $container->get(ListenerProvider::class);
         $listenerProvider->addListener(BeforeLiveSearchFormIsBuiltEvent::class, 'modify-live-search-form-data-event-is-dispatched');
 
-        $request = (new ServerRequest('https://example.com/typo3/main'))
+        $request = (new ServerRequest('https://example.com/typo3/main'));
+        $request = $request
+            ->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request))
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/livesearch/form', ['packageName' => 'typo3/cms-backend', '_identifier' => 'livesearch_form']));
 
@@ -159,4 +174,61 @@ final class LiveSearchControllerTest extends FunctionalTestCase
         self::assertStringContainsString('optionId="TYPO3\CMS\Backend\Search\LiveSearch\PageRecordProvider"', $responseBody);
         self::assertStringContainsString('optionId="TYPO3\CMS\Backend\Search\LiveSearch\DatabaseRecordProvider"', $responseBody);
     }
+
+    #[Test]
+    public function ModifyConstraintsForLiveSearchEventIsDispatchedInPageRecordProvider(): void
+    {
+        $dispatchedEvents = [];
+        /** @var Container $container */
+        $container = $this->getContainer();
+        $container->set(
+            'modify-constraints-for-live-search-event-is-dispatched',
+            static function (ModifyConstraintsForLiveSearchEvent $event) use (&$dispatchedEvents) {
+                $dispatchedEvents[] = $event;
+            }
+        );
+        $listenerProvider = $container->get(ListenerProvider::class);
+        $listenerProvider->addListener(ModifyConstraintsForLiveSearchEvent::class, 'modify-constraints-for-live-search-event-is-dispatched');
+
+        $searchDemand = new SearchDemand([
+            new DemandProperty(DemandPropertyName::query, 'foo'),
+            new DemandProperty(DemandPropertyName::limit, 42),
+        ]);
+
+        $subject = $this->get(PageRecordProvider::class);
+        $subject->count($searchDemand);
+        self::assertCount(1, $dispatchedEvents);
+    }
+
+    #[Test]
+    public function ModifyConstraintsForLiveSearchEventIsDispatchedInDatabaseRecordProvider(): void
+    {
+        $dispatchedEvents = [];
+        /** @var Container $container */
+        $container = $this->getContainer();
+        $container->set(
+            'modify-constraints-for-live-search-event-is-dispatched',
+            static function (ModifyConstraintsForLiveSearchEvent $event) use (&$dispatchedEvents) {
+                $dispatchedEvents[] = $event;
+            }
+        );
+        $listenerProvider = $container->get(ListenerProvider::class);
+        $listenerProvider->addListener(ModifyConstraintsForLiveSearchEvent::class, 'modify-constraints-for-live-search-event-is-dispatched');
+
+        $searchDemand = new SearchDemand([
+            new DemandProperty(DemandPropertyName::query, 'foo'),
+            new DemandProperty(DemandPropertyName::limit, 42),
+        ]);
+
+        $subject = $this->get(DatabaseRecordProvider::class);
+        $subject->count($searchDemand);
+        // We have 12 "accessible" tables by default. The event is dispatched once per table.
+        // This test will likely report a failure when the TYPO3 core adds new "accessible tables".
+        // This can actually act as a safeguard then to recognize the DatabaseRecordProvider works
+        // correctly, and the count is adjusted. If this is reported as false negative too often,
+        // the logic here should not use a fixed number but calculate the number of accessible tables
+        // either via a proper method call, or a mock should lock the number to 1 table only.
+        self::assertCount(12, $dispatchedEvents);
+    }
+
 }

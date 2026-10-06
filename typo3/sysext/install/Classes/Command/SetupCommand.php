@@ -27,14 +27,17 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
-use TYPO3\CMS\Core\Configuration\ConfigurationManager;
+use TYPO3\CMS\Core\Authentication\CommandLineUserCreation;
+use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Package\FailsafePackageManager;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Service\Exception\ConfigurationFileAlreadyExistsException;
 use TYPO3\CMS\Install\Service\LateBootService;
 use TYPO3\CMS\Install\Service\SetupDatabaseService;
 use TYPO3\CMS\Install\Service\SetupService;
+use TYPO3\CMS\Install\SystemEnvironment\DatabaseCheck;
 use TYPO3\CMS\Install\WebserverType;
 
 /**
@@ -53,15 +56,14 @@ class SetupCommand extends Command
 
     public function __construct(
         string $name,
-        private readonly SetupDatabaseService $setupDatabaseService,
         private readonly SetupService $setupService,
-        private readonly ConfigurationManager $configurationManager,
         private readonly LateBootService $lateBootService,
+        private readonly FailsafePackageManager $packageManager,
     ) {
         parent::__construct($name);
     }
 
-    protected function configure()
+    protected function configure(): void
     {
         $this->setDescription('Setup TYPO3 via CLI using environment variables, CLI options or interactive')
             // Connection Parameters
@@ -70,6 +72,10 @@ class SetupCommand extends Command
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'Select which database driver to use',
+                null,
+                function (): array {
+                    return $this->getAvailableConnectionTypes();
+                }
             )
             ->addOption(
                 'host',
@@ -136,16 +142,35 @@ class SetupCommand extends Command
             ->addOption(
                 'create-site',
                 null,
-                InputOption::VALUE_OPTIONAL,
-                'Create a basic site setup (root page and site configuration) with the given domain',
+                InputOption::VALUE_REQUIRED,
+                'Create a basic site setup (root page and site configuration) with the given domain, ex. "https://my.domain.tld/"',
                 false
+            )
+            ->addOption(
+                'distribution',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                $this->packageManager->isPackageActive('impexp')
+                    ? 'Import a distribution during site creation (package key, e.g. "theme_camino")'
+                    : '[disabled] Requires typo3/cms-impexp to be installed',
+                null,
+                function (): array {
+                    if (!$this->packageManager->isPackageActive('impexp')) {
+                        return [];
+                    }
+                    // Only inactive distributions can be activated during setup
+                    return array_keys($this->setupService->getAvailableDistributions()['inactive']);
+                }
             )
             ->addOption(
                 'server-type',
                 null,
                 InputOption::VALUE_OPTIONAL,
                 'Define the web server the TYPO3 installation will be running on',
-                'other'
+                'other',
+                function (): array {
+                    return array_keys(WebserverType::getDescriptions());
+                }
             )
             ->addOption(
                 'force',
@@ -178,6 +203,7 @@ TYPO3_DB_DBNAME=db \
 TYPO3_SETUP_ADMIN_EMAIL=admin@example.com \
 TYPO3_SETUP_ADMIN_USERNAME=admin \
 TYPO3_SETUP_CREATE_SITE="https://your-typo3-site.com/" \
+TYPO3_SETUP_DISTRIBUTION="theme_camino" \
 TYPO3_PROJECT_NAME="Automated Setup" \
 TYPO3_SERVER_TYPE="apache" \
 ./bin/typo3 setup --force
@@ -225,16 +251,23 @@ EOT
             $this->setupService->prepareSystemSettings(true);
         }
 
+        $container = $this->lateBootService->getContainer();
+        $backup = $this->lateBootService->makeCurrent($container);
+        $setupDatabaseService = $container->get(SetupDatabaseService::class);
+
         // Get database connection details
-        $databaseConnection = $this->getConnectionDetails($questionHelper, $input, $output);
+        $databaseConnection = $this->getConnectionDetails($setupDatabaseService, $questionHelper, $input, $output);
 
         // Select the database and prepare it
-        if ($exitCode = $this->selectAndImportDatabase($questionHelper, $input, $output, $databaseConnection)) {
+        if ($exitCode = $this->selectAndImportDatabase($setupDatabaseService, $questionHelper, $input, $output, $databaseConnection)) {
             return $exitCode;
         }
 
+        $container->get(CommandLineUserCreation::class)->ensureCliUserExists();
+        $this->lateBootService->makeCurrent(null, $backup);
+
         $username = $this->getAdminUserName($questionHelper, $input, $output);
-        $password = $this->getAdminUserPassword($questionHelper, $input, $output);
+        $password = $this->getAdminUserPassword($setupDatabaseService, $questionHelper, $input, $output);
         if ($password !== null) {
             $email = $this->getAdminEmailAddress($questionHelper, $input, $output);
             $this->setupService->createUser($username, $password, $email);
@@ -247,28 +280,58 @@ EOT
         $siteName = $this->getProjectName($questionHelper, $input, $output);
         $this->setupService->setSiteName($siteName);
 
-        $siteUrl = $this->getSiteSetup($questionHelper, $input, $output);
-        if ($siteUrl) {
-            $pageUid = $this->setupService->createSite();
-            $this->setupService->createSiteConfiguration('main', (int)$pageUid, $siteUrl);
+        $distributions = $this->setupService->getAvailableDistributions();
+        $distributionFromCli = $this->getFallbackValueEnvOrOption($input, 'distribution', 'TYPO3_SETUP_DISTRIBUTION');
+        $createSiteFromCli = $this->getFallbackValueEnvOrOption($input, 'create-site', 'TYPO3_SETUP_CREATE_SITE');
+        if ($distributionFromCli !== false && $createSiteFromCli !== false) {
+            throw new \RuntimeException(
+                'The --distribution and --create-site commandline options may not be used at the same time',
+                1775034289
+            );
         }
-
-        $container = $this->lateBootService->loadExtLocalconfDatabaseAndExtTables();
-        $this->setupDatabaseService->markWizardsDone($container);
+        if ($distributions['active'] === []) {
+            $selectedDistribution = $this->getDistributionForActivation($distributions['inactive'], $questionHelper, $input, $output);
+            if ($selectedDistribution !== null) {
+                // Distribution handles all site creation (pages, content, site configuration)
+                $this->setupService->activateDistributionPackage($selectedDistribution);
+            } else {
+                $siteUrl = $this->getSiteSetup($questionHelper, $input, $output);
+                if ($siteUrl) {
+                    $this->setupService->createSite('main', $siteUrl);
+                }
+            }
+        } elseif ($distributionFromCli !== false || $createSiteFromCli !== false) {
+            $this->writeWarning(
+                $output,
+                'The --distribution and --create-site commandline options have no effect, when distributions are already active'
+            );
+        }
+        // The new container is kept in GeneralUtility because the following code, especially
+        // the current state of the data import during extension setup still relies on GeneralUtility::makeInstance
+        // to fetch objects from the container
+        $container = $this->lateBootService->loadExtLocalconfDatabase(false);
+        $setupDatabaseService->markWizardsDone($container);
+        Bootstrap::initializeBackendAuthentication();
+        $this->setupService->setupExtensions($container);
         $this->writeSuccess($output, 'Congratulations - TYPO3 Setup is done.');
 
         return Command::SUCCESS;
     }
 
-    protected function selectAndImportDatabase(QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output, mixed $databaseConnection): int
-    {
+    protected function selectAndImportDatabase(
+        SetupDatabaseService $setupDatabaseService,
+        QuestionHelper $questionHelper,
+        InputInterface $input,
+        OutputInterface $output,
+        mixed $databaseConnection,
+    ): int {
         if ($databaseConnection['driver'] !== 'pdo_sqlite') {
             // Set temporary database configuration, so we are able to
             // get the available databases listed
             $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME] = $databaseConnection;
 
             try {
-                $databaseList = $this->setupDatabaseService->getDatabaseList();
+                $databaseList = $setupDatabaseService->getDatabaseList();
             } catch (DBALException $exception) {
                 $this->writeError($output, $exception->getMessage());
 
@@ -325,7 +388,7 @@ EOT
                 $databaseConnection['database'] = $dbnameFromCli;
             }
 
-            $checkDatabase = $this->setupDatabaseService->checkExistingDatabase($databaseConnection['database']);
+            $checkDatabase = $setupDatabaseService->checkExistingDatabase($databaseConnection['database']);
             if ($checkDatabase->getSeverity() !== ContextualFeedbackSeverity::OK) {
                 $this->writeError($output, $checkDatabase->getMessage());
 
@@ -335,7 +398,7 @@ EOT
             $databaseConnection['availableSet'] = 'sqliteManualConfiguration';
         }
 
-        [$success, $messages] = $this->setupDatabaseService->setDefaultConnectionSettings($databaseConnection);
+        [$success, $messages, $connectionSettings] = $setupDatabaseService->setDefaultConnectionSettings($databaseConnection);
         if (!$success) {
             foreach ($messages as $message) {
                 $this->writeError($output, $message->getMessage());
@@ -344,11 +407,17 @@ EOT
             return Command::FAILURE;
         }
 
-        // Load the actual config written to disk
-        $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME] = $this->configurationManager->getLocalConfigurationValueByPath('DB/Connections/Default');
+        // Use the connection settings written to disk, amended by the bootstrap configuration, e.g. initCommands
+        // Load the concrete configuration that SetupDatabaseService just wrote to
+        // system/settings.php, including previous additional.php settings which may
+        // amend the database connection, e.g. with initCommands
+        $GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME] = [
+            ...($GLOBALS['TYPO3_CONF_VARS']['DB']['Connections'][ConnectionPool::DEFAULT_CONNECTION_NAME] ?? []),
+            ...$connectionSettings,
+        ];
 
-        $this->setupDatabaseService->checkRequiredDatabasePermissions();
-        $importResults = $this->setupDatabaseService->importDatabaseData();
+        $setupDatabaseService->checkRequiredDatabasePermissions();
+        $importResults = $setupDatabaseService->importDatabaseData();
         foreach ($importResults as $result) {
             $this->writeError($output, (string)$result);
         }
@@ -361,12 +430,37 @@ EOT
         return Command::SUCCESS;
     }
 
-    protected function getConnectionDetails(QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output): array
+    /**
+     * Connection types of $connectionLabels which are usable with the
+     * database extensions available in this PHP installation.
+     *
+     * @return string[]
+     */
+    private function getAvailableConnectionTypes(): array
     {
+        return array_keys(array_filter(
+            $this->connectionLabels,
+            static fn(string $connectionType): bool => match ($connectionType) {
+                'mysqli', 'mysqliSocket' => DatabaseCheck::isMysqli(),
+                'pdoMysql', 'pdoMysqlSocket' => DatabaseCheck::isPdoMysql(),
+                'postgres' => DatabaseCheck::isPdoPgsql(),
+                'sqlite' => DatabaseCheck::isPdoSqlite(),
+                default => false,
+            },
+            ARRAY_FILTER_USE_KEY
+        ));
+    }
+
+    protected function getConnectionDetails(
+        SetupDatabaseService $setupDatabaseService,
+        QuestionHelper $questionHelper,
+        InputInterface $input,
+        OutputInterface $output,
+    ): array {
         $input->hasParameterOption('--driver');
         $driverTypeCli = $this->getFallbackValueEnvOrOption($input, 'driver', 'TYPO3_DB_DRIVER');
-        $driverOptions = $this->setupDatabaseService->getDriverOptions();
-        $availableConnectionTypes = implode(', ', array_keys($this->connectionLabels));
+        $driverOptions = $setupDatabaseService->getDriverOptions();
+        $availableConnectionTypes = implode(', ', $this->getAvailableConnectionTypes());
 
         $connectionValidator = static function ($connectionType) use ($driverOptions, $availableConnectionTypes) {
             if (!isset($driverOptions[$connectionType . 'ManualConfigurationOptions'])) {
@@ -380,7 +474,10 @@ EOT
         };
 
         if ($driverTypeCli === false && $input->isInteractive()) {
-            $driver = new ChoiceQuestion('Database driver?', $this->connectionLabels);
+            $driver = new ChoiceQuestion(
+                'Database driver?',
+                array_intersect_key($this->connectionLabels, array_flip($this->getAvailableConnectionTypes()))
+            );
             $driver->setValidator($connectionValidator);
             $driverType = $questionHelper->ask($input, $output, $driver);
         } else {
@@ -435,8 +532,8 @@ EOT
                         $question->setHidden(true);
                         $question->setHiddenFallback(false);
                     } elseif ($key === 'host') {
-                        $hostValidator = function ($host) {
-                            if (!$this->setupDatabaseService->isValidDbHost($host)) {
+                        $hostValidator = function ($host) use ($setupDatabaseService) {
+                            if (!$setupDatabaseService->isValidDbHost($host)) {
                                 throw new \RuntimeException(
                                     'Please enter a valid database host name.',
                                     1669747572
@@ -446,9 +543,9 @@ EOT
                         };
                         $question->setValidator($hostValidator);
                     } elseif ($key === 'port') {
-                        $portValidator = function ($port) {
+                        $portValidator = function ($port) use ($setupDatabaseService) {
                             $port = (int)$port;
-                            if (!$this->setupDatabaseService->isValidDbPort($port)) {
+                            if (!$setupDatabaseService->isValidDbPort($port)) {
                                 throw new \RuntimeException(
                                     'Please use a port in the range between 1 and 65535.',
                                     1669747592,
@@ -494,7 +591,7 @@ EOT
 
     protected function getServerType(QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output): WebserverType
     {
-        $serverTypeValidator = function (string $serverType): WebserverType {
+        $serverTypeValidator = static function (?string $serverType): WebserverType {
             if (!array_key_exists($serverType, WebserverType::getDescriptions())) {
                 throw new \RuntimeException(
                     'Webserver must be any of ' . implode(', ', array_keys(WebserverType::getDescriptions())),
@@ -542,10 +639,14 @@ EOT
         return $usernameValidator($usernameFromCli);
     }
 
-    protected function getAdminUserPassword(QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output): ?string
-    {
-        $passwordValidator = function ($password) {
-            $passwordValidationErrors = $this->setupDatabaseService->getBackendUserPasswordValidationErrors((string)$password);
+    protected function getAdminUserPassword(
+        SetupDatabaseService $setupDatabaseService,
+        QuestionHelper $questionHelper,
+        InputInterface $input,
+        OutputInterface $output,
+    ): ?string {
+        $passwordValidator = function ($password) use ($setupDatabaseService) {
+            $passwordValidationErrors = $setupDatabaseService->getBackendUserPasswordValidationErrors((string)$password);
             if (!empty($passwordValidationErrors)) {
                 throw new \RuntimeException(
                     'Administrator password not secure enough!' . PHP_EOL
@@ -622,10 +723,10 @@ EOT
     protected function getSiteSetup(QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output): string|bool
     {
         $urlValidator = static function ($url) {
-            if (empty($url) || in_array(strtolower($url), ['no', 'n'], true)) {
+            if (!is_string($url) || in_array(strtolower($url), ['no', 'n'], true)) {
                 return false;
             }
-            if (!GeneralUtility::isValidUrl($url)) {
+            if (empty($url) || !GeneralUtility::isValidUrl($url)) {
                 throw new \RuntimeException(
                     'Invalid URL provided for the site name. Please provide a valid URL.',
                     1669747625,
@@ -647,9 +748,51 @@ EOT
         return $urlValidator($createSiteFromCli);
     }
 
+    protected function getDistributionForActivation(array $inactiveDistributions, QuestionHelper $questionHelper, InputInterface $input, OutputInterface $output): ?string
+    {
+        $distributionFromCli = $this->getFallbackValueEnvOrOption($input, 'distribution', 'TYPO3_SETUP_DISTRIBUTION');
+
+        if (!$this->packageManager->isPackageActive('impexp')) {
+            if ($distributionFromCli !== false) {
+                throw new \RuntimeException(
+                    sprintf('Distribution "%s" is not installable, please require typo3/cms-impexp.', $distributionFromCli),
+                    1775034287
+                );
+            }
+            return null;
+        }
+
+        if ($distributionFromCli !== false) {
+            if (!isset($inactiveDistributions[$distributionFromCli])) {
+                throw new \RuntimeException(
+                    sprintf('Distribution "%s" is not available.', $distributionFromCli),
+                    1775034288
+                );
+            }
+            return $distributionFromCli;
+        }
+
+        if ($input->isInteractive()) {
+            $choices = ['none' => 'Do not import a distribution'];
+            foreach ($inactiveDistributions as $packageKey => $info) {
+                $choices[$packageKey] = $info['title'];
+            }
+            $question = new ChoiceQuestion('Select a distribution to import [default: none]', $choices, 'none');
+            $answer = $questionHelper->ask($input, $output, $question);
+            return $answer === 'none' ? null : $answer;
+        }
+
+        return null;
+    }
+
     protected function writeSuccess(OutputInterface $output, string $message): void
     {
         $output->writeln('<fg=green>✓</> ' . $message);
+    }
+
+    protected function writeWarning(OutputInterface $output, string $message): void
+    {
+        $output->writeln('<fg=yellow>!</> [Warning]: ' . $message);
     }
 
     protected function writeError(OutputInterface $output, string $message): void
@@ -659,11 +802,17 @@ EOT
 
     /**
      * Get a value from
-     * 1. environment variable
-     * 2. cli option
+     *
+     * 1. cli option `$option`
+     * 2. environment variable `$envVar`
+     *
+     * Note that cli option has higher precedences and wins over environment variable.
      */
     protected function getFallbackValueEnvOrOption(InputInterface $input, string $option, string $envVar): string|false
     {
-        return $input->hasParameterOption('--' . $option) ? $input->getOption($option) : getenv($envVar);
+        $value = ($input->hasParameterOption('--' . $option))
+            ? $input->getOption($option)
+            : getenv($envVar);
+        return is_string($value) ? $value : false;
     }
 }

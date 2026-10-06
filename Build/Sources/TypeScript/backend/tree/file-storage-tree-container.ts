@@ -12,7 +12,7 @@
  */
 
 import { html, LitElement, type TemplateResult } from 'lit';
-import { customElement, query } from 'lit/decorators';
+import { customElement, query } from 'lit/decorators.js';
 import '@typo3/backend/element/icon-element';
 import { SeverityEnum } from '@typo3/backend/enum/severity';
 import '@typo3/backend/tree/tree-toolbar';
@@ -28,6 +28,9 @@ import { Resource, type ResourceInterface } from '@typo3/backend/resource/resour
 import { DataTransferTypes } from '@typo3/backend/enum/data-transfer-types';
 import type { TreeToolbar } from '@typo3/backend/tree/tree-toolbar';
 import type { DataTransferStringItem } from '@typo3/backend/tree/tree';
+import { UrlFactory } from '@typo3/core/factory/url-factory';
+import coreLabels from '~labels/core.core';
+import layoutLabels from '~labels/backend.layout';
 
 export const navigationComponentName: string = 'typo3-backend-navigation-component-filestoragetree';
 
@@ -61,10 +64,11 @@ export class EditableFileStorageTree extends FileStorageTree {
     if (operationConflicts.length > 0) {
       operationConflicts.forEach((operation: FileOperation) => {
         Notification.showMessage(
-          TYPO3.lang['drop.conflict'],
-          TYPO3.lang['mess.drop.conflict']
-            .replace('%s', operation.resource.name)
-            .replace('%s', decodeURIComponent(options.target.identifier)),
+          layoutLabels.get('drop.conflict'),
+          layoutLabels.get('mess.drop.conflict', [
+            operation.resource.name,
+            decodeURIComponent(options.target.identifier),
+          ]),
           SeverityEnum.error
         );
       });
@@ -159,10 +163,11 @@ export class EditableFileStorageTree extends FileStorageTree {
         if (operationConflicts.length > 0) {
           operationConflicts.forEach((operation: FileOperation) => {
             Notification.showMessage(
-              TYPO3.lang['drop.conflict'],
-              TYPO3.lang['mess.drop.conflict']
-                .replace('%s', operation.resource.name)
-                .replace('%s', decodeURIComponent(node.identifier)),
+              layoutLabels.get('drop.conflict'),
+              layoutLabels.get('mess.drop.conflict', [
+                operation.resource.name,
+                decodeURIComponent(node.identifier),
+              ]),
               SeverityEnum.error
             );
           });
@@ -264,7 +269,7 @@ export class EditableFileStorageTree extends FileStorageTree {
  */
 @customElement('typo3-backend-navigation-component-filestoragetree')
 export class FileStorageTreeNavigationComponent extends TreeModuleState(LitElement) {
-  @query('.tree-wrapper') tree: EditableFileStorageTree;
+  @query('typo3-backend-navigation-component-filestorage-tree') tree: EditableFileStorageTree;
   @query('typo3-backend-tree-toolbar') toolbar: TreeToolbar;
 
   protected override moduleStateType: string = 'media';
@@ -291,24 +296,22 @@ export class FileStorageTreeNavigationComponent extends TreeModuleState(LitEleme
       dataUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_data,
       rootlineUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_rootline,
       filterUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_filter,
-      showIcons: true
+      showIcons: true,
+      searchPlaceholder: coreLabels.get('tree.searchFolderTree')
     };
 
     return html`
-      <div id="typo3-filestoragetree" class="tree">
-        <typo3-backend-tree-toolbar .tree="${this.tree}" id="filestoragetree-toolbar"></typo3-backend-tree-toolbar>
-        <div class="navigation-tree-container">
-          <typo3-backend-navigation-component-filestorage-tree
-              id="typo3-filestoragetree-tree"
-              class="tree-wrapper"
-              .setup=${treeSetup}
-              @typo3:tree:node-selected=${this.loadContent}
-              @typo3:tree:node-context=${this.showContextMenu}
-              @typo3:tree:nodes-prepared=${this.selectActiveNodeInLoadedNodes}
-              @tree:initialized=${this.fetchActiveNodeIfMissing}
-          ></typo3-backend-navigation-component-filestorage-tree>
-        </div>
-      </div>
+      <typo3-backend-tree-toolbar .tree="${this.tree}"
+        id="typo3-filestoragetree-toolbar"
+      ></typo3-backend-tree-toolbar>
+      <typo3-backend-navigation-component-filestorage-tree
+          id="typo3-filestoragetree-tree"
+          .setup=${treeSetup}
+          @typo3:tree:node-selected=${this.loadContent}
+          @typo3:tree:node-context=${this.showContextMenu}
+          @typo3:tree:nodes-prepared=${this.selectActiveNodeInLoadedNodes}
+          @tree:initialized=${this.fetchActiveNodeIfMissing}
+      ></typo3-backend-navigation-component-filestorage-tree>
     `;
   }
 
@@ -350,9 +353,10 @@ export class FileStorageTreeNavigationComponent extends TreeModuleState(LitEleme
 
     // Load the currently selected module with the updated URL
     const moduleMenu = top.TYPO3.ModuleMenu.App;
-    let contentUrl = ModuleUtility.getFromName(moduleMenu.getCurrentModule()).link;
-    contentUrl += contentUrl.includes('?') ? '&' : '?';
-    top.TYPO3.Backend.ContentContainer.setUrl(contentUrl + 'id=' + node.identifier);
+    const contentUrl = UrlFactory.createUrl(ModuleUtility.getFromName(moduleMenu.getCurrentModule()).link, {
+      id: decodeURIComponent(node.identifier)
+    });
+    top.TYPO3.Backend.ContentContainer.setUrl(contentUrl);
   };
 
   private readonly showContextMenu = (evt: CustomEvent): void => {

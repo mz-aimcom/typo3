@@ -26,35 +26,6 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 class DatabaseWriter extends AbstractWriter
 {
     /**
-     * Table to write the log records to.
-     *
-     * @var string
-     */
-    protected $logTable = 'sys_log';
-
-    /**
-     * Set name of database log table
-     *
-     * @param string $tableName Database table name
-     * @return \TYPO3\CMS\Core\Log\Writer\AbstractWriter
-     */
-    public function setLogTable($tableName)
-    {
-        $this->logTable = $tableName;
-        return $this;
-    }
-
-    /**
-     * Get name of database log table
-     *
-     * @return string Database table name
-     */
-    public function getLogTable()
-    {
-        return $this->logTable;
-    }
-
-    /**
      * Writes the log record
      *
      * @param LogRecord $record Log record
@@ -91,9 +62,13 @@ class DatabaseWriter extends AbstractWriter
             'data' => $data,
         ];
 
+        // sys_log uses tstamp for garbage collection via TableGarbageCollectionTask.
+        // Without it, tstamp defaults to 0 (1970-01-01), causing immediate deletion (see #109290).
+        $fieldValues['tstamp'] = (int)$record->getCreated();
+
         GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getConnectionForTable($this->logTable)
-            ->insert($this->logTable, $fieldValues);
+            ->getConnectionForTable('sys_log')
+            ->insert('sys_log', $fieldValues);
 
         return $this;
     }

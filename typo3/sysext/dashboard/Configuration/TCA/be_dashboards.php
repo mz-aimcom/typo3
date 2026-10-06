@@ -2,13 +2,14 @@
 
 return [
     'ctrl' => [
-        'title' => 'LLL:EXT:dashboard/Resources/Private/Language/locallang_tca.xlf:be_dashboard',
+        'title' => 'dashboard.db:be_dashboard',
         'label' => 'title',
         'tstamp' => 'tstamp',
         'crdate' => 'crdate',
         'adminOnly' => true,
         'rootLevel' => 1,
         'delete' => 'deleted',
+        'hideTable' => true,
         'enablecolumns' => [
             'disabled' => 'hidden',
             'starttime' => 'starttime',
@@ -27,7 +28,7 @@ return [
             ],
         ],
         'identifier' => [
-            'label' => 'LLL:EXT:dashboard/Resources/Private/Language/locallang_tca.xlf:identifier',
+            'label' => 'dashboard.db:identifier',
             'config' => [
                 'type' => 'input',
                 'size' => 30,
@@ -36,7 +37,7 @@ return [
             ],
         ],
         'title' => [
-            'label' => 'LLL:EXT:dashboard/Resources/Private/Language/locallang_tca.xlf:title',
+            'label' => 'dashboard.db:title',
             'config' => [
                 'type' => 'input',
                 'size' => 30,
@@ -48,11 +49,11 @@ return [
     'types' => [
         '1' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                     identifier,title,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:access,
                     hidden, --palette--;;timeRestriction,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+                --div--;core.form.tabs:extended,
             ',
         ],
     ],

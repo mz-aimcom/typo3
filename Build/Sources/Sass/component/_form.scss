@@ -1,5 +1,6 @@
 @import "forms/form-section";
 @import "forms/form-group";
+@import "forms/form-grid";
 @import "forms/form-row";
 @import "forms/form-label";
 @import "forms/form-control";
@@ -22,6 +23,17 @@
 
 .form-inline {
     display: inline;
+}
+
+.form-slim {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--typo3-spacing) / 2);
+
+    .form-group {
+        margin-bottom: 0;
+    }
 }
 
 // Search results can be displayed as badges next to the search input field. Wrap the search

@@ -17,15 +17,19 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\ViewHelpers;
 
-use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
+use TYPO3\CMS\Core\Resource\File;
+use TYPO3\CMS\Core\Resource\FileInterface;
+use TYPO3\CMS\Core\Resource\FileReference;
+use TYPO3\CMS\Core\Resource\ProcessedFile;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Service\ImageService;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
+use TYPO3Fluid\Fluid\Core\ViewHelper\InvalidArgumentValueException;
 
 /**
  * ViewHelper to resize, crop or convert a given image (if required) and render
@@ -52,12 +56,10 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
      */
     protected $tagName = 'img';
 
-    private ImageService $imageService;
-
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ResourceFactory $resourceFactory
+    ) {
         parent::__construct();
-        $this->imageService = GeneralUtility::makeInstance(ImageService::class);
     }
 
     public function initializeArguments(): void
@@ -66,6 +68,7 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
         $this->registerArgument('src', 'string', 'a path to a file, a combined FAL identifier or an uid (int). If $treatIdAsReference is set, the integer is considered the uid of the sys_file_reference record. If you already got a FAL object, consider using the $image parameter instead', false, '');
         $this->registerArgument('treatIdAsReference', 'bool', 'given src argument is a sys_file_reference record', false, false);
         $this->registerArgument('image', 'object', 'a FAL object (\\TYPO3\\CMS\\Core\\Resource\\File or \\TYPO3\\CMS\\Core\\Resource\\FileReference)');
+        $this->registerArgument('alt', 'string', 'Alternative text for the image. Falls back to the "alternative" metadata property of the image, an empty string excludes the image from screen readers.');
         $this->registerArgument('crop', 'string|bool|array', 'overrule cropping of image (setting to FALSE disables the cropping set in FileReference)');
         $this->registerArgument('cropVariant', 'string', 'select a cropping variant, in case multiple croppings have been specified or stored in FileReference', false, 'default');
         $this->registerArgument('fileExtension', 'string', 'Custom file extension to use');
@@ -83,18 +86,17 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
     /**
      * Resizes a given image (if required) and renders the respective img tag.
      *
-     * @see https://docs.typo3.org/typo3cms/TyposcriptReference/ContentObjects/Image/
-     * @throws Exception
+     * @see https://docs.typo3.org/permalink/t3tsref:cobj-image
      */
     public function render(): string
     {
         $src = (string)$this->arguments['src'];
         if (($src === '' && $this->arguments['image'] === null) || ($src !== '' && $this->arguments['image'] !== null)) {
-            throw new Exception($this->getExceptionMessage('You must either specify a string src or a File object.'), 1382284106);
+            throw new InvalidArgumentValueException($this->getExceptionMessage('You must either specify a string src or a File object.'), 1382284106);
         }
 
         if ((string)$this->arguments['fileExtension'] && !GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], (string)$this->arguments['fileExtension'])) {
-            throw new Exception(
+            throw new InvalidArgumentValueException(
                 $this->getExceptionMessage(
                     'The extension ' . $this->arguments['fileExtension'] . ' is not specified in $GLOBALS[\'TYPO3_CONF_VARS\'][\'GFX\'][\'imagefile_ext\']'
                     . ' as a valid image file extension and can not be processed.',
@@ -104,7 +106,10 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
         }
 
         try {
-            $image = $this->imageService->getImage($src, $this->arguments['image'], (bool)$this->arguments['treatIdAsReference']);
+            $image = $this->resourceFactory->resolveFileObject($this->arguments['image'] ?? $src, (bool)$this->arguments['treatIdAsReference']);
+            if ($this->isUnavailable($image)) {
+                return '';
+            }
             $cropString = $this->arguments['crop'];
             if ($cropString === null && $image->hasProperty('crop') && $image->getProperty('crop')) {
                 $cropString = $image->getProperty('crop');
@@ -130,36 +135,53 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
             if (!empty($this->arguments['fileExtension'] ?? '')) {
                 $processingInstructions['fileExtension'] = $this->arguments['fileExtension'];
             }
-            $processedImage = $this->imageService->applyProcessingInstructions($image, $processingInstructions);
+            $processedImage = $image->process(ProcessedFile::CONTEXT_IMAGECROPSCALEMASK, $processingInstructions);
 
             if ($this->arguments['base64']) {
                 $imageSrc = 'data:' . $processedImage->getMimeType() . ';base64,' . base64_encode($processedImage->getContents());
             } else {
-                $imageSrc = $this->imageService->getImageUri($processedImage, $this->arguments['absolute']);
+                $imageSrc = (string)$processedImage->getPublicUrl();
+                if ($imageSrc === '') {
+                    // No public URL could be determined, for instance because the file resides in a
+                    // non-public storage and no request is available to create a file dump URL from.
+                    return '';
+                }
+                $request = $this->renderingContext->hasAttribute(ServerRequestInterface::class)
+                    ? $this->renderingContext->getAttribute(ServerRequestInterface::class)
+                    : ($GLOBALS['TYPO3_REQUEST'] ?? null);
+                if ($this->arguments['absolute'] && $request instanceof ServerRequestInterface) {
+                    $imageSrc = GeneralUtility::locationHeaderUrl($imageSrc, $request);
+                }
             }
 
             if (!$this->tag->hasAttribute('data-focus-area')) {
                 $focusArea = $cropVariantCollection->getFocusArea($cropVariant);
                 if (!$focusArea->isEmpty()) {
-                    $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($image));
+                    $this->tag->addAttribute('data-focus-area', (string)$focusArea->makeAbsoluteBasedOnFile($processedImage));
                 }
             }
             $this->tag->addAttribute('src', $imageSrc);
             $this->tag->addAttribute('width', $processedImage->getProperty('width'));
             $this->tag->addAttribute('height', $processedImage->getProperty('height'));
 
-            if (isset($this->additionalArguments['alt']) && $this->additionalArguments['alt'] === '') {
-                // In case the "alt" attribute is explicitly set to an empty string, respect
-                // this to allow excluding it from screen readers, improving accessibility.
-                $this->tag->addAttribute('alt', '');
-            } elseif (!isset($this->additionalArguments['alt'])) {
+            if ($this->arguments['alt'] !== null) {
+                // In case the "alt" attribute is explicitly set, respect it. An empty string
+                // excludes the image from screen readers, improving accessibility.
+                $this->tag->addAttribute('alt', $this->arguments['alt']);
+            } else {
                 // The alt-attribute is mandatory to have valid html-code, therefore use "alternative" property or empty
-                $this->tag->addAttribute('alt', $image->hasProperty('alternative') ? $image->getProperty('alternative') : '');
+                $this->tag->addAttribute('alt', $image->getProperty('alternative') ?? '');
             }
-            // Add title-attribute from property if not already set and the property is not an empty string
-            $title = (string)($image->hasProperty('title') ? $image->getProperty('title') : '');
-            if (empty($this->additionalArguments['title']) && $title !== '') {
-                $this->tag->addAttribute('title', $title);
+            // Only add title-attribute from image if not set in additional-arguments.
+            // In case the "title" attribute is explicitly set to an empty string,
+            // it will not fallback to an image-title.
+            // This allows excluding it explicitly from screen readers, improving accessibility.
+            if (!isset($this->additionalArguments['title'])) {
+                $title = trim((string)($image->hasProperty('title') ? $image->getProperty('title') : ''));
+                // The title-attribute is not mandatory, therefore use "title" property or omit fully
+                if ($title !== '') {
+                    $this->tag->addAttribute('title', $title);
+                }
             }
         } catch (ResourceDoesNotExistException $e) {
             // thrown if file does not exist
@@ -174,11 +196,23 @@ final class ImageViewHelper extends AbstractTagBasedViewHelper
         return $this->tag->render();
     }
 
+    /**
+     * A file that has been flagged as missing by the file indexer, that has been deleted, or that
+     * resides in an offline storage can not be processed and has no public URL. Rendering an "img"
+     * tag for it would result in an empty "src" attribute, so nothing is rendered instead.
+     */
+    private function isUnavailable(FileInterface $image): bool
+    {
+        $file = $image instanceof FileReference ? $image->getOriginalFile() : $image;
+        if (!$file instanceof File) {
+            return false;
+        }
+        return $file->isMissing() || $file->isDeleted() || !$file->getStorage()->isOnline();
+    }
+
     private function getExceptionMessage(string $detailedMessage): string
     {
-        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)
-            && $this->renderingContext->getAttribute(ServerRequestInterface::class) instanceof RequestInterface
-        ) {
+        if ($this->renderingContext->hasAttribute(ServerRequestInterface::class)) {
             $request = $this->renderingContext->getAttribute(ServerRequestInterface::class);
             $currentContentObject = $request->getAttribute('currentContentObject');
             if ($currentContentObject instanceof ContentObjectRenderer) {

@@ -19,15 +19,19 @@ namespace TYPO3\CMS\Workspaces\Controller;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\BackendViewFactory;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
+use TYPO3\CMS\Workspaces\Authorization\WorkspacePublishGate;
 use TYPO3\CMS\Workspaces\Domain\Model\CombinedRecord;
 use TYPO3\CMS\Workspaces\Domain\Model\WorkspaceStage;
 use TYPO3\CMS\Workspaces\Domain\Repository\WorkspaceRepository;
@@ -47,10 +51,11 @@ use TYPO3\CMS\Workspaces\Service\WorkspaceService;
 #[AsController]
 final readonly class WorkspacesAjaxController
 {
-    private const MAX_RECORDS_TO_PROCESS = 30;
+    private const int MAX_RECORDS_TO_PROCESS = 30;
 
     public function __construct(
         private WorkspaceService $workspaceService,
+        private ModuleProvider $moduleProvider,
         private GridDataService $gridDataService,
         private IntegrityService $integrityService,
         private PreviewUriBuilder $previewUriBuilder,
@@ -58,46 +63,157 @@ final readonly class WorkspacesAjaxController
         private BackendViewFactory $backendViewFactory,
         private WorkspaceRepository $workspaceRepository,
         private WorkspaceStageRepository $workspaceStageRepository,
+        private WorkspacePublishGate $workspacePublishGate,
+        private LoggerInterface $logger,
     ) {}
 
     public function dispatch(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->processCallStack($request, fn(\stdClass $call): mixed => match ($call->method) {
+            'getWorkspaceInfos' => $this->getWorkspaceInfos($call->data[0]),
+            'checkIntegrity' => $this->checkIntegrity($call->data[0]),
+            'getRowDetails' => $this->getRowDetails($call->data[0]),
+            'publishSingleRecord' => $this->publishSingleRecord((string)$call->data[0], (int)$call->data[1]),
+            'discardSingleRecord' => $this->discardSingleRecord((string)$call->data[0], (int)$call->data[1]),
+            'generateWorkspacePreviewLinksForAllLanguages' => $this->generateWorkspacePreviewLinksForAllLanguages((int)$call->data[0]),
+            'viewSingleRecord' => $this->viewSingleRecord((string)$call->data[0], (int)$call->data[1]),
+            'executeSelectionAction' => $this->executeSelectionAction($call->data[0]),
+            'sendToNextStageWindow' => $this->sendToNextStageWindow((int)$call->data[0], (string)$call->data[1], (int)$call->data[2]),
+            'sendToPrevStageWindow' => $this->sendToPrevStageWindow((int)$call->data[0], (string)$call->data[1]),
+            'sendToNextStageExecute' => $this->sendToNextStageExecute($call->data[0]),
+            'sendToPrevStageExecute' => $this->sendToPrevStageExecute($call->data[0]),
+            'sendToSpecificStageWindow' => $this->sendToSpecificStageWindow((int)$call->data[0]),
+            'sendToSpecificStageExecute' => $this->sendToSpecificStageExecute($call->data[0]),
+            'publishRecordExecute' => $this->publishRecordExecute($call->data[0]),
+            'publishCollectionExecute' => $this->publishCollectionExecute($call->data[0]),
+            'publishPageCollectionExecute' => $this->publishPageCollectionExecute($call->data[0]),
+            'publishEntireWorkspace' => $this->publishEntireWorkspace($call->data[0]),
+            'discardEntireWorkspace' => $this->discardEntireWorkspace($call->data[0]),
+            default => throw new \RuntimeException('Not implemented', 1749983978),
+        });
+    }
+
+    public function preview(ServerRequestInterface $request): ResponseInterface
+    {
+        return $this->processCallStack($request, fn(\stdClass $call): mixed => match ($call->method) {
+            'discardStagesFromPage' => $this->discardStagesFromPage((int)$call->data[0]),
+            'sendCollectionToStage' => $this->sendCollectionToStage($call->data[0]),
+            'sendPageToNextStage' => $this->sendPageToNextStage((int)$call->data[0]),
+            'sendPageToPreviousStage' => $this->sendPageToPreviousStage((int)$call->data[0]),
+            'publishPageDirectly' => $this->publishPageDirectly((int)$call->data[0]),
+            'updateStageChangeButtons' => $this->updateStageChangeButtons((int)$call->data[0], $request),
+            default => throw new \RuntimeException('Not implemented', 1762777405),
+        });
+    }
+
+    /**
+     * Executes all calls of a client side call stack. The response is always a list with one
+     * entry per call, carrying either a 'result' or an 'error' property. A failing call does
+     * not abort the remaining ones, so results already calculated are not thrown away. As soon
+     * as one call failed, the response is sent with HTTP status 500 to signal the client that
+     * the call stack did not fully succeed.
+     *
+     * @param \Closure(\stdClass): mixed $resolveCall
+     */
+    private function processCallStack(ServerRequestInterface $request, \Closure $resolveCall): ResponseInterface
     {
         $callStack = json_decode($request->getBody()->getContents());
         if (!is_array($callStack)) {
             $callStack = [$callStack];
         }
         $results = [];
+        $failed = false;
         foreach ($callStack as $call) {
-            $result = match ($call->method) {
-                'getWorkspaceInfos' => $this->getWorkspaceInfos($call->data[0]),
-                'checkIntegrity' => $this->checkIntegrity($call->data[0]),
-                'getRowDetails' => $this->getRowDetails($call->data[0]),
-                'publishSingleRecord' => $this->publishSingleRecord((string)$call->data[0], (int)$call->data[1], (int)$call->data[2]),
-                'discardSingleRecord' => $this->discardSingleRecord((string)$call->data[0], (int)$call->data[1]),
-                'generateWorkspacePreviewLinksForAllLanguages' => $this->generateWorkspacePreviewLinksForAllLanguages((int)$call->data[0]),
-                'viewSingleRecord' => $this->viewSingleRecord((string)$call->data[0], (int)$call->data[1]),
-                'executeSelectionAction' => $this->executeSelectionAction($call->data[0]),
-                'sendToNextStageWindow' => $this->sendToNextStageWindow((int)$call->data[0], (string)$call->data[1], (int)$call->data[2]),
-                'sendToPrevStageWindow' => $this->sendToPrevStageWindow((int)$call->data[0], (string)$call->data[1]),
-                'sendToNextStageExecute' => $this->sendToNextStageExecute($call->data[0]),
-                'sendToPrevStageExecute' => $this->sendToPrevStageExecute($call->data[0]),
-                'sendToSpecificStageWindow' => $this->sendToSpecificStageWindow((int)$call->data[0]),
-                'sendToSpecificStageExecute' => $this->sendToSpecificStageExecute($call->data[0]),
-                'discardStagesFromPage' => $this->discardStagesFromPage((int)$call->data[0]),
-                'sendCollectionToStage' => $this->sendCollectionToStage($call->data[0]),
-                'sendPageToNextStage' => $this->sendPageToNextStage((int)$call->data[0]),
-                'sendPageToPreviousStage' => $this->sendPageToPreviousStage((int)$call->data[0]),
-                'updateStageChangeButtons' => $this->updateStageChangeButtons((int)$call->data[0], $request),
-                'publishEntireWorkspace' => $this->publishEntireWorkspace($call->data[0]),
-                'discardEntireWorkspace' => $this->discardEntireWorkspace($call->data[0]),
-                default => throw new \RuntimeException('Not implemented', 1749983978),
-            };
             $resultObject = new \stdClass();
             $resultObject->method = $call->method;
-            $resultObject->result = $result;
+            try {
+                $resultObject->result = $resolveCall($call);
+            } catch (\Throwable $exception) {
+                $failed = true;
+                // The exception is handled here and never reaches the global exception handler,
+                // so it has to be logged explicitly to not silently swallow server side errors.
+                $this->logger->critical('Workspace action "{method}" failed: {message}', [
+                    'method' => $call->method,
+                    'message' => $exception->getMessage(),
+                    'exception' => $exception,
+                ]);
+                $resultObject->error = [
+                    'message' => $exception->getMessage(),
+                    'code' => $exception->getCode(),
+                ];
+            }
             $results[] = $resultObject;
         }
-        return new JsonResponse($results);
+        return new JsonResponse($results, $failed ? 500 : 200);
+    }
+
+    /**
+     * Returns workspace information for the current user.
+     * Used by the workspace selector and other components that need workspace state.
+     */
+    public function getWorkspaceInfoAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $backendUser = $this->getBackendUser();
+        $currentWorkspaceId = $backendUser->workspace;
+        $availableWorkspaces = $this->workspaceService->getAvailableWorkspaces(true);
+
+        $workspaces = [];
+        foreach ($availableWorkspaces as $workspaceId => $workspaceData) {
+            $workspaces[] = [
+                'id' => $workspaceId,
+                'title' => $workspaceData['title'],
+                'color' => $workspaceData['color'] ?? '',
+                'description' => $workspaceData['description'],
+            ];
+        }
+
+        $current = null;
+        if (isset($availableWorkspaces[$currentWorkspaceId])) {
+            $current = [
+                'id' => $currentWorkspaceId,
+                'title' => $availableWorkspaces[$currentWorkspaceId]['title'],
+                'color' => $availableWorkspaces[$currentWorkspaceId]['color'] ?? '',
+                'description' => $availableWorkspaces[$currentWorkspaceId]['description'],
+            ];
+        }
+
+        return new JsonResponse([
+            'current' => $current,
+            'workspaces' => $workspaces,
+        ]);
+    }
+
+    public function switchWorkspaceAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $page = [];
+        $parsedBody = $request->getParsedBody();
+        $workspaceId = (int)($parsedBody['workspaceId'] ?? 0);
+        $pageId = (int)($parsedBody['pageId'] ?? 0);
+        $finalPageUid = 0;
+        $originalPageId = $pageId;
+        $backendUser = $this->getBackendUser();
+        $backendUser->setWorkspace($workspaceId);
+        $switchedWorkspaceId = $backendUser->workspace;
+        while ($pageId) {
+            $page = BackendUtility::getRecordWSOL('pages', $pageId, '*', ' AND pages.t3ver_wsid IN (0, ' . $switchedWorkspaceId . ')');
+            if ($page) {
+                if ($backendUser->doesUserHaveAccess($page, Permission::PAGE_SHOW)) {
+                    break;
+                }
+            } else {
+                $page = BackendUtility::getRecord('pages', $pageId);
+            }
+            $pageId = $page['pid'];
+        }
+        if (isset($page['uid'])) {
+            $finalPageUid = (int)$page['uid'];
+        }
+        $ajaxResponse = [
+            'workspaceId' => $switchedWorkspaceId,
+            'pageId' => ($finalPageUid && $originalPageId == $finalPageUid) ? null : $finalPageUid,
+            'pageModule' => $this->moduleProvider->accessGranted('web_layout', $backendUser) ? 'web_layout' : '',
+        ];
+        return new JsonResponse($ajaxResponse);
     }
 
     /**
@@ -157,12 +273,9 @@ final readonly class WorkspacesAjaxController
         return $this->gridDataService->getRowDetails($stages, $parameters);
     }
 
-    private function publishSingleRecord(string $table, int $t3ver_oid, int $orig_uid): array
+    private function publishSingleRecord(string $table, int $versionId): array
     {
-        $cmd[$table][$t3ver_oid]['version'] = [
-            'action' => 'publish',
-            'swapWith' => $orig_uid,
-        ];
+        $cmd[$table][$versionId]['publish'] = [];
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], $cmd);
         $dataHandler->process_cmdmap();
@@ -209,10 +322,7 @@ final readonly class WorkspacesAjaxController
         $commands = [];
         if ($parameter->action === 'publish') {
             foreach ($parameter->selection as $record) {
-                $commands[$record->table][$record->liveId]['version'] = [
-                    'action' => 'publish',
-                    'swapWith' => $record->versionId,
-                ];
+                $commands[$record->table][$record->versionId]['publish'] = [];
             }
         } elseif ($parameter->action === 'discard') {
             foreach ($parameter->selection as $record) {
@@ -241,7 +351,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1287264776,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.sendToNextStage.noRecordFound'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.sendToNextStage.noRecordFound'),
                 ],
                 'success' => false,
             ];
@@ -254,7 +364,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1291111644,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.stageId.invalid'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.stageId.invalid'),
                 ],
                 'success' => false,
             ];
@@ -281,7 +391,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1287264765,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.sendToNextStage.noRecordFound'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.sendToNextStage.noRecordFound'),
                 ],
                 'success' => false,
             ];
@@ -294,7 +404,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1291111644,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.stageId.invalid'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.stageId.invalid'),
                 ],
                 'success' => false,
             ];
@@ -303,7 +413,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1287264746,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.sendToPrevStage.noPreviousStage'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.sendToPrevStage.noPreviousStage'),
                 ],
                 'success' => false,
             ];
@@ -314,7 +424,7 @@ final readonly class WorkspacesAjaxController
             return [
                 'error' => [
                     'code' => 1287264747,
-                    'message' => $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:error.sendToPrevStage.noPreviousStage'),
+                    'message' => $this->getLanguageService()->sL('workspaces.messages:error.sendToPrevStage.noPreviousStage'),
                 ],
                 'success' => false,
             ];
@@ -334,20 +444,12 @@ final readonly class WorkspacesAjaxController
         $setStageId = (int)$parameters->affects->nextStage;
         $comments = $parameters->comments;
         $table = $parameters->affects->table;
-        $uid = $parameters->affects->uid;
-        $t3ver_oid = $parameters->affects->t3ver_oid;
+        $versionId = $parameters->affects->uid;
         $recipients = $this->getRecipientList((array)($parameters->recipients ?? []), (string)($parameters->additional ?? ''), $setStageId);
-        if ($setStageId === StagesService::STAGE_PUBLISH_EXECUTE_ID) {
-            $cmdArray[$table][$t3ver_oid]['version']['action'] = 'publish';
-            $cmdArray[$table][$t3ver_oid]['version']['swapWith'] = $uid;
-            $cmdArray[$table][$t3ver_oid]['version']['comment'] = $comments;
-            $cmdArray[$table][$t3ver_oid]['version']['notificationAlternativeRecipients'] = $recipients;
-        } else {
-            $cmdArray[$table][$uid]['version']['action'] = 'setStage';
-            $cmdArray[$table][$uid]['version']['stageId'] = $setStageId;
-            $cmdArray[$table][$uid]['version']['comment'] = $comments;
-            $cmdArray[$table][$uid]['version']['notificationAlternativeRecipients'] = $recipients;
-        }
+        $cmdArray[$table][$versionId]['version']['action'] = 'setStage';
+        $cmdArray[$table][$versionId]['version']['stageId'] = $setStageId;
+        $cmdArray[$table][$versionId]['version']['comment'] = $comments;
+        $cmdArray[$table][$versionId]['version']['notificationAlternativeRecipients'] = $recipients;
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], $cmdArray);
         $dataHandler->process_cmdmap();
@@ -362,14 +464,121 @@ final readonly class WorkspacesAjaxController
         $setStageId = (int)$parameters->affects->nextStage;
         $comments = $parameters->comments;
         $table = $parameters->affects->table;
-        $uid = $parameters->affects->uid;
+        $versionId = $parameters->affects->uid;
         $recipients = $this->getRecipientList((array)($parameters->recipients ?? []), (string)($parameters->additional ?? ''), $setStageId);
-        $cmdArray[$table][$uid]['version']['action'] = 'setStage';
-        $cmdArray[$table][$uid]['version']['stageId'] = $setStageId;
-        $cmdArray[$table][$uid]['version']['comment'] = $comments;
-        $cmdArray[$table][$uid]['version']['notificationAlternativeRecipients'] = $recipients;
+        $cmdArray[$table][$versionId]['version']['action'] = 'setStage';
+        $cmdArray[$table][$versionId]['version']['stageId'] = $setStageId;
+        $cmdArray[$table][$versionId]['version']['comment'] = $comments;
+        $cmdArray[$table][$versionId]['version']['notificationAlternativeRecipients'] = $recipients;
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], $cmdArray);
+        $dataHandler->process_cmdmap();
+        return [
+            'success' => true,
+        ];
+    }
+
+    /**
+     * Publish a single record with optional comment and notification recipients.
+     * This is an explicit publish action, separate from stage changes.
+     */
+    private function publishRecordExecute(\stdClass $parameters): array
+    {
+        $table = $parameters->affects->table;
+        $versionId = (int)$parameters->affects->uid;
+        $comments = $parameters->comments ?? '';
+        $recipients = $this->getRecipientList(
+            (array)($parameters->recipients ?? []),
+            (string)($parameters->additional ?? ''),
+            StagesService::STAGE_PUBLISH_EXECUTE_ID
+        );
+        $cmdArray[$table][$versionId]['publish'] = [
+            'comment' => $comments,
+            'notificationAlternativeRecipients' => $recipients,
+        ];
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], $cmdArray);
+        $dataHandler->process_cmdmap();
+        return [
+            'success' => true,
+        ];
+    }
+
+    /**
+     * Publish a collection of records with optional comment and notification recipients.
+     * This is an explicit publish action, separate from stage changes.
+     *
+     * Accepts the same parameter structure as sendToSpecificStageExecute:
+     * - parameters->affects->elements: array of {table, uid, t3ver_oid}
+     * - parameters->comments: string
+     * - parameters->recipients: array
+     * - parameters->additional: string
+     */
+    private function publishCollectionExecute(\stdClass $parameters): array
+    {
+        $cmdMapArray = [];
+        $comment = $parameters->comments ?? '';
+        $recipients = $this->getRecipientList(
+            (array)($parameters->recipients ?? []),
+            (string)($parameters->additional ?? ''),
+            StagesService::STAGE_PUBLISH_EXECUTE_ID
+        );
+        $elements = $parameters->affects->elements ?? [];
+        if (empty($elements)) {
+            throw new \InvalidArgumentException('Missing "affected elements" in $parameters array.', 1768515021);
+        }
+        foreach ($elements as $element) {
+            // Avoid any action on records that have already been published to live
+            $elementRecord = BackendUtility::getRecord($element->table, $element->uid);
+            if ((int)($elementRecord['t3ver_wsid'] ?? 0) === 0) {
+                continue;
+            }
+            $cmdMapArray[$element->table][$element->uid]['publish'] = [
+                'comment' => $comment,
+                'notificationAlternativeRecipients' => $recipients,
+            ];
+        }
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], $cmdMapArray);
+        $dataHandler->process_cmdmap();
+        return [
+            'success' => true,
+        ];
+    }
+
+    /**
+     * Publish a page collection of records (from preview module).
+     * This method is used by the preview module's "Send to Publish" button.
+     *
+     * Accepts the same parameter structure as sendCollectionToStage:
+     * - parameters->affects: object with tableName -> array of items (each item has 'uid')
+     * - parameters->stageId: int (used for validation only)
+     * - parameters->comments: string
+     * - parameters->recipients: array
+     * - parameters->additional: string
+     */
+    private function publishPageCollectionExecute(\stdClass $parameters): array
+    {
+        $cmdMapArray = [];
+        $comment = $parameters->comments ?? '';
+        $recipients = $this->getRecipientList(
+            (array)($parameters->recipients ?? []),
+            (string)($parameters->additional ?? ''),
+            StagesService::STAGE_PUBLISH_EXECUTE_ID
+        );
+        if (!is_object($parameters->affects) || empty($parameters->affects)) {
+            throw new \InvalidArgumentException('Missing "affected items" in $parameters array.', 1768515022);
+        }
+        foreach ($parameters->affects as $tableName => $items) {
+            foreach ($items as $item) {
+                $cmdMapArray[$tableName][$item->uid]['publish'] = [
+                    'comment' => $comment,
+                    'notificationAlternativeRecipients' => $recipients,
+                ];
+            }
+        }
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], $cmdMapArray);
         $dataHandler->process_cmdmap();
         return [
             'success' => true,
@@ -408,17 +617,10 @@ final readonly class WorkspacesAjaxController
             if ((int)($elementRecord['t3ver_wsid'] ?? 0) === 0) {
                 continue;
             }
-            if ($setStageId === StagesService::STAGE_PUBLISH_EXECUTE_ID) {
-                $cmdArray[$element->table][$element->t3ver_oid]['version']['action'] = 'publish';
-                $cmdArray[$element->table][$element->t3ver_oid]['version']['swapWith'] = $element->uid;
-                $cmdArray[$element->table][$element->t3ver_oid]['version']['comment'] = $comments;
-                $cmdArray[$element->table][$element->t3ver_oid]['version']['notificationAlternativeRecipients'] = $recipients;
-            } else {
-                $cmdArray[$element->table][$element->uid]['version']['action'] = 'setStage';
-                $cmdArray[$element->table][$element->uid]['version']['stageId'] = $setStageId;
-                $cmdArray[$element->table][$element->uid]['version']['comment'] = $comments;
-                $cmdArray[$element->table][$element->uid]['version']['notificationAlternativeRecipients'] = $recipients;
-            }
+            $cmdArray[$element->table][$element->uid]['version']['action'] = 'setStage';
+            $cmdArray[$element->table][$element->uid]['version']['stageId'] = $setStageId;
+            $cmdArray[$element->table][$element->uid]['version']['comment'] = $comments;
+            $cmdArray[$element->table][$element->uid]['version']['notificationAlternativeRecipients'] = $recipients;
         }
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start([], $cmdArray);
@@ -466,19 +668,10 @@ final readonly class WorkspacesAjaxController
         $recipients = $this->getRecipientList((array)($parameters->recipients ?? []), (string)($parameters->additional ?? ''), $stageId);
         foreach ($parameters->affects as $tableName => $items) {
             foreach ($items as $item) {
-                if ($stageId == StagesService::STAGE_PUBLISH_EXECUTE_ID) {
-                    // Publishing uses live id in command map
-                    $cmdMapArray[$tableName][$item->t3ver_oid]['version']['action'] = 'publish';
-                    $cmdMapArray[$tableName][$item->t3ver_oid]['version']['swapWith'] = $item->uid;
-                    $cmdMapArray[$tableName][$item->t3ver_oid]['version']['comment'] = $comment;
-                    $cmdMapArray[$tableName][$item->t3ver_oid]['version']['notificationAlternativeRecipients'] = $recipients;
-                } else {
-                    // Setting stage uses version id in command map
-                    $cmdMapArray[$tableName][$item->uid]['version']['action'] = 'setStage';
-                    $cmdMapArray[$tableName][$item->uid]['version']['stageId'] = $stageId;
-                    $cmdMapArray[$tableName][$item->uid]['version']['comment'] = $comment;
-                    $cmdMapArray[$tableName][$item->uid]['version']['notificationAlternativeRecipients'] = $recipients;
-                }
+                $cmdMapArray[$tableName][$item->uid]['version']['action'] = 'setStage';
+                $cmdMapArray[$tableName][$item->uid]['version']['stageId'] = $stageId;
+                $cmdMapArray[$tableName][$item->uid]['version']['comment'] = $comment;
+                $cmdMapArray[$tableName][$item->uid]['version']['notificationAlternativeRecipients'] = $recipients;
             }
         }
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
@@ -548,26 +741,66 @@ final readonly class WorkspacesAjaxController
         [, $previousStage] = $this->stagesService->getPreviousStageForElementCollection($stages, $workspaceItemsArray);
         $view = $this->backendViewFactory->create($request, ['typo3/cms-workspaces']);
         $previousStageSendToTitle = $previousStage
-            ? $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:actionSendToStage') . ' "' . $previousStage->title . '"'
+            ? $this->getLanguageService()->sL('workspaces.messages:actionSendToStage') . ' "' . $previousStage->title . '"'
             : '';
         $nextStageSendToTitle = '';
         if ($nextStage) {
             if ($nextStage->isExecuteStage) {
-                $nextStageSendToTitle = $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:publish_execute_action_option');
+                $nextStageSendToTitle = $this->getLanguageService()->sL('workspaces.messages:publish_execute_action_option');
             } else {
-                $nextStageSendToTitle = $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:actionSendToStage') . ' "' . $nextStage->title . '"';
+                $nextStageSendToTitle = $this->getLanguageService()->sL('workspaces.messages:actionSendToStage') . ' "' . $nextStage->title . '"';
             }
         }
+        $workspaceRecordArray = $backendUser->workspaceRec;
+        $enablePublishButton = !empty($workspaceItemsArray)
+            && $this->workspacePublishGate->isGranted($backendUser, $currentWorkspace)
+            && !(($workspaceRecordArray['publish_access'] ?? 0) & WorkspaceService::PUBLISH_ACCESS_ONLY_IN_PUBLISH_STAGE);
         $view->assignMultiple([
             'enablePreviousStageButton' => !is_null($previousStage),
             'enableNextStageButton' => !is_null($nextStage),
             'enableDiscardStageButton' => !is_null($previousStage) || !is_null($nextStage),
+            'enablePublishButton' => $enablePublishButton,
             'nextStage' => $nextStageSendToTitle,
             'nextStageId' => $nextStage->uid ?? 0,
             'prevStage' => $previousStageSendToTitle,
             'prevStageId' => $previousStage->uid ?? 0,
         ]);
         return $view->render('Preview/Ajax/StageButtons');
+    }
+
+    private function publishPageDirectly(int $pageId): array
+    {
+        $backendUser = $this->getBackendUser();
+        $currentWorkspace = $backendUser->workspace;
+        $workspaceRecordArray = $backendUser->workspaceRec;
+        if (!$this->workspacePublishGate->isGranted($backendUser, $currentWorkspace)
+            || (($workspaceRecordArray['publish_access'] ?? 0) & WorkspaceService::PUBLISH_ACCESS_ONLY_IN_PUBLISH_STAGE)
+        ) {
+            return [
+                'success' => false,
+            ];
+        }
+        $cmdMapArray = [];
+        $workspaceItemsArray = $this->workspaceService->selectVersionsInWorkspace($currentWorkspace, -99, $pageId, 0, 'tables_modify');
+        foreach ($workspaceItemsArray as $tableName => $items) {
+            foreach ($items as $item) {
+                $liveId = $item['t3ver_oid'] ?: $item['uid'];
+                $cmdMapArray[$tableName][$liveId]['version']['action'] = 'publish';
+                $cmdMapArray[$tableName][$liveId]['version']['swapWith'] = $item['uid'];
+            }
+        }
+        $result = ['success' => true];
+        if (empty($cmdMapArray)) {
+            return $result;
+        }
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([], $cmdMapArray);
+        $dataHandler->process_cmdmap();
+        if ($dataHandler->errorLog) {
+            $result['success'] = false;
+            $result['error'] = implode('<br/>', $dataHandler->errorLog);
+        }
+        return $result;
     }
 
     private function publishEntireWorkspace(\stdClass $parameters): array

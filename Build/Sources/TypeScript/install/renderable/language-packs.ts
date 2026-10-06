@@ -11,9 +11,9 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property, state } from 'lit/decorators';
+import { customElement, property, state } from 'lit/decorators.js';
 import { LitElement, type TemplateResult, html, nothing } from 'lit';
-import { classMap } from 'lit/directives/class-map';
+import { classMap } from 'lit/directives/class-map.js';
 
 type Language = {
   iso: string,
@@ -163,7 +163,7 @@ export class LanguageMatrixElement extends LitElement {
             <div class="btn-group">
               ${this.renderLanguageActions(language)}
             </div>
-            ${language.name}
+            <span class="ms-2">${language.name}</span>
           </td>
           <td>${language.iso}</td>
           <td>${language.dependencies.join(', ')}</td>
@@ -279,6 +279,7 @@ export class ExtensionMatrixElement extends LitElement {
             <button class="btn btn-default" title=${tooltip}
               @click=${() => this.dispatchEvent(new CustomEvent<DownloadPacksEvent>('download-packs', eventData))}>
               <typo3-backend-icon identifier="actions-download" size="small"></typo3-backend-icon>
+              ${language}
             </button>
           </td>
         `;

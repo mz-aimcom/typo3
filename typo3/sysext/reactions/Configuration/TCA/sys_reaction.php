@@ -28,20 +28,20 @@ return [
     'types' => [
         '1' => [
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                 --palette--;;config,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:access,
                 --palette--;;access',
         ],
     ],
     'palettes' => [
         'config' => [
-            'label' => 'LLL:EXT:reactions/Resources/Private/Language/locallang_db.xlf:palette.config',
-            'description' => 'LLL:EXT:reactions/Resources/Private/Language/locallang_db.xlf:palette.config.description',
+            'label' => 'reactions.db:palette.config',
+            'description' => 'reactions.db:palette.config.description',
             'showitem' => 'reaction_type, --linebreak--, name, description, --linebreak--, identifier, secret',
         ],
         'access' => [
-            'label' => 'LLL:EXT:frontend/Resources/Private/Language/locallang_tca.xlf:pages.palettes.access',
+            'label' => 'core.form.palettes:access',
             'showitem' => 'disabled, starttime, endtime',
         ],
     ],
@@ -82,16 +82,16 @@ return [
             'config' => [
                 'type' => 'password',
                 'required' => true,
+                'appearance' => [
+                    'copyToClipboard' => true,
+                ],
                 'fieldControl' => [
                     'passwordGenerator' => [
                         'renderType' => 'passwordGenerator',
                         'options' => [
                             'title' => 'LLL:EXT:reactions/Resources/Private/Language/locallang_db.xlf:sys_reaction.secret.passwordGenerator',
                             'allowEdit' => false,
-                            'passwordRules' => [
-                                'length' => 40,
-                                'random' => 'hex',
-                            ],
+                            'passwordPolicy' => 'secretToken',
                         ],
                     ],
                 ],

@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\FolderStructure;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
@@ -28,6 +29,7 @@ use TYPO3\CMS\Install\FolderStructure\NodeInterface;
 use TYPO3\CMS\Install\FolderStructure\RootNodeInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class LinkNodeTest extends UnitTestCase
 {
     private string $testRoot;
@@ -36,7 +38,10 @@ final class LinkNodeTest extends UnitTestCase
     {
         parent::setUp();
         // do not use var path here, as link nodes get checked for public path as first part
-        $this->testRoot = Environment::getPublicPath() . '/typo3temp/tests/';
+        // The unique sub directory keeps the files of other test cases, which use the
+        // same root, out of the cleanup below.
+        $this->testRoot = Environment::getPublicPath() . '/typo3temp/tests/'
+            . StringUtility::getUniqueId('linkNode_') . '/';
         $this->testFilesToDelete[] = $this->testRoot;
         GeneralUtility::mkdir_deep($this->testRoot);
     }
@@ -55,7 +60,7 @@ final class LinkNodeTest extends UnitTestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionCode(1380546061);
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(LinkNode::class, null, [], '', false);
         $structure = [
             'name' => 'foo/bar',
@@ -66,7 +71,7 @@ final class LinkNodeTest extends UnitTestCase
     #[Test]
     public function constructorSetsParent(): void
     {
-        $parent = $this->createMock(NodeInterface::class);
+        $parent = self::createStub(NodeInterface::class);
         $node = $this->getAccessibleMock(LinkNode::class, null, [], '', false);
         $structure = [
             'name' => 'foo',
@@ -79,7 +84,7 @@ final class LinkNodeTest extends UnitTestCase
     public function constructorSetsName(): void
     {
         $node = $this->getAccessibleMock(LinkNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $name = StringUtility::getUniqueId('test_');
         $node->__construct(['name' => $name], $parent);
         self::assertSame($name, $node->getName());
@@ -89,7 +94,7 @@ final class LinkNodeTest extends UnitTestCase
     public function constructorSetsNameAndTarget(): void
     {
         $node = $this->getAccessibleMock(LinkNode::class, null, [], '', false);
-        $parent = $this->createMock(RootNodeInterface::class);
+        $parent = self::createStub(RootNodeInterface::class);
         $name = StringUtility::getUniqueId('test_');
         $target = '../' . StringUtility::getUniqueId('test_');
         $node->__construct(['name' => $name, 'target' => $target], $parent);

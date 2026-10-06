@@ -1,0 +1,109 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+    <div class="workspace-panel" id="workspace-panel">
+        <form id="workspace-settings-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="depth" class="form-label"><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:workingTable.depth" /></label>
+                    <select name="depth" id="depth" class="form-select">
+                        <option value="0" {f:if(condition: '{selectedDepth} == 0', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_0" /></option>
+                        <option value="1" {f:if(condition: '{selectedDepth} == 1', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_1" /></option>
+                        <option value="2" {f:if(condition: '{selectedDepth} == 2', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_2" /></option>
+                        <option value="3" {f:if(condition: '{selectedDepth} == 3', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_3" /></option>
+                        <option value="4" {f:if(condition: '{selectedDepth} == 4', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_4" /></option>
+                        <option value="999" {f:if(condition: '{selectedDepth} == 999', then: 'selected')}><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.depth_infi" /></option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="languages" class="form-label"><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:workingTable.languages" /></label>
+                    <div class="input-group">
+                        <span class="input-group-text input-group-icon">
+                            <f:for each="{availableLanguages}" as="language"><f:if condition="{language.active}"><core:icon identifier="{language.flagIcon}" /></f:if></f:for>
+                        </span>
+                        <select name="languages" id="languages" class="form-select">
+                            <f:for each="{availableLanguages}" as="language">
+                                <option value="{language.uid}" {f:if(condition: '{language.active}', then: 'selected')} data-icon="{core:icon(identifier: '{language.flagIcon}') -> f:format.htmlspecialchars()}">{language.title}</option>
+                            </f:for>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="stageFilter" class="form-label"><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:workingTable.stages" /></label>
+                    <select name="stages" id="stageFilter" class="form-select">
+                        <f:for each="{availableSelectStages}" as="availableSelectStage">
+                            <option value="{availableSelectStage.uid}" {f:if(condition: '{availableSelectStage.uid} == {selectedStage}', then: 'selected')}>{availableSelectStage.label}</option>
+                        </f:for>
+                    </select>
+                </div>
+                <div class="form-group align-self-end">
+                    <label for="searchValue" class="form-label">
+                        <f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.label.searchString" />
+                    </label>
+                    <div class="input-group">
+                        <input class="form-control" type="search" autocomplete="off" name="search-text" id="searchValue" />
+                        <button type="submit" class="btn btn-default" disabled>
+                            <f:translate id="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.title.search"/>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+        <div class="row workspace-actions multi-record-selection-actions-wrapper gx-0 hidden">
+            <f:if condition="{stageActions} && {showEntireWorkspaceDropDown}">
+                <div class="col-auto">
+                    <div class="row row-cols-auto align-items-center gx-2 me-2">
+                        <label class="col" for="mass-action">
+                            <strong><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:entireWorkspace" /></strong>
+                        </label>
+                        <div class="col">
+                            <select name="mass-action" id="mass-action" class="form-select form-select-sm">
+                                <option value=""><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:chooseMassAction" /></option>
+                                <f:for each="{stageActions}" as="stageAction">
+                                    <option value="{stageAction.action}">{stageAction.title}</option>
+                                </f:for>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </f:if>
+            <div class="col-auto">
+                <div class="row row-cols-auto align-items-center gx-2 t3js-multi-record-selection-actions hidden">
+                    <div class="col">
+                        <strong><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.selection"/></strong>
+                    </div>
+                    <div class="col">
+                        <select name="stage-action" class="form-select form-select-sm">
+                            <option value=""><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:chooseAction" /></option>
+                            <f:for each="{availableStages}" as="availableStage">
+                                <option value="{availableStage.uid}">{availableStage.title}</option>
+                            </f:for>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <select name="selection-action" class="form-select form-select-sm">
+                            <option value=""><f:translate key="LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:chooseSelectionAction" /></option>
+                            <f:for each="{stageActions}" as="stageAction">
+                                <option value="{stageAction.action}">{stageAction.title}</option>
+                            </f:for>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="workspace-content-wrapper">
+            <div id="workspace-contents" style="display: none">
+                <typo3-workspaces-record-table></typo3-workspaces-record-table>
+            </div>
+            <div id="workspace-contents-empty" style="display: none">
+                <f:be.infobox
+                    message="{f:translate(key:'LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:noResults')}"
+                    state="{f:constant(name: 'TYPO3\CMS\Core\Type\ContextualFeedbackSeverity::NOTICE')}"
+                />
+            </div>
+        </div>
+        <nav id="workspace-pagination" class="mt-3"></nav>
+    </div>
+</html>

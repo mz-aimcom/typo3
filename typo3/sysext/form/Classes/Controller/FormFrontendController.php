@@ -19,7 +19,6 @@ namespace TYPO3\CMS\Form\Controller;
 
 use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
-use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConfigurationManagerInterface;
@@ -30,7 +29,7 @@ use TYPO3\CMS\Form\Domain\Configuration\ArrayProcessing\ArrayProcessor;
 use TYPO3\CMS\Form\Domain\Configuration\ConfigurationService;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinition\Converters\FinisherOptionsFlexFormOverridesConverter;
 use TYPO3\CMS\Form\Domain\Configuration\FormDefinition\Converters\FlexFormFinisherOverridesConverterDto;
-use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\Prototype\PrototypeConfiguration;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 
 /**
@@ -44,9 +43,7 @@ class FormFrontendController extends ActionController
     public function __construct(
         protected readonly ConfigurationService $configurationService,
         protected readonly FormPersistenceManagerInterface $formPersistenceManager,
-        protected readonly FlexFormService $flexFormService,
         protected readonly FlexFormTools $flexFormTools,
-        protected readonly ExtFormConfigurationManagerInterface $extFormConfigurationManager,
     ) {}
 
     /**
@@ -63,8 +60,7 @@ class FormFrontendController extends ActionController
         $formDefinition = [];
         if (!empty($this->settings['persistenceIdentifier'])) {
             $typoScriptSettings = $this->configurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_SETTINGS, 'form');
-            $formSettings = $this->extFormConfigurationManager->getYamlConfiguration($typoScriptSettings, true);
-            $formDefinition = $this->formPersistenceManager->load($this->settings['persistenceIdentifier'], $formSettings, $typoScriptSettings);
+            $formDefinition = $this->formPersistenceManager->load($this->settings['persistenceIdentifier'], $typoScriptSettings, $this->request);
             $formDefinition['persistenceIdentifier'] = $this->settings['persistenceIdentifier'];
             $formDefinition = $this->overrideByFlexFormSettings($formDefinition);
             $formDefinition = ArrayUtility::setValueByPath($formDefinition, 'renderingOptions._originalIdentifier', $formDefinition['identifier'], '.');
@@ -100,22 +96,24 @@ class FormFrontendController extends ActionController
         }
         if (isset($formDefinition['finishers'])) {
             $prototypeName = $formDefinition['prototypeName'] ?? 'standard';
-            $prototypeConfiguration = $this->configurationService->getPrototypeConfiguration($prototypeName);
+            $prototypeConfiguration = PrototypeConfiguration::fromArray(
+                $this->configurationService->getPrototypeConfiguration($prototypeName)
+            );
             foreach ($formDefinition['finishers'] as $index => $formFinisherDefinition) {
                 $finisherIdentifier = $formFinisherDefinition['identifier'];
                 $sheetIdentifier = $this->getFlexformSheetIdentifier($formDefinition, $prototypeName, $finisherIdentifier);
                 $flexFormSheetSettings = $this->getFlexFormSettingsFromSheet($flexFormData, $sheetIdentifier);
                 if (($this->settings['overrideFinishers'] ?? false) && isset($flexFormSheetSettings['finishers'][$finisherIdentifier])) {
-                    $prototypeFinisherDefinition = $prototypeConfiguration['finishersDefinition'][$finisherIdentifier] ?? [];
+                    $finisherDefinition = $prototypeConfiguration->finishers->get($finisherIdentifier);
                     $converterDto = GeneralUtility::makeInstance(
                         FlexFormFinisherOverridesConverterDto::class,
-                        $prototypeFinisherDefinition,
+                        $finisherDefinition?->formEngine,
                         $formFinisherDefinition,
                         $finisherIdentifier,
                         $flexFormSheetSettings
                     );
                     // Iterate over all `prototypes.<prototypeName>.finishersDefinition.<finisherIdentifier>.FormEngine.elements` values
-                    GeneralUtility::makeInstance(ArrayProcessor::class, $prototypeFinisherDefinition['FormEngine']['elements'])->forEach(
+                    GeneralUtility::makeInstance(ArrayProcessor::class, $finisherDefinition?->formEngine->elements ?? [])->forEach(
                         GeneralUtility::makeInstance(
                             ArrayProcessing::class,
                             'modifyFinisherOptionsFromFlexFormOverrides',
@@ -156,6 +154,6 @@ class FormFrontendController extends ActionController
             return [];
         }
         $sheetDataXml = $this->flexFormTools->flexArray2Xml($sheetData);
-        return $this->flexFormService->convertFlexFormContentToArray($sheetDataXml)['settings'] ?? [];
+        return $this->flexFormTools->convertFlexFormContentToArray($sheetDataXml)['settings'] ?? [];
     }
 }

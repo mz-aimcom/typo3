@@ -19,16 +19,18 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\Area;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariant;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\CropVariantCollection;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
+use TYPO3\CMS\Fluid\ViewHelpers\ImageViewHelper;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\Core\ViewHelper\Exception;
@@ -65,9 +67,9 @@ final class ImageViewHelperTest extends FunctionalTestCase
                 'Unable to render image tag: Supplied something could not be resolved to a File or FileReference.',
             ],
             [
-                '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
-                1509741914,
-                'Unable to render image tag: File /typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers does not exist.',
+                '<f:image src="EXT:fluid/Resources/Private/Language/" />',
+                1509741911,
+                'Unable to render image tag: Tried to access a private resource file "EXT:fluid/Resources/Private/Language/" from fallback compatibility storage. This storage only handles public files.',
             ],
             [
                 '<f:image src="fileadmin/image.jpg" />',
@@ -92,7 +94,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
 
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function invalidArgumentsWithContentObjectPresentDataProvider(): array
@@ -114,9 +116,9 @@ final class ImageViewHelperTest extends FunctionalTestCase
                 'Unable to render image tag in "tt_content:123": Supplied something could not be resolved to a File or FileReference.',
             ],
             [
-                '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/" />',
-                1509741914,
-                'Unable to render image tag in "tt_content:123": File /typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers does not exist.',
+                '<f:image src="EXT:fluid/Resources/Private/Language/" />',
+                1509741911,
+                'Unable to render image tag in "tt_content:123": Tried to access a private resource file "EXT:fluid/Resources/Private/Language/" from fallback compatibility storage. This storage only handles public files.',
             ],
             [
                 '<f:image src="fileadmin/image.jpg" />',
@@ -139,8 +141,8 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode($expectedExceptionCode);
         $this->expectExceptionMessage($message);
 
-        $cObj = new ContentObjectRenderer();
-        $serverRequest = (new ServerRequest())
+        $cObj = $this->get(ContentObjectRenderer::class);
+        $serverRequest = new ServerRequest()
             ->withAttribute('currentContentObject', $cObj)
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
@@ -149,7 +151,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
 
         $context = $this->get(RenderingContextFactory::class)->create([], new Request($serverRequest));
         $context->getTemplatePaths()->setTemplateSource($template);
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function basicUsageScalingCroppingDataProvider(): \Generator
@@ -267,12 +269,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
         $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(1));
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertMatchesRegularExpression($expected, $result);
 
         $matches = [];
         preg_match($expected, $result, $matches);
-        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        [$width, $height] = getimagesize(Environment::getPublicPath() . '/' . $matches[1]);
         self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
         self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
     }
@@ -307,12 +309,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
         $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(1));
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertMatchesRegularExpression($expected, $result);
 
         $matches = [];
         preg_match($expected, $result, $matches);
-        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        [$width, $height] = getimagesize(Environment::getPublicPath() . '/' . $matches[1]);
         self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
         self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
     }
@@ -371,12 +373,12 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getVariableProvider()->add('crop', (string)$cropVariantCollection);
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertMatchesRegularExpression($expected, $result);
 
         $matches = [];
         preg_match($expected, $result, $matches);
-        [$width, $height] = getimagesize($this->instancePath . '/' . $matches[1]);
+        [$width, $height] = getimagesize(Environment::getPublicPath() . '/' . $matches[1]);
         self::assertEquals($expectedWidth, $width, 'width of generated image does not match expected width');
         self::assertEquals($expectedHeight, $height, 'height of generated image does not match expected height');
     }
@@ -397,7 +399,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         ];
         yield 'alt' => [
             '<f:image src="fileadmin/ImageViewHelperTest.jpg" alt="alternative text" />',
-            '<img alt="alternative text" src="fileadmin/ImageViewHelperTest.jpg" width="400" height="300" />',
+            '<img src="fileadmin/ImageViewHelperTest.jpg" width="400" height="300" alt="alternative text" />',
         ];
         yield 'title' => [
             '<f:image src="fileadmin/ImageViewHelperTest.jpg" title="image title" />',
@@ -419,6 +421,10 @@ final class ImageViewHelperTest extends FunctionalTestCase
             '<f:image src="1" alt="" />',
             '<img src="fileadmin/user_upload/ImageViewHelperFalTest.jpg" width="400" height="300" alt="" />',
         ];
+        yield 'overwrite alt from file with custom text' => [
+            '<f:image src="1" alt="custom alternative text" />',
+            '<img src="fileadmin/user_upload/ImageViewHelperFalTest.jpg" width="400" height="300" alt="custom alternative text" />',
+        ];
         yield 'title from file reference' => [
             '<f:image src="1" treatIdAsReference="1" />',
             '<img src="fileadmin/user_upload/ImageViewHelperFalTest.jpg" width="400" height="300" alt="alt text from reference" title="title from reference" />',
@@ -429,13 +435,24 @@ final class ImageViewHelperTest extends FunctionalTestCase
         ];
     }
 
+    #[Test]
+    public function altIsRegisteredAsOptionalStringArgument(): void
+    {
+        $argumentDefinitions = $this->get(ImageViewHelper::class)->prepareArguments();
+
+        self::assertArrayHasKey('alt', $argumentDefinitions);
+        self::assertSame('string', $argumentDefinitions['alt']->getType());
+        self::assertFalse($argumentDefinitions['alt']->isRequired());
+        self::assertNull($argumentDefinitions['alt']->getDefaultValue());
+    }
+
     #[DataProvider('tagAttributesDataProvider')]
     #[Test]
     public function tagAttributes(string $template, string $expected): void
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertEquals($expected, $result);
     }
 
@@ -446,7 +463,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" fileExtension="png" />');
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png" width="400" height="300" alt="" />$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -461,7 +478,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'ImageMagick';
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.avif" width="400" height="300" alt="" />$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -472,7 +489,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperFailTest.tif" width="200" fileExtension="jpg" />');
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/3/3/csm_ImageViewHelperFailTest_.*\.jpg" width="200" height="150" alt="" />$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -484,7 +501,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperFailTest.tif" width="200" />');
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/3/3/csm_ImageViewHelperFailTest_.*\.png" width="200" height="150" alt="" />$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -495,7 +512,7 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="200" fileExtension="tif" />');
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.tif" width="200" height="150" alt="" />$@',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -507,36 +524,139 @@ final class ImageViewHelperTest extends FunctionalTestCase
 
         // Force GraphicsMagick here which does not support AVIF. Output should be in jpeg format then.
         $GLOBALS['TYPO3_CONF_VARS']['GFX']['processor'] = 'GraphicsMagick';
-        $renderOutput = (new TemplateView($context))->render();
         self::assertMatchesRegularExpression(
             '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.avif.jpg" width="200" height="150" alt="" />$@',
-            $renderOutput,
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOption(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (ignoring default)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] = [
+            'webp' => 'webp',
+            'jpg' => 'webp',
+            'default' => 'gif',
+        ];
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="201" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.webp" width="201" height="151" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOptionUsingDefault(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (using default)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] = [
+            'default' => 'webp',
+        ];
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="202" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.webp" width="202" height="152" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOptionUsingDefaultIgnoringInvalidKeys(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (using default)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] = [
+            'nothing' => 'nothing',
+            'debug',
+            47 => 11,
+            // Invalid, will be ignored!
+            'jpg' => ['4', '8', '15', 16, 23, '42'],
+            'default' => 'webp',
+        ];
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="202" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.webp" width="202" height="152" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOptionUsingDefaultWhenArrayIsEmpty(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (using default)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] = [];
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="202" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png" width="202" height="152" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOptionUsingDefaultWhenArrayIsInvalid(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (using default)
+        $GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats'] = 'bad string';
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="202" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png" width="202" height="152" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function targetExtensionCanBeChangedWithImagefileDefaultProcessingConfigurationOptionUsingDefaultWhenArrayIsMissing(): void
+    {
+        $context = $this->get(RenderingContextFactory::class)->create();
+
+        // Set expectation to render our JPG as 'webp' (using default)
+        unset($GLOBALS['TYPO3_CONF_VARS']['GFX']['imageFileConversionFormats']);
+
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" width="202" />');
+        self::assertMatchesRegularExpression(
+            '@^<img src="fileadmin/_processed_/5/3/csm_ImageViewHelperTest_.*\.png" width="202" height="152" alt="" />$@',
+            new TemplateView($context)->render(),
         );
     }
 
     #[Test]
     public function absoluteArgument(): void
     {
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_DIR', 'https://typo3-testing.local/');
+        $normalizedParams = NormalizedParams::createFromServerParams(['HTTP_HOST' => 'typo3-testing.local', 'HTTPS' => 'on', 'SCRIPT_NAME' => '/index.php']);
+        $GLOBALS['TYPO3_REQUEST'] = new ServerRequest()
+            ->withAttribute('normalizedParams', $normalizedParams)
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
 
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" absolute="1" />');
         self::assertEquals(
             '<img src="https://typo3-testing.local/fileadmin/ImageViewHelperTest.jpg" width="400" height="300" alt="" />',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
     #[Test]
     public function base64Argument(): void
     {
-        GeneralUtility::setIndpEnv('TYPO3_REQUEST_DIR', 'https://typo3-testing.local/');
-
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" base64="1" width="5" height="5" />');
         self::assertEquals(
             '<img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQIAEgASAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAFAAUDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAdEAEAAgICAwAAAAAAAAAAAAABAgMAEQQhEiIl/8QAFQEBAQAAAAAAAAAAAAAAAAAAAQL/xAAXEQADAQAAAAAAAAAAAAAAAAABAhEA/9oADAMBAAIRAxEAPwCBv53C5IfMiW1vjKyVqsgjEDRo0JJOt+3a6xjGU4jQZYC7/9k=" width="5" height="5" alt="" />',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
     }
 
@@ -553,7 +673,63 @@ final class ImageViewHelperTest extends FunctionalTestCase
         $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" crop="{crop}" />');
         self::assertEquals(
             '<img data-focus-area="{&quot;x&quot;:100,&quot;y&quot;:75,&quot;width&quot;:200,&quot;height&quot;:225}" src="fileadmin/ImageViewHelperTest.jpg" width="400" height="300" alt="" />',
-            (new TemplateView($context))->render(),
+            new TemplateView($context)->render(),
         );
+    }
+
+    #[Test]
+    public function focusAreaAttributeIsRelativeToScaledImage(): void
+    {
+        // Based on 400x300 dimensions, scaled down to 200x150
+        $cropVariantCollection = new CropVariantCollection([
+            new CropVariant('default', 'Default', Area::createEmpty(), null, null, new Area(0.5, 0.5, 0.25, 0.5)),
+        ]);
+
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getVariableProvider()->add('crop', (string)$cropVariantCollection);
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" crop="{crop}" width="200" />');
+        self::assertMatchesRegularExpression(
+            '@^<img data-focus-area="\{&quot;x&quot;:100,&quot;y&quot;:75,&quot;width&quot;:50,&quot;height&quot;:75\}" src="fileadmin/_processed_/.*\.jpg" width="200" height="150" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    #[Test]
+    public function focusAreaAttributeIsRelativeToCroppedImage(): void
+    {
+        // Based on 400x300 dimensions, cropped to 200x150. The focus area is relative to the crop area.
+        $cropVariantCollection = new CropVariantCollection([
+            new CropVariant('default', 'Default', new Area(0.25, 0.25, 0.5, 0.5), null, null, new Area(0.5, 0.5, 0.25, 0.5)),
+        ]);
+
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getVariableProvider()->add('crop', (string)$cropVariantCollection);
+        $context->getTemplatePaths()->setTemplateSource('<f:image src="fileadmin/ImageViewHelperTest.jpg" crop="{crop}" />');
+        self::assertMatchesRegularExpression(
+            '@^<img data-focus-area="\{&quot;x&quot;:100,&quot;y&quot;:75,&quot;width&quot;:50,&quot;height&quot;:75\}" src="fileadmin/_processed_/.*\.jpg" width="200" height="150" alt="" />$@',
+            new TemplateView($context)->render(),
+        );
+    }
+
+    public static function missingFileDataProvider(): \Generator
+    {
+        yield 'file object' => ['<f:image image="{file}" />'];
+        yield 'file object, scaled' => ['<f:image image="{file}" width="200" />'];
+        yield 'file reference object' => ['<f:image image="{fileReference}" />'];
+        yield 'file uid' => ['<f:image src="2" />'];
+        yield 'file reference uid' => ['<f:image src="2" treatIdAsReference="1" />'];
+        yield 'base64' => ['<f:image image="{file}" base64="1" />'];
+    }
+
+    #[DataProvider('missingFileDataProvider')]
+    #[Test]
+    public function renderReturnsEmptyStringForFileMarkedAsMissing(string $template): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/ViewHelpers/ImageViewHelper/missing_file.csv');
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getTemplatePaths()->setTemplateSource($template);
+        $context->getVariableProvider()->add('file', $this->get(ResourceFactory::class)->getFileObject(2));
+        $context->getVariableProvider()->add('fileReference', $this->get(ResourceFactory::class)->getFileReferenceObject(2));
+        self::assertSame('', new TemplateView($context)->render());
     }
 }

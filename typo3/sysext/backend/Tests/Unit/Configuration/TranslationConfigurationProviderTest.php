@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Configuration;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
@@ -28,73 +29,47 @@ use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TranslationConfigurationProviderTest extends UnitTestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
-        $backendUserAuthentication = $this->createMock(BackendUserAuthentication::class);
-        $backendUserAuthentication->method('checkLanguageAccess')->with(self::anything())->willReturn(true);
+        $backendUserAuthentication = self::createStub(BackendUserAuthentication::class);
+        $backendUserAuthentication->method('checkLanguageAccess')->willReturn(true);
         $GLOBALS['BE_USER'] = $backendUserAuthentication;
+        $languageService = self::createStub(LanguageService::class);
+        $languageService->method('translate')->willReturnCallback(
+            static fn(string $key, string $domain): string => match ($domain . ':' . $key) {
+                'core.general:LGL.defaultLanguage' => 'Default',
+                default => $key,
+            }
+        );
+        $GLOBALS['LANG'] = $languageService;
     }
 
     #[Test]
     public function defaultLanguageIsAlwaysReturned(): void
     {
-        $languageService = $this->createMock(LanguageService::class);
-        $languageService->method('sL')->with(self::anything())->willReturn('');
-        $GLOBALS['LANG'] = $languageService;
-
         $pageId = 1;
         $site = new Site('dummy', $pageId, ['base' => 'http://sub.domainhostname.tld/path/']);
         $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteFinderMock->method('getSiteByPageId')->with($pageId)->willReturn($site);
+        $siteFinderMock->expects($this->atMost(PHP_INT_MAX))->method('getSiteByPageId')->with($pageId)->willReturn($site);
         $subject = new TranslationConfigurationProvider(
-            $this->createMock(FrontendInterface::class),
+            self::createStub(FrontendInterface::class),
             $siteFinderMock,
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(TcaSchemaFactory::class),
+            self::createStub(ConnectionPool::class),
+            self::createStub(TcaSchemaFactory::class),
         );
         $languages = $subject->getSystemLanguages($pageId);
         self::assertArrayHasKey(0, $languages);
     }
 
     #[Test]
-    public function getSystemLanguagesAggregatesLanguagesOfAllSitesForRootLevel(): void
+    public function getSystemLanguagesConsolidatesLanguagesForRootLevel(): void
     {
-        $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteFinderMock->method('getAllSites')->willReturn($this->getDummySites());
-        $subject = new TranslationConfigurationProvider(
-            $this->createMock(FrontendInterface::class),
-            $siteFinderMock,
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(TcaSchemaFactory::class),
-        );
-        $languages = $subject->getSystemLanguages(0);
-        self::assertCount(3, $languages);
-    }
-
-    #[Test]
-    public function getSystemLanguagesConcatenatesTitlesOfLanguagesForRootLevel(): void
-    {
-        $siteFinderMock = $this->createMock(SiteFinder::class);
-        $siteFinderMock->method('getAllSites')->willReturn($this->getDummySites());
-        $subject = new TranslationConfigurationProvider(
-            $this->createMock(FrontendInterface::class),
-            $siteFinderMock,
-            $this->createMock(ConnectionPool::class),
-            $this->createMock(TcaSchemaFactory::class),
-        );
-        $languages = $subject->getSystemLanguages(0);
-        self::assertEquals('Deutsch [Site: dummy1], German [Site: dummy2]', $languages[1]['title']);
-    }
-
-    /**
-     * @return Site[]
-     */
-    private function getDummySites(): array
-    {
-        return [
+        $siteFinderStub = self::createStub(SiteFinder::class);
+        $siteFinderStub->method('getAllSites')->willReturn([
             new Site(
                 'dummy1',
                 1,
@@ -105,11 +80,13 @@ final class TranslationConfigurationProviderTest extends UnitTestCase
                             'languageId' => 0,
                             'locale' => 'en_US.UTF-8',
                             'title' => 'English',
+                            'flag' => 'us',
                         ],
                         [
                             'languageId' => 1,
                             'locale' => 'de_DE.UTF-8',
                             'title' => 'Deutsch',
+                            'flag' => 'de',
                         ],
                     ],
                 ]
@@ -124,20 +101,147 @@ final class TranslationConfigurationProviderTest extends UnitTestCase
                             'languageId' => 0,
                             'locale' => 'en_US.UTF-8',
                             'title' => 'English',
+                            'flag' => 'us',
                         ],
                         [
                             'languageId' => 1,
                             'locale' => 'de_DE.UTF-8',
                             'title' => 'German',
+                            'flag' => 'de',
                         ],
                         [
                             'languageId' => 2,
                             'locale' => 'da_DK.UTF-8',
                             'title' => 'Danish',
+                            'flag' => 'dk',
                         ],
                     ],
                 ]
             ),
-        ];
+        ]);
+        $subject = new TranslationConfigurationProvider(
+            self::createStub(FrontendInterface::class),
+            $siteFinderStub,
+            self::createStub(ConnectionPool::class),
+            self::createStub(TcaSchemaFactory::class),
+        );
+        $languages = $subject->getSystemLanguages(0);
+        self::assertCount(3, $languages);
+        // Language 0: same title across sites — keep actual title and flag
+        self::assertSame('English [0]', $languages[0]['title']);
+        self::assertSame('flags-us', $languages[0]['flagIcon']);
+        // Language 1: different titles — list unique titles, use flags-multiple
+        self::assertSame('Deutsch, German [1]', $languages[1]['title']);
+        self::assertSame('flags-multiple', $languages[1]['flagIcon']);
+        // Language 2: single site — just title and language ID
+        self::assertSame('Danish [2]', $languages[2]['title']);
+        self::assertSame('flags-dk', $languages[2]['flagIcon']);
+    }
+
+    #[Test]
+    public function getSystemLanguagesShowsDefaultLabelForLanguageZeroWhenTitlesDiffer(): void
+    {
+        $siteFinderStub = self::createStub(SiteFinder::class);
+        $siteFinderStub->method('getAllSites')->willReturn([
+            new Site(
+                'dummy1',
+                1,
+                [
+                    'base' => 'https://domain.tld/',
+                    'languages' => [
+                        [
+                            'languageId' => 0,
+                            'locale' => 'en_US.UTF-8',
+                            'title' => 'English',
+                            'flag' => 'us',
+                        ],
+                    ],
+                ]
+            ),
+            new Site(
+                'dummy2',
+                2,
+                [
+                    'base' => 'https://domain.tld/',
+                    'languages' => [
+                        [
+                            'languageId' => 0,
+                            'locale' => 'de_DE.UTF-8',
+                            'title' => 'German',
+                            'flag' => 'de',
+                        ],
+                    ],
+                ]
+            ),
+        ]);
+        $subject = new TranslationConfigurationProvider(
+            self::createStub(FrontendInterface::class),
+            $siteFinderStub,
+            self::createStub(ConnectionPool::class),
+            self::createStub(TcaSchemaFactory::class),
+        );
+        $languages = $subject->getSystemLanguages(0);
+        self::assertSame('Default [0]', $languages[0]['title']);
+        self::assertSame('flags-multiple', $languages[0]['flagIcon']);
+    }
+
+    #[Test]
+    public function getSystemLanguagesShowsFlagsMultipleWhenFlagsDifferForRootLevel(): void
+    {
+        $siteFinderStub = self::createStub(SiteFinder::class);
+        $siteFinderStub->method('getAllSites')->willReturn([
+            new Site(
+                'dummy1',
+                1,
+                [
+                    'base' => 'https://domain.tld/',
+                    'languages' => [
+                        [
+                            'languageId' => 0,
+                            'locale' => 'en_US.UTF-8',
+                            'title' => 'English',
+                            'flag' => 'us',
+                        ],
+                        [
+                            'languageId' => 1,
+                            'locale' => 'de_DE.UTF-8',
+                            'title' => 'German',
+                            'flag' => 'de',
+                        ],
+                    ],
+                ]
+            ),
+            new Site(
+                'dummy2',
+                2,
+                [
+                    'base' => 'https://domain.tld/',
+                    'languages' => [
+                        [
+                            'languageId' => 0,
+                            'locale' => 'en_GB.UTF-8',
+                            'title' => 'English',
+                            'flag' => 'gb',
+                        ],
+                        [
+                            'languageId' => 1,
+                            'locale' => 'de_AT.UTF-8',
+                            'title' => 'German',
+                            'flag' => 'at',
+                        ],
+                    ],
+                ]
+            ),
+        ]);
+        $subject = new TranslationConfigurationProvider(
+            self::createStub(FrontendInterface::class),
+            $siteFinderStub,
+            self::createStub(ConnectionPool::class),
+            self::createStub(TcaSchemaFactory::class),
+        );
+        $languages = $subject->getSystemLanguages(0);
+        // Same title but different flags on a non-default language: flags-multiple icon
+        self::assertSame('German [1]', $languages[1]['title']);
+        self::assertSame('flags-multiple', $languages[1]['flagIcon']);
     }
 }

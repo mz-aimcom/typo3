@@ -1,33 +1,23 @@
 page = PAGE
 page {
   includeCSS {
-    absoluteCSS = {$absoluteCSS}
-    relativeCSS = {$relativeCSS}
     extensionCSS = {$extensionCSS}
     externalCSS = {$externalCSS}
-    externalCSS.external = 1
-    externalCSS.excludeFromConcatenation = 1
-    externalCSS.disableCompression = 1
   }
 
   includeJS {
-    absoluteJS = {$absoluteJS}
-    relativeJS = {$relativeJS}
     extensionJS = {$extensionJS}
     externalJS = {$externalJS}
-    externalJS.external = 1
-    externalJS.excludeFromConcatenation = 1
-    externalJS.disableCompression = 1
   }
   # added so we can also test the inclusion of these types in FE
   includeCSSLibs {
-    relativeCSS = {$relativeCSS}
+    extensionCSS = {$extensionCSS}
   }
   includeJSLibs {
-    relativeJS = {$relativeJS}
+    extensionJS = {$extensionJS}
   }
   includeJSFooterlibs {
-    relativeJS = {$relativeJS}
+    extensionJS = {$extensionJS}
   }
   10 = TEXT
   10.value = Link to page
@@ -36,28 +26,26 @@ page {
   20 {
     file = {$localImage}
   }
+  30 = TEXT
+  30.value = Link to img_resource
+  30.typolink {
+    parameter.cObject = IMG_RESOURCE
+    parameter.cObject.file = {$falImage}
+  }
+  40 = FLUIDTEMPLATE
+  40.template = TEXT
+  40.template.value (
+    <f:asset.css identifier="assetExtensionCSS" href="{$assetExtensionCSS}" />
+    <f:asset.script identifier="assetExtensionJS" src="{$assetExtensionJS}" />
+    <f:asset.css identifier="assetLocalCSS" href="{$assetLocalCSS}" />
+    <f:asset.script identifier="assetLocalJS" src="{$assetLocalJS}" />
+  )
 }
 
 [traverse(request.getQueryParams(), 'useAbsoluteUrls') == '1']
   config.forceAbsoluteUrls = 1
 [GLOBAL]
 
-[traverse(request.getQueryParams(), 'testCompressor') == 'concatenate' || traverse(request.getParsedBody(), 'testCompressor') == 'concatenate']
-  config {
-    concatenateCss = 1
-    concatenateJs = 1
-  }
-[traverse(request.getQueryParams(), 'testCompressor') == 'compress' || traverse(request.getParsedBody(), 'testCompressor') == 'compress']
-  config {
-    compressCss = 1
-    compressJs = 1
-  }
-[traverse(request.getQueryParams(), 'testCompressor') == 'concatenate-and-compress' || traverse(request.getParsedBody(), 'testCompressor') == 'concatenate-and-compress']
-  config {
-    concatenateCss = 1
-    concatenateJs = 1
-    compressCss = 1
-    compressJs = 1
-    concatenateJsAndCss = 1
-  }
-[end]
+[traverse(request.getQueryParams(), 'useAbsoluteUrls') == '2']
+  page.30.typolink.forceAbsoluteUrl = 1
+[GLOBAL]

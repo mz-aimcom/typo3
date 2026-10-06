@@ -109,31 +109,13 @@ class ConfigurationManager
     }
 
     /**
-     * Return configuration array of typo3conf/system/settings.php or config/system/settings.php, falls back
-     * to typo3conf/LocalConfiguration.php
+     * Return configuration array of typo3conf/system/settings.php or config/system/settings.php
      *
      * @return array Content array of local configuration file
      */
     public function getLocalConfiguration(): array
     {
-        $settingsFile = $this->getSystemConfigurationFileLocation();
-        if (is_file($settingsFile)) {
-            return require $settingsFile;
-        }
-        return require $this->getLocalConfigurationFileLocation();
-    }
-
-    /**
-     * Get the file location of the local configuration file,
-     * currently the path and filename.
-     *
-     * Path to local overload TYPO3_CONF_VARS file.
-     *
-     * @internal
-     */
-    public function getLocalConfigurationFileLocation(): string
-    {
-        return Environment::getLegacyConfigPath() . '/LocalConfiguration.php';
+        return require $this->getSystemConfigurationFileLocation();
     }
 
     /**
@@ -147,11 +129,7 @@ class ConfigurationManager
     public function getSystemConfigurationFileLocation(bool $relativeToProjectRoot = false): string
     {
         // For composer-based installations, the file is in config/system/settings.php
-        if (Environment::getProjectPath() !== Environment::getPublicPath()) {
-            $path = Environment::getConfigPath() . '/system/settings.php';
-        } else {
-            $path = Environment::getLegacyConfigPath() . '/system/settings.php';
-        }
+        $path = Environment::getConfigPath() . '/system/settings.php';
         if ($relativeToProjectRoot) {
             return substr($path, strlen(Environment::getProjectPath()) + 1);
         }
@@ -178,10 +156,7 @@ class ConfigurationManager
     public function getAdditionalConfigurationFileLocation()
     {
         // For composer-based installations, the file is in config/system/additional.php
-        if (Environment::getProjectPath() !== Environment::getPublicPath()) {
-            return Environment::getConfigPath() . '/system/additional.php';
-        }
-        return Environment::getLegacyConfigPath() . '/system/additional.php';
+        return Environment::getConfigPath() . '/system/additional.php';
     }
 
     /**
@@ -399,10 +374,10 @@ class ConfigurationManager
         $configuration = ArrayUtility::sortByKeyRecursive($configuration);
         $result = GeneralUtility::writeFile(
             $systemSettingsFile,
-            "<?php\n" .
-                'return ' .
-                    ArrayUtility::arrayExport($configuration) .
-                ";\n",
+            "<?php\n"
+                . 'return '
+                    . ArrayUtility::arrayExport($configuration)
+                . ";\n",
             true
         );
 

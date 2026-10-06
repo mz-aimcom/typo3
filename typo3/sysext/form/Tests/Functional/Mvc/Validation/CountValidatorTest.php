@@ -26,11 +26,17 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class CountValidatorTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
+    protected array $coreExtensionsToLoad = [
+        'form',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $GLOBALS['TYPO3_REQUEST'] = $request;
     }
 

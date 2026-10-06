@@ -10,9 +10,16 @@ services:
   TYPO3\CMS\Dashboard\Widgets\WidgetConfiguration:
     autowire: false
 
-  TYPO3\CMS\Dashboard\Widgets\Provider\SysLogButtonProvider:
+  dashboard.buttons.syslogErrors:
+    class: 'TYPO3\CMS\Dashboard\Widgets\Provider\SysLogButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.sysLogErrors.buttonText'
+
+  dashboard.buttons.syslogUsers:
+    class: 'TYPO3\CMS\Dashboard\Widgets\Provider\SysLogButtonProvider'
+    arguments:
+      $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.sysLogUsers.buttonText'
+      $channel: 'user'
 
   cache.dashboard.rss:
     class: 'TYPO3\CMS\Core\Cache\Frontend\FrontendInterface'
@@ -24,35 +31,35 @@ services:
     class: 'TYPO3\CMS\Dashboard\Widgets\Provider\ButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.t3news.moreItems'
-      $link: 'https://typo3.org/project/news'
+      $link: 'https://news.typo3.com'
       $target: '_blank'
 
   dashboard.buttons.t3securityAdvisories:
     class: 'TYPO3\CMS\Dashboard\Widgets\Provider\ButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.t3securityAdvisories.moreItems'
-      $link: 'https://typo3.org/help/security-advisories'
+      $link: 'https://news.typo3.com/security'
       $target: '_blank'
 
   dashboard.buttons.docGettingStarted:
     class: 'TYPO3\CMS\Dashboard\Widgets\Provider\ButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.documentation.gettingStarted.content.label'
-      $link: 'https://docs.typo3.org/m/typo3/tutorial-getting-started/main/en-us/Index.html'
+      $link: 'https://docs.typo3.org/permalink/t3start:start'
       $target: '_blank'
 
   dashboard.buttons.docTypoScriptReference:
     class: 'TYPO3\CMS\Dashboard\Widgets\Provider\ButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.documentation.typoscriptReference.content.label'
-      $link: 'https://docs.typo3.org/m/typo3/reference-typoscript/main/en-us/Index.html'
+      $link: 'https://docs.typo3.org/permalink/t3tsref:start'
       $target: '_blank'
 
   dashboard.buttons.docTSconfig:
     class: 'TYPO3\CMS\Dashboard\Widgets\Provider\ButtonProvider'
     arguments:
       $title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.documentation.TSconfigReference.content.label'
-      $link: 'https://docs.typo3.org/m/typo3/reference-tsconfig/main/en-us/Index.html'
+      $link: 'https://docs.typo3.org/permalink/t3tsref:pagetsconfig'
       $target: '_blank'
 
   dashboard.widget.rss:
@@ -87,7 +94,7 @@ services:
     class: 'TYPO3\CMS\Dashboard\Widgets\BarChartWidget'
     arguments:
       $dataProvider: '@TYPO3\CMS\Dashboard\Widgets\Provider\SysLogErrorsDataProvider'
-      $buttonProvider: '@TYPO3\CMS\Dashboard\Widgets\Provider\SysLogButtonProvider'
+      $buttonProvider: '@dashboard.buttons.syslogErrors'
       $options:
         refreshAvailable: true
     tags:
@@ -202,6 +209,18 @@ services:
         description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.failedLogins.description'
         iconIdentifier: 'content-widget-number'
 
+  dashboard.widget.bookmarks:
+    class: 'TYPO3\CMS\Dashboard\Widgets\BookmarksWidget'
+    tags:
+      - name: dashboard.widget
+        identifier: 'bookmarks'
+        groupNames: 'content'
+        title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_bookmarks.xlf:widget.bookmarks.title'
+        description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang_widget_bookmarks.xlf:widget.bookmarks.description'
+        iconIdentifier: 'content-bookmark'
+        height: 'medium'
+        width: 'medium'
+
   dashboard.widget.latestChangedPages:
     class: 'TYPO3\CMS\Dashboard\Widgets\LatestChangedPagesWidget'
     arguments:
@@ -216,3 +235,18 @@ services:
         iconIdentifier: 'content-widget-list'
         height: 'medium'
         width: 'medium'
+
+  dashboard.widget.latestBeLogins:
+    class: 'TYPO3\CMS\Dashboard\Widgets\LatestBeLoginsWidget'
+    arguments:
+      $dataProvider: '@TYPO3\CMS\Dashboard\Widgets\Provider\LatestBeLoginsDataProvider'
+      $buttonProvider: '@dashboard.buttons.syslogUsers'
+    tags:
+      - name: dashboard.widget
+        identifier: 'latestBeLogins'
+        groupNames: 'systemInfo'
+        title: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.latestBeLogins.title'
+        description: 'LLL:EXT:dashboard/Resources/Private/Language/locallang.xlf:widgets.latestBeLogins.description'
+        iconIdentifier: 'content-widget-list'
+        height: 'medium'
+        width: 'small'

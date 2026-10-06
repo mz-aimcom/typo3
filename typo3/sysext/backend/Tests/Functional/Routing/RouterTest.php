@@ -19,10 +19,10 @@ namespace TYPO3\CMS\Backend\Tests\Functional\Routing;
 
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
-use TYPO3\CMS\Backend\Routing\Exception\MethodNotAllowedException;
 use TYPO3\CMS\Backend\Routing\Exception\ResourceNotFoundException;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\Router;
+use TYPO3\CMS\Core\Http\Error\MethodNotAllowedException;
 use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Routing\RouteCollection;
@@ -79,6 +79,28 @@ final class RouterTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function matchResultRejectsGetForAjaxLogout(): void
+    {
+        $subject = $this->get(Router::class);
+        $serverParams = array_replace($_SERVER, ['HTTP_HOST' => 'example.com', 'HTTPS' => 'on', 'SCRIPT_NAME' => '/index.php']);
+        $request = new ServerRequest('https://example.com/typo3/ajax/logout', 'GET', null, [], $serverParams);
+        $request = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
+        $this->expectException(MethodNotAllowedException::class);
+        $subject->matchResult($request);
+    }
+
+    #[Test]
+    public function matchResultAcceptsPostForAjaxLogout(): void
+    {
+        $subject = $this->get(Router::class);
+        $serverParams = array_replace($_SERVER, ['HTTP_HOST' => 'example.com', 'HTTPS' => 'on', 'SCRIPT_NAME' => '/index.php']);
+        $request = new ServerRequest('https://example.com/typo3/ajax/logout', 'POST', null, [], $serverParams);
+        $request = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
+        $result = $subject->matchResult($request);
+        self::assertSame('/ajax/logout', $result->getRoute()->getPath());
+    }
+
+    #[Test]
     public function matchResultReturnsRouteWithMethodLimitation(): void
     {
         $subject = $this->get(Router::class);
@@ -118,7 +140,7 @@ final class RouterTest extends FunctionalTestCase
     public function matchResultReturnsRouteWithPlaceholderAndMethodLimitation(): void
     {
         $subject = $this->get(Router::class);
-        $subject->addRoute('custom-route', (new Route('/my-path/{identifier}', []))->setMethods(['POST']));
+        $subject->addRoute('custom-route', new Route('/my-path/{identifier}', [])->setMethods(['POST']));
         $serverParams = array_replace($_SERVER, ['HTTP_HOST' => 'example.com', 'HTTPS' => 'on', 'SCRIPT_NAME' => '/index.php']);
         $request = new ServerRequest('https://example.com/typo3/my-path/my-identifier', 'POST', null, [], $serverParams);
         $request = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));

@@ -27,7 +27,6 @@ use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Workspaces\Preview\PreviewUriBuilder;
 use TYPO3\CMS\Workspaces\Service\StagesService;
 
@@ -50,7 +49,8 @@ readonly class BackendUtilityHook
     #[AsEventListener('typo3-workspaces/link-modifier')]
     public function createPageUriForWorkspaceVersion(BeforePagePreviewUriGeneratedEvent $event): void
     {
-        if ($this->getBackendUser()->workspace === 0) {
+        $workspace = $event->getContext()->getPropertyFromAspect('workspace', 'id');
+        if ($workspace === 0) {
             return;
         }
         $uri = $this->previewUriBuilder->buildUriForWorkspaceSplitPreview($event->getPageId());
@@ -93,11 +93,19 @@ readonly class BackendUtilityHook
             ? $languageService->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:info.elementAlreadyModified')
             : 'Element is in workspace stage "%s", modifications will send it back to "%s".';
 
-        $this->flashMessageService
-            ->getMessageQueueByIdentifier()
-            ->enqueue(
-                GeneralUtility::makeInstance(FlashMessage::class, sprintf($message, $stageName, $editingName), '', ContextualFeedbackSeverity::INFO, true)
-            );
+        $messageText = sprintf($message, $stageName, $editingName);
+        $messageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
+
+        // The event is dispatched for the record being edited and for each of its inline children.
+        // They usually share the same stage, so the identical information would be queued over and
+        // over again, pushing the actual form out of sight. Queue it only once.
+        foreach ($messageQueue->getAllMessages(ContextualFeedbackSeverity::INFO) as $queuedMessage) {
+            if ($queuedMessage->getMessage() === $messageText) {
+                return;
+            }
+        }
+
+        $messageQueue->enqueue(new FlashMessage($messageText, '', ContextualFeedbackSeverity::INFO, true));
     }
 
     protected function getLanguageService(): ?LanguageService

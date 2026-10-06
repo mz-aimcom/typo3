@@ -19,10 +19,7 @@ namespace TYPO3\CMS\Core\Pagination;
 
 final class SimplePagination implements PaginationInterface
 {
-    /**
-     * @var PaginatorInterface
-     */
-    protected $paginator;
+    private PaginatorInterface $paginator;
 
     public function __construct(PaginatorInterface $paginator)
     {
@@ -87,5 +84,10 @@ final class SimplePagination implements PaginationInterface
     public function getAllPageNumbers(): array
     {
         return range($this->getFirstPageNumber(), $this->getLastPageNumber());
+    }
+
+    public function getPaginator(): PaginatorInterface
+    {
+        return $this->paginator;
     }
 }

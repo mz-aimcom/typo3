@@ -28,15 +28,15 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
  */
 final class MarkerBasedTemplateServiceTest extends UnitTestCase
 {
-    protected ?MarkerBasedTemplateService $templateService;
+    private MarkerBasedTemplateService $templateService;
 
     protected bool $resetSingletonInstances = true;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $cacheFrontendMock = $this->createMock(FrontendInterface::class);
-        $this->templateService = new MarkerBasedTemplateService($cacheFrontendMock, $cacheFrontendMock);
+        $cacheFrontendStub = self::createStub(FrontendInterface::class);
+        $this->templateService = new MarkerBasedTemplateService($cacheFrontendStub, $cacheFrontendStub);
     }
 
     /**

@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Seo\XmlSitemap;
 
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Core\Attribute\AsAllowedCallable;
 use TYPO3\CMS\Core\Http\PropagateResponseException;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Directive;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\HashValue;
@@ -26,13 +27,19 @@ use TYPO3\CMS\Core\Security\ContentSecurityPolicy\Mutation;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationCollection;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\MutationMode;
 use TYPO3\CMS\Core\Security\ContentSecurityPolicy\PolicyRegistry;
-use TYPO3\CMS\Core\Security\ContentSecurityPolicy\SourceKeyword;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolvePublicResourceException;
+use TYPO3\CMS\Core\SystemResource\Exception\CanNotResolveSystemResourceException;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceDoesNotExistException;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
+use TYPO3\CMS\Core\SystemResource\Type\PublicResourceInterface;
+use TYPO3\CMS\Core\SystemResource\Type\SystemResourceInterface;
 use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 use TYPO3\CMS\Core\View\ViewInterface;
+use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 use TYPO3\CMS\Frontend\Controller\ErrorController;
 use TYPO3\CMS\Seo\XmlSitemap\Exception\InvalidConfigurationException;
 
@@ -49,6 +56,9 @@ final readonly class XmlSitemapRenderer
         private ErrorController $errorController,
         private ViewFactoryInterface $viewFactory,
         private PolicyRegistry $policyRegistry,
+        private SystemResourceFactory $resourceFactory,
+        private SystemResourcePublisherInterface $resourcePublisher,
+        private XmlSitemapFactory $xmlSitemapFactory,
     ) {}
 
     /**
@@ -56,6 +66,7 @@ final readonly class XmlSitemapRenderer
      * @param array $typoScriptConfiguration TypoScript configuration specified in USER Content Object
      * @throws InvalidConfigurationException
      */
+    #[AsAllowedCallable]
     public function render(string $_, array $typoScriptConfiguration, ServerRequestInterface $request): string
     {
         $settingsTree = $request->getAttribute('frontend.typoscript')->getSetupTree()->getChildByName('plugin')->getChildByName('tx_seo');
@@ -74,14 +85,14 @@ final readonly class XmlSitemapRenderer
         $view->assign('sitemapType', $sitemapType);
         $configConfiguration = $configurationArrayWithoutDots['config'] ?? [];
         if (!empty($sitemapName = ($request->getQueryParams()['tx_seo']['sitemap'] ?? null))) {
-            $xslPath = $this->getXslFilePath($configConfiguration, $sitemapType, $sitemapName);
-            $this->applyDynamicContentSecurityPolicy($xslPath);
-            $view->assign('xslFile', $this->getUriFromFilePath($xslPath));
+            $xslResource = $this->getXslResource($configConfiguration, $sitemapType, $sitemapName);
+            $this->applyDynamicContentSecurityPolicy($xslResource);
+            $view->assign('xslFile', (string)$this->resourcePublisher->generateUri($xslResource, $request));
             return $this->renderSitemap($request, $view, $configConfiguration, $sitemapType, $sitemapName);
         }
-        $xslPath = $this->getXslFilePath($configConfiguration, $sitemapType);
-        $this->applyDynamicContentSecurityPolicy($xslPath);
-        $view->assign('xslFile', $this->getUriFromFilePath($xslPath));
+        $xslResource = $this->getXslResource($configConfiguration, $sitemapType);
+        $this->applyDynamicContentSecurityPolicy($xslResource);
+        $view->assign('xslFile', (string)$this->resourcePublisher->generateUri($xslResource, $request));
         return $this->renderIndex($request, $view, $configConfiguration, $sitemapType);
     }
 
@@ -89,22 +100,21 @@ final readonly class XmlSitemapRenderer
     {
         $sitemaps = [];
         foreach ($configConfiguration[$sitemapType]['sitemaps'] as $sitemapName => $sitemapConfig) {
-            $sitemapProvider = $sitemapConfig['provider'] ?? null;
-            if (is_string($sitemapName)
-                && is_string($sitemapProvider)
-                && class_exists($sitemapProvider)
-                && is_subclass_of($sitemapProvider, XmlSitemapDataProviderInterface::class)
-            ) {
-                /** @var XmlSitemapDataProviderInterface $provider */
-                $provider = GeneralUtility::makeInstance($sitemapProvider, $request, $sitemapName, $sitemapConfig['config'] ?? []);
-                $pages = $provider->getNumberOfPages();
-                for ($page = 0; $page < $pages; $page++) {
-                    $sitemaps[] = [
-                        'key' => $sitemapName,
-                        'page' => $page,
-                        'lastMod' => $provider->getLastModified(),
-                    ];
-                }
+            if (!is_string($sitemapName) || !is_string($sitemapConfig['provider'] ?? null)) {
+                continue;
+            }
+            try {
+                $sitemap = $this->createSitemap($request, $sitemapName, $sitemapConfig);
+            } catch (InvalidConfigurationException) {
+                // A single misconfigured sitemap must not break the whole index
+                continue;
+            }
+            for ($page = 0; $page < $sitemap->getNumberOfPages(); $page++) {
+                $sitemaps[] = [
+                    'key' => $sitemapName,
+                    'page' => $page,
+                    'lastMod' => $sitemap->getLastModified(),
+                ];
             }
         }
         $view->assign('sitemaps', $sitemaps);
@@ -114,42 +124,67 @@ final readonly class XmlSitemapRenderer
     private function renderSitemap(ServerRequestInterface $request, ViewInterface $view, array $configConfiguration, string $sitemapType, string $sitemapName): string
     {
         $sitemapConfig = $configConfiguration[$sitemapType]['sitemaps'][$sitemapName] ?? null;
-        if ($sitemapConfig) {
-            $sitemapProvider = $sitemapConfig['provider'] ?? null;
-            if (is_string($sitemapProvider)
-                && class_exists($sitemapProvider)
-                && is_subclass_of($sitemapProvider, XmlSitemapDataProviderInterface::class)
-            ) {
-                /** @var XmlSitemapDataProviderInterface $provider */
-                $provider = GeneralUtility::makeInstance($sitemapProvider, $request, $sitemapName, $sitemapConfig['config'] ?? []);
-                $items = $provider->getItems();
-                $view->assign('items', $items);
-                $template = $sitemapConfig['config']['template'] ?? $sitemapConfig['template'] ?? 'Sitemap';
-                return $view->render($template);
-            }
-            throw new InvalidConfigurationException('No valid provider set for ' . $sitemapName, 1535578522);
+        if (!$sitemapConfig) {
+            throw new PropagateResponseException(
+                $this->errorController->pageNotFoundAction(
+                    $request,
+                    'No valid configuration found for sitemap ' . $sitemapName
+                ),
+                1535578569
+            );
         }
-        throw new PropagateResponseException(
-            $this->errorController->pageNotFoundAction(
-                $request,
-                'No valid configuration found for sitemap ' . $sitemapName
-            ),
-            1535578569
-        );
+        $sitemap = $this->createSitemap($request, $sitemapName, $sitemapConfig);
+        $view->assign('items', $sitemap->getItems());
+        $template = $sitemapConfig['config']['template'] ?? $sitemapConfig['template'] ?? 'Sitemap';
+        return $view->render($template);
     }
 
-    private function getXslFilePath(array $configConfiguration, string $sitemapType, ?string $sitemapName = null): string
+    /**
+     * @throws InvalidConfigurationException
+     */
+    private function createSitemap(ServerRequestInterface $request, string $sitemapName, array $sitemapConfig): XmlSitemap
     {
-        $path = $configConfiguration[$sitemapType]['sitemaps'][$sitemapName]['config']['xslFile']
+        $dataProviderClassName = $sitemapConfig['provider'] ?? null;
+        if (!is_string($dataProviderClassName) || !class_exists($dataProviderClassName)) {
+            throw new InvalidConfigurationException('No valid provider set for ' . $sitemapName, 1535578522);
+        }
+        $page = (int)($request->getQueryParams()['tx_seo']['page'] ?? 0);
+        $sitemapRequest = new XmlSitemapRequest(
+            name: $sitemapName,
+            configuration: $sitemapConfig['config'] ?? [],
+            page: max(0, $page),
+            request: $request,
+            contentObjectRenderer: $this->resolveContentObjectRenderer($request),
+        );
+        return $this->xmlSitemapFactory->create($dataProviderClassName, $sitemapRequest);
+    }
+
+    private function resolveContentObjectRenderer(ServerRequestInterface $request): ContentObjectRenderer
+    {
+        $contentObjectRenderer = $request->getAttribute('currentContentObject');
+        if ($contentObjectRenderer instanceof ContentObjectRenderer) {
+            return $contentObjectRenderer;
+        }
+        $contentObjectRenderer = GeneralUtility::makeInstance(ContentObjectRenderer::class);
+        $contentObjectRenderer->setRequest($request);
+        return $contentObjectRenderer;
+    }
+
+    /**
+     * @throws CanNotResolvePublicResourceException
+     * @throws CanNotResolveSystemResourceException
+     */
+    private function getXslResource(array $configConfiguration, string $sitemapType, ?string $sitemapName = null): PublicResourceInterface&SystemResourceInterface
+    {
+        $resourceIdentifier = $configConfiguration[$sitemapType]['sitemaps'][$sitemapName ?? '']['config']['xslFile']
             ?? $configConfiguration[$sitemapType]['sitemaps']['xslFile']
             ?? $configConfiguration['xslFile']
             ?? 'EXT:seo/Resources/Public/CSS/Sitemap.xsl';
-        return GeneralUtility::getFileAbsFileName($path);
-    }
-
-    private function getUriFromFilePath(string $filePath): string
-    {
-        return PathUtility::getAbsoluteWebPath($filePath);
+        $xslResource = $this->resourceFactory->createPublicResource($resourceIdentifier);
+        if (!$xslResource instanceof SystemResourceInterface) {
+            throw new \InvalidArgumentException('Can not resolve xslFile "%s" to a system resource', 1761032332);
+        }
+        return $xslResource;
     }
 
     /**
@@ -158,19 +193,17 @@ final readonly class XmlSitemapRenderer
      *
      * The expected hash for the default XSLT styles is `sha256-d0ax6zoVJBeBpy4l3O2FJ6Y1L4SalCWw2x62uoJH15k=`.
      */
-    private function applyDynamicContentSecurityPolicy(string $xslPath): void
+    private function applyDynamicContentSecurityPolicy(SystemResourceInterface $xslResource): void
     {
-        if (!file_exists($xslPath)) {
-            return;
-        }
-        $dom = new \DOMDocument();
-        $dom->load($xslPath);
-        if (!$dom instanceof \DOMDocument) {
+        try {
+            $dom = new \DOMDocument();
+            $dom->loadXML($xslResource->getContents());
+        } catch (SystemResourceDoesNotExistException) {
             return;
         }
         $hashes = [];
         foreach ($dom->getElementsByTagName('style') as $node) {
-            if (!$node instanceof \DOMElement || $node->getAttribute('type') !== 'text/css') {
+            if ($node->getAttribute('type') !== 'text/css') {
                 continue;
             }
             $hashes[] = HashValue::hash($node->textContent);
@@ -183,7 +216,6 @@ final readonly class XmlSitemapRenderer
                 new Mutation(
                     MutationMode::Extend,
                     Directive::StyleSrcElem,
-                    SourceKeyword::unsafeHashes,
                     ...$hashes
                 )
             )

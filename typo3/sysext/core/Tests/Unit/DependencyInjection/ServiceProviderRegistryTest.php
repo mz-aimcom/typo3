@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\DependencyInjection;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Container\ContainerInterface;
@@ -27,9 +28,10 @@ use TYPO3\CMS\Core\Tests\Unit\DependencyInjection\Fixtures\TestRegistryServicePr
 use TYPO3\CMS\Core\Tests\Unit\DependencyInjection\Fixtures\TestStatefulServiceProvider;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ServiceProviderRegistryTest extends UnitTestCase
 {
-    protected PackageManager&MockObject $packageManagerMock;
+    private PackageManager&MockObject $packageManagerMock;
 
     protected function setUp(): void
     {
@@ -37,13 +39,13 @@ final class ServiceProviderRegistryTest extends UnitTestCase
         $this->packageManagerMock = $this->createMock(PackageManager::class);
     }
 
-    protected function mockPackage(string $packageKey, string $serviceProvider): Package
+    private function mockPackage(string $packageKey, string $serviceProvider): Package
     {
-        $this->packageManagerMock->method('isPackageActive')->with($packageKey)->willReturn(true);
-        $package = $this->createMock(Package::class);
+        $this->packageManagerMock->expects($this->atMost(PHP_INT_MAX))->method('isPackageActive')->with($packageKey)->willReturn(true);
+        $package = self::createStub(Package::class);
         $package->method('getPackageKey')->willReturn($packageKey);
         $package->method('getServiceProvider')->willReturn($serviceProvider);
-        $this->packageManagerMock->method('getPackage')->with($packageKey)->willReturn($package);
+        $this->packageManagerMock->expects($this->atMost(PHP_INT_MAX))->method('getPackage')->with($packageKey)->willReturn($package);
         $this->packageManagerMock->method('getActivePackages')->willReturn([$package]);
         return $package;
     }
@@ -109,8 +111,8 @@ final class ServiceProviderRegistryTest extends UnitTestCase
     {
         $this->mockPackage('core', TestRegistryServiceProvider::class);
         $registry = new ServiceProviderRegistry($this->packageManagerMock);
-        $containerMock = $this->createMock(ContainerInterface::class);
-        $subject = $registry->createService('core', 'param', $containerMock);
+        $containerStub = self::createStub(ContainerInterface::class);
+        $subject = $registry->createService('core', 'param', $containerStub);
         self::assertEquals(42, $subject);
     }
 
@@ -119,8 +121,8 @@ final class ServiceProviderRegistryTest extends UnitTestCase
     {
         $this->mockPackage('core', TestRegistryServiceProvider::class);
         $subject = new ServiceProviderRegistry($this->packageManagerMock);
-        $containerMock = $this->createMock(ContainerInterface::class);
-        $service = $subject->extendService('core', 'serviceB', $containerMock);
+        $containerStub = self::createStub(ContainerInterface::class);
+        $service = $subject->extendService('core', 'serviceB', $containerStub);
         self::assertInstanceOf(\stdClass::class, $service);
     }
 
@@ -132,11 +134,11 @@ final class ServiceProviderRegistryTest extends UnitTestCase
             'backend' => TestRegistryServiceProvider::class,
         ];
 
-        $packageCore = $this->createMock(Package::class);
+        $packageCore = self::createStub(Package::class);
         $packageCore->method('getPackageKey')->willReturn('core');
         $packageCore->method('getServiceProvider')->willReturn(TestRegistryServiceProvider::class);
 
-        $packageBackend = $this->createMock(Package::class);
+        $packageBackend = self::createStub(Package::class);
         $packageBackend->method('getPackageKey')->willReturn('backend');
         $packageBackend->method('getServiceProvider')->willReturn(TestRegistryServiceProvider::class);
 

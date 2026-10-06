@@ -22,8 +22,10 @@ use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Scheduler\Controller\NewSchedulerTaskController;
 use TYPO3\CMS\Scheduler\Event\ModifyNewSchedulerTaskWizardItemsEvent;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -45,7 +47,7 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
     #[Test]
     public function handleRequestReturnsWizardContent(): void
     {
-        $request = (new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET'))
+        $request = new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/scheduler/task/wizard/new', ['packageName' => 'typo3/cms-scheduler', '_identifier' => 'ajax_new_scheduler_task_wizard']));
 
@@ -66,6 +68,14 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
         $eventReference = null;
         $capturedWizardItems = null;
 
+        foreach ($GLOBALS['TCA']['tx_scheduler_task']['columns']['tasktype']['config']['items'] as &$config) {
+            if (str_contains($config['value'], 'CachingFrameworkGarbageCollectionTask')) {
+                $config['iconOverlay'] = 'caching-overlay';
+            }
+        }
+        unset($config);
+        $this->get(TcaSchemaFactory::class)->rebuild($GLOBALS['TCA']);
+
         $container = $this->get('service_container');
         $container->set(
             'test-wizard-event-listener',
@@ -77,6 +87,7 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
                     'title' => 'Custom Test Task',
                     'description' => 'A custom task added by event listener',
                     'icon' => 'content-test',
+                    'iconOverlay' => 'content-test-overlay',
                     'taskType' => 'CustomTestTask',
                     'taskClass' => 'TYPO3\\CMS\\Test\\CustomTestTask',
                 ]);
@@ -88,7 +99,7 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
         $eventListener = $container->get(ListenerProvider::class);
         $eventListener->addListener(ModifyNewSchedulerTaskWizardItemsEvent::class, 'test-wizard-event-listener');
 
-        $request = (new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET'))
+        $request = new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/scheduler/task/wizard/new', ['packageName' => 'typo3/cms-scheduler', '_identifier' => 'ajax_new_scheduler_task_wizard']));
         $controller = $this->get(NewSchedulerTaskController::class);
@@ -108,10 +119,19 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
             }
             if (isset($item['taskType']) && str_contains($item['taskType'], 'CachingFrameworkGarbageCollectionTask')) {
                 $hasTaskItems = true;
-                self::assertArrayHasKey('title', $item);
+                self::assertEquals('Caching framework garbage collection', $item['title']);
                 self::assertArrayHasKey('description', $item);
                 self::assertArrayHasKey('icon', $item);
+                self::assertEquals('caching-overlay', $item['iconOverlay']);
                 self::assertArrayHasKey('taskClass', $item);
+            }
+            if (isset($item['taskType']) && str_contains($item['taskType'], 'CustomTestTask')) {
+                $hasTaskItems = true;
+                self::assertEquals('Custom Test Task', $item['title']);
+                self::assertEquals('A custom task added by event listener', $item['description']);
+                self::assertEquals('content-test', $item['icon']);
+                self::assertEquals('content-test-overlay', $item['iconOverlay']);
+                self::assertEquals('TYPO3\\CMS\\Test\\CustomTestTask', $item['taskClass']);
             }
         }
 
@@ -126,7 +146,7 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
     #[Test]
     public function wizardContainsRegisteredSchedulerTasks(): void
     {
-        $request = (new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET'))
+        $request = new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
             ->withAttribute('route', new Route('/scheduler/task/wizard/new', ['packageName' => 'typo3/cms-scheduler', '_identifier' => 'ajax_new_scheduler_task_wizard']));
         $controller = $this->get(NewSchedulerTaskController::class);
@@ -145,11 +165,15 @@ final class NewSchedulerTaskControllerTest extends FunctionalTestCase
     {
         $defaultValues = ['description' => 'Test default description'];
 
-        $request = (new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET'))
+        $request = new ServerRequest('http://localhost/typo3/scheduler/task/wizard/new', 'GET')
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
-            ->withAttribute('route', new Route('/scheduler/task/wizard/new', ['packageName' => 'typo3/cms-scheduler', '_identifier' => 'ajax_new_scheduler_task_wizard']));
+            ->withAttribute('route', new Route('/scheduler/task/wizard/new', ['packageName' => 'typo3/cms-scheduler', '_identifier' => 'ajax_new_scheduler_task_wizard']))
+            ->withAttribute('normalizedParams', NormalizedParams::createFromServerParams([
+                'HTTP_HOST' => 'localhost',
+                'SCRIPT_NAME' => '/typo3/index.php',
+            ]));
         $request = $request->withQueryParams([
-            'returnUrl' => Environment::getPublicPath() . 'typo3/scheduler/manage?token=123&test=value',
+            'returnUrl' => Environment::getPublicPath() . '/typo3/scheduler/manage?token=123&test=value',
             'defaultValues' => $defaultValues,
         ]);
 

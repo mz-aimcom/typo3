@@ -17,8 +17,15 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Imaging\IconProvider;
 
+use TYPO3\CMS\Core\Imaging\Exception\InvalidSvgException;
 use TYPO3\CMS\Core\Imaging\Icon;
 use TYPO3\CMS\Core\Imaging\IconProviderInterface;
+use TYPO3\CMS\Core\Imaging\Svg\SvgDocumentFactory;
+use TYPO3\CMS\Core\Imaging\Svg\SvgDocumentService;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceDoesNotExistException;
+use TYPO3\CMS\Core\SystemResource\Exception\SystemResourceException;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
+use TYPO3\CMS\Core\SystemResource\Type\SystemResourceInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 
@@ -31,8 +38,22 @@ abstract class AbstractSvgIconProvider implements IconProviderInterface
 {
     public const MARKUP_IDENTIFIER_INLINE = 'inline';
 
+    protected SvgDocumentFactory $svgDocumentFactory;
+    protected SvgDocumentService $svgDocumentService;
+
     abstract protected function generateMarkup(Icon $icon, array $options): string;
     abstract protected function generateInlineMarkup(array $options): string;
+
+    // inject* setters keep the constructor of inheriting providers clean.
+    public function injectSvgDocumentFactory(SvgDocumentFactory $svgDocumentFactory): void
+    {
+        $this->svgDocumentFactory = $svgDocumentFactory;
+    }
+
+    public function injectSvgDocumentService(SvgDocumentService $svgDocumentService): void
+    {
+        $this->svgDocumentService = $svgDocumentService;
+    }
 
     public function prepareIconMarkup(Icon $icon, array $options = []): void
     {
@@ -45,31 +66,42 @@ abstract class AbstractSvgIconProvider implements IconProviderInterface
      */
     protected function getPublicPath(string $source): string
     {
-        if (PathUtility::isExtensionPath($source)) {
-            return PathUtility::getPublicResourceWebPath($source);
-        }
-        // TODO: deprecate non extension resources in icon API
-        return PathUtility::getAbsoluteWebPath(PathUtility::isAbsolutePath($source) ? $source : GeneralUtility::getFileAbsFileName($source));
+        return (string)PathUtility::getSystemResourceUri($source);
     }
 
     protected function getInlineSvg(string $source): string
     {
+        $svgContent = $this->getInlineSvgContents($source);
+        if ($svgContent === null) {
+            return '';
+        }
+        try {
+            return $this->svgDocumentService->toInlineMarkup(
+                $this->svgDocumentFactory->fromStringAndSanitize($svgContent)
+            );
+        } catch (InvalidSvgException) {
+            return '';
+        }
+    }
+
+    protected function getInlineSvgContents(string $source): ?string
+    {
+        try {
+            $resourceFactory = GeneralUtility::makeInstance(SystemResourceFactory::class);
+            $resource = $resourceFactory->createResource($source);
+            if ($resource instanceof SystemResourceInterface) {
+                return $resource->getContents();
+            }
+        } catch (SystemResourceDoesNotExistException) {
+            return null;
+        } catch (SystemResourceException) {
+        }
+        if (!PathUtility::isAbsolutePath($source)) {
+            $source = GeneralUtility::getFileAbsFileName($source);
+        }
         if (!file_exists($source)) {
-            return '';
+            return null;
         }
-
-        $svgContent = file_get_contents($source);
-        if ($svgContent === false) {
-            return '';
-        }
-        $svgContent = (string)preg_replace('/<script[\s\S]*?>[\s\S]*?<\/script>/i', '', $svgContent);
-        $svgElement = simplexml_load_string($svgContent);
-        if ($svgElement === false) {
-            return '';
-        }
-
-        // remove xml version tag
-        $domXml = dom_import_simplexml($svgElement);
-        return $domXml->ownerDocument->saveXML($domXml->ownerDocument->documentElement);
+        return file_get_contents($source) ?: null;
     }
 }

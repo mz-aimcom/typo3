@@ -21,7 +21,9 @@ use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Result;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Configuration\SiteConfiguration;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryHelper;
@@ -29,7 +31,6 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
-use TYPO3\CMS\Core\Exception;
 use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Localization\DateFormatter;
 use TYPO3\CMS\Core\Localization\Locale;
@@ -44,7 +45,7 @@ use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Serializer\Typo3XmlParserOptions;
 use TYPO3\CMS\Core\Serializer\Typo3XmlSerializer;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\PathUtility;
+use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Impexp\View\ExportPageTreeView;
 
 /**
@@ -81,18 +82,19 @@ class Export extends ImportExport
     protected string $treeHTML = '';
 
     /**
-     * The key is the record type (e.g. 'be_users'),
-     * the value is an array of fields to be included in the export.
-     *
-     * Used in tests only.
-     */
-    protected array $recordTypesIncludeFields = [];
-
-    /**
      * Default array of fields to be included in the export
      */
     protected array $defaultRecordIncludeFields = ['uid', 'pid'];
+
+    /**
+     * Per-table cache for {@see filterRecordFields()}.
+     *
+     * @var array<string, array{alwaysKeep: list<string>, timestamps: list<string>, columnDefaults: array<string, mixed>}>
+     */
+    private array $filterRecordFieldsSetupCache = [];
+
     protected bool $saveFilesOutsideExportFile = false;
+    protected bool $includeSiteConfigurations = false;
     protected string $exportFileName = '';
     protected string $exportFileType = self::FILETYPE_XML;
     protected array $supportedFileTypes = [];
@@ -107,6 +109,8 @@ class Export extends ImportExport
         protected readonly Locales $locales,
         protected readonly Typo3Version $typo3Version,
         protected readonly ReferenceIndex $referenceIndex,
+        protected readonly SiteConfiguration $siteConfiguration,
+        protected readonly Context $context,
     ) {}
 
     /**
@@ -115,8 +119,7 @@ class Export extends ImportExport
     public function process(): void
     {
         $this->initializeExport();
-        $this->setHeaderBasics();
-        $this->setMetaData();
+        $this->setHeader();
 
         // Configure which records to export
         foreach ($this->record as $ref) {
@@ -136,9 +139,7 @@ class Export extends ImportExport
             if ($this->getBackendUser()->check('tables_select', $table)) {
                 $statement = $this->execListQueryPid($pid, $table);
                 while ($record = $statement->fetchAssociative()) {
-                    if (is_array($record)) {
-                        $this->exportAddRecord($table, $record);
-                    }
+                    $this->exportAddRecord($table, $record);
                 }
             }
         }
@@ -218,8 +219,10 @@ class Export extends ImportExport
 
         // Files must be added after the database relations are added,
         // so that files from ALL added records are included!
-        $this->exportAddFilesFromRelations();
         $this->exportAddFilesFromSysFilesRecords();
+        if ($this->includeSiteConfigurations) {
+            $this->exportAddSiteConfigurations();
+        }
     }
 
     /**
@@ -278,7 +281,7 @@ class Export extends ImportExport
         ];
     }
 
-    protected function setHeaderBasics(): void
+    protected function setHeader(): void
     {
         // Initializing:
         foreach ($this->softrefCfg as $key => $value) {
@@ -286,20 +289,27 @@ class Export extends ImportExport
                 unset($this->softrefCfg[$key]);
             }
         }
-        // Setting in header memory:
         // Version of file format
         $this->dat['header']['XMLversion'] = '1.0';
-        // Initialize meta data array (to put it in top of file)
-        $this->dat['header']['meta'] = [];
-        // Add list of tables to consider static
-        $this->dat['header']['relStaticTables'] = $this->relStaticTables;
-        // The list of excluded records
-        $this->dat['header']['excludeMap'] = $this->excludeMap;
-        // Soft reference mode for elements
-        $this->dat['header']['softrefCfg'] = $this->softrefCfg;
-        // List of extensions the import depends on.
-        $this->dat['header']['extensionDependencies'] = $this->extensionDependencies;
         $this->dat['header']['charset'] = 'utf-8';
+        // Meta data (overridable for testing)
+        $this->setMetaData();
+        // Add list of tables to consider static
+        if ($this->relStaticTables !== []) {
+            $this->dat['header']['relStaticTables'] = $this->relStaticTables;
+        }
+        // The list of excluded records
+        if ($this->excludeMap !== []) {
+            $this->dat['header']['excludeMap'] = $this->excludeMap;
+        }
+        // Soft reference mode for elements
+        if ($this->softrefCfg !== []) {
+            $this->dat['header']['softrefCfg'] = $this->softrefCfg;
+        }
+        // List of extensions the import depends on.
+        if ($this->extensionDependencies !== []) {
+            $this->dat['header']['extensionDependencies'] = $this->extensionDependencies;
+        }
     }
 
     protected function setMetaData(): void
@@ -310,7 +320,9 @@ class Export extends ImportExport
         } else {
             $locale = new Locale();
         }
-        $this->dat['header']['meta'] = [
+        /** @var DateTimeAspect $dateAspect */
+        $dateAspect = $this->context->getAspect('date');
+        $meta = array_filter([
             'title' => $this->title,
             'description' => $this->description,
             'notes' => $this->notes,
@@ -318,8 +330,11 @@ class Export extends ImportExport
             'packager_name' => $this->getBackendUser()->user['realName'],
             'packager_email' => $this->getBackendUser()->user['email'],
             'TYPO3_version' => (string)$this->typo3Version,
-            'created' => (new DateFormatter())->format($GLOBALS['EXEC_TIME'], 'EEE d. MMMM y', $locale),
-        ];
+            'created' => new DateFormatter()->format($dateAspect->getDateTime(), 'EEE d. MMMM y', $locale),
+        ], static fn(string $value): bool => $value !== '');
+        if ($meta !== []) {
+            $this->dat['header']['meta'] = $meta;
+        }
     }
 
     /**
@@ -346,36 +361,6 @@ class Export extends ImportExport
                 $this->removeExcludedPagesFromPageTree($pageTree[$pid]['subrow']);
             }
         }
-    }
-
-    /**
-     * Sets the fields of record types to be included in the export.
-     * Used in tests only.
-     *
-     * @param array $recordTypesIncludeFields The key is the record type,
-     *                                          the value is an array of fields to be included in the export.
-     * @throws Exception if an array value is not type of array
-     */
-    public function setRecordTypesIncludeFields(array $recordTypesIncludeFields): void
-    {
-        foreach ($recordTypesIncludeFields as $table => $fields) {
-            if (!is_array($fields)) {
-                throw new Exception('The include fields for record type ' . htmlspecialchars($table) . ' are not defined by an array.', 1391440658);
-            }
-            $this->setRecordTypeIncludeFields($table, $fields);
-        }
-    }
-
-    /**
-     * Sets the fields of a record type to be included in the export.
-     * Used in tests only.
-     *
-     * @param string $table The record type
-     * @param array $fields The fields to be included
-     */
-    protected function setRecordTypeIncludeFields(string $table, array $fields): void
-    {
-        $this->recordTypesIncludeFields[$table] = $fields;
     }
 
     /**
@@ -501,28 +486,32 @@ class Export extends ImportExport
     public function exportAddRecord(string $table, array $row, int $relationLevel = 0): void
     {
         BackendUtility::workspaceOL($table, $row);
+        $recordUid = (int)$row['uid'];
 
-        if ($table === '' || (int)$row['uid'] === 0
-            || $this->isRecordExcluded($table, (int)$row['uid'])
-            || $this->excludeDisabledRecords && $this->isRecordDisabled($table, (int)$row['uid'])) {
+        if ($table === '' || $recordUid === 0
+            || $this->isRecordExcluded($table, $recordUid)
+            || $this->excludeDisabledRecords && $this->isRecordDisabled($table, $recordUid)) {
             return;
         }
 
-        if ($this->isPageInWebMount($table === 'pages' ? (int)$row['uid'] : (int)$row['pid'])) {
-            if (!isset($this->dat['records'][$table . ':' . $row['uid']])) {
-                // Prepare header info:
-                $row = $this->filterRecordFields($table, $row);
-                $headerInfo = [];
-                $headerInfo['uid'] = $row['uid'];
-                $headerInfo['pid'] = $row['pid'];
-                $headerInfo['title'] = GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($table, $row), 40);
+        $recordPid = (int)$row['pid'];
+        $recordIdentifier = $table . ':' . $recordUid;
+        if ($this->isPageInWebMount($table === 'pages' ? $recordUid : $recordPid)) {
+            if (!isset($this->dat['records'][$recordIdentifier])) {
+                // Prepare header info
+                $headerInfo = [
+                    'uid' => $recordUid,
+                    'pid' => $recordPid,
+                    'title' => GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($table, $row), 40),
+                ];
+                $sanitizedRow = $this->filterRecordFields($table, $row);
                 if ($relationLevel) {
                     $headerInfo['relationLevel'] = $relationLevel;
                 }
                 // Set the header summary:
-                $this->dat['header']['records'][$table][$row['uid']] = $headerInfo;
+                $this->dat['header']['records'][$table][$recordUid] = $headerInfo;
                 // Create entry in the PID lookup:
-                $this->dat['header']['pid_lookup'][$row['pid']][$table][$row['uid']] = 1;
+                $this->dat['header']['pid_lookup'][$recordPid][$table][$recordUid] = 1;
                 // @todo: Using getRelations() from Refindex for this operation is a misuse, the method should
                 //        be protected. It would be better to use softref parser and RelationHandler here directly,
                 //        or fetch the relations using a sys_refindex query. Note with recent changes, 'itemArray'
@@ -533,11 +522,8 @@ class Export extends ImportExport
                 //        of those a relation is bound. This is currently most likely not handled during import and
                 //        should have more test coverage.
                 $relations = $this->referenceIndex->getRelations($table, $row, 0);
-                $relations = $this->removeRedundantSoftRefsInRelations($relations);
                 // Data:
-                $this->dat['records'][$table . ':' . $row['uid']] = [];
-                $this->dat['records'][$table . ':' . $row['uid']]['data'] = $row;
-                $this->dat['records'][$table . ':' . $row['uid']]['rels'] = $relations;
+                $this->dat['records'][$recordIdentifier] = ['data' => $sanitizedRow];
                 // There are no refindex entries for l10n_source of pages and tt_content, so we have to add them here manually for now.
                 // @todo can be removed, when this can come from ReferenceIndex.
                 if (($table === 'pages' || $table === 'tt_content')) {
@@ -548,22 +534,48 @@ class Export extends ImportExport
                         $translationSourceFieldName = $languageCapability->getTranslationSourceField()?->getName();
                     }
                     if ($translationSourceFieldName && ((int)($row[$translationSourceFieldName] ?? 0)) > 0) {
-                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$translationSourceFieldName]['type'] = 'db';
-                        $this->dat['records'][$table . ':' . $row['uid']]['rels'][$translationSourceFieldName]['itemArray'][0] = [
+                        $relations[$translationSourceFieldName]['type'] = 'db';
+                        $relations[$translationSourceFieldName]['itemArray'][0] = [
                             'id' => $row[$translationSourceFieldName],
                             'table' => $table,
                         ];
                     }
                 }
+                // The storage column of sys_file has no reference index entry, as its items come from an
+                // items processor function. The import needs the storage record to map the file to an
+                // equivalent storage of the target system, so the relation is added here manually.
+                // @todo: Revisit once file storages are no longer database records, see #110684.
+                if ($table === 'sys_file' && (int)($row['storage'] ?? 0) > 0) {
+                    $relations = [
+                        'storage' => [
+                            'type' => 'db',
+                            'itemArray' => [
+                                [
+                                    'id' => (int)$row['storage'],
+                                    'table' => 'sys_file_storage',
+                                ],
+                            ],
+                        ],
+                    ] + $relations;
+                }
+                if ($relations !== []) {
+                    $this->dat['records'][$recordIdentifier]['rels'] = $relations;
+                }
                 // Add information about the relations in the record in the header:
-                $this->dat['header']['records'][$table][$row['uid']]['rels'] = $this->flatDbRelations($this->dat['records'][$table . ':' . $row['uid']]['rels']);
+                $flatDbRelations = $this->flatDbRelations($relations);
+                if ($flatDbRelations !== []) {
+                    $this->dat['header']['records'][$table][$recordUid]['rels'] = $flatDbRelations;
+                }
                 // Add information about the softrefs to header:
-                $this->dat['header']['records'][$table][$row['uid']]['softrefs'] = $this->flatSoftRefs($this->dat['records'][$table . ':' . $row['uid']]['rels']);
+                $flatSoftRefs = $this->flatSoftRefs($relations);
+                if ($flatSoftRefs !== []) {
+                    $this->dat['header']['records'][$table][$recordUid]['softrefs'] = $flatSoftRefs;
+                }
             } else {
-                $this->addError('Record ' . $table . ':' . $row['uid'] . ' already added.');
+                $this->addError('Record ' . $recordIdentifier . ' already added.');
             }
         } else {
-            $this->addError('Record ' . $table . ':' . $row['uid'] . ' was outside your database mounts!');
+            $this->addError('Record ' . $recordIdentifier . ' was outside your database mounts!');
         }
     }
 
@@ -582,66 +594,136 @@ class Export extends ImportExport
     }
 
     /**
-     * If include fields for a specific record type are set, the data
-     * are filtered out with fields are not included in the fields.
-     * Used in tests only.
+     * Reduces the exported row to the values a re-import actually needs.
      *
-     * @param string $table The record type to be filtered
-     * @param array $row The data to be filtered
-     * @return array The filtered record row
+     * Strips DataHandler-managed timestamps and columns whose value equals
+     * the effective default. Always preserves uid, pid, the disabled field
+     * and the record-type field.
      */
     protected function filterRecordFields(string $table, array $row): array
     {
-        if (isset($this->recordTypesIncludeFields[$table])) {
-            $includeFields = array_unique(array_merge(
-                $this->recordTypesIncludeFields[$table],
-                $this->defaultRecordIncludeFields
-            ));
-            $newRow = [];
-            foreach ($row as $key => $value) {
-                if (in_array($key, $includeFields, true)) {
-                    $newRow[$key] = $value;
-                }
+        if (!$this->tcaSchemaFactory->has($table)) {
+            return $row;
+        }
+        $setup = $this->getFilterRecordFieldsSetup($table);
+        $schema = $this->tcaSchemaFactory->get($table);
+        $alwaysKeep = $setup['alwaysKeep'];
+        $timestamps = $setup['timestamps'];
+        $columnDefaults = $setup['columnDefaults'];
+        $newRow = [];
+        foreach ($row as $fieldName => $value) {
+            if (in_array($fieldName, $timestamps, true)) {
+                continue;
             }
-        } else {
-            $newRow = $row;
+            if (!in_array($fieldName, $alwaysKeep, true)
+                && $this->valueMatchesEffectiveDefault($schema, $columnDefaults, $fieldName, $value)
+            ) {
+                continue;
+            }
+            $newRow[$fieldName] = $value;
         }
         return $newRow;
     }
 
     /**
-     * Relations could contain db relations to sys_file records. Some configuration combinations of TCA and
-     * SoftReferenceIndex create also soft reference relation entries for the identical file. This results
-     * in double included files, one in array "files" and one in array "file_fal".
-     * This function checks the relations for this double inclusions and removes the redundant soft reference
-     * relation.
+     * @return array{alwaysKeep: list<string>, timestamps: list<string>, columnDefaults: array<string, mixed>}
      */
-    protected function removeRedundantSoftRefsInRelations(array $relations): array
+    private function getFilterRecordFieldsSetup(string $table): array
     {
-        foreach ($relations as &$relation) {
-            if (isset($relation['type']) && $relation['type'] === 'db') {
-                foreach ($relation['itemArray'] as $dbRelationData) {
-                    if ($dbRelationData['table'] === 'sys_file') {
-                        if (isset($relation['softrefs']['keys']['typolink'])) {
-                            foreach ($relation['softrefs']['keys']['typolink'] as $tokenID => $softref) {
-                                if ($softref['subst']['type'] === 'file') {
-                                    $file = $this->resourceFactory->retrieveFileOrFolderObject($softref['subst']['relFileName']);
-                                    if ($file instanceof File) {
-                                        if ($file->getUid() == $dbRelationData['id']) {
-                                            unset($relation['softrefs']['keys']['typolink'][$tokenID]);
-                                        }
-                                    }
-                                }
-                            }
-                            if (empty($relation['softrefs']['keys']['typolink'])) {
-                                unset($relation['softrefs']);
-                            }
-                        }
-                    }
-                }
+        if (array_key_exists($table, $this->filterRecordFieldsSetupCache)) {
+            return $this->filterRecordFieldsSetupCache[$table];
+        }
+        $schema = $this->tcaSchemaFactory->get($table);
+        $alwaysKeep = $this->defaultRecordIncludeFields;
+        if ($schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField)) {
+            $disabledCapability = $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField);
+            $alwaysKeep[] = $disabledCapability->getFieldName();
+        }
+        if ($schema->supportsSubSchema()) {
+            $alwaysKeep[] = $schema->getSubSchemaTypeInformation()->getFieldName();
+        }
+        if ($schema->isLanguageAware()) {
+            $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+            $alwaysKeep[] = $languageCapability->getLanguageField()->getName();
+            $alwaysKeep[] = $languageCapability->getTranslationOriginPointerField()->getName();
+            $sourceField = $languageCapability->getTranslationSourceField()?->getName();
+            if ($sourceField !== null) {
+                $alwaysKeep[] = $sourceField;
+            }
+            $diffSourceField = $languageCapability->getDiffSourceField()?->getName();
+            if ($diffSourceField !== null) {
+                $alwaysKeep[] = $diffSourceField;
             }
         }
-        return $relations;
+        $timestamps = [];
+        foreach ([TcaSchemaCapability::CreatedAt, TcaSchemaCapability::UpdatedAt] as $capability) {
+            if (!$schema->hasCapability($capability)) {
+                continue;
+            }
+            $timestamps[] = $schema->getCapability($capability)->getFieldName();
+        }
+        return $this->filterRecordFieldsSetupCache[$table] = [
+            'alwaysKeep' => $alwaysKeep,
+            'timestamps' => $timestamps,
+            'columnDefaults' => $this->getColumnDefaults($table),
+        ];
+    }
+
+    /**
+     * TCA is authoritative: only columns without a TCA default fall back to
+     * the Doctrine-reported database default.
+     */
+    private function valueMatchesEffectiveDefault(
+        TcaSchema $schema,
+        array $columnDefaults,
+        string $fieldName,
+        mixed $value,
+    ): bool {
+        if ($schema->hasField($fieldName)) {
+            $field = $schema->getField($fieldName);
+            if ($field->hasDefaultValue()) {
+                return $this->valueMatchesDefault($value, $field->getDefaultValue());
+            }
+        }
+        if (array_key_exists($fieldName, $columnDefaults)) {
+            return $this->valueMatchesDefault($value, $columnDefaults[$fieldName]);
+        }
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function getColumnDefaults(string $table): array
+    {
+        $defaults = [];
+        $schemaInformation = $this->connectionPool->getConnectionForTable($table)->getSchemaInformation();
+        $columnInfos = $schemaInformation->listTableColumnInfos($table);
+        foreach ($columnInfos as $columnInfo) {
+            $defaults[$columnInfo->name] = $columnInfo->default;
+        }
+        return $defaults;
+    }
+
+    /**
+     * Drivers hand defaults back as strings or ints,
+     * so "" never matches an int 0 default, and vice versa.
+     */
+    private function valueMatchesDefault(mixed $value, mixed $default): bool
+    {
+        if ($value === null || $default === null) {
+            return $value === $default;
+        }
+
+        if (is_int($value) && MathUtility::canBeInterpretedAsInteger($default)) {
+            return $value === (int)$default;
+        }
+
+        if (MathUtility::canBeInterpretedAsInteger($value) && is_int($default)) {
+            return (int)$value === $default;
+        }
+
+        return $value === $default;
     }
 
     /**
@@ -683,38 +765,22 @@ class Export extends ImportExport
     {
         $list = [];
         foreach ($relations as $field => $relation) {
-            if (is_array($relation['softrefs']['keys'] ?? null)) {
-                foreach ($relation['softrefs']['keys'] as $spKey => $elements) {
-                    foreach ($elements as $subKey => $el) {
-                        $lKey = $field . ':' . $spKey . ':' . $subKey;
-                        $list[$lKey] = array_merge(['field' => $field, 'spKey' => $spKey], $el);
-                        // Add file_ID key to header - slightly "risky" way of doing this because if the calculation
-                        // changes for the same value in $this->records[...] this will not work anymore!
-                        if ($el['subst']['relFileName'] ?? false) {
-                            $list[$lKey]['file_ID'] = md5(Environment::getPublicPath() . '/' . $el['subst']['relFileName']);
-                        }
-                    }
+            foreach ($relation['softrefs']['keys'] ?? [] as $spKey => $elements) {
+                foreach ($elements as $subKey => $el) {
+                    $lKey = $field . ':' . $spKey . ':' . $subKey;
+                    $list[$lKey] = array_merge(['field' => $field, 'spKey' => $spKey], $el);
                 }
             }
-            if (isset($relation['type'])) {
-                if ($relation['type'] === 'flex' && is_array($relation['flexFormRels']['softrefs'] ?? null)) {
-                    foreach ($relation['flexFormRels']['softrefs'] as $structurePath => &$subList) {
-                        if (isset($subList['keys'])) {
-                            foreach ($subList['keys'] as $spKey => $elements) {
-                                foreach ($elements as $subKey => $el) {
-                                    $lKey = $field . ':' . $structurePath . ':' . $spKey . ':' . $subKey;
-                                    $list[$lKey] = array_merge([
-                                        'field' => $field,
-                                        'spKey' => $spKey,
-                                        'structurePath' => $structurePath,
-                                    ], $el);
-                                    // Add file_ID key to header - slightly "risky" way of doing this because if the calculation
-                                    // changes for the same value in $this->records[...] this will not work anymore!
-                                    if ($el['subst']['relFileName'] ?? false) {
-                                        $list[$lKey]['file_ID'] = md5(Environment::getPublicPath() . '/' . $el['subst']['relFileName']);
-                                    }
-                                }
-                            }
+            if (($relation['type'] ?? '') === 'flex' && is_array($relation['flexFormRels']['softrefs'] ?? null)) {
+                foreach ($relation['flexFormRels']['softrefs'] as $structurePath => &$subList) {
+                    foreach ($subList['keys'] ?? [] as $spKey => $elements) {
+                        foreach ($elements as $subKey => $el) {
+                            $lKey = $field . ':' . $structurePath . ':' . $spKey . ':' . $subKey;
+                            $list[$lKey] = array_merge([
+                                'field' => $field,
+                                'spKey' => $spKey,
+                                'structurePath' => $structurePath,
+                            ], $el);
                         }
                     }
                 }
@@ -728,7 +794,6 @@ class Export extends ImportExport
      * export file.
      * This function can be called repeatedly until it returns zero added records.
      * In principle it should not allow to infinite recursion, but you better set a limit...
-     * Call this BEFORE the exportAddFilesFromRelations (so files from added relations are also included of course)
      *
      * @param int $relationLevel Recursion level
      * @return int number of records from relations found and added
@@ -746,7 +811,7 @@ class Export extends ImportExport
             if (!is_array($record)) {
                 continue;
             }
-            foreach ($record['rels'] as $relation) {
+            foreach ($record['rels'] ?? [] as $relation) {
                 if (isset($relation['type'])) {
                     if ($relation['type'] === 'db') {
                         foreach ($relation['itemArray'] as $dbRelationData) {
@@ -840,9 +905,11 @@ class Export extends ImportExport
         // @todo: Remove by-reference and return final array
         $recordRef = $recordData['table'] . ':' . $recordData['id'];
         if (
-            $this->tcaSchemaFactory->has($recordData['table']) && !$this->isTableStatic($recordData['table'])
+            $this->tcaSchemaFactory->has($recordData['table'])
+            && !$this->isTableStatic($recordData['table'])
             && !$this->isRecordExcluded($recordData['table'], (int)$recordData['id'])
-            && (!$tokenID || $this->isSoftRefIncluded($tokenID)) && $this->inclRelation($recordData['table'])
+            && (!$tokenID || $this->isSoftRefIncluded($tokenID))
+            && $this->inclRelation($recordData['table'])
             && !isset($this->dat['records'][$recordRef])
         ) {
             $addRecords[$recordRef] = $recordData;
@@ -863,124 +930,12 @@ class Export extends ImportExport
     }
 
     /**
-     * This adds all files in relations.
-     * Call this method AFTER adding all records including relations.
-     */
-    protected function exportAddFilesFromRelations(): void
-    {
-        // @todo: Consider NOT using by-reference but writing final $this->dat at end of method.
-        if (!isset($this->dat['records'])) {
-            $this->addError('There were no records available.');
-            return;
-        }
-
-        foreach ($this->dat['records'] as &$record) {
-            if (!is_array($record)) {
-                continue;
-            }
-            foreach ($record['rels'] as &$relation) {
-                // For all flex type relations:
-                if (isset($relation['type']) && $relation['type'] === 'flex') {
-                    // Database oriented soft references in flex form fields:
-                    if (isset($relation['flexFormRels']['softrefs'])) {
-                        foreach ($relation['flexFormRels']['softrefs'] as &$subList) {
-                            foreach ($subList['keys'] as &$elements) {
-                                foreach ($elements as &$el) {
-                                    if ($el['subst']['type'] === 'file' && $this->isSoftRefIncluded($el['subst']['tokenID'])) {
-                                        // Create abs path and ID for file:
-                                        $ID_absFile = GeneralUtility::getFileAbsFileName(Environment::getPublicPath() . '/' . $el['subst']['relFileName']);
-                                        $ID = md5($el['subst']['relFileName']);
-                                        if ($ID_absFile) {
-                                            if (!$this->dat['files'][$ID]) {
-                                                $fileRelationData = [
-                                                    'filename' => PathUtility::basename($ID_absFile),
-                                                    'ID_absFile' => $ID_absFile,
-                                                    'ID' => $ID,
-                                                    'relFileName' => $el['subst']['relFileName'],
-                                                ];
-                                                $this->exportAddFile($fileRelationData);
-                                            }
-                                            $el['file_ID'] = $ID;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        unset($subList, $elements, $el);
-                    }
-                }
-                // In any case, if there are soft refs:
-                foreach ($relation['softrefs']['keys'] ?? [] as &$elements) {
-                    foreach ($elements as &$el) {
-                        if (($el['subst']['type'] ?? '') === 'file' && $this->isSoftRefIncluded($el['subst']['tokenID'])) {
-                            // Create abs path and ID for file:
-                            $ID_absFile = GeneralUtility::getFileAbsFileName(Environment::getPublicPath() . '/' . $el['subst']['relFileName']);
-                            $ID = md5($el['subst']['relFileName']);
-                            if ($ID_absFile) {
-                                if (!$this->dat['files'][$ID]) {
-                                    $fileRelationData = [
-                                        'filename' => PathUtility::basename($ID_absFile),
-                                        'ID_absFile' => $ID_absFile,
-                                        'ID' => $ID,
-                                        'relFileName' => $el['subst']['relFileName'],
-                                    ];
-                                    $this->exportAddFile($fileRelationData);
-                                }
-                                $el['file_ID'] = $ID;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * This adds the file to the export
-     *
-     * @param array $fileData File information with three keys: "filename" = filename without path, "ID_absFile" = absolute filepath to the file (including the filename), "ID" = md5 hash of "ID_absFile". "relFileName" is optional for files attached to records, but mandatory for soft referenced files (since the relFileName determines where such a file should be stored!)
-     */
-    protected function exportAddFile(array $fileData): void
-    {
-        if (!@is_file($fileData['ID_absFile'])) {
-            $this->addError($fileData['ID_absFile'] . ' was not a file! Skipping.');
-            return;
-        }
-
-        $fileStat = stat($fileData['ID_absFile']);
-        $fileMd5 = md5_file($fileData['ID_absFile']);
-
-        $fileInfo = [];
-        $fileInfo['filename'] = PathUtility::basename($fileData['ID_absFile']);
-        $fileInfo['filemtime'] = $fileStat['mtime'];
-        $fileInfo['relFileRef'] = PathUtility::stripPathSitePrefix($fileData['ID_absFile']);
-        if ($fileData['relFileName']) {
-            $fileInfo['relFileName'] = $fileData['relFileName'];
-        }
-
-        // Setting this data in the header
-        $this->dat['header']['files'][$fileData['ID']] = $fileInfo;
-
-        if (!$this->saveFilesOutsideExportFile) {
-            $fileInfo['content'] = (string)file_get_contents($fileData['ID_absFile']);
-        } else {
-            GeneralUtility::upload_copy_move(
-                $fileData['ID_absFile'],
-                $this->getOrCreateTemporaryFolderName() . '/' . $fileMd5
-            );
-        }
-        $fileInfo['content_md5'] = $fileMd5;
-        $this->dat['files'][$fileData['ID']] = $fileInfo;
-    }
-
-    /**
      * This adds all files from sys_file records
      */
     protected function exportAddFilesFromSysFilesRecords(): void
     {
         foreach ($this->dat['header']['records']['sys_file'] ?? [] as $sysFileUid => $_) {
-            $fileData = $this->dat['records']['sys_file:' . $sysFileUid]['data'];
-            $this->exportAddSysFile($fileData);
+            $this->exportAddSysFile($sysFileUid);
         }
     }
 
@@ -988,13 +943,13 @@ class Export extends ImportExport
      * This adds the file from a sys_file record to the export
      * - either as content or external file
      */
-    protected function exportAddSysFile(array $fileData): void
+    protected function exportAddSysFile(int $sysFileUid): void
     {
         try {
-            $file = $this->resourceFactory->createFileObject($fileData);
+            $file = $this->resourceFactory->getFileObject($sysFileUid);
             $file->checkActionPermission('read');
         } catch (\Exception $e) {
-            $this->addError('Error when trying to add file ' . $fileData['title'] . ': ' . $e->getMessage());
+            $this->addError('Error when trying to add file with UID ' . $sysFileUid . ': ' . $e->getMessage());
             return;
         }
 
@@ -1003,8 +958,8 @@ class Export extends ImportExport
         if ($fileSha1 !== $file->getProperty('sha1')) {
             $this->dat['records']['sys_file:' . $fileUid]['data']['sha1'] = $fileSha1;
             $this->addError(
-                'The SHA-1 file hash of ' . $file->getCombinedIdentifier() . ' is not up-to-date in the index! ' .
-                'The file was added based on the current file hash.'
+                'The SHA-1 file hash of ' . $file->getCombinedIdentifier() . ' is not up-to-date in the index! '
+                . 'The file was added based on the current file hash.'
             );
         }
         // Build unique id based on the storage and the file identifier
@@ -1027,6 +982,26 @@ class Export extends ImportExport
         }
         $fileInfo['content_sha1'] = $fileSha1;
         $this->dat['files_fal'][$fileId] = $fileInfo;
+    }
+
+    /**
+     * Add site configurations whose root page is part of the export to the export header.
+     */
+    protected function exportAddSiteConfigurations(): void
+    {
+        $exportedPageIds = array_map('intval', array_keys($this->dat['header']['records']['pages'] ?? []));
+        if ($exportedPageIds === []) {
+            return;
+        }
+        $siteConfigurations = [];
+        foreach ($this->siteConfiguration->resolveAllExistingSites(false) as $site) {
+            if (in_array($site->getRootPageId(), $exportedPageIds, true)) {
+                $siteConfigurations[$site->getIdentifier()] = $this->siteConfiguration->load($site->getIdentifier());
+            }
+        }
+        if ($siteConfigurations !== []) {
+            $this->dat['header']['site_configurations'] = $siteConfigurations;
+        }
     }
 
     /**
@@ -1144,12 +1119,14 @@ class Export extends ImportExport
         // Creating XML file from $outputArray:
         $charset = $this->dat['header']['charset'] ?: 'utf-8';
         $XML = '<?xml version="1.0" encoding="' . $charset . '" standalone="yes" ?>' . LF;
-        $XML .= (new Typo3XmlSerializer())->encodeWithReturningExceptionAsString(
+        $XML .= new Typo3XmlSerializer()->encodeWithReturningExceptionAsString(
             $this->dat,
             new Typo3XmlParserOptions([Typo3XmlParserOptions::ROOT_NODE_NAME => 'T3RecordDocument']),
             $options
         );
-        return $XML;
+
+        // POSIX text-file convention: files end with a newline.
+        return rtrim($XML, "\r\n") . LF;
     }
 
     /**
@@ -1368,5 +1345,10 @@ class Export extends ImportExport
     public function setSaveFilesOutsideExportFile(bool $saveFilesOutsideExportFile): void
     {
         $this->saveFilesOutsideExportFile = $saveFilesOutsideExportFile;
+    }
+
+    public function setIncludeSiteConfigurations(bool $includeSiteConfigurations): void
+    {
+        $this->includeSiteConfigurations = $includeSiteConfigurations;
     }
 }

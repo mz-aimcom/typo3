@@ -22,6 +22,8 @@ use TYPO3\CMS\Core\Configuration\SiteWriter;
 use TYPO3\CMS\Core\Crypto\PasswordHashing\PasswordHashFactory;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Exception\SiteNotFoundException;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
@@ -37,6 +39,7 @@ final class Generator extends AbstractGenerator
     public function __construct(
         private readonly ConnectionPool $connectionPool,
         private readonly RecordFinder $recordFinder,
+        private readonly TcaSchemaFactory $tcaSchemaFactory,
         private readonly array $tableHandler,
     ) {}
 
@@ -92,19 +95,17 @@ final class Generator extends AbstractGenerator
             ];
 
             // Add page translations for all styleguide languages
-            if (!empty($styleguideDemoLanguageIds)) {
-                foreach ($styleguideDemoLanguageIds as $languageUid) {
-                    $newIdOfLocalizedPage = StringUtility::getUniqueId('NEW');
-                    $data['pages'][$newIdOfLocalizedPage] = [
-                        'title' => str_replace('_', ' ', substr($mainTable . ' - language ' . $languageUid, strlen('tx_styleguide_'))),
-                        'tx_styleguide_containsdemo' => $mainTable,
-                        'hidden' => 0,
-                        'pid' => $neighborPage,
-                        'sys_language_uid' => $languageUid,
-                        'l10n_parent' => $newIdOfPage,
-                        'l10n_source' => $newIdOfPage,
-                    ];
-                }
+            foreach ($styleguideDemoLanguageIds as $languageUid) {
+                $newIdOfLocalizedPage = StringUtility::getUniqueId('NEW');
+                $data['pages'][$newIdOfLocalizedPage] = [
+                    'title' => str_replace('_', ' ', substr($mainTable . ' - language ' . $languageUid, strlen('tx_styleguide_'))),
+                    'tx_styleguide_containsdemo' => $mainTable,
+                    'hidden' => 0,
+                    'pid' => $neighborPage,
+                    'sys_language_uid' => $languageUid,
+                    'l10n_parent' => $newIdOfPage,
+                    'l10n_source' => $newIdOfPage,
+                ];
             }
             // Have next page after this page
             $neighborPage = '-' . $newIdOfPage;
@@ -143,6 +144,8 @@ final class Generator extends AbstractGenerator
             }
             $generator->handle($mainTable);
         }
+
+        $this->clearAllCachesOnCli();
     }
 
     /**
@@ -179,21 +182,27 @@ final class Generator extends AbstractGenerator
 
         // Process commands to delete records
         $this->executeDataHandler([], $commands);
+        $this->clearAllCachesOnCli();
 
         // Delete demo images in fileadmin again
         $this->deleteFalFolder('styleguide');
 
         // Delete site configuration
         if ($topUids[0] ?? false) {
-            $site = GeneralUtility::makeInstance(SiteFinder::class)->getSiteByRootPageId($topUids[0]);
-            GeneralUtility::makeInstance(SiteWriter::class)->delete($site->getIdentifier());
+            try {
+                $site = GeneralUtility::makeInstance(SiteFinder::class)->getSiteByRootPageId($topUids[0]);
+                GeneralUtility::makeInstance(SiteWriter::class)->delete($site->getIdentifier());
+            } catch (SiteNotFoundException) {
+                // Might be that the site config does not exist anymore, so just return.
+                return;
+            }
         }
     }
 
     /**
      * Add rows for third party tables like be_users or FAL
      */
-    protected function populateRowsOfThirdPartyTables(): void
+    private function populateRowsOfThirdPartyTables(): void
     {
 
         $demoGroupUids = $this->recordFinder->findUidsOfDemoBeGroups();
@@ -218,8 +227,9 @@ final class Generator extends AbstractGenerator
             // These edge cases are ignored for now.
 
             // Add two be_users, one admin user, one non-admin user, both hidden and with a random password
-            $passwordHash = GeneralUtility::makeInstance(PasswordHashFactory::class)->getDefaultHashInstance('BE');
-            $random = GeneralUtility::makeInstance(Random::class);
+            $hashedPassword = GeneralUtility::makeInstance(PasswordHashFactory::class)
+                ->getDefaultHashInstance('BE')
+                ->getHashedPassword(GeneralUtility::makeInstance(Random::class)->generateRandomBytes(10));
             $fields = [
                 'pid' => 0,
                 'disable' => 1,
@@ -227,14 +237,13 @@ final class Generator extends AbstractGenerator
                 'tx_styleguide_isdemorecord' => 1,
                 'username' => 'styleguide demo user 1',
                 'usergroup' => implode(',', $demoGroupUids),
-                'password' => $passwordHash->getHashedPassword($random->generateRandomBytes(10)),
+                'password' => $hashedPassword,
             ];
             $connection = $this->connectionPool->getConnectionForTable('be_users');
             $connection->insert('be_users', $fields);
             $fields['admin'] = 1;
             $fields['username'] = 'styleguide demo user 2';
             $fields['usergroup'] = '';
-            $fields['password'] = $passwordHash->getHashedPassword($random->generateRandomBytes(10));
             $connection->insert('be_users', $fields);
         }
 
@@ -268,7 +277,7 @@ final class Generator extends AbstractGenerator
      *
      * @return array
      */
-    protected function getListOfStyleguideMainTables(): array
+    private function getListOfStyleguideMainTables(): array
     {
         $prefixes = [
             'tx_styleguide_',
@@ -277,7 +286,7 @@ final class Generator extends AbstractGenerator
             'tx_styleguide_inline_',
         ];
         $result = [];
-        foreach ($GLOBALS['TCA'] as $tablename => $_) {
+        foreach ($this->tcaSchemaFactory->all()->getNames() as $tablename) {
             if ($tablename === 'tx_styleguide_staticdata') {
                 continue;
             }

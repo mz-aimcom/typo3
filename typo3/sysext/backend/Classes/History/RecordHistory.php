@@ -20,7 +20,10 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
+use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\DataHandling\History\RecordHistoryStore;
+use TYPO3\CMS\Core\DataHandling\Model\CorrelationId;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
@@ -30,6 +33,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 /**
  * Class for fetching the history entries of a record (and if it is a page, its sub elements
  * as well)
+ *
+ * @internal This class is an implementation detail of the backend record history controller and is not considered part of the public TYPO3 API.
  */
 class RecordHistory
 {
@@ -128,6 +133,81 @@ class RecordHistory
         return $this->element;
     }
 
+    /**
+     * Compile a list of record history elements that belong to the same translation root.
+     *
+     * @return array{
+     *     page: int,
+     *     elements: array<array{element: string, language: int}>
+     * }|null
+     */
+    public function getTranslations(string $element): ?array
+    {
+        if ($element === '') {
+            return null;
+        }
+
+        [$table, $recordUid] = explode(':', $element);
+        $recordUid = (int)$recordUid;
+        $schema = $this->getTcaSchema($table);
+        if ($schema === null) {
+            return null;
+        }
+
+        if (!$schema->isLanguageAware()) {
+            return null;
+        }
+
+        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+        $langField = $languageCapability->getLanguageField()->getName();
+        $l10nPointer = $languageCapability->getTranslationOriginPointerField()->getName();
+
+        $record = BackendUtility::getRecord($table, $recordUid);
+        $l10nParentUid = (int)($record[$l10nPointer] ?? 0);
+        $defaultLanguageUid = ($l10nParentUid ?: $recordUid);
+        if ($defaultLanguageUid === $recordUid) {
+            $translationRoot = $record;
+        } else {
+            $translationRoot = BackendUtility::getRecord($table, $defaultLanguageUid);
+        }
+
+        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+            ->getQueryBuilderForTable($table);
+        $queryBuilder->getRestrictions()
+            ->removeAll()
+            ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
+            ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
+
+        $statement = $queryBuilder->from($table)
+            ->select('*')
+            ->where(
+                $queryBuilder->expr()->eq($l10nPointer, $queryBuilder->createNamedParameter($defaultLanguageUid))
+            )
+            ->executeQuery();
+
+        $translations = [
+            'page' => $table === 'pages' ? $defaultLanguageUid : (int)$translationRoot['pid'],
+            'elements' => [
+                [
+                    'element' => $table . ':' . $defaultLanguageUid,
+                    'language' => (int)$translationRoot[$langField],
+                ],
+            ],
+        ];
+
+        foreach ($statement->fetchAllAssociative() as $row) {
+            BackendUtility::workspaceOL($table, $row, $this->getBackendUser()->workspace);
+            if ($row) {
+                $translations['elements'][] = [
+                    'element' => $table . ':' . $row['uid'],
+                    'language' => (int)$row[$langField],
+                ];
+            }
+        }
+
+        return $translations;
+    }
+
     /*******************************
      *
      * build up history
@@ -143,24 +223,45 @@ class RecordHistory
         $insertsDeletes = [];
         $newArr = [];
         $differences = [];
+        $moves = [];
         // traverse changelog array
         foreach ($changeLog as $value) {
             $field = $value['tablename'] . ':' . $value['recuid'];
-            // inserts / deletes
-            if ((int)$value['actiontype'] !== RecordHistoryStore::ACTION_MODIFY) {
-                if (!isset($insertsDeletes[$field])) {
-                    $insertsDeletes[$field] = 0;
+            $actionType = (int)$value['actiontype'];
+            if ($actionType === RecordHistoryStore::ACTION_MODIFY) {
+                if (!isset($newArr[$field])) {
+                    $newArr[$field] = $value['newRecord'];
+                    $differences[$field] = $value['oldRecord'];
+                } else {
+                    $differences[$field] = array_merge($differences[$field], $value['oldRecord']);
                 }
-                ($value['action'] ?? '') === 'insert' ? $insertsDeletes[$field]++ : $insertsDeletes[$field]--;
-                // unset not needed fields
-                if ($insertsDeletes[$field] === 0) {
-                    unset($insertsDeletes[$field]);
+                continue;
+            }
+            if ($actionType === RecordHistoryStore::ACTION_MOVE) {
+                // A move stores where the record came from under other keys than a modification,
+                // and neither pid nor sorting is a TCA column, so it cannot be rolled back as a
+                // field. The changelog is traversed from new to old, so the last one wins and
+                // that is the position the record had before the oldest move shown.
+                $previousPosition = $value['history_data']['oldData'] ?? [];
+                if (isset($previousPosition['pid'])) {
+                    $moves[$field] = $previousPosition;
                 }
-            } elseif (!isset($newArr[$field])) {
-                $newArr[$field] = $value['newRecord'];
-                $differences[$field] = $value['oldRecord'];
-            } else {
-                $differences[$field] = array_merge($differences[$field], $value['oldRecord']);
+                continue;
+            }
+            // Only the existence of a record can be rolled back here. Changing the stage and
+            // publishing a record do not add or remove one, so they are not counted at all.
+            $existenceChange = match ($actionType) {
+                RecordHistoryStore::ACTION_ADD, RecordHistoryStore::ACTION_UNDELETE => 1,
+                RecordHistoryStore::ACTION_DELETE => -1,
+                default => 0,
+            };
+            if ($existenceChange === 0) {
+                continue;
+            }
+            $insertsDeletes[$field] = ($insertsDeletes[$field] ?? 0) + $existenceChange;
+            // unset not needed fields
+            if ($insertsDeletes[$field] === 0) {
+                unset($insertsDeletes[$field]);
             }
         }
         // remove entries where there were no changes effectively
@@ -178,6 +279,7 @@ class RecordHistory
             'newData' => $newArr,
             'oldData' => $differences,
             'insertsDeletes' => $insertsDeletes,
+            'moves' => $moves,
         ];
     }
 
@@ -216,14 +318,13 @@ class RecordHistory
             }
         }
         usort($historyDataForRecord, static function (array $a, array $b): int {
-            if ($a['tstamp'] < $b['tstamp']) {
-                return 1;
-            }
-            if ($a['tstamp'] > $b['tstamp']) {
-                return -1;
-            }
-            return 0;
+            return ($b['tstamp'] <=> $a['tstamp']) ?: ($b['uid'] <=> $a['uid']);
         });
+        if ($this->maxSteps > 0) {
+            // The limit is applied per record in findEventsForRecord() as well. That keeps the
+            // amount of rows to merge low, but only this one limits the merged changelog.
+            $historyDataForRecord = array_slice($historyDataForRecord, 0, $this->maxSteps);
+        }
         return $historyDataForRecord;
     }
 
@@ -272,6 +373,8 @@ class RecordHistory
                     $queryBuilder->createNamedParameter(RecordHistoryStore::ACTION_DELETE, Connection::PARAM_INT)
                 )
             )
+            // A record can have been deleted, undeleted and deleted again, the last one counts
+            ->orderBy('uid', 'DESC')
             ->setMaxResults(1);
 
         return (int)$queryBuilder->executeQuery()->fetchOne();
@@ -336,6 +439,9 @@ class RecordHistory
                 $queryBuilder->expr()->eq('recuid', $queryBuilder->createNamedParameter($record['uid'], Connection::PARAM_INT)),
                 $queryBuilder->expr()->eq('actiontype', $queryBuilder->createNamedParameter(RecordHistoryStore::ACTION_ADD, Connection::PARAM_INT))
             )
+            // Publishing migrates the "add" entry of a workspace version onto the live record,
+            // so there can be more than one. The oldest one is the actual creation.
+            ->orderBy('uid', 'ASC')
             ->setMaxResults(1)
             ->executeQuery()
             ->fetchAssociative();
@@ -348,7 +454,6 @@ class RecordHistory
      */
     public function findEventsForRecord(string $table, int $uid, int $limit = 0, ?int $minimumUid = null): array
     {
-        $backendUser = $this->getBackendUser();
         $queryBuilder = $this->getQueryBuilder();
         $queryBuilder
             ->select('*')
@@ -357,18 +462,7 @@ class RecordHistory
                 $queryBuilder->expr()->eq('tablename', $queryBuilder->createNamedParameter($table)),
                 $queryBuilder->expr()->eq('recuid', $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT))
             );
-        if ($backendUser->workspace === 0) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->eq('workspace', 0)
-            );
-        } else {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->or(
-                    $queryBuilder->expr()->eq('workspace', 0),
-                    $queryBuilder->expr()->eq('workspace', $queryBuilder->createNamedParameter($backendUser->workspace, Connection::PARAM_INT))
-                )
-            );
-        }
+        $this->addWorkspaceRestriction($queryBuilder);
         if ($limit) {
             $queryBuilder->setMaxResults($limit);
         }
@@ -380,6 +474,60 @@ class RecordHistory
         return $this->prepareEventDataFromQueryBuilder($queryBuilder);
     }
 
+    /**
+     * All entries written during one operation, no matter which record they belong to. They share
+     * the scope of their correlation id, while the subject differs per record, so an operation can
+     * only be looked up by the prefix the whole scope has in common.
+     *
+     * The result is limited to what the user may see: one operation can span tables and pages, and
+     * a record history must not become a way around table or page permissions.
+     */
+    public function findEventsForScope(string $scope, int $limit = 0): array
+    {
+        if ($scope === '') {
+            return [];
+        }
+        $queryBuilder = $this->getQueryBuilder();
+        $queryBuilder
+            ->select('*')
+            ->from('sys_history')
+            ->where(
+                $queryBuilder->expr()->like(
+                    'correlation_id',
+                    $queryBuilder->createNamedParameter(
+                        $queryBuilder->escapeLikeWildcards(CorrelationId::scopePrefix($scope)) . '%'
+                    )
+                )
+            );
+        $this->addWorkspaceRestriction($queryBuilder);
+        if ($limit) {
+            $queryBuilder->setMaxResults($limit);
+        }
+
+        return array_filter(
+            $this->prepareEventDataFromQueryBuilder($queryBuilder),
+            fn(array $event): bool => $this->hasTableAccess($event['tablename'])
+                && $this->hasPageAccess($event['tablename'], (int)$event['recuid'])
+        );
+    }
+
+    /**
+     * The scope an entry was written in, or null for entries that carry no correlation id at all.
+     */
+    public function getScopeOfEvent(array $event): ?string
+    {
+        $correlationId = (string)($event['correlation_id'] ?? '');
+        if ($correlationId === '') {
+            return null;
+        }
+        try {
+            return CorrelationId::fromString($correlationId)->getScope();
+        } catch (\InvalidArgumentException) {
+            // Entries written before the current format, or by third party code
+            return null;
+        }
+    }
+
     public function findEventsForCorrelation(string $correlationId): array
     {
         $queryBuilder = $this->getQueryBuilder();
@@ -389,6 +537,24 @@ class RecordHistory
             ->where($queryBuilder->expr()->eq('correlation_id', $queryBuilder->createNamedParameter($correlationId)));
 
         return $this->prepareEventDataFromQueryBuilder($queryBuilder);
+    }
+
+    /**
+     * Entries of a workspace are only visible to a user working in that very workspace.
+     */
+    protected function addWorkspaceRestriction(QueryBuilder $queryBuilder): void
+    {
+        $workspace = $this->getBackendUser()->workspace;
+        if ($workspace === 0) {
+            $queryBuilder->andWhere($queryBuilder->expr()->eq('workspace', 0));
+            return;
+        }
+        $queryBuilder->andWhere(
+            $queryBuilder->expr()->or(
+                $queryBuilder->expr()->eq('workspace', 0),
+                $queryBuilder->expr()->eq('workspace', $queryBuilder->createNamedParameter($workspace, Connection::PARAM_INT))
+            )
+        );
     }
 
     protected function prepareEventDataFromQueryBuilder(QueryBuilder $queryBuilder): array

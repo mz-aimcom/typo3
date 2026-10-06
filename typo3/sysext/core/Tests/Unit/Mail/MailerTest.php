@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Mail;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
@@ -36,6 +38,8 @@ use TYPO3\CMS\Core\Resource\Security\FileNameValidator;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class MailerTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -51,13 +55,13 @@ final class MailerTest extends UnitTestCase
             ->onlyMethods([])
             ->disableOriginalConstructor()
             ->getMock();
-        $this->logManager = new class () implements LogManagerInterface {
+        $this->logManager = new class implements LogManagerInterface {
             public function getLogger(string $name = ''): LoggerInterface
             {
                 return new NullLogger();
             }
         };
-        $this->eventDispatcher = new class () implements EventDispatcherInterface {
+        $this->eventDispatcher = new class implements EventDispatcherInterface {
             public function dispatch(object $event, ?string $eventName = null): object
             {
                 return $event;
@@ -75,7 +79,7 @@ final class MailerTest extends UnitTestCase
         ];
         $transportFactory = $this->createMock(TransportFactory::class);
         $transportFactory->expects($this->atLeastOnce())->method('get')->with($settings)
-            ->willReturn($this->createMock(SendmailTransport::class));
+            ->willReturn(self::createStub(SendmailTransport::class));
         GeneralUtility::addInstance(TransportFactory::class, $transportFactory);
         $this->subject->injectMailSettings($settings);
         $this->subject->__construct();
@@ -90,7 +94,7 @@ final class MailerTest extends UnitTestCase
         ]);
         $transportFactory = $this->createMock(TransportFactory::class);
         $transportFactory->expects($this->atLeastOnce())->method('get')->with($settings)
-            ->willReturn($this->createMock(SendmailTransport::class));
+            ->willReturn(self::createStub(SendmailTransport::class));
         GeneralUtility::addInstance(TransportFactory::class, $transportFactory);
         $this->subject->injectMailSettings($settings);
         $this->subject->__construct();

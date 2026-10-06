@@ -12,9 +12,11 @@
  */
 
 import { html, css, LitElement, type TemplateResult, nothing } from 'lit';
-import { customElement, property, state } from 'lit/decorators';
+import { customElement, property, state } from 'lit/decorators.js';
 import '@typo3/backend/element/icon-element';
 import AjaxDataHandler from '../ajax-data-handler';
+import commonLabels from '~labels/core.common';
+import layoutLabels from '~labels/backend.layout';
 
 @customElement('typo3-backend-editable-page-title')
 export class EditablePageTitle extends LitElement {
@@ -24,7 +26,7 @@ export class EditablePageTitle extends LitElement {
       --input-border-color: #bebebe;
       --input-hover-border-color: #bebebe;
       --input-focus-border-color: #bebebe;
-      --button-border-radius: 2px;
+      --button-border-radius: var(--typo3-input-border-radius);
       --button-color: inherit;
       --button-bg: transparent;
       --button-border-color: transparent;
@@ -34,6 +36,8 @@ export class EditablePageTitle extends LitElement {
       --button-focus-color: inherit;
       --button-focus-bg: #cacaca;
       --button-focus-border-color: #bebebe;
+      --button-padding-x: var(--typo3-input-padding-x);
+      --button-padding-y: var(--typo3-input-padding-y);
     }
 
     h1 {
@@ -80,13 +84,19 @@ export class EditablePageTitle extends LitElement {
     .wrapper {
       position: relative;
       margin: -1px 0;
-    }
-
-    div.wrapper {
       padding-inline-end: 1.5em;
     }
 
-    form.wrapper {
+    .wrapper:has(> form) .page-title {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .wrapper > form {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
       padding-inline-end: 2.5em;
     }
 
@@ -97,8 +107,7 @@ export class EditablePageTitle extends LitElement {
       justify-content: center;
       font-size: inherit;
       line-height: inherit;
-      border: 0;
-      padding: 0;
+      padding: var(--button-padding-y) var(--button-padding-x);
       height: 100%;
       width: 1em;
       position: absolute;
@@ -109,7 +118,7 @@ export class EditablePageTitle extends LitElement {
       color: var(--button-color);
       background: var(--button-bg);
       border: 1px solid var(--button-border-color);
-      opacity: .3;
+      opacity: .8;
       outline-offset: 0;
       transition: all .2s ease-in-out;
     }
@@ -164,17 +173,19 @@ export class EditablePageTitle extends LitElement {
   @state() _isSubmitting: boolean = false;
 
   protected labels: Record<string, string> = {
-    input: TYPO3?.lang?.['editablePageTitle.input.field.label'] || 'Field',
-    edit: TYPO3?.lang?.['editablePageTitle.button.edit.label'] || 'Edit',
-    save: TYPO3?.lang?.['editablePageTitle.button.save.label'] || 'Save',
-    cancel: TYPO3?.lang?.['editablePageTitle.button.cancel.label'] || 'Cancel',
+    input: layoutLabels.get('editPageTitle.input.field.label'),
+    edit: layoutLabels.get('editPageTitle'),
+    save: commonLabels.get('save'),
+    cancel: commonLabels.get('cancel'),
   };
 
   async startEditing(): Promise<void> {
     if (this.isEditable()) {
       this._isEditing = true;
       await this.updateComplete;
-      this.shadowRoot.querySelector('input')?.focus();
+      const input = this.shadowRoot.querySelector('input');
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
     }
   }
 
@@ -187,27 +198,26 @@ export class EditablePageTitle extends LitElement {
       return html`<div class="wrapper"><h1>${this.pageTitle}</h1></div>`;
     }
 
-    let content;
-    if (!this._isEditing) {
-      content = html`
-        <div class="wrapper">
+    return html`
+      <div class="wrapper">
+        <div class="page-title">
           <h1 @dblclick="${(): void => { this.startEditing(); }}">${this.pageTitle}</h1>
           ${this.composeEditButton()}
-        </div>`;
-    } else {
-      content = this.composeEditForm();
-    }
-
-    return content;
+        </div>
+        ${this._isEditing ? this.composeEditForm() : nothing}
+      </div>
+    `;
   }
 
   private isEditable(): boolean {
     return this.editable && this.pageId > 0;
   }
 
-  private endEditing(): void {
+  private async endEditing(): Promise<void> {
     if (this.isEditable()) {
       this._isEditing = false;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      this.shadowRoot.querySelector<HTMLButtonElement>('button[data-action="edit"]')?.focus();
     }
   }
 
@@ -265,7 +275,7 @@ export class EditablePageTitle extends LitElement {
 
   private composeEditForm(): TemplateResult {
     return html`
-      <form class="wrapper" @submit="${ this.updatePageTitle }">
+      <form @submit="${ this.updatePageTitle }">
         <label class="screen-reader" for="input">${this.labels.input}</label>
         <input
           autocomplete="off"

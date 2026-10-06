@@ -12,7 +12,7 @@
  */
 
 import { html, LitElement, type TemplateResult } from 'lit';
-import { customElement, query } from 'lit/decorators';
+import { customElement, query } from 'lit/decorators.js';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import { type TreeToolbar } from '@typo3/backend/tree/tree-toolbar';
 import ElementBrowser from '@typo3/backend/element-browser';
@@ -69,7 +69,7 @@ export class FileStorageBrowserTree extends FileStorageTree {
 
 @customElement('typo3-backend-component-filestorage-browser')
 export class FileStorageBrowser extends LitElement {
-  @query('.tree-wrapper') tree: FileStorageBrowserTree;
+  @query('typo3-backend-component-filestorage-browser-tree') tree: FileStorageBrowserTree;
 
   private activeFolder: string = '';
   private actions: Array<string> = [];
@@ -89,26 +89,30 @@ export class FileStorageBrowser extends LitElement {
     }
     const treeSetup = {
       dataUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_data,
+      rootlineUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_rootline,
       filterUrl: top.TYPO3.settings.ajaxUrls.filestorage_tree_filter,
       showIcons: true,
       actions: this.actions
     };
 
     const initialized = () => {
-      this.tree.addEventListener('typo3:tree:node-selected', this.loadFolderDetails);
-      this.tree.addEventListener('typo3:tree:nodes-prepared', this.selectActiveNode);
       // set up toolbar now with updated properties
       const toolbar = this.querySelector('typo3-backend-tree-toolbar') as TreeToolbar;
       toolbar.tree = this.tree;
+      // Expand to the active folder if one is set
+      if (this.activeFolder) {
+        this.expandToActiveFolder();
+      }
     };
 
     return html`
-      <div class="tree">
-        <typo3-backend-tree-toolbar .tree="${this.tree}"></typo3-backend-tree-toolbar>
-        <div class="navigation-tree-container">
-          <typo3-backend-component-filestorage-browser-tree class="tree-wrapper" .setup=${treeSetup} @tree:initialized=${initialized}></typo3-backend-component-page-browser-tree>
-        </div>
-      </div>
+      <typo3-backend-tree-toolbar .tree="${this.tree}"></typo3-backend-tree-toolbar>
+      <typo3-backend-component-filestorage-browser-tree
+        .setup=${treeSetup}
+        @tree:initialized=${initialized}
+        @typo3:tree:node-selected=${this.loadFolderDetails}
+        @typo3:tree:nodes-prepared=${this.selectActiveNode}
+      ></typo3-backend-component-page-browser-tree>
     `;
   }
 
@@ -123,6 +127,41 @@ export class FileStorageBrowser extends LitElement {
     });
   };
 
+  /**
+   * Expand the tree to show the active folder
+   */
+  private async expandToActiveFolder(): Promise<void> {
+    if (!this.activeFolder || !this.tree.settings.rootlineUrl) {
+      return;
+    }
+
+    // Check if the active node is already in the tree
+    const existingNode = this.tree.nodes.find((node) => decodeURIComponent(node.identifier) === this.activeFolder);
+    if (existingNode) {
+      // Node is already loaded, just expand its parents
+      await this.tree.expandNodeParents(existingNode);
+      return;
+    }
+
+    // Fetch the rootline to find the path to the active folder
+    try {
+      const url = new URL(this.tree.settings.rootlineUrl, window.location.origin);
+      url.searchParams.set('identifier', this.activeFolder);
+      const response = await new AjaxRequest(url.toString()).get({ cache: 'no-cache' });
+      const { rootline }: { rootline: string[] } = await response.resolve();
+
+      // Expand all parent nodes
+      if (rootline && rootline.length > 0) {
+        // Remove the last element (the active folder itself)
+        rootline.pop();
+        // Encode identifiers to match the URL-encoded format stored in tree nodes
+        await this.tree.expandParents(rootline.map(id => encodeURIComponent(id)));
+      }
+    } catch (error) {
+      // If rootline fetch fails, silently ignore (folder might not exist or no access)
+      console.debug('Could not expand to active folder:', error);
+    }
+  }
 
   /**
    * If a page is clicked, the content area needs to be updated

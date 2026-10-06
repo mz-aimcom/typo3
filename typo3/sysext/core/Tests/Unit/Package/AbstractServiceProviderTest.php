@@ -33,13 +33,24 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class AbstractServiceProviderTest extends UnitTestCase
 {
     #[Test]
+    public function getExtensionsPreservesConcreteServiceProviderClass(): void
+    {
+        $extensions = new Package1ServiceProviderMock()->getExtensions();
+
+        self::assertSame(
+            [Package1ServiceProviderMock::class, 'configureFluidComponentCollections'],
+            $extensions['fluid.component.collections']
+        );
+    }
+
+    #[Test]
     public function configureMiddlewaresReturnsMergedMiddlewares(): void
     {
-        $containerMock = $this->createMock(ContainerInterface::class);
+        $containerStub = self::createStub(ContainerInterface::class);
 
         $middlewares = new \ArrayObject();
-        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerMock, $middlewares);
-        $middlewares = Package2ServiceProviderMock::configureMiddlewares($containerMock, $middlewares);
+        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerStub, $middlewares);
+        $middlewares = Package2ServiceProviderMock::configureMiddlewares($containerStub, $middlewares);
 
         $expected = new \ArrayObject([
             'testStack' => [
@@ -57,16 +68,16 @@ final class AbstractServiceProviderTest extends UnitTestCase
     #[Test]
     public function configureMiddlewaresReturnsMergedMiddlewaresWithPseudoServiceProvider(): void
     {
-        $containerMock = $this->createMock(ContainerInterface::class);
+        $containerStub = self::createStub(ContainerInterface::class);
 
         $package2 = $this->createMock(Package::class);
         $package2->method('getPackagePath')->willReturn(__DIR__ . '/../Http/Fixtures/Package2/');
-        $package2->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
+        $package2->expects($this->atMost(PHP_INT_MAX))->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
         $package2ServiceProvider = new PseudoServiceProvider($package2);
 
         $middlewares = new \ArrayObject();
-        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerMock, $middlewares);
-        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerMock, $middlewares);
+        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerStub, $middlewares);
+        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerStub, $middlewares);
 
         $expected = new \ArrayObject([
             'testStack' => [
@@ -84,16 +95,16 @@ final class AbstractServiceProviderTest extends UnitTestCase
     #[Test]
     public function configureMiddlewaresReturnsMergedMiddlewaresWithOverrides(): void
     {
-        $containerMock = $this->createMock(ContainerInterface::class);
+        $containerStub = self::createStub(ContainerInterface::class);
 
         $package2 = $this->createMock(Package::class);
         $package2->method('getPackagePath')->willReturn(__DIR__ . '/../Http/Fixtures/Package2Disables1/');
-        $package2->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
+        $package2->expects($this->atMost(PHP_INT_MAX))->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
         $package2ServiceProvider = new PseudoServiceProvider($package2);
 
         $middlewares = new \ArrayObject();
-        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerMock, $middlewares);
-        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerMock, $middlewares);
+        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerStub, $middlewares);
+        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerStub, $middlewares);
 
         $expected = new \ArrayObject([
             'testStack' => [
@@ -112,16 +123,16 @@ final class AbstractServiceProviderTest extends UnitTestCase
     #[Test]
     public function configureMiddlewaresReturnsMergedMiddlewaresWithReplacements(): void
     {
-        $containerMock = $this->createMock(ContainerInterface::class);
+        $containerStub = self::createStub(ContainerInterface::class);
 
         $package2 = $this->createMock(Package::class);
         $package2->method('getPackagePath')->willReturn(__DIR__ . '/../Http/Fixtures/Package2Replaces1/');
-        $package2->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
+        $package2->expects($this->atMost(PHP_INT_MAX))->method('getValueFromComposerManifest')->with('name')->willReturn('typo3/cms-testing');
         $package2ServiceProvider = new PseudoServiceProvider($package2);
 
         $middlewares = new \ArrayObject();
-        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerMock, $middlewares);
-        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerMock, $middlewares);
+        $middlewares = Package1ServiceProviderMock::configureMiddlewares($containerStub, $middlewares);
+        $middlewares = $package2ServiceProvider->getExtensions()['middlewares']($containerStub, $middlewares);
 
         $expected = new \ArrayObject([
             'testStack' => [
@@ -140,7 +151,7 @@ final class AbstractServiceProviderTest extends UnitTestCase
     public function newReturnsClassInstance(): void
     {
         $newClosure = $this->getClosureForNew();
-        $instance = $newClosure($this->createMock(ContainerInterface::class), \stdClass::class);
+        $instance = $newClosure(self::createStub(ContainerInterface::class), \stdClass::class);
         self::assertInstanceOf(\stdClass::class, $instance);
     }
 
@@ -150,16 +161,16 @@ final class AbstractServiceProviderTest extends UnitTestCase
         $containerMock = $this->createMock(ContainerInterface::class);
 
         $logManagerMock = $this->createMock(LogManager::class);
-        $logManagerMock->method('getLogger')->with(GeneralUtilityMakeInstanceInjectLoggerFixture::class)
+        $logManagerMock->expects($this->atMost(PHP_INT_MAX))->method('getLogger')->with(GeneralUtilityMakeInstanceInjectLoggerFixture::class)
             ->willReturn(new NullLogger());
-        $containerMock->method('get')->with(LogManager::class)->willReturn($logManagerMock);
+        $containerMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with(LogManager::class)->willReturn($logManagerMock);
         $className = GeneralUtilityMakeInstanceInjectLoggerFixture::class;
         $newClosure = $this->getClosureForNew();
         $instance = $newClosure($containerMock, $className);
         self::assertInstanceOf(LoggerInterface::class, $instance->getLogger());
     }
 
-    protected function getClosureForNew(): \Closure
+    private function getClosureForNew(): \Closure
     {
         return \Closure::bind(
             static function ($container, $className, $arguments = []) {

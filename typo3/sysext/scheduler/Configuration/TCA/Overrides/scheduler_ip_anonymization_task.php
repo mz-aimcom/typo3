@@ -34,20 +34,18 @@ ExtensionManagementUtility::addRecordType(
         'group' => 'scheduler',
     ],
     '
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+        --div--;core.form.tabs:general,
             tasktype,
             task_group,
             description,
             ip_mask,
             selected_tables;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.ipAnonymization.table,
             number_of_days;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.ipAnonymization.numberOfDays,
-        --div--;LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduler.form.palettes.timing,
-            execution_details,
-            nextexecution,
-            --palette--;;lastexecution,
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+        --div--;core.form.tabs:timing,
+            --palette--;;execution,
+        --div--;core.form.tabs:access,
             disable,
-        --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,',
+        --div--;core.form.tabs:extended,',
     [
         'columnsOverrides' => [
             'selected_tables' => [

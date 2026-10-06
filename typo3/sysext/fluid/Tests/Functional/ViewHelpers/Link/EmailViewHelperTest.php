@@ -30,7 +30,7 @@ final class EmailViewHelperTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -39,7 +39,7 @@ final class EmailViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:link.email email="foo@example.com">send mail</f:link.email>');
-        self::assertEquals('<a href="mailto:foo@example.com">send mail</a>', (new TemplateView($context))->render());
+        self::assertEquals('<a href="mailto:foo@example.com">send mail</a>', new TemplateView($context)->render());
     }
 
     #[Test]
@@ -47,7 +47,7 @@ final class EmailViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:link.email email="foo@example.com" />');
-        self::assertEquals('<a href="mailto:foo@example.com">foo@example.com</a>', (new TemplateView($context))->render());
+        self::assertEquals('<a href="mailto:foo@example.com">foo@example.com</a>', new TemplateView($context)->render());
     }
 
     public static function renderEncodesEmailInFrontendDataProvider(): array
@@ -116,7 +116,7 @@ final class EmailViewHelperTest extends FunctionalTestCase
             'test',
             $this->buildSiteConfiguration(1, '/'),
         );
-        (new ConnectionPool())->getConnectionForTable('sys_template')->insert('sys_template', [
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')->insert('sys_template', [
             'pid' => 1,
             'root' => 1,
             'clear' => 1,
@@ -129,7 +129,7 @@ page.10 {
 }
 EOT
         ]);
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(1));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(1));
         self::assertStringContainsString($expected, (string)$response->getBody());
     }
 }

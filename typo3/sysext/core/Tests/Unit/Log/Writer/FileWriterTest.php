@@ -29,19 +29,21 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class FileWriterTest extends UnitTestCase
 {
-    protected string $logFileDirectory = 'Log';
-    protected string $logFileName = 'test.log';
-    protected string $testRoot;
+    private string $logFileDirectory = 'Log';
+    private string $logFileName = 'test.log';
+    private string $testRoot;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->testRoot = Environment::getVarPath() . '/tests/';
+        // The unique sub directory keeps the files of other test cases, which use
+        // the same root, out of the cleanup below.
+        $this->testRoot = Environment::getVarPath() . '/tests/' . StringUtility::getUniqueId('fileWriter_') . '/';
         GeneralUtility::mkdir_deep($this->testRoot);
         $this->testFilesToDelete[] = $this->testRoot;
     }
 
-    protected function createWriter(string $prependName = ''): FileWriter
+    private function createWriter(string $prependName = ''): FileWriter
     {
         $logFileName = $this->getDefaultFileName($prependName);
         if (file_exists($logFileName)) {
@@ -53,7 +55,7 @@ final class FileWriterTest extends UnitTestCase
     /**
      * @return non-empty-string
      */
-    protected function getDefaultFileName(string $prependName = ''): string
+    private function getDefaultFileName(string $prependName = ''): string
     {
         return $this->testRoot . $this->logFileDirectory . '/' . $prependName . $this->logFileName;
     }
@@ -145,9 +147,7 @@ final class FileWriterTest extends UnitTestCase
     #[Test]
     public function aSecondLogWriterToTheSameFileDoesNotOpenTheFileTwice(): void
     {
-        $firstWriter = $this->getMockBuilder(FileWriter::class)
-            ->onlyMethods([])
-            ->getMock();
+        $firstWriter = new FileWriter();
         $secondWriter = $this->getMockBuilder(FileWriter::class)
             ->onlyMethods(['createLogFile'])
             ->getMock();

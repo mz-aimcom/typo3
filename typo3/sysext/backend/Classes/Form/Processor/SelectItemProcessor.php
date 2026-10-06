@@ -108,6 +108,7 @@ final readonly class SelectItemProcessor
         // And use the group ordering given by the itemGroups
         $finalItems = [];
         foreach ($itemGroups as $groupId => $groupLabel) {
+            $groupId = (string)$groupId;
             $itemsInGroup = $groupedItems[$groupId] ?? [];
             if (empty($itemsInGroup)) {
                 continue;
@@ -158,7 +159,7 @@ final readonly class SelectItemProcessor
      * @param array $sortOrders should be something like like [label => desc]
      * @return SelectItem[] the sorted items
      */
-    protected function sortItems(array $items, array $sortOrders): array
+    private function sortItems(array $items, array $sortOrders): array
     {
         foreach ($sortOrders as $order => $direction) {
             switch ($order) {

@@ -116,7 +116,7 @@ final class StorageRepositoryTest extends FunctionalTestCase
         //        should be handled in testCaseSensitivity(). For now, we create the directories in question and
         //        suppress errors so only the first test creates them and subsequent tests don't emit a warning here.
         @mkdir($this->instancePath . '/documents');
-        @mkdir($this->instancePath . '/fileadmin/nested');
+        @mkdir(Environment::getPublicPath() . '/fileadmin/nested');
         $absoluteNames = array_map($prefixDelegate, [4 => 'files/', 5 => 'docs/', 6 => 'files/nested']);
         @mkdir($this->instancePath . '/files');
         @mkdir($this->instancePath . '/docs');
@@ -315,6 +315,22 @@ final class StorageRepositoryTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function deleteFolderRemovesFolderWithinRecyclerFolder(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+        $subject = $this->get(StorageRepository::class)->findByUid(1);
+        mkdir(Environment::getPublicPath() . '/fileadmin/_recycler_');
+        mkdir(Environment::getPublicPath() . '/fileadmin/foo/_recycler_/bar', 0777, true);
+        file_put_contents(Environment::getPublicPath() . '/fileadmin/foo/_recycler_/bar/baz.txt', 'myData');
+        $folder = $this->get(ResourceFactory::class)->getFolderObjectFromCombinedIdentifier('1:/foo/_recycler_/bar');
+        $subject->deleteFolder($folder, true);
+        self::assertDirectoryDoesNotExist(Environment::getPublicPath() . '/fileadmin/foo/_recycler_/bar');
+        self::assertDirectoryDoesNotExist(Environment::getPublicPath() . '/fileadmin/_recycler_/bar');
+    }
+
+    #[Test]
     public function deleteFileUnlinksFileIfNoRecyclerFolderAvailable(): void
     {
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
@@ -476,7 +492,7 @@ final class StorageRepositoryTest extends FunctionalTestCase
             $search = $search->withRecursive();
         }
         $result = $subject->searchFiles($search, $folder);
-        $expectedFiles = array_map([$subject, 'getFile'], $expectedIdentifiers);
+        $expectedFiles = array_map($subject->getFile(...), $expectedIdentifiers);
         self::assertSame($expectedFiles, iterator_to_array($result));
         // Check if search also works for non-hierarchical storages/drivers
         // This is a hack, as capabilities is not settable from the outside
@@ -484,7 +500,7 @@ final class StorageRepositoryTest extends FunctionalTestCase
         $property = $objectReflection->getProperty('capabilities');
         $property->setValue($subject, $subject->getCapabilities()->addCapabilities(Capabilities::CAPABILITY_BROWSABLE, Capabilities::CAPABILITY_PUBLIC, Capabilities::CAPABILITY_WRITABLE));
         $result = $subject->searchFiles($search, $folder);
-        $expectedFiles = array_map([$subject, 'getFile'], $expectedIdentifiers);
+        $expectedFiles = array_map($subject->getFile(...), $expectedIdentifiers);
         self::assertSame($expectedFiles, iterator_to_array($result));
     }
 
@@ -579,5 +595,45 @@ final class StorageRepositoryTest extends FunctionalTestCase
         self::assertNotEquals($fileToCopy->getMetaData()->get()['uid'], $newFile->getMetaData()->get()['uid']);
         self::assertEquals($fileToCopyMetaData['title'], $newFile->getMetaData()->get()['title']);
         self::assertEquals($fileToCopyMetaData['description'], $newFile->getMetaData()->get()['description']);
+    }
+
+    #[Test]
+    public function getDefaultStorageUidReturnsUidOfDefaultStorageWithoutInstantiatingStorages(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
+        $this->getConnectionPool()->getConnectionForTable('sys_file_storage')
+            ->update('sys_file_storage', ['is_default' => 1], ['uid' => 1]);
+        $subject = $this->get(StorageRepository::class);
+        $subject->flush();
+
+        self::assertSame(1, $subject->getDefaultStorageUid());
+        self::assertSame([], new \ReflectionProperty($subject, 'storageInstances')->getValue($subject));
+    }
+
+    #[Test]
+    public function getDefaultStorageUidReturnsNullIfNoStorageIsDefault(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/sys_file_storage.csv');
+        $subject = $this->get(StorageRepository::class);
+        $subject->flush();
+
+        self::assertNull($subject->getDefaultStorageUid());
+    }
+
+    #[Test]
+    public function getDefaultStorageUidCreatesDefaultStorageIfNoStorageExists(): void
+    {
+        $subject = $this->get(StorageRepository::class);
+        $subject->flush();
+
+        $defaultStorageUid = $subject->getDefaultStorageUid();
+
+        self::assertNotNull($defaultStorageUid);
+        $storageRows = $this->getConnectionPool()->getConnectionForTable('sys_file_storage')
+            ->select(['uid', 'is_default'], 'sys_file_storage')
+            ->fetchAllAssociative();
+        self::assertCount(1, $storageRows);
+        self::assertSame($defaultStorageUid, (int)$storageRows[0]['uid']);
+        self::assertSame(1, (int)$storageRows[0]['is_default']);
     }
 }

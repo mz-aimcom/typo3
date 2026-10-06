@@ -27,13 +27,13 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class CountryConverterTest extends UnitTestCase
 {
-    protected CountryConverter $converter;
+    private CountryConverter $converter;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->converter = new CountryConverter();
-        $this->converter->injectCountryProvider(new CountryProvider($this->createMock(EventDispatcherInterface::class)));
+        $this->converter->injectCountryProvider(new CountryProvider(self::createStub(EventDispatcherInterface::class)));
     }
 
     #[Test]

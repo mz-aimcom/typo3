@@ -24,7 +24,9 @@ use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\IntegerType;
 use Doctrine\DBAL\Types\StringType;
 use Doctrine\DBAL\Types\Type;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Database\Connection;
@@ -34,27 +36,29 @@ use TYPO3\CMS\Core\Database\Platform\SQLitePlatform;
 use TYPO3\CMS\Core\Database\Schema\DefaultTcaSchema;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class DefaultTcaSchemaTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
-    protected ?DefaultTcaSchema $subject;
-    protected ?Table $defaultTable;
+    private Table $defaultTable;
+    private MockObject&ConnectionPool $connectionPool;
 
     public function setUp(): void
     {
         parent::setUp();
         $this->defaultTable = new Table('aTable');
+        $this->connectionPool = $this->createMock(ConnectionPool::class);
     }
 
     #[Test]
     public function enrichKeepsGivenTablesArrayWithEmptyTca(): void
     {
         $tca = [];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         self::assertEquals(['aTable' => $this->defaultTable], $subject->enrich(['aTable' => $this->defaultTable]));
     }
 
@@ -66,7 +70,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca = [
             'aTable' => [],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $subject->enrich([]);
     }
 
@@ -74,7 +78,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     public function enrichDoesNotAddColumnIfExists(): void
     {
         $tca['aTable']['ctrl'] = [];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
 
         $table = new Table('aTable');
         $table->addColumn('uid', 'integer');
@@ -95,7 +99,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     public function enrichAddsUidAndPrimaryKey(): void
     {
         $tca['aTable']['ctrl'] = [];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedUidColumn = new Column(
             '`uid`',
@@ -115,7 +119,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     public function enrichAddsPid(): void
     {
         $tca['aTable']['ctrl'] = [];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedPidColumn = new Column(
             '`pid`',
@@ -135,7 +139,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'tstamp' => 'updatedon',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`updatedon`',
@@ -155,7 +159,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'crdate' => 'createdon',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`createdon`',
@@ -175,7 +179,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'delete' => 'deleted',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`deleted`',
@@ -209,7 +213,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`disabled`',
@@ -238,7 +242,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`starttime`',
@@ -267,7 +271,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`endtime`',
@@ -296,7 +300,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`fe_group`',
@@ -316,7 +320,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'sortby' => 'sorting',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`sorting`',
@@ -334,7 +338,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     public function enrichAddsParentKey(): void
     {
         $tca['aTable']['ctrl'] = [];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedIndex = new Index('parent', ['pid']);
         self::assertEquals($expectedIndex, $result['aTable']->getIndex('parent'));
@@ -346,7 +350,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'delete' => 'deleted',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedIndex = new Index('parent', ['pid', 'deleted']);
         self::assertEquals($expectedIndex, $result['aTable']->getIndex('parent'));
@@ -372,7 +376,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedIndex = new Index('parent', ['pid', 'disabled']);
         self::assertEquals($expectedIndex, $result['aTable']->getIndex('parent'));
@@ -399,7 +403,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedIndex = new Index('parent', ['pid', 'deleted', 'disabled']);
         self::assertEquals($expectedIndex, $result['aTable']->getIndex('parent'));
@@ -422,7 +426,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`sys_language_uid`',
@@ -460,7 +464,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`l10n_parent`',
@@ -480,7 +484,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'transOrigPointerField' => 'l10n_parent',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $this->expectException(SchemaException::class);
         $result['aTable']->getColumn('l10n_parent');
@@ -502,7 +506,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`rowDescription`',
@@ -531,7 +535,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`editlock`',
@@ -576,7 +580,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`l10n_source`',
@@ -598,10 +602,138 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'translationSource' => 'l10n_source',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $this->expectException(SchemaException::class);
         $result['aTable']->getColumn('l10n_source')->toArray();
+    }
+
+    #[Test]
+    public function enrichAddsLanguageIdentifierKey(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($this->getLanguageAwareTca()));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedIndex = new Index('language_identifier', ['l10n_parent', 'sys_language_uid']);
+        self::assertEquals($expectedIndex, $result['aTable']->getIndex('language_identifier'));
+    }
+
+    #[Test]
+    public function enrichAddsLanguageIdentifierKeyIfLanguageColumnsAreDefinedAlready(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($this->getLanguageAwareTca()));
+
+        $table = new Table('aTable');
+        $table->addColumn('sys_language_uid', 'integer');
+        $table->addColumn('l10n_parent', 'integer');
+
+        $result = $subject->enrich(['aTable' => $table]);
+        $expectedIndex = new Index('language_identifier', ['l10n_parent', 'sys_language_uid']);
+        self::assertEquals($expectedIndex, $result['aTable']->getIndex('language_identifier'));
+    }
+
+    #[Test]
+    public function enrichKeepsGivenLanguageIdentifierKey(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($this->getLanguageAwareTca()));
+
+        $table = new Table('aTable');
+        $table->addColumn('sys_language_uid', 'integer');
+        $table->addColumn('l10n_parent', 'integer');
+        $table->addIndex(['l10n_parent'], 'language_identifier');
+
+        $result = $subject->enrich(['aTable' => $table]);
+        $expectedIndex = new Index('language_identifier', ['l10n_parent']);
+        self::assertEquals($expectedIndex, $result['aTable']->getIndex('language_identifier'));
+    }
+
+    #[Test]
+    public function enrichDoesNotAddLanguageIdentifierKeyIfTableIsNotLanguageAware(): void
+    {
+        $tca['aTable']['ctrl'] = [];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        self::assertFalse($result['aTable']->hasIndex('language_identifier'));
+    }
+
+    #[Test]
+    public function enrichAddsTranslationSourceKeyCoveringBothTranslationLookupConstraints(): void
+    {
+        $tca = $this->getLanguageAwareTca();
+        $tca['aTable']['ctrl']['translationSource'] = 'l10n_source';
+        $tca['aTable']['columns']['l10n_source'] = [
+            'label' => 'Language Source',
+            'config' => [
+                'type' => 'input',
+            ],
+        ];
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedIndex = new Index('translation_source', ['l10n_source', 'l10n_parent', 'sys_language_uid']);
+        self::assertEquals($expectedIndex, $result['aTable']->getIndex('translation_source'));
+    }
+
+    #[Test]
+    public function enrichAddsTranslationSourceKeyIfTranslationSourceColumnIsDefinedAlready(): void
+    {
+        $tca = $this->getLanguageAwareTca();
+        $tca['aTable']['ctrl']['translationSource'] = 'l10n_source';
+        $tca['aTable']['columns']['l10n_source'] = [
+            'label' => 'Language Source',
+            'config' => [
+                'type' => 'input',
+            ],
+        ];
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+
+        $table = new Table('aTable');
+        $table->addColumn('l10n_source', 'integer');
+
+        $result = $subject->enrich(['aTable' => $table]);
+        $expectedIndex = new Index('translation_source', ['l10n_source', 'l10n_parent', 'sys_language_uid']);
+        self::assertEquals($expectedIndex, $result['aTable']->getIndex('translation_source'));
+    }
+
+    #[Test]
+    public function enrichDoesNotAddTranslationSourceKeyIfTranslationSourceIsNotDefined(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($this->getLanguageAwareTca()));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        self::assertFalse($result['aTable']->hasIndex('translation_source'));
+    }
+
+    /**
+     * Minimal language-aware TCA for the index related tests.
+     */
+    private function getLanguageAwareTca(): array
+    {
+        return [
+            'aTable' => [
+                'ctrl' => [
+                    'languageField' => 'sys_language_uid',
+                    'transOrigPointerField' => 'l10n_parent',
+                ],
+                'columns' => [
+                    'sys_language_uid' => [
+                        'label' => 'Language',
+                        'config' => [
+                            'type' => 'language',
+                        ],
+                    ],
+                    'l10n_parent' => [
+                        'label' => 'Language Parent',
+                        'config' => [
+                            'type' => 'input',
+                        ],
+                    ],
+                ],
+            ],
+        ];
     }
 
     #[Test]
@@ -635,7 +767,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`l10n_state`',
@@ -654,7 +786,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'transOrigPointerField' => 'l10n_parent',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $this->expectException(SchemaException::class);
         $result['aTable']->getColumn('l10n_state');
@@ -666,7 +798,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'languageField' => 'sys_language_uid',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $this->expectException(SchemaException::class);
         $result['aTable']->getColumn('l10n_state');
@@ -678,7 +810,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'origUid' => 't3_origuid',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`t3_origuid`',
@@ -720,7 +852,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
         $this->mockDefaultConnectionPlatformInConnectionPool();
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`l18n_diffsource`',
@@ -739,7 +871,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'versioningWS' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`t3ver_oid`',
@@ -759,7 +891,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'versioningWS' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`t3ver_wsid`',
@@ -779,7 +911,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'versioningWS' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`t3ver_state`',
@@ -799,7 +931,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'versioningWS' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`t3ver_stage`',
@@ -829,7 +961,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
 
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`aBigDateField`',
@@ -859,7 +991,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
 
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`aSmallDateField`',
@@ -885,7 +1017,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
 
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`aDefaultDateField`',
@@ -915,7 +1047,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
 
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`aBigDateField`',
@@ -945,7 +1077,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
         ];
 
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`aSmallDateField`',
@@ -965,7 +1097,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
         $tca['aTable']['ctrl'] = [
             'versioningWS' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedIndex = new Index('t3ver_oid', ['t3ver_oid', 't3ver_wsid']);
         self::assertEquals($expectedIndex, $result['aTable']->getIndex('t3ver_oid'));
@@ -980,7 +1112,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'foreign_table' => 'bTable',
             'MM' => 'tx_myext_atable_afield_mm',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedMmTable = new Table(
             'tx_myext_atable_afield_mm',
@@ -1020,10 +1152,6 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             ],
             [
                 new Index(
-                    'uid_local',
-                    ['uid_local']
-                ),
-                new Index(
                     'uid_foreign',
                     ['uid_foreign']
                 ),
@@ -1048,7 +1176,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'MM' => 'tx_myext_atable_afield_mm',
             'multiple' => true,
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedMmTable = new Table(
             'tx_myext_atable_afield_mm',
@@ -1129,7 +1257,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedMmTable = new Table(
             'tx_myext_atable_afield_mm',
@@ -1184,10 +1312,6 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ),
             ],
             [
-                new Index(
-                    'uid_local',
-                    ['uid_local']
-                ),
                 new Index(
                     'uid_foreign',
                     ['uid_foreign']
@@ -1212,7 +1336,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'MM' => 'tx_myext_atable_afield_mm',
             'allowed' => 'be_users, be_groups',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedMmTable = new Table(
             'tx_myext_atable_afield_mm',
@@ -1267,10 +1391,6 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ),
             ],
             [
-                new Index(
-                    'uid_local',
-                    ['uid_local']
-                ),
                 new Index(
                     'uid_foreign',
                     ['uid_foreign']
@@ -1295,11 +1415,100 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'MM' => 'tx_myext_atable_afield_mm',
             'allowed' => '*',
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedMmTable = new Table(
             'tx_myext_atable_afield_mm',
             [
+                new Column(
+                    '`uid_local`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`uid_foreign`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`sorting`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`sorting_foreign`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`tablenames`',
+                    new StringType(),
+                    [
+                        'default' => '',
+                        'length' => 64,
+                    ]
+                ),
+                new Column(
+                    '`fieldname`',
+                    new StringType(),
+                    [
+                        'default' => '',
+                        'length' => 64,
+                    ]
+                ),
+            ],
+            [
+                new Index(
+                    'uid_foreign',
+                    ['uid_foreign']
+                ),
+                new Index(
+                    'primary',
+                    ['uid_local', 'uid_foreign', 'tablenames', 'fieldname'],
+                    true,
+                    true
+                ),
+            ]
+        );
+        self::assertEquals($expectedMmTable, $result['tx_myext_atable_afield_mm']);
+    }
+
+    #[Test]
+    public function enrichAddsMmWithTablenamesAndFieldnameWithGroupAndAllowedAllAndMultipleIsSet(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['aField']['config'] = [
+            'type' => 'group',
+            'MM' => 'tx_myext_atable_afield_mm',
+            'allowed' => '*',
+            'multiple' => true,
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedMmTable = new Table(
+            'tx_myext_atable_afield_mm',
+            [
+                new Column(
+                    '`uid`',
+                    new IntegerType(),
+                    [
+                        'default' => null,
+                        'autoincrement' => true,
+                        'unsigned' => true,
+                    ]
+                ),
                 new Column(
                     '`uid_local`',
                     new IntegerType(),
@@ -1360,7 +1569,79 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ),
                 new Index(
                     'primary',
-                    ['uid_local', 'uid_foreign', 'tablenames', 'fieldname'],
+                    ['uid'],
+                    true,
+                    true
+                ),
+            ]
+        );
+        self::assertEquals($expectedMmTable, $result['tx_myext_atable_afield_mm']);
+    }
+
+    #[Test]
+    public function enrichAddsMmWithTablenamesWithGroupAndPrependTname(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['aField']['config'] = [
+            'type' => 'group',
+            'MM' => 'tx_myext_atable_afield_mm',
+            'allowed' => 'be_users',
+            'prepend_tname' => true,
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedMmTable = new Table(
+            'tx_myext_atable_afield_mm',
+            [
+                new Column(
+                    '`uid_local`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`uid_foreign`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`sorting`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`sorting_foreign`',
+                    new IntegerType(),
+                    [
+                        'default' => 0,
+                        'unsigned' => true,
+                    ]
+                ),
+                new Column(
+                    '`tablenames`',
+                    new StringType(),
+                    [
+                        'default' => '',
+                        'length' => 64,
+                    ]
+                ),
+            ],
+            [
+                new Index(
+                    'uid_foreign',
+                    ['uid_foreign']
+                ),
+                new Index(
+                    'primary',
+                    ['uid_local', 'uid_foreign'],
                     true,
                     true
                 ),
@@ -1379,7 +1660,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'slug',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`slug`',
@@ -1403,7 +1684,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'file',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`file`',
@@ -1427,7 +1708,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'email',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`email`',
@@ -1452,7 +1733,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`email`',
@@ -1476,7 +1757,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'check',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`check`',
@@ -1501,7 +1782,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'default' => 3,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`check`',
@@ -1526,7 +1807,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'default' => 1,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`check`',
@@ -1551,7 +1832,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'default' => null,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`check`',
@@ -1576,7 +1857,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'folder',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`folder`',
@@ -1598,7 +1879,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'imageManipulation',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`imageManipulation`',
@@ -1620,7 +1901,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'language',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`language`',
@@ -1644,7 +1925,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'group',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`group`',
@@ -1667,7 +1948,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'MM' => 'aTable',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`groupWithMM`',
@@ -1692,7 +1973,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'ds' => '<T3DataStructure><ROOT></ROOT></T3DataStructure>',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`flex`',
@@ -1714,7 +1995,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'text',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`text`',
@@ -1736,7 +2017,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'password',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`password`',
@@ -1760,7 +2041,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`password`',
@@ -1783,7 +2064,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'color',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`color`',
@@ -1808,7 +2089,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`color`',
@@ -1842,7 +2123,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`radio`',
@@ -1892,7 +2173,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn1 = new Column(
             '`radio1`',
@@ -1927,7 +2208,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'items' => [],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`radio`',
@@ -1962,7 +2243,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`radio`',
@@ -2000,7 +2281,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`radio`',
@@ -2037,7 +2318,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`radio`',
@@ -2060,7 +2341,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'link',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`link`',
@@ -2085,7 +2366,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`link`',
@@ -2109,7 +2390,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'input',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`input`',
@@ -2134,7 +2415,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'max' => 123,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`input`',
@@ -2159,7 +2440,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`input`',
@@ -2184,7 +2465,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'max' => 256,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`input`',
@@ -2210,7 +2491,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`input`',
@@ -2236,7 +2517,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'MM' => 'cTable',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable, 'bTable' => new Table('bTable'), 'cTable' => new Table('cTable')]);
         $expectedColumn = new Column(
             '`inline_MM`',
@@ -2262,7 +2543,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'foreign_field' => 'bField',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable, 'bTable' => new Table('bTable')]);
         $expectedColumn = new Column(
             '`inline_ff`',
@@ -2295,7 +2576,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'passthough',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable, 'bTable' => new Table('bTable')]);
         $expectedColumn = new Column(
             '`inline_ff`',
@@ -2342,7 +2623,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'foreign_table' => 'bTable',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`inline`',
@@ -2364,10 +2645,10 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'label' => 'aLabel',
             'config' => [
                 'type' => 'number',
-                'format' => 'decimal',
+                'scale' => 2,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2390,10 +2671,10 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'label' => 'aLabel',
             'config' => [
                 'type' => 'number',
-                'format' => 'decimal',
+                'scale' => 2,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2408,6 +2689,83 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     }
 
     #[Test]
+    public function enrichAddsNumberAsDecimalWithScaleForNonSqlite(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['number'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'number',
+                'scale' => 4,
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`number`',
+            Type::getType('decimal'),
+            [
+                'default' => 0.0,
+                'notnull' => true,
+                'precision' => 12,
+                'scale' => 4,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('number')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsNumberAsDecimalWithScaleForSqlite(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool(SQLitePlatform::class);
+        $tca['aTable']['columns']['number'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'number',
+                'scale' => 4,
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`number`',
+            Type::getType('string'),
+            [
+                'default' => '0.0000',
+                'notnull' => true,
+                'length' => 255,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('number')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsNumberAsDecimalWithScaleCappedToMaximum(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['number'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'number',
+                'scale' => 99,
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`number`',
+            Type::getType('decimal'),
+            [
+                'default' => 0.0,
+                'notnull' => true,
+                'precision' => 38,
+                'scale' => 30,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('number')->toArray());
+    }
+
+    #[Test]
     public function enrichAddsNumberAsInteger(): void
     {
         $this->mockDefaultConnectionPlatformInConnectionPool();
@@ -2415,10 +2773,10 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             'label' => 'aLabel',
             'config' => [
                 'type' => 'number',
-                'format' => 'integer',
+                'scale' => 0,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2441,7 +2799,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'type' => 'number',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2465,7 +2823,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'nullable' => true,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2492,7 +2850,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2519,7 +2877,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`number`',
@@ -2550,7 +2908,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2563,7 +2921,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
     }
 
     #[Test]
-    public function enrichAddsSelectTextWithItemProcFunc(): void
+    public function enrichAddsSelectTextWithItemsProcFunc(): void
     {
         $this->mockDefaultConnectionPlatformInConnectionPool();
         $tca['aTable']['columns']['select'] = [
@@ -2573,7 +2931,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'itemsProcFunc' => 'Foo->bar',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2596,7 +2954,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'renderType' => 'selectSingle',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2621,7 +2979,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'renderType' => 'selectMultipleSideBySide',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2647,7 +3005,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'dbFieldLength' => 15,
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2656,6 +3014,34 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'notnull' => false,
                 'default' => '',
                 'length' => 15,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectStringWithLengthAndCustomDefault(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'itemsProcFunc' => 'SomeClass->someMethod',
+                'dbFieldLength' => 10,
+                'default' => 'default',
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('string'),
+            [
+                'notnull' => true,
+                'default' => 'default',
+                'length' => 10,
             ]
         );
         self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
@@ -2674,7 +3060,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'MM' => 'aTable',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2700,7 +3086,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'foreign_table' => 'aTable',
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2732,7 +3118,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2740,6 +3126,42 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             [
                 'notnull' => true,
                 'default' => 0,
+                'unsigned' => true,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectSingleWithIntegerItemsAndCustomDefault(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'items' => [
+                    [
+                        'label' => 'someLabel',
+                        'value' => 17,
+                    ],
+                    [
+                        'label' => 'defaultLabel',
+                        'value' => 42,
+                    ],
+                ],
+                'default' => 42,
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('integer'),
+            [
+                'notnull' => true,
+                'default' => 42,
                 'unsigned' => true,
             ]
         );
@@ -2764,7 +3186,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2773,6 +3195,116 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 'notnull' => true,
                 'default' => 0,
                 'unsigned' => false,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectSingleWithForeignTableAndNullItemValue(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'foreign_table' => 'aTable',
+                'default' => null,
+                'items' => [
+                    [
+                        'label' => 'Please choose',
+                        'value' => null,
+                    ],
+                ],
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('integer'),
+            [
+                'notnull' => false,
+                'default' => null,
+                'unsigned' => true,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectSingleWithForeignTableAndNullItemValueMixedWithIntegers(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'foreign_table' => 'aTable',
+                'default' => 0,
+                'items' => [
+                    [
+                        'label' => 'Please choose',
+                        'value' => null,
+                    ],
+                    [
+                        'label' => 'Option 1',
+                        'value' => 1,
+                    ],
+                    [
+                        'label' => 'Option 2',
+                        'value' => 2,
+                    ],
+                ],
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('integer'),
+            [
+                'notnull' => false,
+                'default' => 0,
+                'unsigned' => true,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectSingleWithNullItemValueMixedWithStrings(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'default' => null,
+                'items' => [
+                    [
+                        'label' => 'Default',
+                        'value' => null,
+                    ],
+                    [
+                        'label' => 'foo 2',
+                        'value' => 'bar',
+                    ],
+                ],
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('string'),
+            [
+                'notnull' => false,
+                'default' => null,
+                'length' => 255,
             ]
         );
         self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
@@ -2796,7 +3328,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2804,6 +3336,42 @@ final class DefaultTcaSchemaTest extends UnitTestCase
             [
                 'notnull' => true,
                 'default' => '',
+                'length' => 255,
+            ]
+        );
+        self::assertSame($expectedColumn->toArray(), $result['aTable']->getColumn('select')->toArray());
+    }
+
+    #[Test]
+    public function enrichAddsSelectSingleWithStringItemsAndCustomDefault(): void
+    {
+        $this->mockDefaultConnectionPlatformInConnectionPool();
+        $tca['aTable']['columns']['select'] = [
+            'label' => 'aLabel',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectSingle',
+                'items' => [
+                    [
+                        'label' => 'someLabel',
+                        'value' => 'someValue',
+                    ],
+                    [
+                        'label' => 'defaultLabel',
+                        'value' => 'defaultValue',
+                    ],
+                ],
+                'default' => 'defaultValue',
+            ],
+        ];
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
+        $result = $subject->enrich(['aTable' => $this->defaultTable]);
+        $expectedColumn = new Column(
+            '`select`',
+            Type::getType('string'),
+            [
+                'notnull' => true,
+                'default' => 'defaultValue',
                 'length' => 255,
             ]
         );
@@ -2828,7 +3396,7 @@ final class DefaultTcaSchemaTest extends UnitTestCase
                 ],
             ],
         ];
-        $subject = new DefaultTcaSchema($this->getPreparedTcaSchemaFactory($tca));
+        $subject = new DefaultTcaSchema($this->connectionPool, $this->getPreparedTcaSchemaFactory($tca));
         $result = $subject->enrich(['aTable' => $this->defaultTable]);
         $expectedColumn = new Column(
             '`select`',
@@ -2844,19 +3412,19 @@ final class DefaultTcaSchemaTest extends UnitTestCase
 
     private function mockDefaultConnectionPlatformInConnectionPool(string $databasePlatformClass = MariaDBPlatform::class): void
     {
-        $connectionPool = $this->getMockBuilder(ConnectionPool::class)->onlyMethods(['getConnectionForTable'])->getMock();
         $mariaDbConnection = $this->getMockBuilder($databasePlatformClass)->getMock();
         $connection = $this->getMockBuilder(Connection::class)->disableOriginalConstructor()->getMock();
-        $connection->expects($this->any())->method('getDatabasePlatform')->willReturn($mariaDbConnection);
-        $connectionPool->expects($this->any())->method('getConnectionForTable')->willReturn($connection);
-        GeneralUtility::addInstance(ConnectionPool::class, $connectionPool);
+        $connection->expects($this->atLeastOnce())->method('getDatabasePlatform')->willReturn($mariaDbConnection);
+        $this->connectionPool->expects($this->atLeastOnce())->method('getConnectionForTable')->willReturn($connection);
     }
 
     private function getPreparedTcaSchemaFactory(array $tca): TcaSchemaFactory
     {
         $tcaSchemaFactory = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             'null',
             new NullFrontend('null')
         );

@@ -18,7 +18,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Http;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\Stream;
@@ -41,20 +40,6 @@ final class StreamTest extends UnitTestCase
     }
 
     #[Test]
-    #[DoesNotPerformAssertions]
-    public function canBeInstantiatedWithStreamIdentifier(): void
-    {
-        new Stream('php://memory', 'wb+');
-    }
-
-    #[Test]
-    #[DoesNotPerformAssertions]
-    public function canBeInstantiatedWithStreamResource(): void
-    {
-        new Stream(fopen('php://memory', 'wb+'));
-    }
-
-    #[Test]
     public function isReadableReturnsFalseIfStreamIsNotReadable(): void
     {
         $fileName = $this->getTestDirectory() . '/' . StringUtility::getUniqueId('test_');
@@ -63,11 +48,24 @@ final class StreamTest extends UnitTestCase
         self::assertFalse($subject->isReadable());
     }
 
-    #[Test]
-    public function isWritableReturnsFalseIfStreamIsNotWritable(): void
+    public static function isWritableDetectsTheActualStreamModeDataProvider(): \Generator
     {
-        $subject = new Stream('php://memory', 'r');
-        self::assertFalse($subject->isWritable());
+        yield 'r' => ['r', false];
+        yield 'w' => ['w', true];
+        yield 'a' => ['a', true];
+        yield 'r+' => ['r+', true];
+        yield 'w+' => ['w+', true];
+        yield 'a+' => ['a+', true];
+        yield 'rw' => ['rw', true];
+        yield 'rw+' => ['rw+', true];
+    }
+
+    #[Test]
+    #[DataProvider('isWritableDetectsTheActualStreamModeDataProvider')]
+    public function isWritableDetectsTheActualStreamMode(string $mode, bool $expectation): void
+    {
+        $subject = new Stream('php://memory', $mode);
+        self::assertSame($expectation, $subject->isWritable());
     }
 
     #[Test]
@@ -91,7 +89,7 @@ final class StreamTest extends UnitTestCase
     public function constructorRaisesExceptionWhenPassingInvalidStreamResource(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        new Stream(['  THIS WILL NOT WORK  ']);
+        new Stream(['  THIS WILL NOT WORK  ']); // @phpstan-ignore argument.type (intentionally passing invalid type to test exception handling)
     }
 
     #[Test]

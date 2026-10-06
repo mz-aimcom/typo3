@@ -20,29 +20,27 @@ namespace TYPO3\CMS\Backend\Controller;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Psr\Http\Message\UriInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Clipboard\Clipboard;
 use TYPO3\CMS\Backend\Clipboard\Type\CountMode;
+use TYPO3\CMS\Backend\Context\PageContext;
+use TYPO3\CMS\Backend\Context\PageContextFactory;
 use TYPO3\CMS\Backend\Controller\Event\RenderAdditionalContentToRecordListEvent;
 use TYPO3\CMS\Backend\Module\ModuleData;
 use TYPO3\CMS\Backend\RecordList\DatabaseRecordList;
-use TYPO3\CMS\Backend\Routing\Exception\RouteNotFoundException;
 use TYPO3\CMS\Backend\Routing\PreviewUriBuilder;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Security\SudoMode\Exception\VerificationRequiredException;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItemInterface;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownToggle;
+use TYPO3\CMS\Backend\Template\Components\Buttons\LanguageSelectorBuilder;
+use TYPO3\CMS\Backend\Template\Components\Buttons\LanguageSelectorMode;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\RecordIdentityRenderer;
 use TYPO3\CMS\Backend\View\RecordSearchBoxComponent;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
-use TYPO3\CMS\Core\Database\Connection;
-use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
-use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Error\Http\BadRequestException;
 use TYPO3\CMS\Core\Http\JsonResponse;
@@ -55,27 +53,21 @@ use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
-use TYPO3\CMS\Core\TypoScript\TypoScriptService;
 use TYPO3\CMS\Core\Utility\ExtensionManagementUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * The Web > List module: Rendering the listing of records on a page.
+ * The Content > Records module: Rendering the listing of records on a page.
  *
  * @internal This class is a specific Backend controller implementation and is not part of the TYPO3's Core API.
  */
 #[AsController]
 class RecordListController
 {
-    /**
-     * @var Permission
-     */
-    protected $pagePermissions;
+    protected PageContext $pageContext;
 
-    protected int $id = 0;
     protected string $table = '';
     protected string $searchTerm = '';
-    protected array $pageInfo = [];
     protected string $returnUrl = '';
     protected array $modTSconfig = [];
     protected ?ModuleData $moduleData = null;
@@ -83,6 +75,7 @@ class RecordListController
     protected bool $allowSearch = true;
 
     public function __construct(
+        private readonly ComponentFactory $componentFactory,
         protected readonly IconFactory $iconFactory,
         protected readonly PageRenderer $pageRenderer,
         protected readonly EventDispatcherInterface $eventDispatcher,
@@ -90,10 +83,22 @@ class RecordListController
         protected readonly ModuleTemplateFactory $moduleTemplateFactory,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
         protected readonly FlashMessageService $flashMessageService,
+        protected readonly PageContextFactory $pageContextFactory,
+        protected readonly LanguageSelectorBuilder $languageSelectorBuilder,
+        protected readonly RecordIdentityRenderer $recordIdentityRenderer,
     ) {}
 
     public function mainAction(ServerRequestInterface $request): ResponseInterface
     {
+
+        $pageContext = $request->getAttribute('pageContext');
+        if (!$pageContext instanceof PageContext) {
+            throw new \RuntimeException(
+                'PageContext not initialized by middleware.',
+                1731415238
+            );
+        }
+        $this->pageContext = $pageContext;
         $this->moduleData = $request->getAttribute('moduleData');
 
         $languageService = $this->getLanguageService();
@@ -105,21 +110,33 @@ class RecordListController
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/element/dispatch-modal-button.js');
 
         BackendUtility::lockRecords();
-        $perms_clause = $backendUser->getPagePermsClause(Permission::PAGE_SHOW);
-        $this->id = (int)($parsedBody['id'] ?? $queryParams['id'] ?? 0);
         $pointer = max(0, (int)($parsedBody['pointer'] ?? $queryParams['pointer'] ?? 0));
         $this->table = (string)($parsedBody['table'] ?? $queryParams['table'] ?? '');
         $this->searchTerm = trim((string)($parsedBody['searchTerm'] ?? $queryParams['searchTerm'] ?? ''));
-        $this->returnUrl = GeneralUtility::sanitizeLocalUrl((string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? ''));
+        $this->returnUrl = GeneralUtility::sanitizeLocalUrl((string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? ''), $request);
         $cmd = (string)($parsedBody['cmd'] ?? $queryParams['cmd'] ?? '');
-        $siteLanguages = $request->getAttribute('site')->getAvailableLanguages($this->getBackendUserAuthentication(), false, $this->id);
+
+        // RecordList always requires default language (0) for proper record display
+        // Similar to PageLayoutController's comparison mode behavior
+        $languagesToDisplay = $this->pageContext->selectedLanguageIds;
+        if (!in_array(0, $languagesToDisplay, true)) {
+            $languagesToDisplay = array_merge([0], $languagesToDisplay);
+            // Create updated PageContext with modified languages and update request
+            $this->pageContext = $this->pageContextFactory->createWithLanguages(
+                $request,
+                $this->pageContext->pageId,
+                $languagesToDisplay,
+                $backendUser
+            );
+            $request = $request->withAttribute('pageContext', $this->pageContext);
+        }
+        $this->moduleData->set('languages', $languagesToDisplay);
+
+        $siteLanguages = $this->pageContext->site->getAvailableLanguages($backendUser, false, $this->pageContext->pageId);
+        $backendUser->pushModuleData($this->moduleData->getModuleIdentifier(), $this->moduleData->toArray());
 
         // Loading module configuration, clean up settings, current page and page access
-        $this->modTSconfig = BackendUtility::getPagesTSconfig($this->id)['mod.']['web_list.'] ?? [];
-        $pageinfo = BackendUtility::readPageAccess($this->id, $perms_clause);
-        $access = is_array($pageinfo);
-        $this->pageInfo = is_array($pageinfo) ? $pageinfo : [];
-        $this->pagePermissions = new Permission($backendUser->calcPerms($pageinfo));
+        $this->modTSconfig = $this->pageContext->getModuleTsConfig('web_list');
 
         // Check if Clipboard is allowed to be shown:
         if (($this->modTSconfig['enableClipBoard'] ?? '') === 'activated') {
@@ -142,29 +159,28 @@ class RecordListController
         }
 
         // Get search levels from request or fall back to default, set in TSconifg
-        $search_levels = (int)($parsedBody['search_levels'] ?? $queryParams['search_levels'] ?? $this->modTSconfig['searchLevel.']['default'] ?? 0);
+        $search_levels = (int)($parsedBody['search_levels'] ?? $queryParams['search_levels'] ?? $this->modTSconfig['searchLevel']['default'] ?? 0);
 
         $dbList = GeneralUtility::makeInstance(DatabaseRecordList::class);
         $dbList->setRequest($request);
         $dbList->setModuleData($this->moduleData);
-        $dbList->calcPerms = $this->pagePermissions;
+        $dbList->calcPerms = $this->pageContext->pagePermissions;
         $dbList->returnUrl = $this->returnUrl;
         $dbList->showClipboardActions = true;
         $dbList->disableSingleTableView = $this->modTSconfig['disableSingleTableView'] ?? false;
         $dbList->listOnlyInSingleTableMode = $this->modTSconfig['listOnlyInSingleTableView'] ?? false;
         $dbList->hideTables = $this->modTSconfig['hideTables'] ?? '';
         $dbList->hideTranslations = (string)($this->modTSconfig['hideTranslations'] ?? '');
-        $dbList->tableTSconfigOverTCA = $this->modTSconfig['table.'] ?? [];
+        $dbList->tableTSconfigOverTCA = $this->modTSconfig['table'] ?? [];
         $dbList->allowedNewTables = GeneralUtility::trimExplode(',', $this->modTSconfig['allowedNewTables'] ?? '', true);
         $dbList->deniedNewTables = GeneralUtility::trimExplode(',', $this->modTSconfig['deniedNewTables'] ?? '', true);
-        $dbList->pageRow = $this->pageInfo;
+        $dbList->pageRow = $this->pageContext->pageRecord ?? [];
         $dbList->modTSconfig = $this->modTSconfig;
         $dbList->setLanguagesAllowedForUser($siteLanguages);
         $clickTitleMode = trim($this->modTSconfig['clickTitleMode'] ?? '');
         $dbList->clickTitleMode = $clickTitleMode === '' ? 'edit' : $clickTitleMode;
-        if (isset($this->modTSconfig['tableDisplayOrder.'])) {
-            $typoScriptService = GeneralUtility::makeInstance(TypoScriptService::class);
-            $dbList->setTableDisplayOrder($typoScriptService->convertTypoScriptArrayToPlainArray($this->modTSconfig['tableDisplayOrder.']));
+        if (isset($this->modTSconfig['tableDisplayOrder'])) {
+            $dbList->setTableDisplayOrder($this->modTSconfig['tableDisplayOrder']);
         }
         $clipboard = $this->initializeClipboard($request, (bool)$this->moduleData->get('clipBoard'));
         $dbList->clipObj = $clipboard;
@@ -173,27 +189,22 @@ class RecordListController
         $view = $this->moduleTemplateFactory->create($request);
 
         $tableListHtml = '';
-        if ($access || ($this->id === 0 && $search_levels !== 0 && $this->searchTerm !== '')) {
+        if ($this->pageContext->isAccessible() || ($this->pageContext->pageId === 0 && $search_levels !== 0 && $this->searchTerm !== '')) {
             // If there is access to the page or root page is used for searching, then perform actions and render table list.
             if ($cmd === 'delete' && $request->getMethod() === 'POST') {
                 $this->deleteRecords($request, $clipboard);
             }
-            $dbList->start($this->id, $this->table, $pointer, $this->searchTerm, $search_levels);
+            $dbList->start($this->pageContext->pageId, $this->table, $pointer, $this->searchTerm, $search_levels);
             $tableListHtml = $dbList->generateList();
         }
 
-        if (!$this->id) {
+        if (!$this->pageContext->pageId) {
             $title = $GLOBALS['TYPO3_CONF_VARS']['SYS']['sitename'];
         } else {
-            $title = $pageinfo['title'] ?? '';
-        }
-        $languageSelectorHtml = '';
-        if ($this->id && !$this->searchTerm && !$cmd && !$this->table) {
-            // Show the selector to add page translations, but only when in "default" mode.
-            $languageSelectorHtml = $this->languageSelector($siteLanguages, $request->getAttribute('normalizedParams')->getRequestUri());
+            $title = $this->pageContext->getPageTitle();
         }
         $pageTranslationsHtml = '';
-        if ($this->id && !$this->searchTerm && !$cmd && !$this->table && $this->showPageTranslations()) {
+        if ($this->pageContext->pageId && !$this->searchTerm && !$cmd && !$this->table && $this->showPageTranslations()) {
             // Show page translation table if there are any and display is allowed.
             $pageTranslationsHtml = $this->renderPageTranslations($dbList, $siteLanguages);
         }
@@ -206,20 +217,22 @@ class RecordListController
             $clipboardHtml = '<hr class="spacer"><typo3-backend-clipboard-panel return-url="' . htmlspecialchars((string)$dbList->listURL()) . '"></typo3-backend-clipboard-panel>';
         }
 
-        $view->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:mlang_tabs_tab'), $title);
+        $view->setTitle($languageService->translate('title', 'backend.modules.list'), $title);
         if (empty($tableListHtml)) {
             $this->addNoRecordsFlashMessage($view, $this->table);
         }
-        if ($pageinfo) {
-            $view->getDocHeaderComponent()->setMetaInformation($pageinfo);
+        if ($this->pageContext->pageRecord) {
+            $view->getDocHeaderComponent()->setPageBreadcrumb($this->pageContext->pageRecord);
         }
-        $this->getDocHeaderButtons($view, $clipboard, $request, $this->table, $dbList->listURL(), []);
+        $this->getDocHeaderButtons($view, $clipboard, $request, $dbList);
         $view->assignMultiple([
-            'pageId' => $this->id,
+            'pageId' => $this->pageContext->pageId,
             'pageTitle' => $title,
+            'recordIdentity' => $this->pageContext->pageRecord
+                ? $this->recordIdentityRenderer->render('pages', $this->pageContext->pageRecord)
+                : '',
             'isPageEditable' => $this->isPageEditable(),
             'additionalContentTop' => $additionalRecordListEvent->getAdditionalContentAbove(),
-            'languageSelectorHtml' => $languageSelectorHtml,
             'pageTranslationsHtml' => $pageTranslationsHtml,
             'searchBoxHtml' => $searchBoxHtml,
             'tableListHtml' => $tableListHtml,
@@ -253,8 +266,21 @@ class RecordListController
                 throw new \InvalidArgumentException(sprintf('TCA table "%s" does not support record visibility', $table), 1729166628);
             }
 
-            if (BackendUtility::getRecord($table, $uid, 'uid') === null) {
+            if (!$this->getBackendUserAuthentication()->check('tables_modify', $table)) {
+                throw new BadRequestException(sprintf('User has no modify access to table "%s"', $table), 1739376254);
+            }
+
+            $record = BackendUtility::getRecord($table, $uid, 'uid,pid');
+            if ($record === null) {
                 throw new BadRequestException(sprintf('A record with uid %d was not found', $uid), 1739376253);
+            }
+
+            $pid = $table === 'pages' ? (int)$record['uid'] : (int)$record['pid'];
+            $rootLevelCapability = $schema->hasCapability(TcaSchemaCapability::RestrictionRootLevel) ? $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel) : null;
+            if ($pid !== 0 || !$rootLevelCapability || !$rootLevelCapability->shallIgnoreRootLevelRestriction()) {
+                if (!BackendUtility::readPageAccess($pid, $this->getBackendUserAuthentication()->getPagePermsClause(Permission::PAGE_SHOW))) {
+                    throw new BadRequestException(sprintf('User has no access to record with uid %d', $uid), 1739376255);
+                }
             }
 
             $hiddenField = $schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)->getFieldName();
@@ -294,9 +320,10 @@ class RecordListController
                 $selectFields[] = 'shortcut';
                 $selectFields[] = 'shortcut_mode';
                 $selectFields[] = 'mount_pid';
+                $selectFields[] = 'is_siteroot';
             }
 
-            $row = BackendUtility::getRecord($table, $uid, implode(',', $selectFields));
+            $row = BackendUtility::getRecord($table, $uid, $selectFields);
             if ($row !== null) {
                 // Get new record icon
                 $recordIcon = $this->iconFactory->getIconForRecord($table, $row, IconSize::SMALL);
@@ -393,46 +420,66 @@ class RecordListController
     protected function renderSearchBox(ServerRequestInterface $request, DatabaseRecordList $dbList, string $searchWord, int $searchLevels): string
     {
         $searchBox = GeneralUtility::makeInstance(RecordSearchBoxComponent::class)
-            ->setAllowedSearchLevels((array)($this->modTSconfig['searchLevel.']['items.'] ?? []))
+            ->setAllowedSearchLevels((array)($this->modTSconfig['searchLevel']['items'] ?? []))
             ->setSearchWord($searchWord)
             ->setSearchLevel($searchLevels)
-            ->render($request, $dbList->listURL('', '-1', 'pointer,searchTerm'));
+            ->render($request, $dbList->listURL('', null, 'pointer,searchTerm'));
         return $searchBox;
     }
 
     /**
      * Create the panel of buttons for submitting the form or otherwise perform operations.
      */
-    protected function getDocHeaderButtons(ModuleTemplate $view, Clipboard $clipboard, ServerRequestInterface $request, string $table, UriInterface $listUrl, array $moduleSettings): void
+    protected function getDocHeaderButtons(ModuleTemplate $view, Clipboard $clipboard, ServerRequestInterface $request, DatabaseRecordList $dbList): void
     {
         $queryParams = $request->getQueryParams();
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
         $lang = $this->getLanguageService();
-        if ($table !== 'tt_content' && !($this->modTSconfig['noCreateRecordsLink'] ?? false) && $this->editLockPermissions()) {
-            // New record button if: table is not tt_content - tt_content should be managed in page module, link is
-            // not disabled via TSconfig, page is not 'edit locked'
-            $newRecordButton = $buttonBar->makeLinkButton()
-                ->setHref((string)$this->uriBuilder->buildUriFromRoute('db_new', ['id' => $this->id, 'returnUrl' => $listUrl]))
-                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:newRecordGeneral'))
-                ->setShowLabelText(true)
-                ->setIcon($this->iconFactory->getIcon('actions-plus', IconSize::SMALL));
-            $buttonBar->addButton($newRecordButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
+
+        // Language selector (top right area)
+        $this->createLanguageSelector($view, $request);
+
+        if (!($this->modTSconfig['noCreateRecordsLink'] ?? false) && $this->editLockPermissions()) {
+            if ($this->table === '') {
+                // "General" new record button if: not in single table view, not disabled via TSconfig and page is not 'edit locked'
+                $newRecordButton = $this->componentFactory->createLinkButton()
+                    ->setHref((string)$this->uriBuilder->buildUriFromRoute('db_new', ['id' => $this->pageContext->pageId, 'returnUrl' => $dbList->listURL()]))
+                    ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:newRecordGeneral'))
+                    ->setShowLabelText(true)
+                    ->setIcon($this->iconFactory->getIcon('actions-plus', IconSize::SMALL));
+                $view->addButtonToButtonBar($newRecordButton, ButtonBar::BUTTON_POSITION_LEFT, 10);
+            } elseif (($createNewRecordButton = $dbList->createActionButtonNewRecord($this->table)) !== null) {
+                // In single table view, render the specific create new button
+                $view->addButtonToButtonBar($createNewRecordButton);
+            }
         }
 
-        if ($this->id !== 0) {
-            $uriBuilder = PreviewUriBuilder::create($this->pageInfo);
+        if ($this->pageContext->isAccessible() && $this->pageContext->pageId > 0) {
+            $uriBuilder = PreviewUriBuilder::create($this->pageContext->pageRecord);
             if ($uriBuilder->isPreviewable()) {
-                $previewDataAttributes = PreviewUriBuilder::create($this->pageInfo)
-                    ->withRootLine(BackendUtility::BEgetRootLine($this->id))
-                    ->buildDispatcherDataAttributes();
-                $viewButton = $buttonBar->makeLinkButton()
-                    ->setHref('#')
-                    ->setDataAttributes($previewDataAttributes ?? [])
-                    ->setDisabled(!$previewDataAttributes)
-                    ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.showPage'))
-                    ->setIcon($this->iconFactory->getIcon('actions-view-page', IconSize::SMALL))
-                    ->setShowLabelText(true);
-                $buttonBar->addButton($viewButton, ButtonBar::BUTTON_POSITION_LEFT, 15);
+                $view->addButtonToButtonBar(
+                    $this->componentFactory->createViewButton(PreviewUriBuilder::create($this->pageContext->pageRecord)
+                        ->withRootLine($this->pageContext->rootLine)
+                        ->buildDispatcherDataAttributes() ?? []),
+                    ButtonBar::BUTTON_POSITION_LEFT,
+                    15
+                );
+
+                // QR Code button
+                $fallbackUri = $uriBuilder
+                    ->withRootLine($this->pageContext->rootLine)
+                    ->buildUri();
+                $previewUri = $this->componentFactory->getPreviewUrlForQrCode(
+                    $this->pageContext->pageId,
+                    $this->pageContext->getPrimaryLanguageId(),
+                    $fallbackUri
+                );
+                if ($previewUri !== null) {
+                    $view->addButtonToButtonBar(
+                        $this->componentFactory->createQrCodeButton($previewUri),
+                        ButtonBar::BUTTON_POSITION_LEFT,
+                        15
+                    );
+                }
             }
             // If edit permissions are set, see BackendUserAuthentication
             if ($this->isPageEditable()) {
@@ -440,102 +487,95 @@ class RecordListController
                 $editLink = $this->uriBuilder->buildUriFromRoute('record_edit', [
                     'edit' => [
                         'pages' => [
-                            $this->id => 'edit',
+                            $this->pageContext->pageId => 'edit',
                         ],
                     ],
-                    'returnUrl' => $listUrl,
+                    'module' => 'records',
+                    'returnUrl' => $dbList->listURL(),
                 ]);
-                $editButton = $buttonBar->makeLinkButton()
+                $editButton = $this->componentFactory->createLinkButton()
                     ->setHref((string)$editLink)
                     ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:editPage'))
                     ->setShowLabelText(true)
                     ->setIcon($this->iconFactory->getIcon('actions-page-open', IconSize::SMALL));
-                $buttonBar->addButton($editButton, ButtonBar::BUTTON_POSITION_LEFT, 20);
+                $view->addButtonToButtonBar($editButton, ButtonBar::BUTTON_POSITION_LEFT, 20);
             }
         }
 
         // Paste
-        if (($this->pagePermissions->createPagePermissionIsGranted() || $this->pagePermissions->editContentPermissionIsGranted()) && $this->editLockPermissions()) {
+        if (($this->pageContext->pagePermissions->createPagePermissionIsGranted() || $this->pageContext->pagePermissions->editContentPermissionIsGranted()) && $this->editLockPermissions()) {
             $elFromTable = $clipboard->elFromTable();
             if (!empty($elFromTable)) {
-                $confirmMessage = $clipboard->confirmMsgText('pages', $this->pageInfo, 'into', CountMode::ALL);
-                $pasteButton = $buttonBar->makeLinkButton()
-                    ->setHref($clipboard->pasteUrl('', $this->id))
+                $confirmMessage = $clipboard->confirmMsgText('pages', $this->pageContext->pageRecord, 'into', CountMode::ALL);
+                $pasteButton = $this->componentFactory->createLinkButton()
+                    ->setHref($clipboard->pasteUrl('', $this->pageContext->pageId))
                     ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_paste'))
                     ->setClasses('t3js-modal-trigger')
                     ->setDataAttributes([
                         'severity' => 'warning',
-                        'bs-content' => $confirmMessage,
+                        'content' => $confirmMessage,
                         'title' => $lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:clip_paste'),
                     ])
                     ->setIcon($this->iconFactory->getIcon('actions-document-paste-into', IconSize::SMALL))
                     ->setShowLabelText(true);
-                $buttonBar->addButton($pasteButton, ButtonBar::BUTTON_POSITION_LEFT, 40);
+                $view->addButtonToButtonBar($pasteButton, ButtonBar::BUTTON_POSITION_LEFT, 40);
             }
         }
         // Cache
-        if ($this->id !== 0) {
-            $clearCacheButton = $buttonBar->makeLinkButton()
-                ->setHref('#')
-                ->setDataAttributes(['id' => $this->id])
+        if ($this->pageContext->pageId) {
+            $clearCacheButton = $this->componentFactory->createGenericButton()
+                ->setTag('button')
+                ->setLabel($lang->sL('core.cache:page.label'))
                 ->setClasses('t3js-clear-page-cache')
-                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.clear_cache'))
+                ->setAttributes(['type' => 'button', 'data-id' => (string)$this->pageContext->pageId])
                 ->setIcon($this->iconFactory->getIcon('actions-system-cache-clear', IconSize::SMALL));
-            $buttonBar->addButton($clearCacheButton, ButtonBar::BUTTON_POSITION_RIGHT);
+            $view->addButtonToButtonBar($clearCacheButton, ButtonBar::BUTTON_POSITION_RIGHT);
         }
-        if ($table
+        if ($this->table
             && !($this->modTSconfig['noExportRecordsLinks'] ?? false)
             && $this->getBackendUserAuthentication()->isExportEnabled()
         ) {
             // Export
             if (ExtensionManagementUtility::isLoaded('impexp')) {
-                $url = (string)$this->uriBuilder->buildUriFromRoute('tx_impexp_export', ['tx_impexp' => ['list' => [$table . ':' . $this->id]]]);
-                $exportButton = $buttonBar->makeLinkButton()
+                $url = (string)$this->uriBuilder->buildUriFromRoute('tx_impexp_export', ['tx_impexp' => ['list' => [$this->table . ':' . $this->pageContext->pageId]]]);
+                $exportButton = $this->componentFactory->createLinkButton()
                     ->setHref($url)
                     ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.export'))
                     ->setIcon($this->iconFactory->getIcon('actions-document-export-t3d', IconSize::SMALL))
                     ->setShowLabelText(true);
-                $buttonBar->addButton($exportButton, ButtonBar::BUTTON_POSITION_LEFT, 50);
+                $view->addButtonToButtonBar($exportButton, ButtonBar::BUTTON_POSITION_LEFT, 50);
             }
         }
-        // Reload
-        $reloadButton = $buttonBar->makeLinkButton()
-            ->setHref((string)$listUrl)
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
-
         // ViewMode
         $viewModeItems = [];
         if ($this->allowSearch) {
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownToggle()
                 ->setActive((bool)$this->moduleData->get('searchBox'))
                 ->setHref($this->createModuleUri($request, ['searchBox' => $this->moduleData->get('searchBox') ? 0 : 1, 'searchTerm' => '']))
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.showSearch'))
                 ->setIcon($this->iconFactory->getIcon('actions-search'));
         }
         if ($this->allowClipboard) {
-            $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
+            $viewModeItems[] = $this->componentFactory->createDropDownToggle()
                 ->setActive((bool)$this->moduleData->get('clipBoard'))
                 ->setHref($this->createModuleUri($request, ['clipBoard' => $this->moduleData->get('clipBoard') ? 0 : 1]))
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.showClipboard'))
                 ->setIcon($this->iconFactory->getIcon('actions-clipboard'));
         }
         if (!empty($viewModeItems)) {
-            $viewModeButton = $buttonBar->makeDropDownButton()
+            $viewModeButton = $this->componentFactory->createDropDownButton()
                 ->setLabel($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
+                ->setIcon($this->iconFactory->getIcon('actions-cog'))
                 ->setShowLabelText(true);
             foreach ($viewModeItems as $viewModeItem) {
-                /** @var DropDownItemInterface $viewModeItem */
                 $viewModeButton->addItem($viewModeItem);
             }
-            $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 3);
+            $view->addButtonToButtonBar($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 0);
         }
 
         // Shortcut
-        $shortCutButton = $buttonBar->makeShortcutButton()->setRouteIdentifier('web_list');
         $arguments = [
-            'id' => $this->id,
+            'id' => $this->pageContext->pageId,
         ];
         $potentialArguments = [
             'pointer',
@@ -550,21 +590,11 @@ class RecordListController
                 $arguments[$argument] = $queryParams[$argument];
             }
         }
-        foreach ($moduleSettings as $moduleSettingKey => $moduleSettingValue) {
-            $arguments['GET'][$moduleSettingKey] = $moduleSettingValue;
-        }
-        $shortCutButton->setArguments($arguments);
-        $shortCutButton->setDisplayName($this->getShortcutTitle($arguments));
-        $buttonBar->addButton($shortCutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        $view->getDocHeaderComponent()->setShortcutContext('records', $this->getShortcutTitle($arguments), $arguments);
 
         // Back
         if ($this->returnUrl) {
-            $backButton = $buttonBar->makeLinkButton()
-                ->setHref($this->returnUrl)
-                ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.goBack'))
-                ->setShowLabelText(true)
-                ->setIcon($this->iconFactory->getIcon('actions-view-go-back', IconSize::SMALL));
-            $buttonBar->addButton($backButton, ButtonBar::BUTTON_POSITION_LEFT);
+            $view->addButtonToButtonBar($this->componentFactory->createBackButton($this->returnUrl));
         }
     }
 
@@ -583,85 +613,13 @@ class RecordListController
     }
 
     /**
-     * Make selector box for creating new translation in a language
-     * Displays only languages which are not yet present for the current page and
-     * that are not disabled with page TS.
-     *
-     * @return string HTML <select> element (if there were items for the box anyways...)
-     * @throws RouteNotFoundException
-     */
-    protected function languageSelector(array $siteLanguages, string $requestUri): string
-    {
-        if (!$this->getBackendUserAuthentication()->check('tables_modify', 'pages')) {
-            return '';
-        }
-        $availableTranslations = [];
-        foreach ($siteLanguages as $siteLanguage) {
-            if ($siteLanguage->getLanguageId() === 0) {
-                continue;
-            }
-            $availableTranslations[$siteLanguage->getLanguageId()] = $siteLanguage->getTitle();
-        }
-        // Then, subtract the languages which are already on the page:
-        $schema = $this->tcaSchemaFactory->get('pages');
-        $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
-        $languageField = $languageCapability->getLanguageField()->getName();
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
-        $queryBuilder->getRestrictions()->removeAll()
-            ->add(GeneralUtility::makeInstance(DeletedRestriction::class))
-            ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUserAuthentication()->workspace));
-        $statement = $queryBuilder->select('uid', $languageField)
-            ->from('pages')
-            ->where(
-                $queryBuilder->expr()->eq(
-                    $languageCapability->getTranslationOriginPointerField()->getName(),
-                    $queryBuilder->createNamedParameter($this->id, Connection::PARAM_INT)
-                )
-            )
-            ->executeQuery();
-        while ($pageTranslation = $statement->fetchAssociative()) {
-            unset($availableTranslations[(int)$pageTranslation[$languageField]]);
-        }
-        // If any languages are left, make selector:
-        if (!empty($availableTranslations)) {
-            $label = htmlspecialchars($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:new_language'));
-            $output = '<option value="">' . $label . '</option>';
-            foreach ($availableTranslations as $languageUid => $languageTitle) {
-                // Build localize command URL to DataHandler (tce_db)
-                // which redirects to FormEngine (record_edit)
-                // which, when finished editing should return back to the current page (returnUrl)
-                $parameters = [
-                    'justLocalized' => 'pages:' . $this->id . ':' . $languageUid,
-                    'returnUrl' => $requestUri,
-                ];
-                $redirectUrl = (string)$this->uriBuilder->buildUriFromRoute('record_edit', $parameters);
-                $params = [];
-                $params['redirect'] = $redirectUrl;
-                $params['cmd']['pages'][$this->id]['localize'] = $languageUid;
-                $targetUrl = (string)$this->uriBuilder->buildUriFromRoute('tce_db', $params);
-                $output .= '<option value="' . htmlspecialchars($targetUrl) . '">' . htmlspecialchars($languageTitle) . '</option>';
-            }
-
-            return ''
-                . '<div class="form-row">'
-                    . '<div class="form-group">'
-                        . '<select class="form-select" name="createNewLanguage" aria-label="' . $label . '" data-global-event="change" data-action-navigate="$value">'
-                        . $output
-                        . '</select>'
-                    . '</div>'
-                . '</div>';
-        }
-        return '';
-    }
-
-    /**
      * Check whether the current backend user is an admin or the current page is locked by edit lock.
      */
     protected function editLockPermissions(): bool
     {
         return $this->getBackendUserAuthentication()->isAdmin()
             || !($schema = $this->tcaSchemaFactory->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
-            || !($this->pageInfo[$schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false);
+            || !($this->pageContext->pageRecord[$schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false);
     }
 
     /**
@@ -669,7 +627,6 @@ class RecordListController
      */
     protected function getShortcutTitle(array $arguments): string
     {
-        $pageTitle = '';
         $tableTitle = '';
         $languageService = $this->getLanguageService();
         if (isset($arguments['table'])) {
@@ -680,15 +637,12 @@ class RecordListController
             }
             $tableTitle = ': ' . ($tableTitle ?: $tableName);
         }
-        if ($this->pageInfo !== []) {
-            $pageTitle = BackendUtility::getRecordTitle('pages', $this->pageInfo);
-        }
         return trim(sprintf(
-            $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang.xlf:shortcut.title'),
-            $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_mod_web_list.xlf:mlang_tabs_tab'),
+            $languageService->translate('shortcut.title', 'backend.messages'),
+            $languageService->translate('title', 'backend.modules.list'),
             $tableTitle,
-            $pageTitle,
-            $this->id
+            $this->pageContext->getPageTitle(),
+            $this->pageContext->pageId
         ));
     }
 
@@ -697,8 +651,8 @@ class RecordListController
         if (!$this->getBackendUserAuthentication()->check('tables_select', 'pages')) {
             return false;
         }
-        if (isset($this->modTSconfig['table.']['pages.']['hideTable'])) {
-            return !$this->modTSconfig['table.']['pages.']['hideTable'];
+        if (isset($this->modTSconfig['table']['pages']['hideTable'])) {
+            return !$this->modTSconfig['table']['pages']['hideTable'];
         }
         $schema = $this->tcaSchemaFactory->get('pages');
         $hideTables = $this->modTSconfig['hideTables'] ?? '';
@@ -709,12 +663,13 @@ class RecordListController
 
     protected function renderPageTranslations(DatabaseRecordList $dbList, array $siteLanguages): string
     {
-        $pageTranslationsDatabaseRecordList = clone $dbList;
-        $pageTranslationsDatabaseRecordList->id = $this->id;
-        $pageTranslationsDatabaseRecordList->listOnlyInSingleTableMode = false;
-        $pageTranslationsDatabaseRecordList->disableSingleTableView = true;
-        $pageTranslationsDatabaseRecordList->deniedNewTables = ['pages'];
-        $pageTranslationsDatabaseRecordList->hideTranslations = '';
+        $pageTranslationsDatabaseRecordList = clone($dbList, [
+            'id' => $this->pageContext->pageId,
+            'listOnlyInSingleTableMode' => false,
+            'disableSingleTableView' => true,
+            'deniedNewTables' => ['pages'],
+            'hideTranslations' => '',
+        ]);
         $pageTranslationsDatabaseRecordList->setLanguagesAllowedForUser($siteLanguages);
         $pageTranslationsDatabaseRecordList->showOnlyTranslatedRecords(true);
         return $pageTranslationsDatabaseRecordList->getTable('pages');
@@ -723,7 +678,7 @@ class RecordListController
     protected function createModuleUri(ServerRequestInterface $request, array $params = []): string
     {
         $params = array_replace_recursive([
-            'id' => $this->id,
+            'id' => $this->pageContext->pageId,
             'table' => $this->table,
             'searchTerm' => $this->searchTerm,
         ], $params);
@@ -733,6 +688,25 @@ class RecordListController
         });
 
         return (string)$this->uriBuilder->buildUriFromRequest($request, $params);
+    }
+
+    /**
+     * Creates the language selector dropdown in the module toolbar.
+     */
+    protected function createLanguageSelector(ModuleTemplate $view, ServerRequestInterface $request): void
+    {
+        if (count($this->pageContext->languageInformation->availableLanguages) <= 1) {
+            return;
+        }
+
+        $languageSelector = $this->languageSelectorBuilder->build(
+            $this->pageContext,
+            LanguageSelectorMode::MULTI_SELECT,
+            fn(array $languageIds): string => $this->buildListUrl($request, ['languages' => $languageIds]),
+            !empty($this->pageContext->languageInformation->existingTranslations)
+        );
+
+        $view->getDocHeaderComponent()->setLanguageSelector($languageSelector);
     }
 
     /**
@@ -753,11 +727,51 @@ class RecordListController
             return false;
         }
 
-        return $this->pageInfo !== []
+        return !empty($this->pageContext->pageRecord)
             && $this->editLockPermissions()
-            && $this->pagePermissions->editPagePermissionIsGranted()
+            && $this->pageContext->pagePermissions->editPagePermissionIsGranted()
             && $backendUser->checkLanguageAccess(0)
             && $backendUser->check('tables_modify', 'pages');
+    }
+
+    /**
+     * Build list URL preserving relevant parameters (search, table, sort).
+     * Does NOT preserve pagination (pointer) to allow resetting to first page.
+     *
+     * @param array $additionalParams Additional parameters to add/override (e.g., ['languages' => [0, 1]])
+     */
+    protected function buildListUrl(ServerRequestInterface $request, array $additionalParams = []): string
+    {
+        $queryParams = $request->getQueryParams();
+        $parsedBody = $request->getParsedBody();
+
+        $urlParams = [
+            'id' => $this->pageContext->pageId,
+        ];
+
+        if ($this->table !== '') {
+            $urlParams['table'] = $this->table;
+        }
+        if ($this->searchTerm !== '') {
+            $urlParams['searchTerm'] = $this->searchTerm;
+        }
+        $searchLevels = (int)($parsedBody['search_levels'] ?? $queryParams['search_levels'] ?? 0);
+        if ($searchLevels > 0) {
+            $urlParams['search_levels'] = $searchLevels;
+        }
+        $sortField = (string)($parsedBody['sortField'] ?? $queryParams['sortField'] ?? '');
+        if ($sortField !== '') {
+            $urlParams['sortField'] = $sortField;
+        }
+        $sortRev = $parsedBody['sortRev'] ?? $queryParams['sortRev'] ?? null;
+        if ($sortRev !== null) {
+            $urlParams['sortRev'] = $sortRev;
+        }
+
+        // Merge with additional parameters (which can override preserved ones)
+        $urlParams = array_merge($urlParams, $additionalParams);
+
+        return (string)$this->uriBuilder->buildUriFromRoute('records', $urlParams);
     }
 
     protected function getBackendUserAuthentication(): BackendUserAuthentication

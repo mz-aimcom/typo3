@@ -34,7 +34,7 @@ export default class DomHelper {
   /**
    * Get the next scrollable parent element
    */
-  public static scrollableParent(element: Element) {
+  public static scrollableParent(element: Element): Element {
     let parent = element.parentElement;
 
     while (parent) {
@@ -51,6 +51,16 @@ export default class DomHelper {
   }
 
   /**
+   * Get the scroll event target for an element.
+   * When the scrollable parent is document.documentElement, scroll events
+   * actually fire on the document object, not on the element itself.
+   */
+  public static scrollEventTarget(element: Element): Element | Document {
+    const scrollableParent = this.scrollableParent(element);
+    return scrollableParent === document.documentElement ? document : scrollableParent;
+  }
+
+  /**
    * Get all next siblings the passed `target` element inside `el`
    */
   public static nextAll(target: Element): Element[] {
@@ -62,16 +72,6 @@ export default class DomHelper {
     }
 
     return nextSiblings;
-  }
-
-  /**
-   * Detects if the document is rtl
-   */
-  public static isRTL() {
-    const rootElementStyle = window.getComputedStyle(document.documentElement);
-    const direction = rootElementStyle.getPropertyValue('direction');
-
-    return direction === 'rtl';
   }
 
   /**

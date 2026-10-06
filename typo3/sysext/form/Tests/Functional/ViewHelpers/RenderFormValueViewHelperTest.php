@@ -19,14 +19,19 @@ namespace TYPO3\CMS\Form\Tests\Functional\ViewHelpers;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Http\Uri;
+use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConfigurationManagerInterface;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
 use TYPO3\CMS\Form\Domain\Model\FormDefinition;
+use TYPO3\CMS\Form\Event\BeforeFormValueIsRenderedEvent;
 use TYPO3\CMS\Form\ViewHelpers\RenderRenderableViewHelper;
 use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -34,6 +39,8 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 
 final class RenderFormValueViewHelperTest extends FunctionalTestCase
 {
+    protected bool $initializeDatabase = false;
+
     protected array $coreExtensionsToLoad = ['form'];
 
     public static function renderDataProvider(): array
@@ -54,10 +61,9 @@ final class RenderFormValueViewHelperTest extends FunctionalTestCase
     #[Test]
     public function render(string $template, string $expected): void
     {
-        $this->loadDefaultYamlConfigurations();
         // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
         $this->get(ExtbaseConfigurationManagerInterface::class)->setRequest(
-            (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
         );
         $definition = $this->buildFormDefinition();
         $runtime = $definition->bind($this->buildExtbaseRequest());
@@ -69,21 +75,109 @@ final class RenderFormValueViewHelperTest extends FunctionalTestCase
         $context->getViewHelperVariableContainer()
             ->add(RenderRenderableViewHelper::class, 'formRuntime', $runtime);
         $context->getTemplatePaths()->setTemplateSource($template);
-        self::assertSame($expected, (new TemplateView($context))->render());
+        self::assertSame($expected, new TemplateView($context)->render());
+    }
+
+    #[Test]
+    public function renderResolvesSingleSelectOptionToItsLabel(): void
+    {
+        self::assertSame(
+            'Mr.',
+            $this->renderElement('select-1', '{var.processedValue}', 'mr')
+        );
+    }
+
+    #[Test]
+    public function renderResolvesMultiSelectOptionsToTheirLabels(): void
+    {
+        self::assertSame(
+            'Mr.|Mrs.|',
+            $this->renderElement('multi-1', '<f:for each="{var.processedValue}" as="label">{label}|</f:for>', ['mr', 'mrs'])
+        );
+    }
+
+    #[Test]
+    public function renderConvertsDateValueToString(): void
+    {
+        self::assertSame(
+            '15.01.2025',
+            $this->renderElement('date-1', '{var.processedValue}', new \DateTime('2025-01-15'))
+        );
+    }
+
+    private function renderElement(string $identifier, string $body, mixed $value): string
+    {
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ExtbaseConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+        $definition = $this->buildFormDefinition();
+        $runtime = $definition->bind($this->buildExtbaseRequest());
+        $runtime->getFormState()->setFormValue($identifier, $value);
+
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getVariableProvider()->add('element', $definition->getElementByIdentifier($identifier));
+        $context->getViewHelperVariableContainer()
+            ->add(RenderRenderableViewHelper::class, 'formRuntime', $runtime);
+        $context->getTemplatePaths()->setTemplateSource(
+            '<formvh:renderFormValue renderable="{element}" as="var">' . $body . '</formvh:renderFormValue>'
+        );
+        return new TemplateView($context)->render();
+    }
+
+    #[Test]
+    public function respectsBeforeFormValueIsRenderedEvent(): void
+    {
+        $template = '<formvh:renderFormValue renderable="{element}" as="var">{var.processedValue}</formvh:renderFormValue>';
+
+        // Init ConfigurationManagerInterface stateful singleton, usually done by extbase bootstrap
+        $this->get(ExtbaseConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+        );
+        $definition = $this->buildFormDefinition();
+        $runtime = $definition->bind($this->buildExtbaseRequest());
+        $element = $definition->getElementByIdentifier('text-1');
+
+        /** @var Container $container */
+        $container = $this->get('service_container');
+        $container->set(
+            'before-form-value-is-rendered-listener',
+            static function (BeforeFormValueIsRenderedEvent $event) use ($element, $runtime): void {
+                self::assertSame([
+                    'element' => $element,
+                    'value' => 'element value',
+                    'processedValue' => 'element value',
+                    'isMultiValue' => false,
+                ], $event->data);
+                self::assertSame($element, $event->element);
+                self::assertSame($runtime, $event->formRuntime);
+                $event->data['processedValue'] = 'processed value';
+            }
+        );
+        $eventListener = $container->get(ListenerProvider::class);
+        $eventListener->addListener(BeforeFormValueIsRenderedEvent::class, 'before-form-value-is-rendered-listener');
+
+        $context = $this->get(RenderingContextFactory::class)->create();
+        $context->getVariableProvider()->add('element', $element);
+        $context->getViewHelperVariableContainer()
+            ->add(RenderRenderableViewHelper::class, 'formRuntime', $runtime);
+        $context->getTemplatePaths()->setTemplateSource($template);
+        self::assertSame('processed value', new TemplateView($context)->render());
     }
 
     private function buildExtbaseRequest(): Request
     {
         $frontendUser = new FrontendUserAuthentication();
         $frontendUser->initializeUserSessionManager();
-        $serverRequest = (new ServerRequest())
+        $serverRequest = new ServerRequest()
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
-            ->withAttribute('frontend.user', $frontendUser);
+            ->withAttribute('frontend.user', $frontendUser)
+            ->withAttribute('language', new SiteLanguage(0, 'en_US.UTF-8', new Uri('/'), []));
 
         $GLOBALS['TYPO3_REQUEST'] = $serverRequest;
 
-        return (new Request($serverRequest))->withPluginName('Formframework');
+        return new Request($serverRequest)->withPluginName('Formframework');
     }
 
     private function buildFormDefinition(): FormDefinition
@@ -106,25 +200,30 @@ final class RenderFormValueViewHelperTest extends FunctionalTestCase
                             'label' => 'Text',
                             'defaultValue' => 'element value',
                         ],
-                    ],
-                ],
-            ],
-        ], null, new ServerRequest());
-    }
-
-    private function loadDefaultYamlConfigurations(): void
-    {
-        $configurationManager = $this->get(ExtbaseConfigurationManagerInterface::class);
-        $configurationManager->setConfiguration([
-            'plugin.' => [
-                'tx_form.' => [
-                    'settings.' => [
-                        'yamlConfigurations.' => [
-                            '10' => 'EXT:form/Configuration/Yaml/FormSetup.yaml',
+                        [
+                            'type' => 'SingleSelect',
+                            'identifier' => 'select-1',
+                            'label' => 'Single select',
+                            'properties' => [
+                                'options' => ['mr' => 'Mr.', 'mrs' => 'Mrs.'],
+                            ],
+                        ],
+                        [
+                            'type' => 'MultiSelect',
+                            'identifier' => 'multi-1',
+                            'label' => 'Multi select',
+                            'properties' => [
+                                'options' => ['mr' => 'Mr.', 'mrs' => 'Mrs.'],
+                            ],
+                        ],
+                        [
+                            'type' => 'Date',
+                            'identifier' => 'date-1',
+                            'label' => 'Date',
                         ],
                     ],
                 ],
             ],
-        ]);
+        ], null, new ServerRequest());
     }
 }

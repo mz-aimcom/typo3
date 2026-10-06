@@ -89,6 +89,7 @@ readonly class YamlSource
         $yaml = Yaml::dump($configuration, 99, 2);
 
         if ($fileToSave instanceof File) {
+            // @deprecated: Remove in v16 along with the FileFormsToDatabaseUpgradeWizard
             try {
                 $this->filePersistenceSlot->allowInvocation(
                     FilePersistenceSlot::COMMAND_FILE_SET_CONTENTS,
@@ -106,10 +107,10 @@ readonly class YamlSource
             }
         } else {
             $byteCount = @file_put_contents($fileToSave, $header . LF . $yaml);
-
             if ($byteCount === false) {
                 $error = error_get_last();
-                throw new FileWriteException($error['message'], 1512582929);
+                $errorMessage = $error['message'] ?? 'Check that the file exists and can be written.';
+                throw new FileWriteException($errorMessage, 1512582929);
             }
         }
     }
@@ -180,6 +181,9 @@ readonly class YamlSource
         return $header;
     }
 
+    /*
+     * @deprecated: Remove in v16 along with the FileFormsToDatabaseUpgradeWizard
+     */
     protected function buildCombinedIdentifier(FolderInterface $folder, string $fileName): string
     {
         return sprintf(

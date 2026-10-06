@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extensionmanager\Utility;
 
-use Psr\Log\LoggerAwareInterface;
-use Psr\Log\LoggerAwareTrait;
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Exception\Archive\ExtractException;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -28,7 +27,6 @@ use TYPO3\CMS\Core\Service\Archive\ZipService;
 use TYPO3\CMS\Core\Service\OpcodeCacheService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
-use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
 use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
 
 /**
@@ -36,10 +34,8 @@ use TYPO3\CMS\Extensionmanager\Exception\ExtensionManagerException;
  *
  * @internal This class is a specific ExtensionManager implementation and is not part of the Public TYPO3 API.
  */
-class FileHandlingUtility implements LoggerAwareInterface
+class FileHandlingUtility
 {
-    use LoggerAwareTrait;
-
     private LanguageService $languageService;
 
     public function __construct(
@@ -48,6 +44,7 @@ class FileHandlingUtility implements LoggerAwareInterface
         private readonly OpcodeCacheService $opcodeCacheService,
         private readonly ZipService $zipService,
         LanguageServiceFactory $languageServiceFactory,
+        private readonly LoggerInterface $logger,
     ) {
         $this->languageService = $languageServiceFactory->createFromUserPreferences($GLOBALS['BE_USER'] ?? null);
     }
@@ -55,7 +52,7 @@ class FileHandlingUtility implements LoggerAwareInterface
     /**
      * Unpack an extension in t3x data format and write files
      */
-    public function unpackExtensionFromExtensionDataArray(string $extensionKey, array $extensionData): void
+    public function unpackExtensionFromExtensionDataArray(string $extensionKey, array $extensionData, string $version): void
     {
         $files = $extensionData['FILES'] ?? [];
         $emConfData = $extensionData['EM_CONF'] ?? [];
@@ -65,6 +62,7 @@ class FileHandlingUtility implements LoggerAwareInterface
         $this->createDirectoriesForExtensionFiles($directories, $extensionDir);
         $this->writeExtensionFiles($files, $extensionDir);
         $this->writeEmConfToFile($extensionKey, $emConfData, $extensionDir);
+        $this->enrichComposerJsonWithComposerCapableFields($extensionKey, $extensionDir, $version);
         $this->reloadPackageInformation($extensionKey);
     }
 
@@ -115,11 +113,12 @@ class FileHandlingUtility implements LoggerAwareInterface
      * Unzip an extension.zip.
      *
      * @param string $file path to zip file
-     * @param string $fileName file name
+     * @param string $extensionKey the key of the extension the archive holds
+     * @param string $version the version to write into composer.json when the manifest declares none
      */
-    public function unzipExtensionFromFile(string $file, string $fileName): void
+    public function unzipExtensionFromFile(string $file, string $extensionKey, string $version = ''): void
     {
-        $extensionDir = $this->makeAndClearExtensionDir($fileName);
+        $extensionDir = $this->makeAndClearExtensionDir($extensionKey);
         try {
             if ($this->zipService->verify($file)) {
                 $this->zipService->extract($file, $extensionDir);
@@ -128,6 +127,65 @@ class FileHandlingUtility implements LoggerAwareInterface
             $this->logger->error('Extracting the extension archive failed', ['exception' => $e]);
             throw new ExtensionManagerException('Extracting the extension archive failed: ' . $e->getMessage(), 1565777179, $e);
         }
+        $this->enrichComposerJsonWithComposerCapableFields($extensionKey, $extensionDir, $version);
+        $this->reloadPackageInformation($extensionKey);
+    }
+
+    /**
+     * Enriches an extension's composer.json with version and providesPackages
+     * if these fields are not yet present. Both are mandatory in classic mode:
+     * a package without them is not registered at all. The version is the one
+     * the caller knows, from the TER listing or the archive name; ext_emconf.php
+     * is not evaluated anymore. Packages listed in require/suggest that are
+     * neither TYPO3 framework packages nor known Composer dependencies are added
+     * as provided packages, as they cannot be installed via Composer in classic mode.
+     */
+    protected function enrichComposerJsonWithComposerCapableFields(string $extensionKey, string $extensionDir, string $version = ''): void
+    {
+        $composerJsonPath = $extensionDir . 'composer.json';
+        if (!is_file($composerJsonPath)) {
+            throw new ExtensionManagerException(
+                'The archive of extension "' . $extensionKey . '" contains no composer.json. Since TYPO3 v14 every extension needs one, see the changelog entry "Require composer.json in classic mode".',
+                1789399168
+            );
+        }
+        try {
+            $composerJson = json_decode((string)file_get_contents($composerJsonPath), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new ExtensionManagerException('Reading the composer.json of extension "' . $extensionKey . '" failed: ' . $e->getMessage(), 1775064630, $e);
+        }
+        if (!is_array($composerJson)) {
+            throw new ExtensionManagerException('Reading the composer.json of extension "' . $extensionKey . '" failed: it is not a JSON object.', 1789399169);
+        }
+        $hasVersion = isset($composerJson['version']) || isset($composerJson['extra']['typo3/cms']['version']);
+        $hasProvidesPackages = isset($composerJson['extra']['typo3/cms']['Package']['providesPackages']);
+        if ($hasVersion && $hasProvidesPackages) {
+            return;
+        }
+        if (!$hasVersion) {
+            if ($version === '') {
+                throw new ExtensionManagerException(
+                    'The version of extension "' . $extensionKey . '" could not be determined. Declare it in composer.json or name the archive "' . $extensionKey . '_1.2.3.zip".',
+                    1789399167
+                );
+            }
+            $composerJson['extra']['typo3/cms']['version'] = $version;
+        }
+        if (!$hasProvidesPackages) {
+            $providesPackages = [];
+            $possiblyProvidedPackages = array_merge(
+                array_keys($composerJson['require'] ?? []),
+                array_keys($composerJson['suggest'] ?? [])
+            );
+            foreach ($possiblyProvidedPackages as $packageName) {
+                if ($this->packageManager->isFrameworkPackage($packageName) || $this->packageManager->isComposerDependency($packageName)) {
+                    continue;
+                }
+                $providesPackages[$packageName] = '';
+            }
+            $composerJson['extra']['typo3/cms']['Package']['providesPackages'] = $providesPackages !== [] ? $providesPackages : new \stdClass();
+        }
+        GeneralUtility::writeFile($composerJsonPath, json_encode($composerJson, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
     }
 
     /**

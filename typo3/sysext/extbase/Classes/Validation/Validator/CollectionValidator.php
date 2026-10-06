@@ -35,7 +35,7 @@ final class CollectionValidator extends AbstractGenericObjectValidator
         'elementType' => [null, 'The type of the elements in the collection', 'string'],
     ];
 
-    public function __construct(protected readonly ValidatorResolver $validatorResolver) {}
+    public function __construct(private readonly ValidatorResolver $validatorResolver) {}
 
     /**
      * Checks if the given value is valid according to the validator, and returns
@@ -46,11 +46,14 @@ final class CollectionValidator extends AbstractGenericObjectValidator
         $this->result = new Result();
 
         if ($this->acceptsEmptyValues === false || $this->isEmpty($value) === false) {
-            if ((is_object($value) && !TypeHandlingUtility::isCollectionType(get_class($value))) && !is_array($value)) {
+            if (is_object($value) && !TypeHandlingUtility::isCollectionType(get_class($value))) {
                 $this->addError('The given subject was not a collection.', 1317204797);
                 return $this->result;
             }
             if ($value instanceof LazyObjectStorage && !$value->isInitialized()) {
+                return $this->result;
+            }
+            if (is_object($value) && new \ReflectionClass($value)->isUninitializedLazyObject($value)) {
                 return $this->result;
             }
             if (is_object($value)) {

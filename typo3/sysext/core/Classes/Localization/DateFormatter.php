@@ -24,7 +24,7 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  * Wrapper for dealing with ICU-based (php-intl) date formatting
  * see https://unicode-org.github.io/icu/userguide/format_parse/datetime/#datetime-format-syntax
  */
-class DateFormatter
+readonly class DateFormatter
 {
     /**
      * Formats any given input ($date) into a localized, formatted result
@@ -145,10 +145,10 @@ class DateFormatter
             // This leads to the same instants in time, as expressed in Unix time, having different representations
             //  in formatted strings.
             // To adjust for this, a custom calendar can be supplied with a cutover date arbitrarily far in the past.
-            $calendar = \IntlGregorianCalendar::createInstance();
+            $calendar = new \IntlGregorianCalendar();
             $calendar->setGregorianChange(PHP_INT_MIN);
 
-            return (new \IntlDateFormatter($locale, $date_type, $time_type, $tz, $calendar, $pattern))->format($timestamp) ?: '';
+            return new \IntlDateFormatter($locale, $date_type, $time_type, $tz, $calendar, $pattern)->format($timestamp) ?: '';
         };
 
         // Same order as https://www.php.net/manual/en/function.strftime.php

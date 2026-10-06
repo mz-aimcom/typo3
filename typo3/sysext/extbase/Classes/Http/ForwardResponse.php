@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Http;
 
 use TYPO3\CMS\Core\Http\Response;
+use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Extbase\Error\Result;
 
 class ForwardResponse extends Response
@@ -26,6 +27,10 @@ class ForwardResponse extends Response
     private ?string $extensionName = null;
     private ?array $arguments = null;
     private Result $argumentsValidationResult;
+    /**
+     * @var list<FlashMessage>
+     */
+    private array $flashMessages = [];
 
     public function __construct(private readonly string $actionName)
     {
@@ -35,23 +40,17 @@ class ForwardResponse extends Response
 
     public function withControllerName(string $controllerName): self
     {
-        $clone = clone $this;
-        $clone->controllerName = $controllerName;
-        return $clone;
+        return clone($this, ['controllerName' => $controllerName]);
     }
 
     public function withoutControllerName(): self
     {
-        $clone = clone $this;
-        $clone->controllerName = null;
-        return $clone;
+        return clone($this, ['controllerName' => null]);
     }
 
     public function withExtensionName(string $extensionName): self
     {
-        $clone = clone $this;
-        $clone->extensionName = $extensionName;
-        return $clone;
+        return clone($this, ['extensionName' => $extensionName]);
     }
 
     public function withoutExtensionName(): self
@@ -63,9 +62,7 @@ class ForwardResponse extends Response
 
     public function withArguments(array $arguments): self
     {
-        $clone = clone $this;
-        $clone->arguments = $arguments;
-        return $clone;
+        return clone($this, ['arguments' => $arguments]);
     }
 
     public function withoutArguments(): self
@@ -77,9 +74,15 @@ class ForwardResponse extends Response
 
     public function withArgumentsValidationResult(Result $argumentsValidationResult): self
     {
-        $clone = clone $this;
-        $clone->argumentsValidationResult = $argumentsValidationResult;
-        return $clone;
+        return clone($this, ['argumentsValidationResult' => $argumentsValidationResult]);
+    }
+
+    public function withFlashMessages(FlashMessage ...$flashMessages): self
+    {
+        if ($flashMessages === []) {
+            return $this;
+        }
+        return clone($this, ['flashMessages' => array_merge($this->flashMessages, $flashMessages)]);
     }
 
     public function getActionName(): string
@@ -105,5 +108,13 @@ class ForwardResponse extends Response
     public function getArgumentsValidationResult(): Result
     {
         return $this->argumentsValidationResult;
+    }
+
+    /**
+     * @return list<FlashMessage>
+     */
+    public function getFlashMessages(): array
+    {
+        return $this->flashMessages;
     }
 }

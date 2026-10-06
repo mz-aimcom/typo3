@@ -41,12 +41,12 @@ final class AttributesViewHelper extends AbstractViewHelper
     public function render(): string
     {
         $additionalAttributes = [
-            'class' => 'toolbar-item',
+            'class' => 'toolbar-item dropdown',
         ];
         $toolbarItem = $this->arguments['class'] ?? null;
         if ($toolbarItem instanceof ToolbarItemInterface) {
             $additionalAttributes['class'] .= ' ' . ($toolbarItem->getAdditionalAttributes()['class'] ?? '');
-            $additionalAttributes['id'] = self::convertClassNameToIdAttribute(\get_class($toolbarItem));
+            $additionalAttributes['id'] = self::convertClassNameToIdAttribute(get_class($toolbarItem));
         }
         return GeneralUtility::implodeAttributes($additionalAttributes);
     }

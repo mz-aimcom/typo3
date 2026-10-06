@@ -11,11 +11,12 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import NProgress from 'nprogress';
+import { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
 import Notification from '@typo3/backend/notification';
 import type { AjaxResponse } from '@typo3/core/ajax/ajax-response';
 import AjaxRequest from '@typo3/core/ajax/ajax-request';
 import RegularEvent from '@typo3/core/event/regular-event';
+import labels from '~labels/extensionmanager.messages';
 
 enum ExtensionManagerUpdateIdentifier {
   extensionTable = '#terTable',
@@ -26,6 +27,8 @@ enum ExtensionManagerUpdateIdentifier {
 }
 
 class ExtensionManagerUpdate {
+  private progressBar: ProgressBarElement;
+
   /**
    * Register "update from ter" action
    */
@@ -63,12 +66,12 @@ class ExtensionManagerUpdate {
 
     let reload = false;
 
-    NProgress.start();
+    this.getProgress().start();
     new AjaxRequest(url).post({}).then(async (response: AjaxResponse): Promise<void> => {
       const data = await response.resolve();
       // Something went wrong, show message
       if (data.errorMessage.length) {
-        Notification.error(TYPO3.lang['extensionList.updateFromTerFlashMessage.title'], data.errorMessage, 10);
+        Notification.error(labels.get('extensionList.updateFromTerFlashMessage.title'), data.errorMessage, 10);
       }
 
       // Message with latest updates
@@ -76,7 +79,7 @@ class ExtensionManagerUpdate {
       lastUpdate.innerText = data.timeSinceLastUpdate;
       lastUpdate.setAttribute(
         'title',
-        TYPO3.lang['extensionList.updateFromTer.lastUpdate.timeOfLastUpdate'] + data.lastUpdateTime,
+        labels.get('extensionList.updateFromTer.lastUpdate.timeOfLastUpdate') + data.lastUpdateTime,
       );
 
       if (data.updated) {
@@ -89,12 +92,12 @@ class ExtensionManagerUpdate {
       const errorMessage = error.response.statusText + '(' + error.response.status + '): ' + await error.response.text();
 
       Notification.warning(
-        TYPO3.lang['extensionList.updateFromTerFlashMessage.title'],
+        labels.get('extensionList.updateFromTerFlashMessage.title'),
         errorMessage,
         10,
       );
     }).finally((): void => {
-      NProgress.done();
+      this.progressBar?.done();
 
       if (!reload) {
         // Hide loaders
@@ -112,6 +115,14 @@ class ExtensionManagerUpdate {
         }
       }
     });
+  }
+
+  private getProgress(): ProgressBarElement {
+    if (!this.progressBar || !this.progressBar.isConnected) {
+      this.progressBar = document.createElement('typo3-backend-progress-bar');
+      document.querySelector('.module-loading-indicator').appendChild(this.progressBar);
+    }
+    return this.progressBar;
   }
 }
 

@@ -17,12 +17,12 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
 
-use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
-use TYPO3\CMS\Backend\Utility\BackendUtility;
-use TYPO3\CMS\Backend\View\Event\AfterSectionMarkupGeneratedEvent;
-use TYPO3\CMS\Backend\View\Event\BeforeSectionMarkupGeneratedEvent;
+use TYPO3\CMS\Backend\View\BackendLayoutView;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Page\ContentSlideMode;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
@@ -40,9 +40,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * Accessed from Fluid templates.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class GridColumn extends AbstractGridObject
+class GridColumn
 {
     /**
      * @var GridColumnItem[]
@@ -55,24 +55,28 @@ class GridColumn extends AbstractGridObject
     protected readonly int $colSpan;
     protected readonly int $rowSpan;
     protected readonly ?string $identifier;
-    private readonly EventDispatcherInterface $eventDispatcher;
+    protected readonly ContentSlideMode $slideMode;
 
     /**
      * @param array<string, mixed> $definition
      */
     public function __construct(
-        protected PageLayoutContext $context,
+        protected readonly PageLayoutContext $context,
         protected readonly array $definition,
         protected readonly string $table = 'tt_content'
     ) {
-        parent::__construct($context);
         $this->columnNumber = isset($definition['colPos']) ? (int)$definition['colPos'] : null;
         $this->columnName = (string)($definition['name'] ?? 'default');
         $this->icon = (string)($definition['icon'] ?? '');
         $this->colSpan = (int)($definition['colspan'] ?? 1);
         $this->rowSpan = (int)($definition['rowspan'] ?? 1);
         $this->identifier = isset($definition['identifier']) ? (string)$definition['identifier'] : null;
-        $this->eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
+        $this->slideMode = ContentSlideMode::tryFrom($definition['slideMode'] ?? null);
+    }
+
+    public function getContext(): PageLayoutContext
+    {
+        return $this->context;
     }
 
     /**
@@ -104,6 +108,39 @@ class GridColumn extends AbstractGridObject
     public function getColumnNumber(): ?int
     {
         return $this->columnNumber;
+    }
+
+    /**
+     * Comma-separated list of CTypes allowed in this column, based on the backend layout
+     * column configuration. An empty string means "no allow list" (all types allowed).
+     */
+    public function getAllowedContentTypes(): string
+    {
+        return (string)($this->getColPosConfiguration()['allowedContentTypes'] ?? '');
+    }
+
+    /**
+     * Comma-separated list of CTypes disallowed in this column, based on the backend layout
+     * column configuration.
+     */
+    public function getDisallowedContentTypes(): string
+    {
+        return (string)($this->getColPosConfiguration()['disallowedContentTypes'] ?? '');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function getColPosConfiguration(): array
+    {
+        if ($this->columnNumber === null) {
+            return [];
+        }
+        return GeneralUtility::makeInstance(BackendLayoutView::class)->getColPosConfigurationForPage(
+            $this->context->getBackendLayout(),
+            $this->columnNumber,
+            $this->context->getPageId(),
+        );
     }
 
     public function getColumnName(): string
@@ -142,6 +179,11 @@ class GridColumn extends AbstractGridObject
         return strtolower((string)preg_replace('/[^a-zA-Z0-9_-]/', '', (string)$this->identifier));
     }
 
+    public function getSlideMode(): ContentSlideMode
+    {
+        return $this->slideMode;
+    }
+
     /**
      * @return int[]
      */
@@ -149,7 +191,7 @@ class GridColumn extends AbstractGridObject
     {
         $uids = [];
         foreach ($this->items as $columnItem) {
-            $uids[] = (int)$columnItem->getRecord()['uid'];
+            $uids[] = $columnItem->getRecord()->getUid();
         }
         return $uids;
     }
@@ -171,8 +213,8 @@ class GridColumn extends AbstractGridObject
                     implode(',', $this->getAllContainedItemUids()) => 'edit',
                 ],
             ],
-            'recTitle' => BackendUtility::getRecordTitle('pages', $pageRecord, true),
-            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+            'module' => 'web_layout',
+            'returnUrl' => $this->context->getReturnUrl(),
         ]);
     }
 
@@ -186,7 +228,7 @@ class GridColumn extends AbstractGridObject
             'sys_language_uid' => $this->context->getSiteLanguage()->getLanguageId(),
             'colPos' => $this->getColumnNumber(),
             'uid_pid' => $pageId,
-            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+            'returnUrl' => $this->context->getReturnUrl(),
         ]);
     }
 
@@ -210,20 +252,6 @@ class GridColumn extends AbstractGridObject
     public function getTitleUnassigned(): string
     {
         return $this->getLanguageService()->sL($this->columnName) . ' (' . $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:notAssigned') . ')';
-    }
-
-    public function getBeforeSectionMarkup(): string
-    {
-        $event = new BeforeSectionMarkupGeneratedEvent($this->definition, $this->context, $this->getRecords());
-        $this->eventDispatcher->dispatch($event);
-        return $event->getContent();
-    }
-
-    public function getAfterSectionMarkup(): string
-    {
-        $event = new AfterSectionMarkupGeneratedEvent($this->definition, $this->context, $this->getRecords());
-        $this->eventDispatcher->dispatch($event);
-        return $event->getContent();
     }
 
     public function isUnassigned(): bool
@@ -253,22 +281,13 @@ class GridColumn extends AbstractGridObject
             );
     }
 
-    /**
-     * Get the raw records for the current column
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    protected function getRecords(): array
+    protected function getLanguageService(): LanguageService
     {
-        if ($this->items === []) {
-            return [];
-        }
+        return $GLOBALS['LANG'];
+    }
 
-        $records = [];
-        foreach ($this->items as $item) {
-            $record = $item->getRecord();
-            $records[(int)$record['uid']] = $record;
-        }
-        return $records;
+    protected function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
     }
 }

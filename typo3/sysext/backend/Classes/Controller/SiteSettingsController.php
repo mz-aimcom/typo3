@@ -21,14 +21,17 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\Yaml\Yaml;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Breadcrumb\BreadcrumbContext;
+use TYPO3\CMS\Backend\Dto\Breadcrumb\BreadcrumbNode;
 use TYPO3\CMS\Backend\Dto\Settings\EditableSetting;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownItemInterface;
-use TYPO3\CMS\Backend\Template\Components\Buttons\DropDown\DropDownToggle;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\SetupSettingsViewMode;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\FormProtection\FormProtectionFactory;
 use TYPO3\CMS\Core\Http\JsonResponse;
@@ -42,7 +45,6 @@ use TYPO3\CMS\Core\Messaging\FlashMessageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Settings\Category;
 use TYPO3\CMS\Core\Settings\SettingDefinition;
-use TYPO3\CMS\Core\Settings\SettingsMode;
 use TYPO3\CMS\Core\Settings\SettingsTypeRegistry;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Set\CategoryRegistry;
@@ -55,7 +57,7 @@ use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Backend controller: The "Site settings" module
+ * View, edit, save site settings. Part of Setup module.
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
@@ -63,6 +65,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 readonly class SiteSettingsController
 {
     public function __construct(
+        protected ComponentFactory $componentFactory,
         protected ModuleTemplateFactory $moduleTemplateFactory,
         protected SiteFinder $siteFinder,
         protected SiteSettingsService $siteSettingsService,
@@ -76,35 +79,11 @@ readonly class SiteSettingsController
         protected FormProtectionFactory $formProtectionFactory,
     ) {}
 
-    public function overviewAction(ServerRequestInterface $request): ResponseInterface
-    {
-        $view = $this->moduleTemplateFactory->create($request);
-        $view->assign('sites', array_map(
-            fn(Site $site): array => [
-                'site' => $site,
-                'siteTitle' => $this->getSiteTitle($site),
-                'hasSettingsDefinitions' => $this->siteSettingsService->hasSettingsDefinitions($site),
-                'localSettings' => $this->siteSettingsService->getLocalSettings($site),
-            ],
-            array_filter(
-                $this->siteFinder->getAllSites(),
-                static fn(Site $site): bool => $site->getSets() !== []
-            )
-        ));
-
-        return $view->renderResponse('SiteSettings/Overview');
-    }
-
     public function editAction(ServerRequestInterface $request): ResponseInterface
     {
         $moduleData = $request->getAttribute('moduleData');
-        $targetMode = $request->getQueryParams()['mode'] ?? null;
-        if ($targetMode) {
-            $newSettingsMode = SettingsMode::tryFrom($targetMode) ?? SettingsMode::BASIC->value;
-            $moduleData->set('mode', $newSettingsMode->value);
-            $this->getBackendUser()->pushModuleData($moduleData->getModuleIdentifier(), $moduleData->toArray());
-        }
-        $mode = SettingsMode::tryFrom($moduleData->get('mode') ?? '') ?? SettingsMode::BASIC;
+        $mode = SetupSettingsViewMode::tryFrom($moduleData->get('settingsMode') ?? '') ?? SetupSettingsViewMode::BASIC;
+        $moduleData->set('settingsMode', $mode->value);
 
         $identifier = $request->getQueryParams()['site'] ?? null;
         if ($identifier === null) {
@@ -112,9 +91,10 @@ readonly class SiteSettingsController
         }
 
         $returnUrl = GeneralUtility::sanitizeLocalUrl(
-            (string)($request->getQueryParams()['returnUrl'] ?? '')
+            (string)($request->getQueryParams()['returnUrl'] ?? ''),
+            $request
         ) ?: null;
-        $overviewUrl = (string)$this->uriBuilder->buildUriFromRoute('site_settings');
+        $overviewUrl = (string)$this->uriBuilder->buildUriFromRoute('site_configuration');
 
         $site = $this->siteFinder->getSiteByIdentifier($identifier);
         $view = $this->moduleTemplateFactory->create($request);
@@ -147,31 +127,35 @@ readonly class SiteSettingsController
         $hasSettings = count($categories) > 0;
 
         $this->addDocHeaderBreadcrumb($view, $site);
-        $this->addDocHeaderCloseAndSaveButtons($view, $site, $returnUrl ?? $overviewUrl, $hasSettings);
+        $this->addDocHeaderCloseAndSaveButtons($view, $returnUrl ?? $overviewUrl, $hasSettings);
         $this->addDocHeaderViewModeButton($view, $site, $mode);
-        if ($hasSettings) {
-            $this->addDocHeaderExportButton($view, $site, $mode);
-        }
-
         $this->addDocHeaderSiteConfigurationButton($view, $site);
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_copytoclipboard.xlf');
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:backend/Resources/Private/Language/locallang_sitesettings.xlf');
+        if ($hasSettings) {
+            $this->addDocHeaderExportButton($view, $mode);
+        }
+        // Set shortcut context - reload button is added automatically
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'site_configuration.editSettings',
+            sprintf($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_sitesettings.xlf:labels.edit'), $site->getIdentifier()),
+            ['site' => $site->getIdentifier()]
+        );
 
+        $view->setLayout(ModuleLayout::NORMAL);
         $view->assign('site', $site);
         $view->assign('siteTitle', $this->getSiteTitle($site));
         $view->assign('rootPageId', $site->getRootPageId());
 
-        $view->assign('actionUrl', (string)$this->uriBuilder->buildUriFromRoute('site_settings.save', array_filter([
+        $view->assign('actionUrl', (string)$this->uriBuilder->buildUriFromRoute('site_configuration.saveSettings', array_filter([
             'site' => $site->getIdentifier(),
             'returnUrl' => $returnUrl,
-        ], static fn(?string $v): bool => $v !== null)));
+        ])));
         $view->assign('returnUrl', $returnUrl);
-        $view->assign('dumpUrl', (string)$this->uriBuilder->buildUriFromRoute('site_settings.dump', ['site' => $site->getIdentifier()]));
+        $view->assign('dumpUrl', (string)$this->uriBuilder->buildUriFromRoute('site_configuration.dumpSettings', ['site' => $site->getIdentifier()]));
         $view->assign('categories', $categories);
         $view->assign('mode', $mode);
 
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
-        $view->assign('formToken', $formProtection->generateToken('site_settings', 'save'));
+        $view->assign('formToken', $formProtection->generateToken('site_configuration', 'saveSettings'));
 
         return $view->renderResponse('SiteSettings/Edit');
     }
@@ -183,6 +167,10 @@ readonly class SiteSettingsController
             ...get_object_vars($definition),
             'label' => $languageService->sL($definition->label),
             'description' => $definition->description !== null ? $languageService->sL($definition->description) : null,
+            'enum' => array_map(
+                static fn(string|int|float|bool $label): string => $languageService->sL((string)$label),
+                $definition->enum
+            ),
         ]);
     }
 
@@ -197,18 +185,19 @@ readonly class SiteSettingsController
 
         $parsedBody = $request->getParsedBody();
         $formProtection = $this->formProtectionFactory->createFromRequest($request);
-        if (!$formProtection->validateToken((string)($parsedBody['formToken'] ?? ''), 'site_settings', 'save')) {
+        if (!$formProtection->validateToken((string)($parsedBody['formToken'] ?? ''), 'site_configuration', 'saveSettings')) {
             return $this->responseFactory
                 ->createResponse(400, 'Invalid request token given')
-                ->withHeader('Location', (string)$this->uriBuilder->buildUriFromRoute('site_settings.edit', [
+                ->withHeader('Location', (string)$this->uriBuilder->buildUriFromRoute('site_configuration.editSettings', [
                     'site' => $site->getIdentifier(),
                 ]));
         }
 
         $returnUrl = GeneralUtility::sanitizeLocalUrl(
-            (string)($parsedBody['returnUrl'] ?? '')
+            (string)($parsedBody['returnUrl'] ?? ''),
+            $request
         ) ?: null;
-        $overviewUrl = $this->uriBuilder->buildUriFromRoute('site_settings');
+        $overviewUrl = $this->uriBuilder->buildUriFromRoute('site_configuration');
         $CMD = $parsedBody['CMD'] ?? '';
         $isSave = $CMD === 'save' || $CMD === 'saveclose';
         $isSaveClose = $parsedBody['CMD'] === 'saveclose';
@@ -233,7 +222,7 @@ readonly class SiteSettingsController
 
             $languageService = $this->getLanguageService();
             $message = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_sitesettings.xlf:save.message.updated');
-            $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, '', ContextualFeedbackSeverity::OK, true);
+            $flashMessage = new FlashMessage($message, '', ContextualFeedbackSeverity::OK, true);
             $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
         }
@@ -241,7 +230,7 @@ readonly class SiteSettingsController
         if ($isSaveClose) {
             return new RedirectResponse($returnUrl ?? $overviewUrl);
         }
-        $editRoute = $this->uriBuilder->buildUriFromRoute('site_settings.edit', array_filter([
+        $editRoute = $this->uriBuilder->buildUriFromRoute('site_configuration.editSettings', array_filter([
             'site' => $site->getIdentifier(),
             'returnUrl' => $returnUrl,
         ], static fn(?string $v): bool => $v !== null));
@@ -277,108 +266,112 @@ readonly class SiteSettingsController
         ]);
     }
 
+    /**
+     * The site's root page stands for the site itself and links back to the detail view, which is
+     * the entry point for a single site. See SiteConfigurationController::addDocHeaderBreadcrumb().
+     */
     protected function addDocHeaderBreadcrumb(ModuleTemplate $moduleTemplate, Site $site): void
     {
         $record = BackendUtility::getRecord('pages', $site->getRootPageId());
-        $moduleTemplate->getDocHeaderComponent()->setMetaInformation($record ?? []);
+        $nodes = [];
+        if ($record !== null) {
+            $nodes[] = new BreadcrumbNode(
+                identifier: 'site-root-page-' . $site->getRootPageId(),
+                label: BackendUtility::getRecordTitle('pages', $record),
+                icon: $this->iconFactory->getIconForRecord('pages', $record, IconSize::SMALL)->getIdentifier(),
+                url: (string)$this->uriBuilder->buildUriFromRoute('site_configuration.detail', ['site' => $site->getIdentifier()]),
+            );
+        }
+        // Same icon as the button leading here from the site overview.
+        $nodes[] = new BreadcrumbNode(
+            identifier: 'site-settings-step',
+            label: $this->getLanguageService()->translate('title', 'backend.modules.site_settings'),
+            icon: 'actions-cog',
+        );
+        $moduleTemplate->getDocHeaderComponent()->setBreadcrumbContext(new BreadcrumbContext(null, $nodes));
     }
 
-    protected function addDocHeaderCloseAndSaveButtons(ModuleTemplate $moduleTemplate, Site $site, string $closeUrl, bool $saveEnabled): void
+    protected function addDocHeaderCloseAndSaveButtons(ModuleTemplate $moduleTemplate, string $closeUrl, bool $saveEnabled): void
     {
-        $languageService = $this->getLanguageService();
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $closeButton = $buttonBar->makeLinkButton()
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:close'))
-            ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL))
-            ->setShowLabelText(true)
-            ->setHref($closeUrl);
-        $buttonBar->addButton($closeButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
-        $saveButton = $buttonBar->makeInputButton()
+        $moduleTemplate->addButtonToButtonBar($this->componentFactory->createCloseButton($closeUrl));
+        $saveButton = $this->componentFactory->createSaveButton('sitesettings_form')
             ->setName('CMD')
             ->setValue('save')
-            ->setForm('sitesettings_form')
-            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
-            ->setTitle($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_common.xlf:save'))
-            ->setShowLabelText(true)
             ->setDisabled(!$saveEnabled);
-        $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 4);
+        $moduleTemplate->addButtonToButtonBar($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
     }
 
-    protected function addDocHeaderViewModeButton(ModuleTemplate $moduleTemplate, Site $site, SettingsMode $mode): void
+    protected function addDocHeaderViewModeButton(ModuleTemplate $moduleTemplate, Site $site, SetupSettingsViewMode $mode): void
     {
         $languageService = $this->getLanguageService();
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-
-        $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
-            ->setActive(($mode === SettingsMode::BASIC))
-            ->setHref(
-                (string)$this->uriBuilder->buildUriFromRoute(
-                    'site_settings.edit',
-                    array_filter([
-                        'site' => $site->getIdentifier(),
-                        'mode' => SettingsMode::BASIC->value,
-                    ])
-                )
-            )
-            ->setLabel($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf:settingseditor.mode.basic'))
-            ->setIcon($this->iconFactory->getIcon('actions-window', IconSize::SMALL));
-
-        $viewModeItems[] = GeneralUtility::makeInstance(DropDownToggle::class)
-            ->setActive(($mode === SettingsMode::ADVANCED))
-            ->setHref(
-                (string)$this->uriBuilder->buildUriFromRoute(
-                    'site_settings.edit',
-                    array_filter([
-                        'site' => $site->getIdentifier(),
-                        'mode' => SettingsMode::ADVANCED->value,
-                    ])
-                )
-            )
-            ->setLabel($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf:settingseditor.mode.advanced'))
-            ->setIcon($this->iconFactory->getIcon('actions-window-cog', IconSize::SMALL));
-
-        $viewModeButton = $buttonBar->makeDropDownButton()
+        $viewModeButton = $this->componentFactory->createDropDownButton()
             ->setLabel($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
             ->setShowLabelText(true);
-        foreach ($viewModeItems as $viewModeItem) {
-            /** @var DropDownItemInterface $viewModeItem */
-            $viewModeButton->addItem($viewModeItem);
-        }
 
-        $buttonBar->addButton($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+        $viewModeButton->addItem(
+            $this->componentFactory->createDropDownRadio()
+                ->setActive(($mode === SetupSettingsViewMode::BASIC))
+                ->setHref(
+                    (string)$this->uriBuilder->buildUriFromRoute(
+                        'site_configuration.editSettings',
+                        array_filter([
+                            'site' => $site->getIdentifier(),
+                            'settingsMode' => SetupSettingsViewMode::BASIC->value,
+                        ])
+                    )
+                )
+                ->setLabel($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf:settingseditor.mode.basic'))
+                ->setIcon($this->iconFactory->getIcon('actions-window', IconSize::SMALL))
+        );
+
+        $viewModeButton->addItem(
+            $this->componentFactory->createDropDownRadio()
+                ->setActive(($mode === SetupSettingsViewMode::ADVANCED))
+                ->setHref(
+                    (string)$this->uriBuilder->buildUriFromRoute(
+                        'site_configuration.editSettings',
+                        array_filter([
+                            'site' => $site->getIdentifier(),
+                            'settingsMode' => SetupSettingsViewMode::ADVANCED->value,
+                        ])
+                    )
+                )
+                ->setLabel($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_settingseditor.xlf:settingseditor.mode.advanced'))
+                ->setIcon($this->iconFactory->getIcon('actions-window-cog', IconSize::SMALL))
+        );
+
+        $moduleTemplate->addButtonToButtonBar($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
     }
 
-    protected function addDocHeaderExportButton(ModuleTemplate $moduleTemplate, Site $site, SettingsMode $mode): void
+    protected function addDocHeaderExportButton(ModuleTemplate $moduleTemplate, SetupSettingsViewMode $mode): void
     {
-        if ($mode === SettingsMode::ADVANCED) {
+        if ($mode === SetupSettingsViewMode::ADVANCED) {
             $languageService = $this->getLanguageService();
-            $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-            $exportButton = $buttonBar->makeInputButton()
+            $exportButton = $this->componentFactory->createInputButton()
                 ->setTitle($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_sitesettings.xlf:edit.yamlExport'))
                 ->setIcon($this->iconFactory->getIcon('actions-database-export', IconSize::SMALL))
                 ->setShowLabelText(true)
                 ->setName('CMD')
                 ->setValue('export')
                 ->setForm('sitesettings_form');
-            $buttonBar->addButton($exportButton, ButtonBar::BUTTON_POSITION_RIGHT, 1);
+            $moduleTemplate->addButtonToButtonBar($exportButton, ButtonBar::BUTTON_POSITION_RIGHT);
         }
     }
 
     protected function addDocHeaderSiteConfigurationButton(ModuleTemplate $moduleTemplate, Site $site): void
     {
         $languageService = $this->getLanguageService();
-        $buttonBar = $moduleTemplate->getDocHeaderComponent()->getButtonBar();
-        $exportButton = $buttonBar->makeLinkButton()
+        $exportButton = $this->componentFactory->createLinkButton()
             ->setTitle($languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_sitesettings.xlf:edit.editSiteConfiguration'))
             ->setIcon($this->iconFactory->getIcon('actions-open', IconSize::SMALL))
             ->setShowLabelText(true)
             ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_configuration.edit', [
                 'site' => $site->getIdentifier(),
-                'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_settings.edit', [
+                'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_configuration.editSettings', [
                     'site' => $site->getIdentifier(),
                 ]),
             ]));
-        $buttonBar->addButton($exportButton, ButtonBar::BUTTON_POSITION_RIGHT, 3);
+        $moduleTemplate->addButtonToButtonBar($exportButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
     }
 
     protected function getSiteTitle(Site $site): string

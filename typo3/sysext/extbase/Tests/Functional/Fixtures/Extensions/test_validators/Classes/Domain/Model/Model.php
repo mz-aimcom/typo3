@@ -17,8 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3Tests\TestValidators\Domain\Model;
 
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Attribute as Extbase;
 use TYPO3\CMS\Extbase\DomainObject\AbstractEntity;
+use TYPO3Tests\TestValidators\Validation\Validator\CustomValidator;
 
 /**
  * Fixture model
@@ -27,16 +28,16 @@ class Model extends AbstractEntity
 {
     /**
      * @var string
-     * @Extbase\Validate("StringLength", options={"minimum": 1})
-     * @Extbase\Validate("StringLength", options={"maximum": 10})
-     * @Extbase\Validate("NotEmpty")
      */
+    #[Extbase\Validate(validator: 'StringLength', options: ['minimum' => 1])]
+    #[Extbase\Validate(validator: 'StringLength', options: ['maximum' => 10])]
+    #[Extbase\Validate(validator: 'NotEmpty')]
     protected $foo;
 
     /**
      * @var int
-     * @Extbase\Validate("\TYPO3Tests\TestValidators\Validation\Validator\CustomValidator")
      */
+    #[Extbase\Validate(validator: CustomValidator::class)]
     protected $bar;
 
     /**

@@ -26,28 +26,26 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class AudioTagRendererTest extends UnitTestCase
 {
     #[Test]
-    public function getPriorityReturnsCorrectValue(): void
-    {
-        $audioTagRenderer = new AudioTagRenderer();
-
-        self::assertSame(1, $audioTagRenderer->getPriority());
-    }
-
-    #[Test]
     public function canRenderReturnsTrueOnCorrectFile(): void
     {
         $audioTagRenderer = new AudioTagRenderer();
 
-        $fileResourceMock1 = $this->createMock(File::class);
-        $fileResourceMock1->method('getMimeType')->willReturn('audio/mpeg');
-        $fileResourceMock2 = $this->createMock(File::class);
-        $fileResourceMock2->method('getMimeType')->willReturn('audio/wav');
-        $fileResourceMock3 = $this->createMock(File::class);
-        $fileResourceMock3->method('getMimeType')->willReturn('audio/ogg');
+        $fileResourceStub1 = self::createStub(File::class);
+        $fileResourceStub1->method('getMimeType')->willReturn('audio/mpeg');
+        $fileResourceStub2 = self::createStub(File::class);
+        $fileResourceStub2->method('getMimeType')->willReturn('audio/wav');
+        $fileResourceStub3 = self::createStub(File::class);
+        $fileResourceStub3->method('getMimeType')->willReturn('audio/ogg');
+        $fileResourceStub4 = self::createStub(File::class);
+        $fileResourceStub4->method('getMimeType')->willReturn('audio/ogg; codecs=opus');
+        $fileResourceStub5 = self::createStub(File::class);
+        $fileResourceStub5->method('getMimeType')->willReturn('Audio/MPEG');
 
-        self::assertTrue($audioTagRenderer->canRender($fileResourceMock1));
-        self::assertTrue($audioTagRenderer->canRender($fileResourceMock2));
-        self::assertTrue($audioTagRenderer->canRender($fileResourceMock3));
+        self::assertTrue($audioTagRenderer->canRender($fileResourceStub1));
+        self::assertTrue($audioTagRenderer->canRender($fileResourceStub2));
+        self::assertTrue($audioTagRenderer->canRender($fileResourceStub3));
+        self::assertTrue($audioTagRenderer->canRender($fileResourceStub4));
+        self::assertTrue($audioTagRenderer->canRender($fileResourceStub5));
     }
 
     #[Test]
@@ -55,10 +53,10 @@ final class AudioTagRendererTest extends UnitTestCase
     {
         $audioTagRenderer = new AudioTagRenderer();
 
-        $fileResourceMock = $this->createMock(File::class);
-        $fileResourceMock->method('getMimeType')->willReturn('video/mp4');
+        $fileResourceStub = self::createStub(File::class);
+        $fileResourceStub->method('getMimeType')->willReturn('video/mp4');
 
-        self::assertFalse($audioTagRenderer->canRender($fileResourceMock));
+        self::assertFalse($audioTagRenderer->canRender($fileResourceStub));
     }
 
     /**
@@ -99,6 +97,16 @@ final class AudioTagRendererTest extends UnitTestCase
             ],
             [
                 '//:path/myAudioFile',
+                ['additionalAttributes' => ['muted' => '', 'preload' => null, 'loop' => false, 'foo' => 'bar']],
+                '<audio muted="" foo="bar" controls><source src="//:path/myAudioFile" type="audio/mpeg"></audio>',
+            ],
+            [
+                '//:path/myAudioFile',
+                ['additionalAttributes' => ['loop' => true, 'preload' => 'none', 'data-foo' => ['a' => 1]]],
+                '<audio loop preload="none" data-foo="{&quot;a&quot;:1}" controls><source src="//:path/myAudioFile" type="audio/mpeg"></audio>',
+            ],
+            [
+                '//:path/myAudioFile',
                 ['data' => ['js-required' => 'yes', 'custom-id' => 'audio-123']],
                 '<audio data-js-required="yes" data-custom-id="audio-123" controls><source src="//:path/myAudioFile" type="audio/mpeg"></audio>',
             ]
@@ -117,13 +125,13 @@ final class AudioTagRendererTest extends UnitTestCase
     {
         $audioTagRenderer = new AudioTagRenderer();
 
-        $fileResourceMock = $this->createMock(File::class);
-        $fileResourceMock->method('getMimeType')->willReturn('audio/mpeg');
-        $fileResourceMock->method('getPublicUrl')->willReturn($url);
+        $fileResourceStub = self::createStub(File::class);
+        $fileResourceStub->method('getMimeType')->willReturn('audio/mpeg');
+        $fileResourceStub->method('getPublicUrl')->willReturn($url);
 
         self::assertSame(
             $expected,
-            $audioTagRenderer->render($fileResourceMock, '300m', '200', $arguments)
+            $audioTagRenderer->render($fileResourceStub, '300m', '200', $arguments)
         );
     }
 }

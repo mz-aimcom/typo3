@@ -39,7 +39,6 @@ use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\RootlineUtility;
-use TYPO3\CMS\Extbase\Utility\FrontendSimulatorUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
 
 /**
@@ -115,9 +114,7 @@ final readonly class BackendConfigurationManager
                 // and apply the stdWrap to the storagePid
                 // Use makeInstance here since extbase Bootstrap always setContentObject(null) in Backend, no need to call getContentObject().
                 $conf = $this->typoScriptService->convertPlainArrayToTypoScriptArray($frameworkConfiguration['persistence']);
-                FrontendSimulatorUtility::simulateFrontendEnvironment(GeneralUtility::makeInstance(ContentObjectRenderer::class));
-                $frameworkConfiguration['persistence']['storagePid'] = $GLOBALS['TSFE']->cObj->stdWrapValue('storagePid', $conf);
-                FrontendSimulatorUtility::resetFrontendEnvironment();
+                $frameworkConfiguration['persistence']['storagePid'] = GeneralUtility::makeInstance(ContentObjectRenderer::class)->stdWrapValue('storagePid', $conf);
             }
 
             if (!empty($frameworkConfiguration['persistence']['recursive'])) {
@@ -169,7 +166,22 @@ final readonly class BackendConfigurationManager
         $sysTemplateRows = [];
         if ($currentPageId > 0) {
             $rootLine = GeneralUtility::makeInstance(RootlineUtility::class, $currentPageId)->get();
-            $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootline($rootLine, $request);
+            // When the site acts as a TypoScript root, limit sys_template lookup to
+            // pages within this site by truncating the rootline at the site root page.
+            // This mirrors the frontend behavior and prevents sys_template records from
+            // parent sites from leaking into the backend TypoScript evaluation.
+            // @see \TYPO3\CMS\Frontend\Page\PageInformationFactory::setSysTemplateRows()
+            $rootLineForSysTemplates = $rootLine;
+            if ($site instanceof Site && $site->isTypoScriptRoot()) {
+                $rootLineForSysTemplates = [];
+                foreach ($rootLine as $index => $rootlinePage) {
+                    $rootLineForSysTemplates[$index] = $rootlinePage;
+                    if ((int)($rootlinePage['uid'] ?? 0) === $site->getRootPageId()) {
+                        break;
+                    }
+                }
+            }
+            $sysTemplateRows = $this->sysTemplateRepository->getSysTemplateRowsByRootline($rootLineForSysTemplates, $request);
             ksort($rootLine);
         }
         $sets = $site instanceof Site ? $this->setRegistry->getSets(...$site->getSets()) : [];
@@ -200,7 +212,7 @@ final readonly class BackendConfigurationManager
         $expressionMatcherVariables = [
             'request' => $request,
             'pageId' => $currentPageId,
-            'page' => !empty($rootLine) ? $rootLine[array_key_first($rootLine)] : [],
+            'page' => !empty($rootLine) ? array_first($rootLine) : [],
             'fullRootLine' => $rootLine,
             'site' => $site,
         ];

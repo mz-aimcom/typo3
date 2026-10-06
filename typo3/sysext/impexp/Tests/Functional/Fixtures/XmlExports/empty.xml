@@ -2,12 +2,12 @@
 <T3RecordDocument>
     <header type="array">
         <XMLversion>1.0</XMLversion>
-        <meta type="array"></meta>
-        <static_tables index="relStaticTables" type="array"></static_tables>
-        <excludeMap type="array"></excludeMap>
-        <softrefCfg type="array"></softrefCfg>
-        <extensionDependencies type="array"></extensionDependencies>
         <charset>utf-8</charset>
+        <meta type="array">
+            <packager_username>admin</packager_username>
+            <TYPO3_version>99.99.99</TYPO3_version>
+            <created>Tue 1. January 2030</created>
+        </meta>
     </header>
     <records type="array"></records>
 </T3RecordDocument>

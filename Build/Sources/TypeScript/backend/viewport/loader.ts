@@ -11,17 +11,27 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { ScaffoldIdentifierEnum } from '../enum/viewport/scaffold-identifier';
-import NProgress from 'nprogress';
+import { ScaffoldContentArea } from '../enum/viewport/scaffold-identifier';
+import { ProgressBarElement } from '@typo3/backend/element/progress-bar-element';
 
 class Loader {
+  private static el: ProgressBarElement | null = null;
+
   public static start(): void {
-    NProgress.configure({ parent: ScaffoldIdentifierEnum.contentModule, showSpinner: false });
-    NProgress.start();
+    if (!this.el || !this.el.isConnected) {
+      this.el = document.createElement('typo3-backend-progress-bar');
+      ScaffoldContentArea.getContentContainer()?.appendChild(this.el);
+    }
+    this.el.start(true);
   }
 
-  public static finish(): void {
-    NProgress.done();
+  public static async finish(): Promise<void> {
+    if (this.el) {
+      await this.el.done();
+      if (!this.el.isRunning()) {
+        this.el = null;
+      }
+    }
   }
 }
 

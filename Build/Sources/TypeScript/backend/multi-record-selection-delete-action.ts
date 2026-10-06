@@ -22,6 +22,8 @@ import { SeverityEnum } from '@typo3/backend/enum/severity';
 import Severity from '@typo3/backend/severity';
 import AjaxDataHandler from '@typo3/backend/ajax-data-handler';
 import Notification from '@typo3/backend/notification';
+import coreCommonLabels from '~labels/core.common';
+import listLabels from '~labels/core.mod_web_list';
 
 interface DeleteActionConfiguration extends ActionConfiguration {
   tableName: string;
@@ -68,14 +70,14 @@ class MultiRecordSelectionDeleteAction {
       severity: SeverityEnum.warning,
       buttons: [
         {
-          text: configuration.cancel || TYPO3.lang['button.cancel'] || 'Cancel',
+          text: configuration.cancel || coreCommonLabels.get('cancel'),
           active: true,
           btnClass: 'btn-default',
           name: 'cancel',
           trigger: (e: Event, modal: ModalElement) => modal.hideModal(),
         },
         {
-          text: configuration.ok || TYPO3.lang['button.delete'] || 'OK',
+          text: configuration.ok || listLabels.get('button.delete'),
           btnClass: 'btn-' + Severity.getCssClass(SeverityEnum.warning),
           name: 'delete',
           trigger: async (e: Event, modal: ModalElement): Promise<void> => {

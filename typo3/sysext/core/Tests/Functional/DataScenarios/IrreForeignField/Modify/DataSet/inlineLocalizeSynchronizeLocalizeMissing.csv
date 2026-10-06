@@ -17,8 +17,8 @@
 ,4,89,1026,0,0,0,0,0,0,0,0,"Hotel #2",297,"tt_content","1nff.hotels",1
 ,5,89,1,0,0,0,0,0,0,0,0,"Hotel #1",298,"tt_content","1nff.hotels",1
 ,6,89,1,1,1,3,3,0,0,0,0,"[Translate to Dansk:] Hotel #1",299,"tt_content","1nff.hotels",2
-,7,89,1,0,1,4,4,0,0,0,0,"[Translate to Dansk:] Hotel #2",299,"tt_content","1nff.hotels",1
-,8,89,2,0,1,3,3,0,0,0,0,"[Translate to Dansk:] Hotel #1",299,"tt_content","1nff.hotels",2
+,7,89,2,0,1,4,4,0,0,0,0,"[Translate to Dansk:] Hotel #2",299,"tt_content","1nff.hotels",1
+,8,89,1,0,1,3,3,0,0,0,0,"[Translate to Dansk:] Hotel #1",299,"tt_content","1nff.hotels",2
 "tx_testirreforeignfield_offer",,,,,,,,,,,,,,,,
 ,"uid","pid","sorting","deleted","sys_language_uid","l18n_parent","t3_origuid","t3ver_wsid","t3ver_state","t3ver_stage","t3ver_oid","title","parentid","parenttable","parentidentifier","prices"
 ,5,89,1,0,0,0,0,0,0,0,0,"Offer #1.1",3,"tx_testirreforeignfield_hotel",,3
@@ -74,7 +74,7 @@
 ,"9e0b181fa524ae1f7cdca9cafafc8698","tx_testirreforeignfield_hotel",7,"l18n_parent",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_hotel",4,,0,0,2147483647,0,0,
 ,"9a79270f87b8ffb56b2baafe9232c3a9","tx_testirreforeignfield_hotel",7,"offers",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_offer",11,,0,0,2147483647,0,0,
 ,"8dcf0c1366897e0e3d62c4ac36a7da18","tt_content",299,"l18n_parent",0,0,2147483647,0,,,,0,0,"tt_content",297,,0,0,2147483647,0,0,
-,"c46413edc8f8fb5e9468a39f7ad4cd5b","tt_content",299,"tx_testirreforeignfield_hotels",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_hotel",7,,0,0,2147483647,0,0,
+,"19edc57dc90588083ae0cee090133907","tt_content",299,"tx_testirreforeignfield_hotels",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_hotel",8,,0,0,2147483647,0,0,
 ,"4d768312013bd87af6d2bf117f5d48ff","tx_testirreforeignfield_price",20,"l18n_parent",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_price",7,,0,0,2147483647,0,0,
 ,"a2474f0dda7d8a668dab9fde00ec3e2c","tx_testirreforeignfield_price",21,"l18n_parent",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_price",8,,0,0,2147483647,0,0,
 ,"2e75b1bfacc8b9ef5e34bbabe1b6a2c0","tx_testirreforeignfield_price",22,"l18n_parent",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_price",9,,0,0,2147483647,0,0,
@@ -90,4 +90,4 @@
 ,"11350d60d18c0ad83d88340cdbec01ea","tx_testirreforeignfield_hotel",8,"l18n_parent",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_hotel",3,,0,0,2147483647,0,0,
 ,"bc57794130b0d15750eae71566b88166","tx_testirreforeignfield_hotel",8,"offers",0,0,2147483647,0,,,,0,0,"tx_testirreforeignfield_offer",12,,0,0,2147483647,0,0,
 ,"59e1a55db4d825197191353f6cb80884","tx_testirreforeignfield_hotel",8,"offers",0,0,2147483647,0,,,,1,0,"tx_testirreforeignfield_offer",13,,0,0,2147483647,0,0,
-,"a95c1d81ee0999d11f749c39b6af1583","tt_content",299,"tx_testirreforeignfield_hotels",0,0,2147483647,0,,,,1,0,"tx_testirreforeignfield_hotel",8,,0,0,2147483647,0,0,
+,"da863cf1bf186224d9bbdf83c9611a2c","tt_content",299,"tx_testirreforeignfield_hotels",0,0,2147483647,0,,,,1,0,"tx_testirreforeignfield_hotel",7,,0,0,2147483647,0,0,

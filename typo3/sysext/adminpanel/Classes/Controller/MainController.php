@@ -17,14 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Adminpanel\Controller;
 
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Adminpanel\ModuleApi\ConfigurableInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\DataProviderInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\ModuleDataStorageCollection;
 use TYPO3\CMS\Adminpanel\ModuleApi\ModuleInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\PageSettingsProviderInterface;
-use TYPO3\CMS\Adminpanel\ModuleApi\RequestEnricherInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\ShortInfoProviderInterface;
 use TYPO3\CMS\Adminpanel\ModuleApi\SubmoduleProviderInterface;
 use TYPO3\CMS\Adminpanel\Service\ModuleLoader;
@@ -33,7 +32,6 @@ use TYPO3\CMS\Adminpanel\Utility\StateUtility;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Core\RequestId;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
 use TYPO3\CMS\Core\View\ViewFactoryInterface;
 
@@ -46,40 +44,28 @@ use TYPO3\CMS\Core\View\ViewFactoryInterface;
  *
  * @internal
  */
-#[Autoconfigure(public: true)]
-class MainController
+readonly class MainController
 {
-    /** @var array<string, ModuleInterface> */
-    protected array $modules = [];
-
     public function __construct(
-        private readonly ModuleLoader $moduleLoader,
-        private readonly UriBuilder $uriBuilder,
-        private readonly RequestId $requestId,
-        private readonly ViewFactoryInterface $viewFactory,
+        private ModuleLoader $moduleLoader,
+        private UriBuilder $uriBuilder,
+        private RequestId $requestId,
+        private ViewFactoryInterface $viewFactory,
+        private ResourceUtility $resourceUtility,
     ) {}
-
-    /**
-     * Initializes settings for the admin panel.
-     */
-    public function initialize(ServerRequestInterface $request): ServerRequestInterface
-    {
-        $adminPanelModuleConfiguration = $GLOBALS['TYPO3_CONF_VARS']['EXTCONF']['adminpanel']['modules'] ?? [];
-        $this->modules = $this->moduleLoader->validateSortAndInitializeModules($adminPanelModuleConfiguration);
-        if (StateUtility::isActivatedForUser()) {
-            $request = $this->initializeModules($request, $this->modules);
-        }
-        return $request;
-    }
 
     /**
      * Renders the admin panel - Called in PSR-15 Middleware
      *
      * @see \TYPO3\CMS\Adminpanel\Middleware\AdminPanelRenderer
      */
-    public function render(ServerRequestInterface $request): string
+    public function render(ServerRequestInterface $request, ResponseInterface $response): string
     {
-        $resources = ResourceUtility::getResources(['nonce' => $this->requestId->nonce]);
+        $adminPanelModuleConfiguration = $GLOBALS['TYPO3_CONF_VARS']['EXTCONF']['adminpanel']['modules'] ?? [];
+        $modules = $this->moduleLoader->validateSortAndInitializeModules($adminPanelModuleConfiguration);
+
+        $nonce = $this->requestId->nonce;
+        $resources = $this->resourceUtility->getResources(['nonce' => $nonce->consumeStatic()], $request);
 
         $backupRequest = null;
         $frontendTypoScript = $request->getAttribute('frontend.typoscript');
@@ -87,7 +73,7 @@ class MainController
             // @todo: This is a hack: The admin panel is the only extension that starts
             //        a Fluid view in 'fully cached' scenarios. f:translate() now triggers
             //        the extbase configuration manager in FE, which fetches TS setup from
-            //        the Request attribute, which is *usally* always available, *except*
+            //        the Request attribute, which is *usually* always available, *except*
             //        in fully cached scenarios.
             //        See https://review.typo3.org/c/Packages/TYPO3.CMS/+/80732
             //        We still want extbase to crash if it tries to fetch TS setup when it
@@ -119,15 +105,16 @@ class MainController
         if (StateUtility::isOpen()) {
             $data = $this->storeDataPerModule(
                 $request,
-                $this->modules,
-                GeneralUtility::makeInstance(ModuleDataStorageCollection::class)
+                $response,
+                $modules,
+                new ModuleDataStorageCollection()
             );
-            $moduleResources = ResourceUtility::getAdditionalResourcesForModules($this->modules, ['nonce' => $this->requestId->nonce]);
-            $settingsModules = array_filter($this->modules, static function (ModuleInterface $module): bool {
+            $moduleResources = $this->resourceUtility->getAdditionalResourcesForModules($modules, ['nonce' => $nonce->consumeStatic()], $request);
+            $settingsModules = array_filter($modules, static function (ModuleInterface $module): bool {
                 return $module instanceof PageSettingsProviderInterface;
             });
             $parentModules = array_filter(
-                $this->modules,
+                $modules,
                 static function (ModuleInterface $module): bool {
                     return $module instanceof SubmoduleProviderInterface && $module instanceof ShortInfoProviderInterface;
                 }
@@ -147,7 +134,7 @@ class MainController
             );
 
             $view->assignMultiple([
-                'modules' => $this->modules,
+                'modules' => $modules,
                 'settingsModules' => $settingsModules,
                 'parentModules' => $parentModules,
                 'saveUrl' => $this->generateBackendUrl('ajax_adminPanel_saveForm'),
@@ -175,29 +162,7 @@ class MainController
     /**
      * @param array<string, ModuleInterface> $modules
      */
-    protected function initializeModules(ServerRequestInterface $request, array $modules): ServerRequestInterface
-    {
-        foreach ($modules as $module) {
-            if (
-                ($module instanceof RequestEnricherInterface)
-                && (
-                    (($module instanceof ConfigurableInterface) && $module->isEnabled())
-                    || (!($module instanceof ConfigurableInterface))
-                )
-            ) {
-                $request = $module->enrich($request);
-            }
-            if ($module instanceof SubmoduleProviderInterface) {
-                $request = $this->initializeModules($request, $module->getSubModules());
-            }
-        }
-        return $request;
-    }
-
-    /**
-     * @param array<string, ModuleInterface> $modules
-     */
-    protected function storeDataPerModule(ServerRequestInterface $request, array $modules, ModuleDataStorageCollection $data): ModuleDataStorageCollection
+    protected function storeDataPerModule(ServerRequestInterface $request, ResponseInterface $response, array $modules, ModuleDataStorageCollection $data): ModuleDataStorageCollection
     {
         foreach ($modules as $module) {
             if (
@@ -207,11 +172,11 @@ class MainController
                     || (!($module instanceof ConfigurableInterface))
                 )
             ) {
-                $data->addModuleData($module, $module->getDataToStore($request));
+                $data->addModuleData($module, $module->getDataToStore($request, $response));
             }
 
             if ($module instanceof SubmoduleProviderInterface) {
-                $this->storeDataPerModule($request, $module->getSubModules(), $data);
+                $this->storeDataPerModule($request, $response, $module->getSubModules(), $data);
             }
         }
         return $data;

@@ -478,7 +478,7 @@ final class RecordFieldTransformerTest extends FunctionalTestCase
         self::assertCount(1, $result);
         self::assertSame('Category 1 translated', $result[0]->get('title'));
 
-        $resolvedRecord = $this->get(RecordFactory::class)->createResolvedRecordFromDatabaseRow('tt_content', array_replace($dummyRecord->toArray(), ['uid' => 381]), $context);
+        $resolvedRecord = $this->get(RecordFactory::class)->createResolvedRecordFromDatabaseRow('tt_content', $dummyRecord->toArray(true), $context);
         self::assertInstanceOf(LazyRecordCollection::class, $resolvedRecord->get('typo3tests_contentelementb_categories_mm'));
         self::assertCount(1, $resolvedRecord->get('typo3tests_contentelementb_categories_mm'));
         self::assertSame('Category 1 translated', $resolvedRecord->get('typo3tests_contentelementb_categories_mm')[0]->get('title'));
@@ -1460,6 +1460,7 @@ final class RecordFieldTransformerTest extends FunctionalTestCase
         $resolvedRelation = $resolvedRecord->get('typo3tests_contentelementb_flexfield');
         self::assertInstanceOf(FlexFormFieldValues::class, $resolvedRelation);
         self::assertSame([], $resolvedRelation->toArray());
+        self::assertFalse($resolvedRelation->has('foo'));
     }
 
     #[Test]
@@ -2237,13 +2238,13 @@ final class RecordFieldTransformerTest extends FunctionalTestCase
         $result->get('link');
     }
 
-    protected function setWorkspaceId(int $workspaceId): void
+    private function setWorkspaceId(int $workspaceId): void
     {
         $GLOBALS['BE_USER']->workspace = $workspaceId;
-        GeneralUtility::makeInstance(Context::class)->setAspect('workspace', new WorkspaceAspect($workspaceId));
+        $this->get(Context::class)->setAspect('workspace', new WorkspaceAspect($workspaceId));
     }
 
-    protected function getTestRecord(): array
+    private function getTestRecord(): array
     {
         return [
             'uid' => 260,
@@ -2295,7 +2296,7 @@ final class RecordFieldTransformerTest extends FunctionalTestCase
         ];
     }
 
-    protected function createTestRecordObject(array $overriddenValues = []): RawRecord
+    private function createTestRecordObject(array $overriddenValues = []): RawRecord
     {
         $dummyRecordData = $this->getTestRecord();
         $dummyRecordData = array_replace($dummyRecordData, $overriddenValues);

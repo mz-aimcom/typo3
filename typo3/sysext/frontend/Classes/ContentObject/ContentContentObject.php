@@ -16,8 +16,10 @@
 namespace TYPO3\CMS\Frontend\ContentObject;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Core\Domain\RecordFactory;
 use TYPO3\CMS\Core\TimeTracker\TimeTracker;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Frontend\ContentObject\Event\AfterRecordIsRenderedEvent;
 use TYPO3\CMS\Frontend\ContentObject\Event\ModifyRecordsAfterFetchingContentEvent;
 
 /**
@@ -28,6 +30,7 @@ class ContentContentObject extends AbstractContentObject
     public function __construct(
         private readonly TimeTracker $timeTracker,
         private readonly EventDispatcherInterface $eventDispatcher,
+        private readonly RecordFactory $recordFactory,
     ) {}
 
     /**
@@ -42,18 +45,7 @@ class ContentContentObject extends AbstractContentObject
             return '';
         }
 
-        $frontendController = $this->getTypoScriptFrontendController();
         $theValue = '';
-        $originalRec = $frontendController->currentRecord;
-        // If the currentRecord is set, we register, that this record has invoked this function.
-        // It should not be allowed to do this again then!!
-        if ($originalRec) {
-            if (isset($frontendController->recordRegister[$originalRec])) {
-                ++$frontendController->recordRegister[$originalRec];
-            } else {
-                $frontendController->recordRegister[$originalRec] = 1;
-            }
-        }
         $conf['table'] = trim((string)$this->cObj->stdWrapValue('table', $conf));
         $conf['select.'] = !empty($conf['select.']) ? $conf['select.'] : [];
         $renderObjName = ($conf['renderObj'] ?? false) ? $conf['renderObj'] : '<' . $conf['table'];
@@ -100,22 +92,15 @@ class ContentContentObject extends AbstractContentObject
             if ($records !== []) {
                 $this->timeTracker->setTSlogMessage('NUMROWS: ' . count($records));
 
-                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class, $frontendController);
+                $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
                 $cObj->setParent($this->cObj->data, $this->cObj->currentRecord);
-                $this->cObj->currentRecordNumber = 0;
 
                 foreach ($records as $row) {
-                    $registerField = $conf['table'] . ':' . ($row['uid'] ?? 0);
-                    if (!($frontendController->recordRegister[$registerField] ?? false)) {
-                        $this->cObj->currentRecordNumber++;
-                        $cObj->parentRecordNumber = $this->cObj->currentRecordNumber;
-                        $frontendController->currentRecord = $registerField;
-                        $this->cObj->lastChanged($row['tstamp'] ?? 0);
-                        $cObj->setRequest($this->request);
-                        $cObj->start($row, $conf['table']);
-                        $tmpValue = $cObj->cObjGetSingle($renderObjName, $renderObjConf, $renderObjKey);
-                        $cobjValue .= $tmpValue;
-                    }
+                    $this->cObj->lastChanged($row['tstamp'] ?? 0);
+                    $cObj->setRequest($this->request);
+                    $cObj->start($row, $conf['table']);
+                    $tmpValue = $this->dispatchAfterRecordIsRenderedEvent($cObj->cObjGetSingle($renderObjName, $renderObjConf, $renderObjKey), $conf['table'], $row);
+                    $cobjValue .= $tmpValue;
                 }
             }
             if ($slideCollectReverse) {
@@ -148,11 +133,22 @@ class ContentContentObject extends AbstractContentObject
         if (isset($conf['stdWrap.'])) {
             $theValue = $this->cObj->stdWrap($theValue, $conf['stdWrap.']);
         }
-        // Restore
-        $frontendController->currentRecord = $originalRec;
-        if ($originalRec) {
-            --$frontendController->recordRegister[$originalRec];
-        }
         return $theValue;
+    }
+
+    private function dispatchAfterRecordIsRenderedEvent(string $content, string $table, array $row): string
+    {
+        try {
+            $record = $this->recordFactory->createResolvedRecordFromDatabaseRow($table, $row);
+        } catch (\Exception) {
+            try {
+                // e.g. a custom "selectFields" omitting system fields prevents resolving
+                $record = $this->recordFactory->createRawRecord($table, $row);
+            } catch (\Exception) {
+                // e.g. tables without TCA or rows lacking the type field must still render
+                return $content;
+            }
+        }
+        return $this->eventDispatcher->dispatch(new AfterRecordIsRenderedEvent($content, $record, $this->request))->getRenderedRecord();
     }
 }

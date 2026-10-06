@@ -11,7 +11,7 @@
  * The TYPO3 project - inspiring people to share!
  */
 
-import { customElement, property } from 'lit/decorators';
+import { customElement, property } from 'lit/decorators.js';
 import { LitElement, type TemplateResult, html } from 'lit';
 
 /**
@@ -30,14 +30,14 @@ export class OnlineMediaFormElement extends LitElement {
 
   protected override render(): TemplateResult {
     return html`
-      <form @submit="${ this.dispatchSubmitEvent }">
+      <form id="online-media-form" @submit="${ this.dispatchSubmitEvent }">
         <div class="form-control-wrap">
-          <input type="text" class="form-control" name="online-media-url" placeholder="${this.placeholder}" required>
+          <input type="text" class="form-control" name="online-media-url" placeholder="${this.placeholder}" required autofocus>
           <div class="form-text">
             ${this.allowedExtensionsHelpText}<br>
             <ul class="badge-list">
             ${this.allowedExtensions.split(',').map((ext: string) => html`
-              <li><span class="badge badge-success">${ext.trim().toUpperCase()}</span></li>
+              <li><span class="badge badge-secondary">${ext.trim().toLowerCase()}</span></li>
             `)}
             </ul>
           </div>

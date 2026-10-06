@@ -45,6 +45,7 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractTagBasedViewHelper;
  *        See documentation
  *    </a>
  *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-backend-link-documentation
  * @internal not part of TYPO3 Core API.
  */
 final class DocumentationViewHelper extends AbstractTagBasedViewHelper
@@ -64,7 +65,7 @@ final class DocumentationViewHelper extends AbstractTagBasedViewHelper
     {
         // Note: This ViewHelper cannot use DI, because it is used in the Install-Tool context where constructor-based DI does not work.
         //       Typo3Information is a simple DO so we do not need to utilize makeInstance() here.
-        $this->tag->addAttribute('href', (new Typo3Information())->getDocsLink($this->arguments['identifier']));
+        $this->tag->addAttribute('href', Typo3Information::getDocsLink($this->arguments['identifier']));
         $this->tag->addAttribute('target', '_blank');
         $this->tag->addAttribute('rel', 'noreferrer');
         $this->tag->setContent($this->renderChildren());

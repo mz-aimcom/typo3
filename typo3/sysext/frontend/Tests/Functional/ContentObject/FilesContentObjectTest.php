@@ -20,14 +20,14 @@ namespace TYPO3\CMS\Frontend\Tests\Functional\ContentObject;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Http\ServerRequest;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\AbstractContentObject;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
+use TYPO3\CMS\Frontend\ContentObject\RegisterStack;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class FilesContentObjectTest extends FunctionalTestCase
 {
-    protected ?AbstractContentObject $subject;
+    private AbstractContentObject $subject;
 
     protected array $pathsToProvideInTestInstance = [
         'typo3/sysext/frontend/Tests/Functional/Fixtures/Images' => 'fileadmin/images',
@@ -41,8 +41,9 @@ final class FilesContentObjectTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->importCSVDataSet(__DIR__ . '/DataSet/FilesContentObjectDataSet.csv');
         $this->setUpBackendUser(1);
-        $contentObjectRenderer = GeneralUtility::getContainer()->get(ContentObjectRenderer::class);
+        $contentObjectRenderer = $this->get(ContentObjectRenderer::class);
         $request = new ServerRequest();
+        $request = $request->withAttribute('frontend.register.stack', new RegisterStack());
         $contentObjectRenderer->setRequest($request);
         $this->subject = $contentObjectRenderer->getContentObject('FILES');
     }

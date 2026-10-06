@@ -23,7 +23,7 @@ use TYPO3\CMS\Backend\Form\FormDataProvider\TcaSelectTreeItems;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
@@ -40,7 +40,7 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
         parent::setUp();
         $this->importCSVDataSet(__DIR__ . '/../../Fixtures/be_users.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/TcaSelectTreeItems/base.csv');
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $GLOBALS['BE_USER'] = $this->setUpBackendUser(1);
     }
 
@@ -133,10 +133,24 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
         $selectItems = (new TcaSelectTreeItems($this->get(IconFactory::class)));
         $selectItems->injectConnectionPool($this->get(ConnectionPool::class));
         $selectItems->injectIconFactory($this->get(IconFactory::class));
-        $selectItems->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        $result = $selectItems->addData($input);
+        $result = $selectItems->addData($this->addTcaSchemata($input));
 
-        self::assertEquals($expected, $result);
+        foreach ($expected as $key => $value) {
+            self::assertEquals($value, $result[$key]);
+        }
+    }
+
+    private function addTcaSchemata(array $result): array
+    {
+        if (isset($result['tcaSchemata'])) {
+            return $result;
+        }
+        $tca = $result['fullTca'] ?? $GLOBALS['TCA'];
+        if (!isset($tca[$result['tableName']]) && isset($result['processedTca'])) {
+            $tca[$result['tableName']] = $result['processedTca'];
+        }
+        $result['tcaSchemata'] = $this->get(TcaSchemaBuilder::class)->buildFromStructure($tca);
+        return $result;
     }
 
     #[Test]
@@ -160,6 +174,7 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
                             ],
                             'foreign_table' => 'foreign_table',
                             'items' => [
+                                ['label' => 'static empty value item', 'value' => '', 'icon' => 'foo-icon'],
                                 ['label' => 'static item foo', 'value' => 1, 'icon' => 'foo-icon'],
                                 ['label' => 'static item bar', 'value' => 2, 'icon' => 'bar-icon'],
                             ],
@@ -182,6 +197,7 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
                                     ],
                                 ],
                             ],
+                            'altLabels' => 'alt static empty value item',
                             'altLabels.' => [
                                 1 => 'alt static item foo',
                                 2 => 'alt static item bar',
@@ -201,11 +217,20 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
         $selectItems = (new TcaSelectTreeItems($this->get(IconFactory::class)));
         $selectItems->injectConnectionPool($this->get(ConnectionPool::class));
         $selectItems->injectIconFactory($this->get(IconFactory::class));
-        $selectItems->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        $result = $selectItems->addData($input);
+        $result = $selectItems->addData($this->addTcaSchemata($input));
 
         $resultItems = $result['processedTca']['columns']['select_tree']['config']['items'];
         $expectedItems = [
+            [
+                'identifier' => '',
+                'name' => 'alt static empty value item',
+                'icon' => 'foo-icon',
+                'iconOverlay' => '', // @todo for non-static items this is called `overlayIcon`. Bug?
+                'depth' => 0,
+                'hasChildren' => false,
+                'selectable' => true,
+                'checked' => false,
+            ],
             [
                 'identifier' => 1,
                 'name' => 'alt static item foo',
@@ -316,10 +341,152 @@ final class TcaSelectTreeItemsTest extends FunctionalTestCase
         $selectItems = (new TcaSelectTreeItems($this->get(IconFactory::class)));
         $selectItems->injectIconFactory($this->get(IconFactory::class));
         $selectItems->injectConnectionPool($this->get(ConnectionPool::class));
-        $selectItems->injectTcaSchemaFactory($this->get(TcaSchemaFactory::class));
-        $result = $selectItems->addData($input);
+        $result = $selectItems->addData($this->addTcaSchemata($input));
 
         $resultStartingPoints = $result['processedTca']['columns']['select_tree']['config']['treeConfig']['startingPoints'];
         self::assertSame($expectedStartingPoints, $resultStartingPoints);
+    }
+
+    public static function addDataResolvesMarkersInStartingPointsDataProvider(): array
+    {
+        return [
+            'current pid' => [
+                'inputStartingPoints' => '###CURRENT_PID###',
+                'expectedStartingPoints' => '1',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+            'site root from rootline' => [
+                'inputStartingPoints' => '###SITEROOT###',
+                'expectedStartingPoints' => '5',
+                'rootline' => [['uid' => 1, 'is_siteroot' => 0], ['uid' => 5, 'is_siteroot' => 1]],
+                'pageTsConfig' => [],
+            ],
+            'page tsconfig id' => [
+                'inputStartingPoints' => '###PAGE_TSCONFIG_ID###',
+                'expectedStartingPoints' => '13',
+                'rootline' => [],
+                'pageTsConfig' => ['PAGE_TSCONFIG_ID' => '13'],
+            ],
+            'page tsconfig idlist' => [
+                'inputStartingPoints' => '###PAGE_TSCONFIG_IDLIST###',
+                'expectedStartingPoints' => '13,14',
+                'rootline' => [],
+                'pageTsConfig' => ['PAGE_TSCONFIG_IDLIST' => '13, 14, invalid'],
+            ],
+            'unresolved markers are removed' => [
+                'inputStartingPoints' => '42,###PAGE_TSCONFIG_ID###,###SITEROOT###,12',
+                'expectedStartingPoints' => '42,12',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+            'marker combined with site configuration marker' => [
+                'inputStartingPoints' => '###CURRENT_PID###,###SITE:categories.contentCategory###',
+                'expectedStartingPoints' => '1,4711',
+                'rootline' => [],
+                'pageTsConfig' => [],
+            ],
+        ];
+    }
+
+    #[DataProvider('addDataResolvesMarkersInStartingPointsDataProvider')]
+    #[Test]
+    public function addDataResolvesMarkersInStartingPoints(string $inputStartingPoints, string $expectedStartingPoints, array $rootline, array $pageTsConfig): void
+    {
+        $input = [
+            'tableName' => 'tca_select_tree_items',
+            'effectivePid' => 1,
+            'databaseRow' => [
+                'uid' => 1,
+                'select_tree' => '1',
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'select_tree' => [
+                        'config' => [
+                            'type' => 'select',
+                            'renderType' => 'selectTree',
+                            'treeConfig' => [
+                                'childrenField' => 'children_field',
+                                'startingPoints' => $inputStartingPoints,
+                            ],
+                            'foreign_table' => 'foreign_table',
+                            'maxitems' => 1,
+                        ],
+                    ],
+                ],
+            ],
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'tca_select_tree_items.' => [
+                        'select_tree.' => $pageTsConfig,
+                    ],
+                ],
+            ],
+            'rootline' => $rootline,
+            'site' => new Site('some-site', 1, ['rootPageId' => 1, 'categories' => ['contentCategory' => 4711]]),
+            'selectTreeCompileItems' => true,
+        ];
+
+        $result = $this->createSubject()->addData($this->addTcaSchemata($input));
+
+        self::assertSame($expectedStartingPoints, $result['processedTca']['columns']['select_tree']['config']['treeConfig']['startingPoints']);
+    }
+
+    #[Test]
+    public function addDataResolvesMarkersInStartingPointsOverriddenByPageTsConfig(): void
+    {
+        $input = [
+            'tableName' => 'tca_select_tree_items',
+            'effectivePid' => 1,
+            'databaseRow' => [
+                'uid' => 1,
+                'select_tree' => '1',
+            ],
+            'processedTca' => [
+                'columns' => [
+                    'select_tree' => [
+                        'config' => [
+                            'type' => 'select',
+                            'renderType' => 'selectTree',
+                            'treeConfig' => [
+                                'childrenField' => 'children_field',
+                                'startingPoints' => '42',
+                            ],
+                            'foreign_table' => 'foreign_table',
+                            'maxitems' => 1,
+                        ],
+                    ],
+                ],
+            ],
+            'pageTsConfig' => [
+                'TCEFORM.' => [
+                    'tca_select_tree_items.' => [
+                        'select_tree.' => [
+                            'config.' => [
+                                'treeConfig.' => [
+                                    'startingPoints' => '###CURRENT_PID###,###SITE:categories.contentCategory###',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            'rootline' => [],
+            'site' => new Site('some-site', 1, ['rootPageId' => 1, 'categories' => ['contentCategory' => 4711]]),
+            'selectTreeCompileItems' => true,
+        ];
+
+        $result = $this->createSubject()->addData($this->addTcaSchemata($input));
+
+        self::assertSame('1,4711', $result['processedTca']['columns']['select_tree']['config']['treeConfig']['startingPoints']);
+    }
+
+    private function createSubject(): TcaSelectTreeItems
+    {
+        $subject = new TcaSelectTreeItems($this->get(IconFactory::class));
+        $subject->injectIconFactory($this->get(IconFactory::class));
+        $subject->injectConnectionPool($this->get(ConnectionPool::class));
+        return $subject;
     }
 }

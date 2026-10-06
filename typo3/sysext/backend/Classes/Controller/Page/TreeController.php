@@ -25,6 +25,16 @@ use TYPO3\CMS\Backend\Controller\Event\AfterPageTreeItemsPreparedEvent;
 use TYPO3\CMS\Backend\Dto\Tree\Label\Label;
 use TYPO3\CMS\Backend\Dto\Tree\PageTreeItem;
 use TYPO3\CMS\Backend\Dto\Tree\TreeItem;
+use TYPO3\CMS\Backend\Form\FormDataCompiler;
+use TYPO3\CMS\Backend\Form\FormDataGroup\OnTheFly;
+use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseEffectivePid;
+use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseParentPageRow;
+use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseRowInitializeNew;
+use TYPO3\CMS\Backend\Form\FormDataProvider\DatabaseUniqueUidNewRow;
+use TYPO3\CMS\Backend\Form\FormDataProvider\InitializeProcessedTca;
+use TYPO3\CMS\Backend\Form\FormDataProvider\PageTsConfig;
+use TYPO3\CMS\Backend\Form\FormDataProvider\TcaSelectItems;
+use TYPO3\CMS\Backend\Form\FormDataProvider\UserTsConfig;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Tree\Repository\PageTreeRepository;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -37,7 +47,6 @@ use TYPO3\CMS\Core\Http\JsonResponse;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -106,7 +115,7 @@ class TreeController
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly SiteFinder $siteFinder,
         protected readonly PageDoktypeRegistry $pageDoktypeRegistry,
-        protected readonly TcaSchemaFactory $tcaSchemaFactory,
+        protected readonly FormDataCompiler $formDataCompiler,
     ) {}
 
     protected function initializeConfiguration(ServerRequestInterface $request)
@@ -139,18 +148,45 @@ class TreeController
     /**
      * Returns page tree configuration in JSON
      */
-    public function fetchConfigurationAction(): ResponseInterface
+    public function fetchConfigurationAction(ServerRequestInterface $request): ResponseInterface
     {
+        $backendUser = $this->getBackendUser();
+        $userTsConfig = $backendUser->getTSConfig();
+
+        // Check if translation search feature is generally available (TSconfig setting)
+        $translationSearchAvailable = (bool)($userTsConfig['options.']['pageTree.']['searchInTranslatedPages'] ?? true);
+
+        // Determine if translation search is enabled by the user preference - otherwise TSconfig setting applies
+        $translationSearchEnabled = $translationSearchAvailable
+            && (
+                !isset($backendUser->uc['pageTree_searchInTranslatedPages'])
+                || $backendUser->uc['pageTree_searchInTranslatedPages']
+            );
+
+        // Check if frontend URI search feature is generally available (TSconfig setting)
+        $frontendUriSearchAvailable = (bool)($userTsConfig['options.']['pageTree.']['searchByFrontendUri'] ?? true);
+
+        // Determine if frontend URI search is enabled by the user preference - otherwise TSconfig setting applies
+        $frontendUriSearchEnabled = $frontendUriSearchAvailable
+            && (
+                !isset($backendUser->uc['pageTree_searchByFrontendUri'])
+                || $backendUser->uc['pageTree_searchByFrontendUri']
+            );
+
         $configuration = [
             'allowDragMove' => $this->isDragMoveAllowed(),
-            'doktypes' => $this->getDokTypes(),
-            'displayDeleteConfirmation' => $this->getBackendUser()->jsConfirmation(JsConfirmation::DELETE),
-            'temporaryMountPoint' => $this->getMountPointPath((int)($this->getBackendUser()->uc['pageTree_temporaryMountPoint'] ?? 0)),
+            'doktypes' => $this->getDokTypes($request),
+            'displayDeleteConfirmation' => $backendUser->jsConfirmation(JsConfirmation::DELETE),
+            'temporaryMountPoint' => $this->getMountPointPath((int)($backendUser->uc['pageTree_temporaryMountPoint'] ?? 0)),
             'showIcons' => true,
             'dataUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_data'),
             'rootlineUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_rootline'),
             'filterUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_filter'),
             'setTemporaryMountPointUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_set_temporary_mount_point'),
+            'searchInTranslatedPagesEnabled' => $translationSearchEnabled,
+            'searchInTranslatedPagesAvailable' => $translationSearchAvailable,
+            'searchByFrontendUriEnabled' => $frontendUriSearchEnabled,
+            'searchByFrontendUriAvailable' => $frontendUriSearchAvailable,
         ];
 
         return new JsonResponse($configuration);
@@ -173,44 +209,58 @@ class TreeController
             'dataUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_data', $additionalArguments),
             'filterUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_filter', $additionalArguments),
             'setTemporaryMountPointUrl' => (string)$this->uriBuilder->buildUriFromRoute('ajax_page_tree_set_temporary_mount_point'),
+            'nonViewableDoktypes' => $this->pageDoktypeRegistry->getNonViewableDoktypes(),
         ];
         return new JsonResponse($configuration);
     }
 
     /**
-     * Returns the list of doktypes to display in page tree toolbar drag area
-     *
-     * Note: The list can be filtered by the user TypoScript
-     * option "options.pageTree.doktypesToShowInNewPageDragArea".
+     * Returns the list of doktypes to display in page tree toolbar drag area,
+     * automatically determined based on the user's group permissions.
      */
-    protected function getDokTypes(): array
+    protected function getDokTypes(ServerRequestInterface $request): array
     {
-        $backendUser = $this->getBackendUser();
-        $doktypeLabelMap = [];
-        foreach ($this->pageDoktypeRegistry->getAllDoktypes() as $selectionItem) {
-            $doktypeLabelMap[$selectionItem->getValue()] = $selectionItem->getLabel();
+        $formDataGroup = GeneralUtility::makeInstance(OnTheFly::class);
+        // Skip DatabaseUserPermissionCheck::class to return doktypes even if the user cannot create pages at root level
+        $formDataGroup->setProviderList([
+            InitializeProcessedTca::class,
+            DatabaseParentPageRow::class,
+            DatabaseEffectivePid::class,
+            UserTsConfig::class,
+            PageTsConfig::class,
+            DatabaseRowInitializeNew::class,
+            DatabaseUniqueUidNewRow::class,
+            TcaSelectItems::class,
+        ]);
+
+        try {
+            $doktypes = $this->formDataCompiler
+                ->compile(
+                    [
+                        'command' => 'new',
+                        'request' => $request,
+                        'tableName' => 'pages',
+                        'vanillaUid' => 0,
+                    ],
+                    $formDataGroup
+                )['processedTca']['columns']['doktype']['config']['items'] ?? [];
+        } catch (\Exception) {
+            return [];
         }
-        $doktypes = GeneralUtility::intExplode(',', (string)($backendUser->getTSConfig()['options.']['pageTree.']['doktypesToShowInNewPageDragArea'] ?? ''), true);
-        $doktypes = array_unique($doktypes);
-        $output = [];
-        $allowedDoktypes = GeneralUtility::intExplode(',', (string)($backendUser->groupData['pagetypes_select'] ?? ''), true);
-        $isAdmin = $backendUser->isAdmin();
-        // Early return if backend user may not create any doktype
-        if (!$isAdmin && empty($allowedDoktypes)) {
-            return $output;
-        }
-        foreach ($doktypes as $doktype) {
-            if (!isset($doktypeLabelMap[$doktype]) || (!$isAdmin && !in_array($doktype, $allowedDoktypes, true))) {
-                continue;
-            }
-            $label = htmlspecialchars($this->getLanguageService()->sL($doktypeLabelMap[$doktype]));
-            $output[] = [
-                'nodeType' => $doktype,
-                'icon' => $this->tcaSchemaFactory->get('pages')->getRawConfiguration()['typeicon_classes'][$doktype] ?? '',
-                'title' => $label,
-            ];
-        }
-        return $output;
+
+        return array_values(
+            array_map(
+                static fn(array $doktype) => [
+                    'nodeType' => $doktype['value'],
+                    'icon' => $doktype['icon'] ?? '',
+                    'title' => $doktype['label'] ?? '',
+                ],
+                array_filter(
+                    $doktypes,
+                    static fn(array $doktype) => ($doktype['value'] ?? '') !== '--div--' && ($doktype['value'] ?? '') !== ''
+                )
+            )
+        );
     }
 
     /**
@@ -239,7 +289,7 @@ class TreeController
         }
         $items = array_merge(...$items);
 
-        return new JsonResponse($this->getPostProcessedPageItems($request, $items));
+        return new JsonResponse($this->getPostProcessedPageItems($request, null, $items));
     }
 
     /**
@@ -290,7 +340,7 @@ class TreeController
         }
         $items = array_merge(...$items);
 
-        return new JsonResponse($this->getPostProcessedPageItems($request, $items));
+        return new JsonResponse($this->getPostProcessedPageItems($request, $searchQuery, $items));
     }
 
     /**
@@ -340,7 +390,7 @@ class TreeController
         $suffix = '';
         $prefix = '';
         $nameSourceField = 'title';
-        $visibleText = $page['title'];
+        $visibleText = $page['title'] ?? '';
         $tooltip = BackendUtility::titleAttribForPages($page, '', false, $this->useNavTitle);
         if ($pageId !== 0) {
             $icon = $this->iconFactory->getIconForRecord('pages', $page, IconSize::SMALL);
@@ -372,7 +422,7 @@ class TreeController
         $labels = [];
         if (!empty($this->labels[$pageId . '.']) && isset($this->labels[$pageId . '.']['label']) && trim($this->labels[$pageId . '.']['label']) !== '') {
             $labels[] = new Label(
-                label: (string)($this->labels[$pageId . '.']['label']),
+                label: $this->getLanguageService()->sL($this->labels[$pageId . '.']['label']),
                 color: (string)($this->labels[$pageId . '.']['color'] ?? '#ff8700'),
             );
         }
@@ -402,6 +452,8 @@ class TreeController
             // _page is only for use in events so they do not need to fetch those
             // records again. The property will be removed from the final payload.
             '_page' => $page,
+            // _translationLanguageUids contains the language UIDs for translations that matched (only populated during search)
+            '_translationLanguageUids' => $this->pageTreeRepository->getTranslationMatches($pageId),
             'doktype' => (int)($page['doktype'] ?? 0),
             'nameSourceField' => $nameSourceField,
             'mountPoint' => $entryPoint,
@@ -579,7 +631,7 @@ class TreeController
         $path = [];
         foreach ($rootline as $rootlineElement) {
             $record = BackendUtility::getRecordWSOL('pages', $rootlineElement['uid'], 'title, nav_title', '', true, true);
-            $text = $record['title'];
+            $text = $record['title'] ?? '';
             if ($this->useNavTitle && trim($record['nav_title'] ?? '') !== '') {
                 $text = $record['nav_title'];
             }
@@ -615,7 +667,7 @@ class TreeController
         return [$mountPoints];
     }
 
-    protected function getPostProcessedPageItems(ServerRequestInterface $request, array $items): array
+    protected function getPostProcessedPageItems(ServerRequestInterface $request, ?string $searchQuery, array $items): array
     {
         return array_map(
             static function (array $item): PageTreeItem {
@@ -650,7 +702,7 @@ class TreeController
                 );
             },
             $this->eventDispatcher->dispatch(
-                new AfterPageTreeItemsPreparedEvent($request, $items)
+                new AfterPageTreeItemsPreparedEvent($request, $searchQuery, $items)
             )->getItems()
         );
     }

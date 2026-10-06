@@ -24,9 +24,9 @@ use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
  *
  * @internal
  */
-class ModelService
+readonly class ModelService
 {
-    private const SOURCE_PARSING_PRIORITIES = [
+    private const array SOURCE_PARSING_PRIORITIES = [
         HashProxy::class => 50,
         HashValue::class => 50,
     ];
@@ -34,7 +34,7 @@ class ModelService
     /**
      * @param ?FrontendInterface $cache to be used for storing compiled CSP aspects (disabled in install tool)
      */
-    public function __construct(private readonly ?FrontendInterface $cache = null) {}
+    public function __construct(private ?FrontendInterface $cache = null) {}
 
     public function buildMutationSuggestionFromArray(array $array): MutationSuggestion
     {
@@ -49,7 +49,7 @@ class ModelService
     public function buildMutationCollectionFromArray(array $array): MutationCollection
     {
         $mutations = array_map(
-            [$this, 'buildMutationFromArray'],
+            $this->buildMutationFromArray(...),
             $array['mutations'] ?? []
         );
         return new MutationCollection(...$mutations);

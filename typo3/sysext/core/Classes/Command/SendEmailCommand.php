@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -25,7 +26,6 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Mail\DelayedTransportInterface;
 use TYPO3\CMS\Core\Mail\FileSpool;
 use TYPO3\CMS\Core\Mail\MailerInterface;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
  * Command for sending spooled messages.
@@ -34,18 +34,23 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * @link https://github.com/symfony/swiftmailer-bundle/blob/master/Command/SendEmailCommand.php
  */
+#[AsCommand('mailer:spool:send', 'Sends emails from the spool.', ['swiftmailer:spool:send'])]
 class SendEmailCommand extends Command
 {
+    public function __construct(protected readonly MailerInterface $mailer)
+    {
+        parent::__construct('mailer:spool:send');
+    }
+
     /**
      * Defines the allowed options for this command
      */
-    protected function configure()
+    protected function configure(): void
     {
         $this
             ->addOption('message-limit', null, InputOption::VALUE_REQUIRED, 'The maximum number of messages to send.')
             ->addOption('time-limit', null, InputOption::VALUE_REQUIRED, 'The time limit for sending messages (in seconds).')
-            ->addOption('recover-timeout', null, InputOption::VALUE_REQUIRED, 'The timeout for recovering messages that have taken too long to send (in seconds).')
-            ->setAliases(['swiftmailer:spool:send']);
+            ->addOption('recover-timeout', null, InputOption::VALUE_REQUIRED, 'The timeout for recovering messages that have taken too long to send (in seconds).');
     }
 
     /**
@@ -55,9 +60,7 @@ class SendEmailCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        $mailer = $this->getMailer();
-
-        $transport = $mailer->getTransport();
+        $transport = $this->mailer->getTransport();
         if ($transport instanceof DelayedTransportInterface) {
             if ($transport instanceof FileSpool) {
                 $transport->setMessageLimit((int)$input->getOption('message-limit'));
@@ -69,21 +72,12 @@ class SendEmailCommand extends Command
                     $transport->recover();
                 }
             }
-            $sent = $transport->flushQueue($mailer->getRealTransport());
+            $sent = $transport->flushQueue($this->mailer->getRealTransport());
             $io->comment($sent . ' emails sent');
             return Command::SUCCESS;
         }
         $io->error('The Mailer Transport is not set to "spool".');
 
         return Command::FAILURE;
-    }
-
-    /**
-     * Returns the TYPO3 mailer.
-     */
-    protected function getMailer(): MailerInterface
-    {
-        // TODO: DI should be used to inject the MailerInterface
-        return GeneralUtility::makeInstance(MailerInterface::class);
     }
 }

@@ -12,6 +12,8 @@
  */
 
 import RegularEvent from '@typo3/core/event/regular-event';
+import '@typo3/backend/element/combobox-element';
+import '@typo3/backend/element/link-browser-download-element';
 
 export interface LinkAttributes {
   [s: string]: any;
@@ -56,9 +58,6 @@ class LinkBrowser {
       event.preventDefault();
       this.finalizeFunction(document.body.dataset.linkbrowserCurrentLink);
     }).delegateTo(document, 'button.t3js-linkCurrent');
-
-    new RegularEvent('change', this.loadTarget)
-      .delegateTo(document, '.t3js-targetPreselect');
   }
 
   public getLinkAttributeValues(): LinkAttributes {
@@ -71,14 +70,6 @@ class LinkBrowser {
     }
 
     return linkAttributeValues;
-  }
-
-  public loadTarget(this: HTMLSelectElement): void {
-    const linkTarget: HTMLInputElement = document.querySelector('.t3js-linkTarget');
-    if (linkTarget !== null) {
-      linkTarget.value = this.value;
-      this.selectedIndex = 0;
-    }
   }
 
   public finalizeFunction(link: string): void {

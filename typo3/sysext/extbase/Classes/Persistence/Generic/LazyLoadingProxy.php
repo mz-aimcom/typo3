@@ -25,6 +25,8 @@ use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\DataMapper;
  * A proxy that can replace any object and replaces itself in it's parent on
  * first access (call, get, set, isset, unset).
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
+ * @deprecated since TYPO3 v15.0, will be removed in TYPO3 v16.0. Lazy 1:1 and n:1 relations are
+ *             created as native PHP lazy proxy instances of the target entity class by the DataMapper instead.
  */
 class LazyLoadingProxy implements \Iterator, LoadingStrategyInterface
 {
@@ -60,6 +62,11 @@ class LazyLoadingProxy implements \Iterator, LoadingStrategyInterface
      */
     public function __construct($parentObject, $propertyName, $fieldValue, ?DataMapper $dataMapper = null)
     {
+        trigger_error(
+            'Class ' . self::class . ' is deprecated since TYPO3 v15.0 and will be removed in TYPO3 v16.0.'
+            . ' Lazy 1:1 and n:1 relations are created as native PHP lazy proxy instances of the target entity class instead.',
+            E_USER_DEPRECATED
+        );
         $this->parentObject = $parentObject;
         $this->propertyName = $propertyName;
         $this->fieldValue = $fieldValue;
@@ -79,10 +86,7 @@ class LazyLoadingProxy implements \Iterator, LoadingStrategyInterface
         // this check safeguards against a proxy being activated multiple times
         // usually that does not happen, but if the proxy is held from outside
         // its parent ... the result would be weird.
-        if ($this->parentObject instanceof DomainObjectInterface
-            && $this->parentObject->_getProperty($this->propertyName) instanceof LazyLoadingProxy
-            && $this->dataMapper
-        ) {
+        if ($this->parentObject->_getProperty($this->propertyName) instanceof LazyLoadingProxy && $this->dataMapper) {
             $objects = $this->dataMapper->fetchRelated($this->parentObject, $this->propertyName, $this->fieldValue, false);
             $propertyValue = $this->dataMapper->mapResultToPropertyValue($this->parentObject, $this->propertyName, $objects);
             $this->parentObject->_setProperty($this->propertyName, $propertyValue);
@@ -161,6 +165,10 @@ class LazyLoadingProxy implements \Iterator, LoadingStrategyInterface
     public function __isset($propertyName)
     {
         $realInstance = $this->_loadRealInstance();
+
+        if ($realInstance instanceof DomainObjectInterface) {
+            return $realInstance->_getProperty($propertyName) !== null;
+        }
         return isset($realInstance->{$propertyName});
     }
 

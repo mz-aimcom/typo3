@@ -1,0 +1,51 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:sg="http://typo3.org/ns/TYPO3/CMS/Styleguide/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+
+    <f:render
+        partial="Backend/Navigation"
+        arguments="{
+            currentAction: currentAction,
+            actions: actions,
+            route: routeIdentifier
+        }"
+    />
+
+    <div class="styleguide-content">
+        <h1><f:translate key="component.flashMessage.headline" domain="styleguide.messages" /></h1>
+        <p>
+            <f:sanitize.html><f:translate key="component.flashMessage.introtext" domain="styleguide.messages" /></f:sanitize.html>
+        </p>
+
+        <h2><f:translate key="component.flashMessage.section.default.headline" domain="styleguide.messages" /></h2>
+
+        <f:variable name="codeSnippetDefault">&lt;f:flashMessages queueIdentifier="styleguide.default" /&gt;</f:variable>
+        <sg:example codePreview="true" codeLanguage="html" customCode="{codeSnippetDefault}" decodeEntities="true">
+            <f:flashMessages queueIdentifier="styleguide.default" />
+        </sg:example>
+
+        <h2><f:translate key="component.flashMessage.section.color.headline" domain="styleguide.messages" /></h2>
+        <p>
+            <f:sanitize.html><f:translate key="component.flashMessage.section.color.text" domain="styleguide.messages" /></f:sanitize.html>
+        </p>
+        <sg:example>
+            <f:flashMessages queueIdentifier="styleguide.color" />
+        </sg:example>
+
+        <h2><f:translate key="section.frontend.headline" domain="styleguide.messages" /></h2>
+
+        <h3><f:translate key="section.colorScheme.headline" domain="styleguide.messages" /></h3>
+        <sg:colorScheme>
+            <f:flashMessages queueIdentifier="styleguide.colorscheme" />
+        </sg:colorScheme>
+    </div>
+
+</f:section>
+
+</html>

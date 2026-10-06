@@ -25,6 +25,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use TYPO3\CMS\Core\Core\Bootstrap;
+use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Impexp\Export;
 
@@ -69,12 +71,12 @@ class ExportCommand extends Command
                 null,
                 InputOption::VALUE_OPTIONAL,
                 sprintf(
-                    'The depth of the exported page tree. ' .
-                    '"%d": "Records on this page", ' .
-                    '"0": "This page", ' .
-                    '"1": "1 level down", ' .
-                    '.. ' .
-                    '"%d": "Infinite levels".',
+                    'The depth of the exported page tree. '
+                    . '"%d": "Records on this page", '
+                    . '"0": "This page", '
+                    . '"1": "1 level down", '
+                    . '.. '
+                    . '"%d": "Infinite levels".',
                     Export::LEVELS_RECORDS_ON_THIS_PAGE,
                     Export::LEVELS_INFINITE
                 ),
@@ -84,7 +86,12 @@ class ExportCommand extends Command
                 'table',
                 null,
                 InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY,
-                'Include all records of this table. Examples: "_ALL", "tt_content", "sys_file_reference", etc.'
+                'Include all records of this table. Examples: "_ALL", "tt_content", "sys_file_reference", etc.',
+                [],
+                function (): array {
+                    $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+                    return array_merge(['_ALL'], $schema->all()->getNames());
+                },
             )
             ->addOption(
                 'record',
@@ -102,13 +109,23 @@ class ExportCommand extends Command
                 'include-related',
                 null,
                 InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY,
-                'Include record relations to this table, including the related record. Examples: "_ALL", "sys_category", etc.'
+                'Include record relations to this table, including the related record. Examples: "_ALL", "sys_category", etc.',
+                [],
+                function (): array {
+                    $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+                    return array_merge(['_ALL'], $schema->all()->getNames());
+                },
             )
             ->addOption(
                 'include-static',
                 null,
                 InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY,
-                'Include record relations to this table, excluding the related record. Examples: "_ALL", "be_users", etc.'
+                'Include record relations to this table, excluding the related record. Examples: "_ALL", "be_users", etc.',
+                [],
+                function (): array {
+                    $schema = GeneralUtility::makeInstance(TcaSchemaFactory::class);
+                    return array_merge(['_ALL'], $schema->all()->getNames());
+                },
             )
             ->addOption(
                 'exclude',
@@ -152,6 +169,12 @@ class ExportCommand extends Command
                 InputOption::VALUE_NONE,
                 'Save files into separate folder instead of including them into the common export file. Folder name pattern is "{filename}.files".'
             )
+            ->addOption(
+                'include-site-configurations',
+                null,
+                InputOption::VALUE_NONE,
+                'Include site configurations for exported root pages.'
+            )
         ;
     }
 
@@ -175,13 +198,14 @@ class ExportCommand extends Command
             $this->export->setList($input->getOption('list'));
             $this->export->setRelOnlyTables($input->getOption('include-related'));
             $this->export->setRelStaticTables($input->getOption('include-static'));
-            $this->export->setExcludeMap($input->getOption('exclude'));
+            $this->export->setExcludeMap(array_fill_keys($input->getOption('exclude'), 1));
             $this->export->setExcludeDisabledRecords($input->getOption('exclude-disabled-records'));
             $this->export->setTitle((string)$input->getOption('title'));
             $this->export->setDescription((string)$input->getOption('description'));
             $this->export->setNotes((string)$input->getOption('notes'));
             $this->export->setExtensionDependencies($input->getOption('dependency'));
             $this->export->setSaveFilesOutsideExportFile($input->getOption('save-files-outside-export-file'));
+            $this->export->setIncludeSiteConfigurations($input->getOption('include-site-configurations'));
             $this->export->process();
             $saveFile = $this->export->saveToFile();
             $io->success('Exporting to ' . $saveFile->getPublicUrl() . ' succeeded.');

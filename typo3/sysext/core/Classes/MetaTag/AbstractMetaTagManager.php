@@ -17,7 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\MetaTag;
 
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Type\DocType;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 abstract class AbstractMetaTagManager implements MetaTagManagerInterface
@@ -105,7 +105,7 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
      *
      * @throws \UnexpectedValueException
      */
-    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = '')
+    public function addProperty(string $property, string $content, array $subProperties = [], bool $replace = false, string $type = ''): void
     {
         $property = strtolower($property);
 
@@ -125,8 +125,8 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
                     return;
                 }
 
-                if (isset($this->handledProperties[$property]['allowMultipleOccurrences']) &&
-                    (bool)$this->handledProperties[$property]['allowMultipleOccurrences']
+                if (isset($this->handledProperties[$property]['allowMultipleOccurrences'])
+                    && (bool)$this->handledProperties[$property]['allowMultipleOccurrences']
                 ) {
                     $this->properties[$property][] = ['content' => $content, 'subProperties' => $subPropertiesArray];
                 }
@@ -140,8 +140,8 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
                 foreach ((array)($handledPropertyConfig['allowedSubProperties'] ?? []) as $allowedSubProperty => $allowedSubPropertyConfig) {
                     $propertyKey = is_array($allowedSubPropertyConfig) ? $allowedSubProperty : $allowedSubPropertyConfig;
 
-                    if ($property !== $handledProperty . $this->subPropertySeparator . $propertyKey ||
-                        !isset($this->properties[$handledProperty])
+                    if ($property !== $handledProperty . $this->subPropertySeparator . $propertyKey
+                        || !isset($this->properties[$handledProperty])
                     ) {
                         continue;
                     }
@@ -158,9 +158,9 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
                             return;
                         }
 
-                        if (is_array($allowedSubPropertyConfig) &&
-                            isset($allowedSubPropertyConfig['allowMultipleOccurrences']) &&
-                            (bool)$allowedSubPropertyConfig['allowMultipleOccurrences']
+                        if (is_array($allowedSubPropertyConfig)
+                            && isset($allowedSubPropertyConfig['allowMultipleOccurrences'])
+                            && (bool)$allowedSubPropertyConfig['allowMultipleOccurrences']
                         ) {
                             $this->properties[$handledProperty][$lastIndex]['subProperties'][$propertyKey][] = $content;
                         }
@@ -207,10 +207,10 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
      *
      * @param string $property Name of the property
      */
-    public function renderProperty(string $property): string
+    public function renderProperty(string $property, ?DocType $docType = null): string
     {
         $property = strtolower($property);
-        $endingSlash = GeneralUtility::makeInstance(PageRenderer::class)->getDocType()->isXmlCompliant() ? ' /' : '';
+        $endingSlash = $docType?->isXmlCompliant() ? ' /' : '';
         $metaTags = [];
 
         $nameAttribute = $this->defaultNameAttribute;
@@ -227,18 +227,20 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
 
         if ($nameAttribute && $contentAttribute) {
             foreach ($this->getProperty($property) as $propertyItem) {
-                $metaTags[] = '<meta ' .
-                    htmlspecialchars($nameAttribute) . '="' . htmlspecialchars($property) . '" ' .
-                    htmlspecialchars($contentAttribute) . '="' . htmlspecialchars($propertyItem['content']) . '"' . $endingSlash . '>';
+                $metaTags[] = '<meta ' . GeneralUtility::implodeAttributes([
+                    htmlspecialchars($nameAttribute) => $property,
+                    htmlspecialchars($contentAttribute) => $propertyItem['content'],
+                ], false, true, true) . $endingSlash . '>';
 
                 if (!count($propertyItem['subProperties'])) {
                     continue;
                 }
                 foreach ($propertyItem['subProperties'] as $subProperty => $subPropertyItems) {
                     foreach ($subPropertyItems as $subPropertyItem) {
-                        $metaTags[] = '<meta ' .
-                            htmlspecialchars($nameAttribute) . '="' . htmlspecialchars($property . $this->subPropertySeparator . $subProperty) . '" ' .
-                            htmlspecialchars($contentAttribute) . '="' . htmlspecialchars((string)$subPropertyItem) . '"' . $endingSlash . '>';
+                        $metaTags[] = '<meta ' . GeneralUtility::implodeAttributes([
+                            htmlspecialchars($nameAttribute) => $property . $this->subPropertySeparator . $subProperty,
+                            htmlspecialchars($contentAttribute) => (string)$subPropertyItem,
+                        ], false, true, true) . $endingSlash . '>';
                     }
                 }
             }
@@ -250,13 +252,12 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
     /**
      * Render all registered properties of this manager
      */
-    public function renderAllProperties(): string
+    public function renderAllProperties(?DocType $docType = null): string
     {
         $metatags = [];
         foreach (array_keys($this->properties) as $property) {
-            $metatags[] = $this->renderProperty($property);
+            $metatags[] = $this->renderProperty($property, $docType);
         }
-
         return implode(PHP_EOL, $metatags);
     }
 
@@ -264,7 +265,7 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
      * Remove one property from the MetaTagManager
      * If there are multiple occurrences of a property, they all will be removed
      */
-    public function removeProperty(string $property, string $type = '')
+    public function removeProperty(string $property, string $type = ''): void
     {
         $property = strtolower($property);
 
@@ -274,7 +275,7 @@ abstract class AbstractMetaTagManager implements MetaTagManagerInterface
     /**
      * Unset all properties of this MetaTagManager
      */
-    public function removeAllProperties()
+    public function removeAllProperties(): void
     {
         $this->properties = [];
     }

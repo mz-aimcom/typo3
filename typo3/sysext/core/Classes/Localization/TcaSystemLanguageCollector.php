@@ -21,17 +21,17 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Site\Entity\NullSite;
 use TYPO3\CMS\Core\Site\SiteFinder;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Provides ItemProcFunc fields for special population of available TYPO3 system languages
+ * Provides ItemsProcFunc fields for special population of available TYPO3 system languages
  * @internal
  */
 #[Autoconfigure(public: true)]
-final class TcaSystemLanguageCollector
+final readonly class TcaSystemLanguageCollector
 {
     public function __construct(
-        private readonly Locales $locales
+        private Locales $locales,
+        private SiteFinder $siteFinder,
     ) {}
 
     /**
@@ -90,7 +90,7 @@ final class TcaSystemLanguageCollector
 
         // Fallback if no site configuration exists
         $recordPid = (int)($fieldInformation['row']['pid'] ?? 0);
-        $languages = (new NullSite())->getAvailableLanguages($this->getBackendUser(), false, $recordPid);
+        $languages = new NullSite()->getAvailableLanguages($this->getBackendUser(), false, $recordPid);
 
         foreach ($languages as $languageId => $language) {
             $fieldInformation['items'][] = [
@@ -101,12 +101,12 @@ final class TcaSystemLanguageCollector
         }
     }
 
-    protected function getAllSites(): array
+    private function getAllSites(): array
     {
-        return GeneralUtility::makeInstance(SiteFinder::class)->getAllSites();
+        return $this->siteFinder->getAllSites();
     }
 
-    protected function getBackendUser(): BackendUserAuthentication
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }

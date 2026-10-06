@@ -1,0 +1,383 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    xmlns:core="http://typo3.org/ns/TYPO3/CMS/Core/ViewHelpers"
+    xmlns:sg="http://typo3.org/ns/TYPO3/CMS/Styleguide/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+
+<f:layout name="Module" />
+
+<f:section name="Content">
+
+    <f:render
+        partial="Backend/Navigation"
+        arguments="{
+            currentAction: currentAction,
+            actions: actions,
+            route: routeIdentifier
+        }"
+    />
+
+    <div class="styleguide-content">
+        <h1><f:translate key="component.form.headline" domain="styleguide.messages" /></h1>
+        <p>
+            <f:sanitize.html><f:translate key="component.form.introtext" domain="styleguide.messages" /></f:sanitize.html>
+        </p>
+
+        <h2><f:translate key="component.form.section.loginFormExample.headline" domain="styleguide.messages" /></h2>
+        <sg:example codePreview="true" codeLanguage="html">
+            <form method="post" action="" autocomplete="off">
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'exampleInputEmail1',
+                        fieldLabel: 'Email address',
+                        type: 'email',
+                        formText: 'We will never share your email with anyone else.'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'exampleInputPassword1',
+                        fieldLabel: 'Password',
+                        type: 'password'
+                    }"
+                />
+                <button type="submit" class="btn btn-default">Submit</button>
+            </form>
+        </sg:example>
+
+        <h2><f:translate key="component.form.section.allFields.headline" domain="styleguide.messages" /></h2>
+        <sg:example>
+            <form method="post" action="" autocomplete="off">
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlDefault',
+                        fieldLabel: 'Default input',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlDefaultWithText',
+                        fieldLabel: 'Default input with text',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlDefaultWithDescriptionAndText',
+                        fieldLabel: 'Default input with text and description',
+                        formDescription: 'Example for a field description ...',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlDefault',
+                        fieldLabel: 'Select example',
+                        ariaLabel: 'Small select example',
+                        firstOptionWithoutValue: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlMultiple',
+                        fieldLabel: 'Multiple select example',
+                        ariaLabel: 'Multiple select example',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlOptgroup',
+                        fieldLabel: 'Optgroup select example',
+                        hasOptGroup: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlOptgroupMultiple',
+                        fieldLabel: 'Optgroup multiple select example',
+                        hasOptGroup: '1',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlFile',
+                        fieldLabel: 'Default file input example',
+                        type: 'file'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Textarea"
+                    arguments="{
+                        identifier: 'textareaFormControlDefault',
+                        fieldLabel: 'Default textarea'
+                    }"
+                />
+                <button type="submit" class="btn btn-default">Submit</button>
+            </form>
+        </sg:example>
+
+        <h2><f:translate key="component.form.section.formFieldsInRows.headline" domain="styleguide.messages" /></h2>
+        <f:variable name="codeSnippetFieldRows">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="demo-normal-input-###UNIQUEID###" class="form-label">Name</label>
+                    <input class="form-control" type="text" id="demo-normal-input-###UNIQUEID###" name="demo-input" value="">
+                </div>
+                <div class="form-group">
+                    <label for="demo-normal-search-###UNIQUEID###" class="form-label">Search</label>
+                    <input class="form-control" type="search" id="demo-normal-search-###UNIQUEID###" name="demo-search" value="value">
+                </div>
+                <div class="form-group">
+                    <label for="demo-normal-select-###UNIQUEID###" class="form-label">Action</label>
+                    <select class="form-select" id="demo-normal-select-###UNIQUEID###" name="">
+                        <option selected="">Open this select menu</option>
+                        <option value="1">One</option>
+                        <option value="2">Two</option>
+                        <option value="3">Three</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-default" type="submit" name="operation" value="filter">Filter</button>
+                    <button class="btn btn-link" type="submit" name="operation" value="reset-filters">Reset</button>
+                </div>
+            </div>
+        </f:variable>
+        <sg:example codePreview="true" codeLanguage="html" customCode="{codeSnippetFieldRows}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="demo-normal-input-###UNIQUEID###" class="form-label">Name</label>
+                    <input class="form-control" type="text" id="demo-normal-input-###UNIQUEID###" name="demo-input" value="">
+                </div>
+                <div class="form-group">
+                    <label for="demo-normal-search-###UNIQUEID###" class="form-label">Search</label>
+                    <input class="form-control" type="search" id="demo-normal-search-###UNIQUEID###" name="demo-search" value="Value">
+                </div>
+                <div class="form-group">
+                    <label for="demo-normal-select-###UNIQUEID###" class="form-label">Action</label>
+                    <select class="form-select" id="demo-normal-select-###UNIQUEID###" name="">
+                        <option selected="">Open this select menu</option>
+                        <option value="1">One</option>
+                        <option value="2">Two</option>
+                        <option value="3">Three</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-default" type="submit" name="operation" value="filter">Filter</button>
+                    <button class="btn btn-link" type="submit" name="operation" value="reset-filters">Reset</button>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="demo-small-input-###UNIQUEID###" class="form-label">Name</label>
+                    <input class="form-control form-control-sm" type="text" id="demo-small-input-###UNIQUEID###" name="demo-input" value="">
+                </div>
+                <div class="form-group">
+                    <label for="demo-small-search-###UNIQUEID###" class="form-label">Search</label>
+                    <input class="form-control form-control-sm" type="search" id="demo-small-search-###UNIQUEID###" name="demo-search" value="Value">
+                </div>
+                <div class="form-group">
+                    <label for="demo-small-select-###UNIQUEID###" class="form-label">Action</label>
+                    <select class="form-select form-select-sm" id="demo-small-select-###UNIQUEID###" name="">
+                        <option selected="">Open this select menu</option>
+                        <option value="1">One</option>
+                        <option value="2">Two</option>
+                        <option value="3">Three</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-sm btn-default" type="submit" name="operation" value="filter">Filter</button>
+                    <button class="btn btn-sm btn-link" type="submit" name="operation" value="reset-filters">Reset</button>
+                </div>
+            </div>
+        </sg:example>
+
+        <h2><f:translate key="section.frontend.headline" domain="styleguide.messages" /></h2>
+
+        <h3><f:translate key="component.form.section.allFieldsRtlDirection.headline" domain="styleguide.messages" /></h3>
+        <sg:example rtlDirection="true">
+            <form method="post" action="" autocomplete="off">
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlRtlDefault',
+                        fieldLabel: 'Default input',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlRtlDefaultWithText',
+                        fieldLabel: 'Default input with text',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlRtlDefaultWithDescriptionAndText',
+                        fieldLabel: 'Default input with text and description',
+                        formDescription: 'Example for a field description ...',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlRtlDefault',
+                        fieldLabel: 'Select example',
+                        ariaLabel: 'Small select example',
+                        firstOptionWithoutValue: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlRtlMultiple',
+                        fieldLabel: 'Multiple select example',
+                        ariaLabel: 'Multiple select example',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlRtlOptgroup',
+                        fieldLabel: 'Optgroup select example',
+                        hasOptGroup: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlRtlOptgroupMultiple',
+                        fieldLabel: 'Optgroup multiple select example',
+                        hasOptGroup: '1',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlRtlFile',
+                        fieldLabel: 'Default file input example',
+                        type: 'file'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Textarea"
+                    arguments="{
+                        identifier: 'textareaFormControlRtlDefault',
+                        fieldLabel: 'Default textarea'
+                    }"
+                />
+                <button type="submit" class="btn btn-default">Submit</button>
+            </form>
+        </sg:example>
+
+        <h3><f:translate key="section.colorScheme.headline" domain="styleguide.messages" /></h3>
+        <sg:colorScheme>
+            <form method="post" action="" autocomplete="off">
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlColorDefault',
+                        fieldLabel: 'Default input',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlColorDefaultWithText',
+                        fieldLabel: 'Default input with text',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlColorDefaultWithDescriptionAndText',
+                        fieldLabel: 'Default input with text and description',
+                        formDescription: 'Example for a field description ...',
+                        formText: 'Example help text ...',
+                        type: 'text'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlColorDefault',
+                        fieldLabel: 'Select example',
+                        ariaLabel: 'Small select example',
+                        firstOptionWithoutValue: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlColorMultiple',
+                        fieldLabel: 'Multiple select example',
+                        ariaLabel: 'Multiple select example',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlColorOptgroup',
+                        fieldLabel: 'Optgroup select example',
+                        hasOptGroup: '1'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Select"
+                    arguments="{
+                        identifier: 'selectFormControlColorOptgroupMultiple',
+                        fieldLabel: 'Optgroup multiple select example',
+                        hasOptGroup: '1',
+                        multiple: 1
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Input"
+                    arguments="{
+                        identifier: 'inputFormControlColorFile',
+                        fieldLabel: 'Default file input example',
+                        type: 'file'
+                    }"
+                />
+                <f:render
+                    partial="Backend/Form/Textarea"
+                    arguments="{
+                        identifier: 'textareaFormControlColorDefault',
+                        fieldLabel: 'Default textarea'
+                    }"
+                />
+                <button type="submit" class="btn btn-default">Submit</button>
+            </form>
+        </sg:colorScheme>
+    </div>
+
+</f:section>
+
+</html>

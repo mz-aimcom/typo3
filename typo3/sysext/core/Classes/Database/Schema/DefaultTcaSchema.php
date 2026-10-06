@@ -67,13 +67,12 @@ use TYPO3\CMS\Core\Utility\MathUtility;
  *
  * @internal
  */
-class DefaultTcaSchema
+readonly class DefaultTcaSchema
 {
     public function __construct(
-        private ?TcaSchemaFactory $tcaSchemaFactory = null,
-    ) {
-        $this->tcaSchemaFactory = $tcaSchemaFactory ?? GeneralUtility::makeInstance(TcaSchemaFactory::class);
-    }
+        private ConnectionPool $connectionPool,
+        private TcaSchemaFactory $tcaSchemaFactory,
+    ) {}
 
     /**
      * Add fields to $tables array that has been created from ext_tables.sql files.
@@ -303,7 +302,6 @@ class DefaultTcaSchema
             }
 
             // sys_language_uid column
-            $languageColumnAdded = false;
             if ($schema->isLanguageAware()
                 && !$this->isColumnDefinedForTable($tables, $tableName, $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName())
             ) {
@@ -316,11 +314,9 @@ class DefaultTcaSchema
                         'unsigned' => false,
                     ]
                 );
-                $languageColumnAdded = true;
             }
 
             // l10n_parent column
-            $translationOriginPointerColumnAdded = false;
             if ($schema->isLanguageAware()
                 && !$this->isColumnDefinedForTable($tables, $tableName, $schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName())
             ) {
@@ -333,19 +329,6 @@ class DefaultTcaSchema
                         'unsigned' => true,
                     ]
                 );
-                $translationOriginPointerColumnAdded = true;
-            }
-
-            // Add index for sys_language_uid and l10n_parent
-            if ($languageColumnAdded
-                && $translationOriginPointerColumnAdded
-                && !$this->isIndexDefinedForTable($tables, $tableName, 'language_identifier')
-                && $schema->isLanguageAware()
-            ) {
-                $tables[$tableName]->addIndex([
-                    (string)$schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName(),
-                    (string)$schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName(),
-                ], 'language_identifier');
             }
 
             // l10n_source column
@@ -362,7 +345,34 @@ class DefaultTcaSchema
                         'unsigned' => true,
                     ]
                 );
-                $tables[$tableName]->addIndex([$schema->getCapability(TcaSchemaCapability::Language)->getTranslationSourceField()->getName()], 'translation_source');
+            }
+
+            // Indexes for the language related columns. They depend on the language capability only,
+            // not on whether the columns above have been added here: a table declaring for instance
+            // its own "sys_language_uid" column in ext_tables.sql must not silently lose the index.
+            if ($schema->isLanguageAware()) {
+                $languageCapability = $schema->getCapability(TcaSchemaCapability::Language);
+                if (!$this->isIndexDefinedForTable($tables, $tableName, 'language_identifier')) {
+                    $tables[$tableName]->addIndex([
+                        $languageCapability->getTranslationOriginPointerField()->getName(),
+                        $languageCapability->getLanguageField()->getName(),
+                    ], 'language_identifier');
+                }
+                // Translation lookups match "translationSource = uid" OR "translationSource = 0 AND
+                // transOrigPointer = uid", since the translation source is not maintained by all
+                // writes. Both branches must resolve on this single index: with an index on the
+                // translation source alone, MySQL reduces the condition to a range over
+                // "translationSource IN (0, uid)" - which covers every untranslated record - or
+                // discards the index and scans the table.
+                if ($languageCapability->hasTranslationSourceField()
+                    && !$this->isIndexDefinedForTable($tables, $tableName, 'translation_source')
+                ) {
+                    $tables[$tableName]->addIndex([
+                        $languageCapability->getTranslationSourceField()->getName(),
+                        $languageCapability->getTranslationOriginPointerField()->getName(),
+                        $languageCapability->getLanguageField()->getName(),
+                    ], 'translation_source');
+                }
             }
 
             // l10n_state column, this is not defined in TCA, but always added if the table is language-aware
@@ -495,7 +505,7 @@ class DefaultTcaSchema
             if ($schema->getFields()->count() === 0) {
                 continue;
             }
-            $tableConnectionPlatform = GeneralUtility::makeInstance(ConnectionPool::class)->getConnectionForTable($tableName)->getDatabasePlatform();
+            $tableConnectionPlatform = $this->connectionPool->getConnectionForTable($tableName)->getDatabasePlatform();
 
             foreach ($schema->getFields() as $fieldName => $fieldType) {
                 if ($this->isColumnDefinedForTable($tables, $tableName, $fieldName)) {
@@ -589,10 +599,8 @@ class DefaultTcaSchema
                     case $fieldType instanceof UuidFieldType:
                         $tables[$tableName]->addColumn(
                             $this->quote($fieldName),
-                            Types::STRING,
+                            Types::GUID,
                             [
-                                'length' => 36,
-                                'default' => '',
                                 'notnull' => true,
                             ]
                         );
@@ -707,7 +715,8 @@ class DefaultTcaSchema
                         break;
 
                     case $fieldType instanceof RadioFieldType:
-                        $hasItemsProcFunc = ($fieldTypeConfiguration['itemsProcFunc'] ?? '') !== '';
+                        $hasItemsProcFunc = ($fieldTypeConfiguration['itemsProcFunc'] ?? '') !== ''
+                            || ($fieldTypeConfiguration['itemsProcessors'] ?? []) !== [];
                         $items = $fieldTypeConfiguration['items'] ?? [];
                         // With itemsProcFunc we can't be sure, which values are persisted. Use type string.
                         if ($hasItemsProcFunc) {
@@ -879,8 +888,9 @@ class DefaultTcaSchema
                         break;
 
                     case $fieldType instanceof NumberFieldType:
-                        $type = $fieldType->getFormat() === 'decimal' ? Types::DECIMAL : Types::INTEGER;
+                        $type = $fieldType->getScale() > 0 ? Types::DECIMAL : Types::INTEGER;
                         $lowerRange = $fieldTypeConfiguration['range']['lower'] ?? -1;
+                        $scale = $fieldType->getScale();
                         // Integer type for all database platforms.
                         if ($type === Types::INTEGER) {
                             $tables[$tableName]->addColumn(
@@ -906,23 +916,25 @@ class DefaultTcaSchema
                                 $this->quote($fieldName),
                                 Types::STRING,
                                 [
-                                    'default' => $fieldType->isNullable() === true ? null : '0.00',
+                                    'default' => $fieldType->isNullable() === true ? null : number_format(0, $scale, '.', ''),
                                     'notnull' => !$fieldType->isNullable(),
                                     'length' => 255,
                                 ]
                             );
                             break;
                         }
-                        // Decimal for all supported platforms except SQLite
+                        // Decimal for all supported platforms except SQLite. The number of digits in
+                        // front of the decimal point is always eight, the configured scale is added
+                        // on top: The default scale of two results in decimal(10,2).
                         $tables[$tableName]->addColumn(
                             $this->quote($fieldName),
                             Types::DECIMAL,
                             [
-                                'default' => $fieldType->isNullable() === true ? null : 0.00,
+                                'default' => $fieldType->isNullable() === true ? null : 0.0,
                                 'notnull' => !$fieldType->isNullable(),
                                 'unsigned' => $lowerRange >= 0,
-                                'precision' => 10,
-                                'scale' => 2,
+                                'precision' => 8 + $scale,
+                                'scale' => $scale,
                             ]
                         );
                         break;
@@ -943,10 +955,19 @@ class DefaultTcaSchema
                         }
                         $dbFieldLength = (int)($fieldTypeConfiguration['dbFieldLength'] ?? 0);
                         // If itemsProcFunc is not set, check the item values
-                        if (($fieldTypeConfiguration['itemsProcFunc'] ?? '') === '') {
+                        if (
+                            ($fieldTypeConfiguration['itemsProcFunc'] ?? '') === ''
+                            || ($fieldTypeConfiguration['itemsProcessors'] ?? []) !== []
+                        ) {
                             $items = $fieldTypeConfiguration['items'] ?? [];
                             $itemsContainsOnlyIntegers = true;
+                            $itemsContainNull = false;
                             foreach ($items as $item) {
+                                // Null values are valid for integer columns (stored as database NULL)
+                                if ($item['value'] === null) {
+                                    $itemsContainNull = true;
+                                    continue;
+                                }
                                 if (!MathUtility::canBeInterpretedAsInteger($item['value'])) {
                                     $itemsContainsOnlyIntegers = false;
                                     break;
@@ -954,6 +975,10 @@ class DefaultTcaSchema
                             }
                             $itemsAreAllPositive = true;
                             foreach ($items as $item) {
+                                // Skip null values for positive check (null is neither positive nor negative)
+                                if ($item['value'] === null) {
+                                    continue;
+                                }
                                 if ($item['value'] < 0) {
                                     $itemsAreAllPositive = false;
                                     break;
@@ -972,24 +997,28 @@ class DefaultTcaSchema
                                 ) {
                                     // If the item list is empty, or if it contains only int values, an int field is enough.
                                     // Also, the config must not be a 'fileFolderConfig' field which takes string values.
+                                    // When items contain a null value, allow NULL in the database column.
+                                    $defaultValue = $fieldType->getDefaultValue();
                                     $tables[$tableName]->addColumn(
                                         $this->quote($fieldName),
                                         Types::INTEGER,
                                         [
-                                            'notnull' => true,
-                                            'default' => 0,
+                                            'notnull' => !$itemsContainNull,
+                                            'default' => $itemsContainNull && $defaultValue === null ? null : (int)($defaultValue ?? 0),
                                             'unsigned' => $itemsAreAllPositive,
                                         ]
                                     );
                                     break;
                                 }
                                 // If int is no option, have a string field.
+                                // When items contain a null value, allow NULL in the database column.
+                                $defaultValue = $fieldType->getDefaultValue();
                                 $tables[$tableName]->addColumn(
                                     $this->quote($fieldName),
                                     Types::STRING,
                                     [
-                                        'notnull' => true,
-                                        'default' => '',
+                                        'notnull' => !$itemsContainNull,
+                                        'default' => $itemsContainNull && $defaultValue === null ? null : (string)($defaultValue ?? ''),
                                         'length' => $dbFieldLength > 0 ? $dbFieldLength : 255,
                                     ]
                                 );
@@ -1010,7 +1039,7 @@ class DefaultTcaSchema
                                         //        nullable, but could have a look at it later again when a value upgrade
                                         //        for such cases is in place that updates existing null fields to empty string.
                                         'notnull' => false,
-                                        'default' => '',
+                                        'default' => (string)($fieldType->getDefaultValue() ?? ''),
                                         'length' => $dbFieldLength > 0 ? $dbFieldLength : 255,
                                     ]
                                 );
@@ -1024,7 +1053,7 @@ class DefaultTcaSchema
                                 Types::STRING,
                                 [
                                     'notnull' => true,
-                                    'default' => '',
+                                    'default' => (string)($fieldType->getDefaultValue() ?? ''),
                                     'length' => $dbFieldLength,
                                 ]
                             );
@@ -1118,7 +1147,11 @@ class DefaultTcaSchema
                         ]
                     );
                 }
-                if (!$this->isIndexDefinedForTable($tables, $mmTableName, 'uid_local')) {
+                // Without "multiple", the primary key set below starts with "uid_local" and already
+                // indexes it, so a dedicated single-column index would be a redundant prefix. With
+                // "multiple" the primary key is the "uid" field instead, so a "uid_local" index is
+                // kept to serve relation lookups by the local side.
+                if ($needsUid && !$this->isIndexDefinedForTable($tables, $mmTableName, 'uid_local')) {
                     $tables[$mmTableName]->addIndex(['uid_local'], 'uid_local');
                 }
 
@@ -1160,44 +1193,46 @@ class DefaultTcaSchema
                     );
                 }
 
-                $hasTablenamesFieldname = false;
-                if ( // Local side of MM with MM_oppositeUsage forces tablenames and fieldname
-                    !empty($fieldConfiguration['MM_oppositeUsage'])
+                // This local table can be the target of multiple foreign tables and table fields. The mm table
+                // thus needs two further fields to specify which foreign/table field combination links is used.
+                // Those are stored in two additional fields called "tablenames" and "fieldname". Both are
+                // forced by the local side of an MM with MM_oppositeUsage, and by an MM group that allows
+                // more than one table.
+                $hasTablenamesFieldname = !empty($fieldConfiguration['MM_oppositeUsage'])
                     || (
-                        // MM group with allowed more than one table forces tablenames and fieldname
                         $field->isType(TableColumnType::GROUP) && !empty($fieldConfiguration['allowed'])
                         && (
                             count(GeneralUtility::trimExplode(',', $fieldConfiguration['allowed'])) > 1
                             || $fieldConfiguration['allowed'] === '*'
                         )
-                    )
-                ) {
-                    $hasTablenamesFieldname = true;
-                    // This local table can be the target of multiple foreign tables and table fields. The mm table
-                    // thus needs two further fields to specify which foreign/table field combination links is used.
-                    // Those are stored in two additional fields called "tablenames" and "fieldname".
-                    if (!$this->isColumnDefinedForTable($tables, $mmTableName, 'tablenames')) {
-                        $tables[$mmTableName]->addColumn(
-                            $this->quote('tablenames'),
-                            Types::STRING,
-                            [
-                                'default' => '',
-                                'length' => 64,
-                                'notnull' => true,
-                            ]
-                        );
-                    }
-                    if (!$this->isColumnDefinedForTable($tables, $mmTableName, 'fieldname')) {
-                        $tables[$mmTableName]->addColumn(
-                            $this->quote('fieldname'),
-                            Types::STRING,
-                            [
-                                'default' => '',
-                                'length' => 64,
-                                'notnull' => true,
-                            ]
-                        );
-                    }
+                    );
+                // An MM group with "prepend_tname" stores the table name of each relation, even when only a
+                // single table is allowed. RelationHandler never writes "fieldname" in that case, so only
+                // "tablenames" is added and the primary key below stays untouched.
+                $hasTablenames = $hasTablenamesFieldname
+                    || ($field->isType(TableColumnType::GROUP) && !empty($fieldConfiguration['prepend_tname']));
+
+                if ($hasTablenames && !$this->isColumnDefinedForTable($tables, $mmTableName, 'tablenames')) {
+                    $tables[$mmTableName]->addColumn(
+                        $this->quote('tablenames'),
+                        Types::STRING,
+                        [
+                            'default' => '',
+                            'length' => 64,
+                            'notnull' => true,
+                        ]
+                    );
+                }
+                if ($hasTablenamesFieldname && !$this->isColumnDefinedForTable($tables, $mmTableName, 'fieldname')) {
+                    $tables[$mmTableName]->addColumn(
+                        $this->quote('fieldname'),
+                        Types::STRING,
+                        [
+                            'default' => '',
+                            'length' => 64,
+                            'notnull' => true,
+                        ]
+                    );
                 }
 
                 // Primary key handling: If there is a uid field, PK has been added above already.

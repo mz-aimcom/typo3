@@ -34,10 +34,7 @@ final class PasswordPolicyValidatorTest extends FunctionalTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $GLOBALS['LANG'] = $this->getMockBuilder(LanguageService::class)
-            ->disableOriginalConstructor()
-            ->onlyMethods(['sL'])
-            ->getMock();
+        $GLOBALS['LANG'] = self::createStub(LanguageService::class);
     }
 
     #[Test]
@@ -126,7 +123,7 @@ final class PasswordPolicyValidatorTest extends FunctionalTestCase
         self::assertCount(5, $passwordPolicyValidator->getValidationErrors());
     }
 
-    protected function setDefaultPasswordPolicy(): void
+    private function setDefaultPasswordPolicy(): void
     {
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['passwordPolicies'] = [
             'default' => [

@@ -18,6 +18,7 @@ namespace TYPO3\CMS\Backend\Form\FormDataProvider;
 use Doctrine\DBAL\Driver\Exception as DBALException;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Configuration\Processor\Placeholder\EnvPlaceholderProcessor;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -25,19 +26,24 @@ use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Database\RelationHandler;
+use TYPO3\CMS\Core\DataHandling\ItemProcessingService;
+use TYPO3\CMS\Core\DataHandling\ItemsProcessorContext;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
+use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Resource\FileRepository;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Schema\Capability\RootLevelCapability;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
-use TYPO3\CMS\Core\Schema\Struct\SelectItem;
+use TYPO3\CMS\Core\Schema\Struct\SelectItemCollection;
 use TYPO3\CMS\Core\Schema\TcaSchema;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\CMS\Core\Site\Entity\SiteInterface;
+use TYPO3\CMS\Core\SystemResource\Exception\InvalidSystemResourceIdentifierException;
+use TYPO3\CMS\Core\SystemResource\Identifier\PackageResourceIdentifier;
+use TYPO3\CMS\Core\SystemResource\Identifier\SystemResourceIdentifierFactory;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
@@ -56,7 +62,8 @@ abstract class AbstractItemProvider
     private FileRepository $fileRepository;
     private FlashMessageService $flashMessageService;
     private ConnectionPool $connectionPool;
-    private TcaSchemaFactory $tcaSchemaFactory;
+    private ItemProcessingService $itemProcessingService;
+    private EnvPlaceholderProcessor $envPlaceholderProcessor;
 
     public function injectIconFactory(IconFactory $iconFactory): void
     {
@@ -66,11 +73,6 @@ abstract class AbstractItemProvider
     public function injectFileRepository(FileRepository $fileRepository): void
     {
         $this->fileRepository = $fileRepository;
-    }
-
-    public function injectTcaSchemaFactory(TcaSchemaFactory $tcaSchemaFactory): void
-    {
-        $this->tcaSchemaFactory = $tcaSchemaFactory;
     }
 
     public function injectFlashMessageService(FlashMessageService $flashMessageService): void
@@ -83,33 +85,39 @@ abstract class AbstractItemProvider
         $this->connectionPool = $connectionPool;
     }
 
+    public function injectItemProcessingService(ItemProcessingService $itemProcessingService): void
+    {
+        $this->itemProcessingService = $itemProcessingService;
+    }
+
+    public function injectEnvPlaceholderProcessor(EnvPlaceholderProcessor $envPlaceholderProcessor): void
+    {
+        $this->envPlaceholderProcessor = $envPlaceholderProcessor;
+    }
+
     /**
-     * Resolve "itemProcFunc" of elements.
+     * Resolve "itemsProcFunc" of elements.
      *
      * @param array $result Main result array
      * @param string $fieldName Field name to handle item list for
      * @param array $items Existing items array
      * @return array New list of item elements
      */
-    protected function resolveItemProcessorFunction(array $result, $fieldName, array $items)
+    protected function resolveItemsProcessorFunction(array $result, $fieldName, array $items)
     {
         $table = $result['tableName'];
         $config = $result['processedTca']['columns'][$fieldName]['config'];
 
-        $pageTsProcessorParameters = null;
+        // Pass along only itemsProcFunc or itemsProcessors TSconfig
+        $pageTsProcessorParameters = [];
         if (!empty($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['itemsProcFunc.'])) {
-            $pageTsProcessorParameters = $result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['itemsProcFunc.'];
+            $pageTsProcessorParameters['itemsProcFunc.'] = $result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['itemsProcFunc.'];
         }
-        $processorParameters = [
-            // Function manipulates $items directly and return nothing
-            'items' => &$items,
-            'config' => $config,
-            'TSconfig' => $pageTsProcessorParameters,
-            'table' => $table,
-            'row' => $result['databaseRow'],
-            'field' => $fieldName,
-            'effectivePid' => $result['effectivePid'],
-            'site' => $result['site'],
+        if (!empty($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['itemsProcessors.'])) {
+            $pageTsProcessorParameters['itemsProcessors.'] = $result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['itemsProcessors.'];
+        }
+
+        $additionalParameters = [
             // IMPORTANT: Below fields are only available in FormEngine context.
             // They are not used by the DataHandler when processing itemsProcFunc
             // for checking if a submitted value is valid. This means, in case
@@ -126,19 +134,24 @@ abstract class AbstractItemProvider
             'inlineTopMostParentTableName' => $result['inlineTopMostParentTableName'],
             'inlineTopMostParentFieldName' => $result['inlineTopMostParentFieldName'],
         ];
+
         if (!empty($result['flexParentDatabaseRow'])) {
-            $processorParameters['flexParentDatabaseRow'] = $result['flexParentDatabaseRow'];
+            $additionalParameters['flexParentDatabaseRow'] = $result['flexParentDatabaseRow'];
         }
         try {
-            $items = array_map(
-                fn(array $item): SelectItem => SelectItem::fromTcaItemArray($item, $config['type']),
-                $items
+            $itemsCollection = SelectItemCollection::createFromArray($items, $config['type']);
+            $context = new ItemsProcessorContext(
+                table: $result['tableName'],
+                field: $fieldName,
+                row: $result['databaseRow'],
+                fieldConfiguration: $config,
+                processorParameters: [],
+                realPid: $result['effectivePid'],
+                site: $result['site'] ?? $this->itemProcessingService->resolveSite($result['effectivePid']),
+                fieldTSconfig: $pageTsProcessorParameters,
+                additionalParameters: $additionalParameters
             );
-            GeneralUtility::callUserFunction($config['itemsProcFunc'], $processorParameters, $this);
-            $items = array_map(
-                fn(SelectItem|array $item): SelectItem => $item instanceof SelectItem ? $item : SelectItem::fromTcaItemArray($item, $config['type']),
-                $processorParameters['items']
-            );
+            $items = $this->itemProcessingService->processItems($itemsCollection, $context)->toArray();
         } catch (\Exception $exception) {
             // The itemsProcFunc method may throw an exception, create a flash message if so
             $languageService = $this->getLanguageService();
@@ -151,8 +164,7 @@ abstract class AbstractItemProvider
                 $fieldLabel,
                 $exception->getMessage()
             );
-            $flashMessage = GeneralUtility::makeInstance(
-                FlashMessage::class,
+            $flashMessage = new FlashMessage(
                 $message,
                 '',
                 ContextualFeedbackSeverity::ERROR,
@@ -249,16 +261,25 @@ abstract class AbstractItemProvider
             }
         }
 
-        $folderRaw = $fileFolderConfig['folder'];
-        $folder = GeneralUtility::getFileAbsFileName($folderRaw);
-        if ($folder === '') {
+        $folderResource = rtrim($fileFolderConfig['folder'], '/') . '/';
+        // @todo this needs to be replaced with usage of the yet to be created
+        //       System Resource API that can handle folders
+        //       This will then remove the need to use internal SystemResourceIdentifierFactory here
+        $packageManager = GeneralUtility::makeInstance(PackageManager::class);
+        $identifierFactory = new SystemResourceIdentifierFactory($packageManager);
+        try {
+            $resourceIdentifier = $identifierFactory->create($folderResource);
+            if (!$resourceIdentifier instanceof PackageResourceIdentifier) {
+                throw new InvalidSystemResourceIdentifierException('Only package identifiers are allowed', 1764503770);
+            }
+            $folder = $resourceIdentifier->getPackage()->getPackagePath() . $resourceIdentifier->getRelativePath();
+        } catch (InvalidSystemResourceIdentifierException $e) {
             throw new \RuntimeException(
-                'Invalid folder given for item processing: ' . $folderRaw . ' for table ' . $tableName . ', field ' . $fieldName,
-                1479399227
+                'Invalid folder given for item processing: ' . $folderResource . ' for table ' . $tableName . ', field ' . $fieldName,
+                1479399227,
+                $e,
             );
         }
-        $folder = rtrim($folder, '/') . '/';
-
         if (@is_dir($folder)) {
             $allowedExtensions = '';
             if (!empty($fileFolderConfig['allowedExtensions']) && is_string($fileFolderConfig['allowedExtensions'])) {
@@ -272,7 +293,7 @@ abstract class AbstractItemProvider
             foreach ($fileArray as $fileReference) {
                 $fileInformation = pathinfo($fileReference);
                 $icon = GeneralUtility::inList($GLOBALS['TYPO3_CONF_VARS']['GFX']['imagefile_ext'], strtolower($fileInformation['extension']))
-                    ? $folder . $fileReference
+                    ? $folderResource . $fileReference
                     : '';
                 $items[] = [
                     'label' => $fileReference,
@@ -307,8 +328,7 @@ abstract class AbstractItemProvider
         $languageService = $this->getLanguageService();
 
         $foreignTable = $result['processedTca']['columns'][$fieldName]['config']['foreign_table'];
-
-        if (!isset($GLOBALS['TCA'][$foreignTable]) || !is_array($GLOBALS['TCA'][$foreignTable])) {
+        if (!$result['tcaSchemata']->has($foreignTable)) {
             throw new \UnexpectedValueException(
                 'Field ' . $fieldName . ' of table ' . $result['tableName'] . ' reference to foreign table '
                 . $foreignTable . ', but this table is not defined in TCA',
@@ -323,7 +343,7 @@ abstract class AbstractItemProvider
             // Early return on error with flash message
             $msg = $e->getMessage() . '. ' . $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.database_schema_mismatch');
             $msgTitle = $languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:error.database_schema_mismatch_title');
-            $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $msg, $msgTitle, ContextualFeedbackSeverity::ERROR, true);
+            $flashMessage = new FlashMessage($msg, $msgTitle, ContextualFeedbackSeverity::ERROR, true);
             $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
             return $items;
@@ -355,9 +375,10 @@ abstract class AbstractItemProvider
                 // that represents this specific row.
                 $iconFieldName = '';
                 $isFileReference = false;
-                if (!empty($GLOBALS['TCA'][$foreignTable]['ctrl']['selicon_field'])) {
-                    $iconFieldName = $GLOBALS['TCA'][$foreignTable]['ctrl']['selicon_field'];
-                    if (($GLOBALS['TCA'][$foreignTable]['columns'][$iconFieldName]['config']['type'] ?? '') === 'file') {
+                $foreignTableSchema = $result['tcaSchemata']->get($foreignTable);
+                if (!empty($foreignTableSchema->getRawConfiguration()['selicon_field'] ?? null)) {
+                    $iconFieldName = $foreignTableSchema->getRawConfiguration()['selicon_field'];
+                    if ($foreignTableSchema->getField($iconFieldName)->getType() === 'file') {
                         $isFileReference = true;
                     }
                 }
@@ -370,7 +391,7 @@ abstract class AbstractItemProvider
                     }
                 } else {
                     // Else, determine icon based on record type, or a generic fallback
-                    $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($foreignTable, $foreignRow);
+                    $icon = $this->iconFactory->mapRecordTypeToIconIdentifier($foreignTable, $foreignRow, $result['tcaSchemata']->get($foreignTable));
                 }
                 $item = [
                     'label' => $labelPrefix . BackendUtility::getRecordTitle($foreignTable, $foreignRow),
@@ -615,7 +636,7 @@ abstract class AbstractItemProvider
         // and using `ANY_VALUES()` aggregation for the `uid` field.
         $hasGroupBy = is_array($foreignTableClauseArray['GROUPBY']) && $foreignTableClauseArray['GROUPBY'] !== [];
         $selectFieldList = [];
-        $schema = $this->tcaSchemaFactory->get($foreignTableName);
+        $schema = $result['tcaSchemata']->get($foreignTableName);
         $commonFieldList = $this->getCommonSelectFields($foreignTableName, $schema);
         foreach ($commonFieldList as $fieldName) {
             if ($hasGroupBy && in_array($fieldName, $foreignTableClauseArray['GROUPBY'], true)) {
@@ -640,6 +661,11 @@ abstract class AbstractItemProvider
             $queryBuilder->groupBy(...$foreignTableClauseArray['GROUPBY']);
         }
 
+        // Sorting is applied to the inner query to ensure proper sorting and in combination with LIMIT to retrieve
+        // the expected/correct dataset and not cutting away data. Sorting is applied a second time below on the
+        // outer joined table (wrapping QueryBuilder) to keep the sorting between inner and outer query for vendors
+        // applying deterministic sorting criterias and returning other results than other vendors to ensure the same
+        // behavior across all supported database vendors.
         if (!empty($foreignTableClauseArray['ORDERBY'])) {
             foreach ($foreignTableClauseArray['ORDERBY'] as $orderPair) {
                 [$fieldName, $order] = $orderPair;
@@ -663,26 +689,20 @@ abstract class AbstractItemProvider
             }
         }
 
-        // rootLevel = -1 means that elements can be on the rootlevel OR on any page (pid!=-1)
-        // rootLevel = 0 means that elements are not allowed on root level
-        // rootLevel = 1 means that elements are only on the root level (pid=0)
+        // TYPE_BOTH means that elements can be on the root level OR on any page, so no restriction applies
+        // TYPE_ONLY_ON_PAGES means that elements are not allowed on root level
+        // TYPE_ONLY_ON_ROOTLEVEL means that elements are only allowed on the root level (pid=0)
         /** @var RootLevelCapability $rootLevelCapability */
         $rootLevelCapability = $schema->getCapability(TcaSchemaCapability::RestrictionRootLevel);
-        if ($rootLevelCapability->getRootLevelType() === -1) {
-            $queryBuilder->andWhere(
-                $queryBuilder->expr()->neq(
-                    $foreignTableName . '.pid',
-                    $wrapQueryBuilder->createNamedParameter(-1, Connection::PARAM_INT)
-                )
-            );
-        } elseif ($rootLevelCapability->getRootLevelType() === 1) {
+        $rootLevelType = $rootLevelCapability->getRootLevelType();
+        if ($rootLevelType === RootLevelCapability::TYPE_ONLY_ON_ROOTLEVEL) {
             $queryBuilder->andWhere(
                 $queryBuilder->expr()->eq(
                     $foreignTableName . '.pid',
                     $wrapQueryBuilder->createNamedParameter(0, Connection::PARAM_INT)
                 )
             );
-        } else {
+        } elseif ($rootLevelType !== RootLevelCapability::TYPE_BOTH) {
             $queryBuilder->andWhere($backendUser->getPagePermsClause(Permission::PAGE_SHOW));
             if ($foreignTableName !== 'pages') {
                 $queryBuilder
@@ -710,6 +730,8 @@ abstract class AbstractItemProvider
         // Second step to respect all database requirements regarding `GROUP BY` and still returning full foreign table
         // records is using the QueryBuilder (query) as a sub-query, join the table and retrieve the full records using
         // column wildcard. That ensures that really the full records are retrieved including not TCA managed columns.
+        // @todo Look in this again and consider using a non-recursive CTE here instead of a sub-query table when
+        //       upstream doctrine/dbal CTE support is completely available and working.
         $wrapQueryBuilder->select('joined_table.*');
         $wrapQueryBuilder->getConcreteQueryBuilder()->from(
             '(' . $queryBuilder->getSQL() . ')',
@@ -723,6 +745,31 @@ abstract class AbstractItemProvider
                 $wrapQueryBuilder->expr()->eq('joined_table.uid', $wrapQueryBuilder->quoteIdentifier('inner_table_alias.uid'))
             )
         );
+
+        // Adding orderings to the re-joined table result is required to ensure that a non-joined table PK sorting
+        // leads to the same result. For example MariaDB/MySQL applies a deterministic joined table PK sorting and
+        // other platforms like PostgresSQL does this not. That leads to a re-sorting on the outer result based on
+        // the automatic sorting override for MySQL/MariaDB. INNER sorting above is still required to have proper
+        // result in case limiting the resultset (LIMIT) is applied to the foreign table and would otherwise lead
+        // to retrieving unexpected datasets.
+        $orderByClauses = [];
+        if (!empty($foreignTableClauseArray['ORDERBY'])) {
+            $orderByClauses = $foreignTableClauseArray['ORDERBY'];
+        } elseif ($schema->hasCapability(TcaSchemaCapability::DefaultSorting)) {
+            $orderByClauses = QueryHelper::parseOrderBy($schema->getCapability(TcaSchemaCapability::DefaultSorting)->getValue());
+        }
+        if ($orderByClauses !== []) {
+            foreach ($orderByClauses as $orderPair) {
+                [$fieldName, $order] = $orderPair;
+                // Remove table name
+                if (str_contains($fieldName, '.')) {
+                    $fieldName = substr($fieldName, strpos($fieldName, '.') + 1);
+                }
+                $fieldName = 'joined_table.' . $fieldName;
+                $wrapQueryBuilder->addOrderBy($fieldName, $order);
+            }
+        }
+
         return $wrapQueryBuilder;
     }
 
@@ -839,10 +886,10 @@ abstract class AbstractItemProvider
                     '###PAGE_TSCONFIG_STR###',
                 ],
                 [
-                    (int)$effectivePid,
-                    (int)$result['databaseRow']['uid'],
-                    $siteRootUid,
-                    $pageTsConfigId,
+                    (string)(int)$effectivePid,
+                    (string)(int)$result['databaseRow']['uid'],
+                    (string)$siteRootUid,
+                    (string)$pageTsConfigId,
                     $pageTsConfigIdList,
                     $pageTsConfigString,
                     $pageTsConfigString,
@@ -996,6 +1043,74 @@ abstract class AbstractItemProvider
     }
 
     /**
+     * A field's [treeConfig][startingPoints] may contain markers, resolve them.
+     *
+     * ###CURRENT_PID### - is the current page id (pid of the record).
+     * ###SITEROOT### - is the uid of the site root page within the current rootline.
+     * ###PAGE_TSCONFIG_ID### - a value you can set from page TSconfig dynamically.
+     * ###PAGE_TSCONFIG_IDLIST### - a value you can set from page TSconfig dynamically.
+     *
+     * Markers that can not be resolved are dropped from the list.
+     */
+    protected function parseStartingPointsFromMarkers(array $result, string $fieldName, array $fieldConfig): array
+    {
+        $startingPoints = (string)($fieldConfig['config']['treeConfig']['startingPoints'] ?? '');
+        if (!str_contains($startingPoints, '###')) {
+            return $fieldConfig;
+        }
+
+        $effectivePid = (int)($result['effectivePid'] ?? 0);
+        if (str_contains($startingPoints, '###CURRENT_PID###')) {
+            // Use pid from parent page clause if in flex form context
+            if (!empty($result['flexParentDatabaseRow']['pid'])) {
+                $effectivePid = (int)$result['flexParentDatabaseRow']['pid'];
+            } elseif (!$effectivePid && !empty($result['databaseRow']['pid'])) {
+                // Use pid from database row if in inline context
+                $effectivePid = (int)$result['databaseRow']['pid'];
+            }
+        }
+
+        $siteRootUid = 0;
+        foreach ($result['rootline'] ?? [] as $rootlinePage) {
+            if (!empty($rootlinePage['is_siteroot'])) {
+                $siteRootUid = (int)$rootlinePage['uid'];
+                break;
+            }
+        }
+
+        $fieldTsConfig = $result['pageTsConfig']['TCEFORM.'][$result['tableName'] . '.'][$fieldName . '.'] ?? [];
+        $pageTsConfigId = (int)($fieldTsConfig['PAGE_TSCONFIG_ID'] ?? 0);
+        $pageTsConfigIdList = implode(',', array_filter(
+            GeneralUtility::trimExplode(',', (string)($fieldTsConfig['PAGE_TSCONFIG_IDLIST'] ?? ''), true),
+            MathUtility::canBeInterpretedAsInteger(...)
+        ));
+
+        $startingPoints = str_replace(
+            [
+                '###CURRENT_PID###',
+                '###SITEROOT###',
+                '###PAGE_TSCONFIG_ID###',
+                '###PAGE_TSCONFIG_IDLIST###',
+            ],
+            [
+                (string)$effectivePid,
+                $siteRootUid > 0 ? (string)$siteRootUid : '',
+                $pageTsConfigId > 0 ? (string)$pageTsConfigId : '',
+                $pageTsConfigIdList,
+            ],
+            $startingPoints
+        );
+
+        // Add the resolved starting points while removing empty values
+        $fieldConfig['config']['treeConfig']['startingPoints'] = implode(
+            ',',
+            GeneralUtility::trimExplode(',', $startingPoints, true)
+        );
+
+        return $fieldConfig;
+    }
+
+    /**
      * Convert the current database values into an array
      *
      * @param array $row database row
@@ -1032,10 +1147,16 @@ abstract class AbstractItemProvider
         $fieldConfig = $result['processedTca']['columns'][$fieldName];
 
         $currentDatabaseValueArray = array_key_exists($fieldName, $result['databaseRow']) ? $result['databaseRow'][$fieldName] : [];
+        $isSiteAction = $result['tableName'] === 'site';
+
+        if ($isSiteAction && count($currentDatabaseValueArray) === 1 && $this->envPlaceholderProcessor->canProcess($currentDatabaseValueArray[0])) {
+            return $currentDatabaseValueArray;
+        }
+
         $newDatabaseValueArray = [];
 
         // Add all values that were defined by static methods and do not come from the relation
-        // e.g. TCA, TSconfig, itemProcFunc etc.
+        // e.g. TCA, TSconfig, itemsProcFunc etc.
         foreach ($currentDatabaseValueArray as $value) {
             if (isset($staticValues[$value])) {
                 $newDatabaseValueArray[] = $value;
@@ -1099,7 +1220,12 @@ abstract class AbstractItemProvider
         foreach ($itemArray as $key => $item) {
             $labelIndex = $item['value'] ?? '';
 
-            if (isset($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels.'][$labelIndex])
+            if ($labelIndex === ''
+                && isset($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels'])
+                && !empty($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels'])
+            ) {
+                $label = $languageService->sL($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels']);
+            } elseif (isset($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels.'][$labelIndex])
                 && !empty($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels.'][$labelIndex])
             ) {
                 $label = $languageService->sL($result['pageTsConfig']['TCEFORM.'][$table . '.'][$fieldName . '.']['altLabels.'][$labelIndex]);
@@ -1188,7 +1314,7 @@ abstract class AbstractItemProvider
         $table = $result['tableName'];
         $row = $result['databaseRow'];
         $uid = $row['uid'] ?? 0;
-        if ($this->tcaSchemaFactory->has($table) && $this->tcaSchemaFactory->get($table)->hasCapability(TcaSchemaCapability::Workspace) && (int)($row['t3ver_oid'] ?? 0) > 0) {
+        if ($result['tcaSchemata']->has($table) && $result['tcaSchemata']->get($table)->hasCapability(TcaSchemaCapability::Workspace) && (int)($row['t3ver_oid'] ?? 0) > 0) {
             $uid = $row['t3ver_oid'];
         }
         return $uid;

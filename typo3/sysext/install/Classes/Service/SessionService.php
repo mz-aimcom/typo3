@@ -15,12 +15,15 @@
 
 namespace TYPO3\CMS\Install\Service;
 
+use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\Cookie;
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\ServerRequestFactory;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Security\BlockSerializationTrait;
@@ -28,8 +31,6 @@ use TYPO3\CMS\Core\Session\Backend\HashableSessionBackendInterface;
 use TYPO3\CMS\Core\Session\Backend\SessionBackendInterface;
 use TYPO3\CMS\Core\Session\SessionManager;
 use TYPO3\CMS\Core\Session\UserSession;
-use TYPO3\CMS\Core\SingletonInterface;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Install\Exception;
 use TYPO3\CMS\Install\Service\Session\FileSessionHandler;
 
@@ -38,7 +39,7 @@ use TYPO3\CMS\Install\Service\Session\FileSessionHandler;
  *
  * @internal This class is only meant to be used within EXT:install and is not part of the TYPO3 Core API.
  */
-class SessionService implements SingletonInterface
+class SessionService
 {
     use BlockSerializationTrait;
 
@@ -57,9 +58,12 @@ class SessionService implements SingletonInterface
      */
     private int $regenerateSessionIdTime = 5;
 
-    public function __construct(protected readonly LoggerInterface $logger) {}
+    public function __construct(
+        protected readonly LateBootService $lateBootService,
+        protected readonly LoggerInterface $logger,
+    ) {}
 
-    public function installSessionHandler(): void
+    public function installSessionHandler(?ServerRequestInterface $request): void
     {
         // Register our "save" session handler
         $sessionHandlerClass = $GLOBALS['TYPO3_CONF_VARS']['BE']['installToolSessionHandler']['className'] ?? FileSessionHandler::class;
@@ -74,16 +78,24 @@ class SessionService implements SingletonInterface
             $sessionHandler = $this->getDefaultSessionHandler();
         }
 
+        $request = $request ?? ServerRequestFactory::fromGlobals();
+        $normalizedParams = $request->getAttribute('normalizedParams') ?? NormalizedParams::createFromRequest($request);
         session_set_save_handler($sessionHandler);
         session_name($this->cookieName);
-        ini_set('session.cookie_secure', GeneralUtility::getIndpEnv('TYPO3_SSL') ? 'On' : 'Off');
-        ini_set('session.cookie_httponly', 'On');
-        ini_set('session.cookie_samesite', Cookie::SAMESITE_STRICT);
-        ini_set('session.cookie_path', (string)GeneralUtility::getIndpEnv('TYPO3_SITE_PATH'));
-        // Always call the garbage collector to clean up stale session files
-        ini_set('session.gc_probability', (string)100);
-        ini_set('session.gc_divisor', (string)100);
-        ini_set('session.gc_maxlifetime', (string)($this->expireTimeInMinutes * 2 * 60));
+        try {
+            ini_set('session.cookie_secure', $normalizedParams->isHttps() ? 'On' : 'Off');
+            ini_set('session.cookie_httponly', 'On');
+            ini_set('session.cookie_samesite', Cookie::SAMESITE_STRICT);
+            ini_set('session.cookie_path', $normalizedParams->getSitePath());
+            // Always call the garbage collector to clean up stale session files
+            ini_set('session.gc_probability', (string)100);
+            ini_set('session.gc_divisor', (string)100);
+            ini_set('session.gc_maxlifetime', (string)($this->expireTimeInMinutes * 2 * 60));
+        } catch (\Error) {
+            // In case function "ini_set" is disabled within php.ini, we catch the error and allow TYPO3 to run
+            // anyway, see https://www.php.net/manual/en/ini.core.php#ini.disable-functions
+        }
+        $this->logInsecureSessionCookieSettings($normalizedParams->isHttps());
         if ($this->isSessionAutoStartEnabled()) {
             $sessionCreationError = 'Error: session.auto-start is enabled.<br />';
             $sessionCreationError .= 'The PHP option session.auto-start is enabled. Disable this option in php.ini or .htaccess:<br />';
@@ -92,14 +104,14 @@ class SessionService implements SingletonInterface
         }
         if (session_status() === PHP_SESSION_ACTIVE) {
             $sessionCreationError = 'Session already started by session_start().<br />';
-            $sessionCreationError .= 'Make sure no installed extension is starting a session in its ext_localconf.php or ext_tables.php.';
+            $sessionCreationError .= 'Make sure no installed extension is starting a session in its ext_localconf.php.';
             throw new Exception($sessionCreationError, 1294587486);
         }
     }
 
     protected function getDefaultSessionHandler(): \SessionHandlerInterface
     {
-        return new FileSessionHandler(null, $this->expireTimeInMinutes);
+        return new FileSessionHandler($this->expireTimeInMinutes);
     }
 
     public function initializeSession()
@@ -130,10 +142,11 @@ class SessionService implements SingletonInterface
     /**
      * Destroys a session
      */
-    public function destroySession(?ServerRequestInterface $request)
+    public function destroySession(?ServerRequestInterface $request): void
     {
         $request = $request ?? ServerRequestFactory::fromGlobals();
         if ($this->hasSessionCookie($request)) {
+            $normalizedParams = $request->getAttribute('normalizedParams') ?? NormalizedParams::createFromRequest($request);
             $this->initializeSession();
             $_SESSION = [];
             $params = session_get_cookie_params();
@@ -141,7 +154,7 @@ class SessionService implements SingletonInterface
                 ->withValue('0')
                 ->withPath($params['path'])
                 ->withDomain($params['domain'])
-                ->withSecure($params['samesite'] === Cookie::SAMESITE_NONE || GeneralUtility::getIndpEnv('TYPO3_SSL'))
+                ->withSecure($params['samesite'] === Cookie::SAMESITE_NONE || $normalizedParams->isHttps())
                 ->withHttpOnly($params['httponly'])
                 ->withSameSite($params['samesite']);
 
@@ -202,10 +215,9 @@ class SessionService implements SingletonInterface
      *
      * @param UserSession $userSession session of the current backend user
      */
-    public function setAuthorizedBackendSession(UserSession $userSession)
+    public function setAuthorizedBackendSession(UserSession $userSession, SessionBackendInterface $sessionBackend)
     {
         $nonce = bin2hex(random_bytes(20));
-        $sessionBackend = $this->getBackendUserSessionBackend();
         // use hash mechanism of session backend, or pass plain value through generic hmac
         $sessionHmac = $sessionBackend instanceof HashableSessionBackendInterface
             ? $sessionBackend->hash($userSession->getIdentifier())
@@ -230,7 +242,7 @@ class SessionService implements SingletonInterface
      *
      * @return bool TRUE if this session has been authorized before (by a correct password)
      */
-    public function isAuthorized(ServerRequestInterface $request)
+    public function isAuthorized(ServerRequestInterface $request): bool
     {
         if (!$this->hasSessionCookie($request)) {
             return false;
@@ -267,9 +279,17 @@ class SessionService implements SingletonInterface
      */
     public function hasActiveBackendUserRoleAndSession(): bool
     {
+        $container = $this->lateBootService->getContainer(
+            // Allow DI caching because this request was forwarded from a backend session,
+            // and therefore failsafe requirements do not apply
+            true
+        );
+        // Unset internal container instance in order for later services
+        // to be able to bootstrap a fresh container
+        $this->lateBootService->unsetInternalContainerInstance();
         // @see \TYPO3\CMS\Install\Controller\BackendModuleController::setAuthorizedAndRedirect()
         $backendUserSession = $this->getBackendUserSession();
-        $backendUserRecord = $this->getBackendUserRecord($backendUserSession['userId']);
+        $backendUserRecord = $this->getBackendUserRecord($container, $backendUserSession['userId']);
         if ($backendUserRecord === null || empty($backendUserRecord['uid'])) {
             return false;
         }
@@ -284,7 +304,7 @@ class SessionService implements SingletonInterface
             return false;
         }
 
-        $sessionBackend = $this->getBackendUserSessionBackend();
+        $sessionBackend = $container->get(SessionManager::class)->getSessionBackend('BE');
         foreach ($sessionBackend->getAll() as $sessionRecord) {
             $sessionUserId = (int)($sessionRecord['ses_userid'] ?? 0);
             // skip, in case backend user id does not match
@@ -396,6 +416,41 @@ class SessionService implements SingletonInterface
     }
 
     /**
+     * Most of the session settings above are best practice, and the install tool keeps working
+     * without them. These two are not: They keep the session cookie from being sent over plain
+     * HTTP and from being readable by JavaScript.
+     *
+     * "ini_set" does not necessarily apply them. It returns false without any error if an option
+     * can not be changed at runtime, and throws if the function is disabled altogether, so the
+     * values are read back rather than relying on the calls having had an effect.
+     */
+    protected function logInsecureSessionCookieSettings(bool $https): void
+    {
+        $ineffective = [];
+        try {
+            if ($https && $this->getIniValueBoolean('session.cookie_secure') !== true) {
+                $ineffective[] = 'session.cookie_secure';
+            }
+            if ($this->getIniValueBoolean('session.cookie_httponly') !== true) {
+                $ineffective[] = 'session.cookie_httponly';
+            }
+        } catch (\Error) {
+            $this->logger->error(
+                'Vital session settings of the install tool can not be verified, because the PHP '
+                . 'function "ini_get" is disabled. TYPO3 security is impacted.'
+            );
+            return;
+        }
+        if ($ineffective !== []) {
+            $this->logger->error(
+                'Vital session settings of the install tool are not in effect: {settings}. '
+                . 'TYPO3 security is impacted.',
+                ['settings' => implode(', ', $ineffective)]
+            );
+        }
+    }
+
+    /**
      * Cast an on/off php ini value to boolean
      *
      * @param string $configOption
@@ -417,10 +472,10 @@ class SessionService implements SingletonInterface
      * @param int $uid The UID of the backend user
      * @return array<string, int>|null The backend user record or NULL
      */
-    protected function getBackendUserRecord(int $uid): ?array
+    protected function getBackendUserRecord(ContainerInterface $container, int $uid): ?array
     {
-        $accessTimeStamp = (int)$GLOBALS['SIM_ACCESS_TIME'];
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('be_users');
+        $accessTimeStamp = $container->get(Context::class)->getAspect('date')->getTimestampWithMinutePrecision();
+        $queryBuilder = $container->get(ConnectionPool::class)->getQueryBuilderForTable('be_users');
         $queryBuilder->select('uid', 'admin')
             ->from('be_users')
             ->where(
@@ -442,10 +497,5 @@ class SessionService implements SingletonInterface
         $result = $queryBuilder->executeQuery()->fetchAssociative();
 
         return is_array($result) ? $result : null;
-    }
-
-    protected function getBackendUserSessionBackend(): SessionBackendInterface
-    {
-        return GeneralUtility::makeInstance(SessionManager::class)->getSessionBackend('BE');
     }
 }

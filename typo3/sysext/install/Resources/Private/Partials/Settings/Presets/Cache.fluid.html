@@ -1,0 +1,70 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers" data-namespace-typo3-fluid="true">
+
+<div class="panel panel-default">
+    <h2 class="panel-heading" role="tab">
+        <div class="panel-heading-row">
+            <button
+                class="panel-button collapsed"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-parent="#accordion"
+                data-bs-target="#collapseSeven"
+                aria-controls="collapseSeven"
+                aria-expanded="false"
+                id="headingSeven"
+            >
+                <div class="panel-title">
+                    <strong>Cache settings</strong>
+                </div>
+                <span class="caret"></span>
+            </button>
+        </div>
+    </h2>
+    <div id="collapseSeven" class="panel-collapse collapse" role="tabpanel" aria-labelledby="headingSeven">
+        <div class="panel-body">
+            <p>
+                Configure how TYPO3 caches are stored to optimize performance for your hosting environment.
+            </p>
+            <p>
+                <strong>The default configuration</strong> works well for most installations. Depending on your setup,
+                performance can be improved by choosing a different cache storage type.<br>
+                <strong>Database storage</strong> is typically the best choice for standard environments and installations
+                using network file systems (NFS), where frequent file access may reduce performance.<br>
+                <strong>File-based caches</strong> can be more efficient in shared hosting environments or when using
+                distributed databases.<br>
+                For advanced installations, <strong>memory-based cache backends</strong> such as Redis
+                or Memcached can provide additional performance improvements. These require further
+                configuration in <code>system/settings.php.</code>
+            </p>
+            <p>
+                Select <strong>Custom settings</strong> to configure the storage backend for each
+                cache individually.
+            </p>
+
+            <p>Cache types:</p>
+            <dl>
+                <dt>Page</dt>
+                <dd>Stores the cached content of individual pages.</dd>
+
+                <dt>Page Section</dt>
+                <dd>Stores TypoScript instructions and data required to generate page content and the
+                handling of non-cacheable objects.</dd>
+
+                <dt>Hash</dt>
+                <dd>Stores internal data used during page generation, such as menu structures.</dd>
+
+                <dt>Rootline</dt>
+                <dd>Stores the full hierarchy of pages leading to the current page, including translation
+                and timing information. Used for menus and link generation.</dd>
+
+                <dt>Image Sizes</dt>
+                <dd>Stores calculated image dimensions separately to reduce file system access.</dd>
+            </dl>
+            <f:for each="{feature.presetsOrderedByPriority}" as="preset">
+                <f:render partial="Settings/Presets/{feature.name}/{preset.name}" arguments="{_all}" />
+            </f:for>
+        </div>
+    </div>
+</div>
+
+</html>

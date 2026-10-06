@@ -17,12 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Unit\Domain\Finishers;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Form\Domain\Finishers\ClosureFinisher;
 use TYPO3\CMS\Form\Domain\Finishers\FinisherContext;
 use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ClosureFinisherTest extends UnitTestCase
 {
     #[Test]
@@ -37,11 +39,11 @@ final class ClosureFinisherTest extends UnitTestCase
             'closure' => $closure,
         ]);
 
-        $finisherContextMock = $this->createMock(FinisherContext::class);
-        $formRuntimeMock = $this->createMock(FormRuntime::class);
-        $finisherContextMock->method('getFormRuntime')->willReturn($formRuntimeMock);
+        $finisherContextStub = self::createStub(FinisherContext::class);
+        $formRuntimeStub = self::createStub(FormRuntime::class);
+        $finisherContextStub->method('getFormRuntime')->willReturn($formRuntimeStub);
 
-        $revealedFinisherContext = $finisherContextMock;
+        $revealedFinisherContext = $finisherContextStub;
 
         $mockClosureFinisher->_set('finisherContext', $revealedFinisherContext);
         $closure = $mockClosureFinisher->_call('parseOption', 'closure');

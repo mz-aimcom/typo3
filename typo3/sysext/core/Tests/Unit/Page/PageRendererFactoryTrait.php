@@ -17,9 +17,11 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Page;
 
+use Psr\Log\NullLogger;
 use Symfony\Component\Translation\Translator;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\NullFrontend;
+use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\Http\ResponseFactory;
 use TYPO3\CMS\Core\Http\StreamFactory;
@@ -28,14 +30,19 @@ use TYPO3\CMS\Core\Localization\LabelFileResolver;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
 use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Core\Localization\LocalizationFactory;
+use TYPO3\CMS\Core\Localization\TranslationDomainMapper;
+use TYPO3\CMS\Core\Localization\TranslationDomainResolver;
 use TYPO3\CMS\Core\MetaTag\MetaTagManagerRegistry;
 use TYPO3\CMS\Core\Package\PackageManager;
 use TYPO3\CMS\Core\Page\AssetCollector;
 use TYPO3\CMS\Core\Page\AssetRenderer;
+use TYPO3\CMS\Core\Page\ResourceHashCollection;
 use TYPO3\CMS\Core\Resource\RelativeCssPathFixer;
-use TYPO3\CMS\Core\Resource\ResourceCompressor;
+use TYPO3\CMS\Core\Security\ContentSecurityPolicy\DirectiveHashCollection;
 use TYPO3\CMS\Core\Service\DependencyOrderingService;
 use TYPO3\CMS\Core\Service\MarkerBasedTemplateService;
+use TYPO3\CMS\Core\SystemResource\Publishing\SystemResourcePublisherInterface;
+use TYPO3\CMS\Core\SystemResource\SystemResourceFactory;
 
 /**
  * @internal Only for core internal testing.
@@ -48,22 +55,41 @@ trait PageRendererFactoryTrait
     ): array {
         $packageManager ??= new PackageManager(new DependencyOrderingService());
         $cacheManagerMock = $this->createMock(CacheManager::class);
-        $cacheManagerMock->method('getCache')->with('l10n')->willReturn(new NullFrontend('l10n'));
+        $cacheManagerMock->expects($this->atLeastOnce())->method('getCache')->with('l10n')->willReturn(new NullFrontend('l10n'));
         $cacheManager ??= $cacheManagerMock;
+        $labelMapperStub = self::createStub(TranslationDomainMapper::class);
+        $labelMapperStub->method('mapDomainToFileName')->willReturnArgument(0);
+        $resourceFactory = self::createStub(SystemResourceFactory::class);
+        $resourcePublisher = self::createStub(SystemResourcePublisherInterface::class);
+        $resourceHashCollection = new ResourceHashCollection(new NullLogger(), $resourceFactory, new NullFrontend('assets'));
         return [
+            new Context(),
             new NullFrontend('assets'),
             new MarkerBasedTemplateService(
                 new NullFrontend('hash'),
                 new NullFrontend('runtime'),
             ),
             new MetaTagManagerRegistry(),
-            new AssetRenderer(new AssetCollector(), new NoopEventDispatcher()),
+            new AssetRenderer(
+                new AssetCollector(),
+                new NoopEventDispatcher(),
+                $resourcePublisher,
+                $resourceFactory,
+                $resourceHashCollection,
+                new DirectiveHashCollection($resourceHashCollection)
+            ),
             new AssetCollector(),
-            new ResourceCompressor(),
-            new RelativeCssPathFixer(),
+            new RelativeCssPathFixer($resourceFactory, $resourcePublisher),
             new LanguageServiceFactory(
                 new Locales(),
-                new LocalizationFactory(new Translator('en'), $cacheManager->getCache('l10n'), new LabelFileResolver($packageManager)),
+                new LocalizationFactory(
+                    new Translator('en'),
+                    $cacheManager->getCache('l10n'),
+                    new NullFrontend('runtime'),
+                    $labelMapperStub,
+                    new LabelFileResolver($packageManager, new TranslationDomainResolver()),
+                    new TranslationDomainResolver(),
+                ),
                 new NullFrontend('null')
             ),
             new ResponseFactory(),
@@ -72,6 +98,10 @@ trait PageRendererFactoryTrait
                 new NullFrontend('assets'),
                 'foobar',
             ),
+            $resourcePublisher,
+            $resourceFactory,
+            new ResourceHashCollection(new NullLogger(), $resourceFactory, new NullFrontend('assets')),
+            new DirectiveHashCollection(new ResourceHashCollection(new NullLogger(), $resourceFactory, new NullFrontend('assets'))),
         ];
     }
 }

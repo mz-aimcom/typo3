@@ -21,7 +21,6 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
-use TYPO3\CMS\Core\Log\Channel;
 use TYPO3\CMS\Core\Log\Logger;
 use TYPO3\CMS\Core\Log\LogManager;
 
@@ -40,11 +39,9 @@ final class LoggerAwarePass implements CompilerPassInterface
         $this->tagName = $tagName;
     }
 
-    /**
-     * @param ContainerBuilder $container
-     */
-    public function process(ContainerBuilder $container)
+    public function process(ContainerBuilder $container): void
     {
+        $channelExtractor = new LogChannelExtractor();
         foreach ($container->findTaggedServiceIds($this->tagName) as $id => $tags) {
             $definition = $container->findDefinition($id);
             if (!$definition->isAutowired() || $definition->isAbstract()) {
@@ -55,7 +52,7 @@ final class LoggerAwarePass implements CompilerPassInterface
             if ($definition->getClass()) {
                 $reflectionClass = $container->getReflectionClass($definition->getClass(), false);
                 if ($reflectionClass) {
-                    $channel = $this->getClassChannelName($reflectionClass) ?? $definition->getClass();
+                    $channel = $channelExtractor->getClassChannelName($reflectionClass) ?? $definition->getClass();
                 }
             }
 
@@ -66,22 +63,5 @@ final class LoggerAwarePass implements CompilerPassInterface
 
             $definition->addMethodCall('setLogger', [$logger]);
         }
-    }
-
-    protected function getClassChannelName(\ReflectionClass $class): ?string
-    {
-        // Attribute channel definition is only supported on PHP 8 and later.
-        if (class_exists('\ReflectionAttribute', false)) {
-            $attributes = $class->getAttributes(Channel::class, \ReflectionAttribute::IS_INSTANCEOF);
-            foreach ($attributes as $channel) {
-                return $channel->newInstance()->name;
-            }
-        }
-
-        if ($class->getParentClass() !== false) {
-            return $this->getClassChannelName($class->getParentClass());
-        }
-
-        return null;
     }
 }

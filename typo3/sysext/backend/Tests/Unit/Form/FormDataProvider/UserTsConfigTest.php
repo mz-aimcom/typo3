@@ -17,14 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataProvider\UserTsConfig;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class UserTsConfigTest extends UnitTestCase
 {
-    protected UserTsConfig $subject;
+    private UserTsConfig $subject;
 
     protected function setUp(): void
     {
@@ -36,9 +38,9 @@ final class UserTsConfigTest extends UnitTestCase
     public function addDataSetsUserTypoScriptInResult(): void
     {
         $expected = ['foo'];
-        $backendUserAuthenticationMock = $this->createMock(BackendUserAuthentication::class);
-        $backendUserAuthenticationMock->method('getTSConfig')->willReturn($expected);
-        $GLOBALS['BE_USER'] = $backendUserAuthenticationMock;
+        $backendUserAuthenticationStub = self::createStub(BackendUserAuthentication::class);
+        $backendUserAuthenticationStub->method('getTSConfig')->willReturn($expected);
+        $GLOBALS['BE_USER'] = $backendUserAuthenticationStub;
         $result = $this->subject->addData([]);
         self::assertEquals($expected, $result['userTsConfig']);
     }

@@ -19,6 +19,9 @@ namespace TYPO3\CMS\Scheduler\Domain\Repository;
 
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Core\Authentication\CommandLineUserAuthentication;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Core\Bootstrap;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -26,17 +29,22 @@ use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
 use TYPO3\CMS\Core\DataHandling\DataHandler;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\Field\StaticSelectFieldType;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
+use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Scheduler\Exception\InvalidTaskException;
 use TYPO3\CMS\Scheduler\ProgressProviderInterface;
 use TYPO3\CMS\Scheduler\Service\TaskService;
 use TYPO3\CMS\Scheduler\Task\AbstractTask;
 use TYPO3\CMS\Scheduler\Task\TaskSerializer;
+use TYPO3\CMS\Scheduler\Task\TaskStatus;
 use TYPO3\CMS\Scheduler\Validation\Validator\TaskValidator;
 
 /**
  * Repository class to fetch tasks available in the systems ready to be executed
+ *
+ * @internal not part of public TYPO3 Core API
  */
 #[Autoconfigure(public: true)]
 readonly class SchedulerTaskRepository
@@ -47,7 +55,39 @@ readonly class SchedulerTaskRepository
         protected TaskSerializer $taskSerializer,
         protected TaskService $taskService,
         protected TcaSchemaFactory $tcaSchemaFactory,
+        protected Context $context,
+        protected ConnectionPool $connectionPool,
     ) {}
+
+    /**
+     * Adds a task to the pool.
+     *
+     * @param AbstractTask $task The object representing the task to add
+     * @return bool TRUE if the task was successfully added, FALSE otherwise
+     */
+    public function add(AbstractTask $task): bool
+    {
+        $taskUid = $task->getTaskUid();
+        if (!empty($taskUid)) {
+            return false;
+        }
+        $fields = $this->taskService->getFieldsForRecord($task);
+        $fields['pid'] = 0;
+        $newId = uniqid('NEW');
+        $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        $dataHandler->start([
+            self::TABLE_NAME => [
+                $newId => $fields,
+            ],
+        ], []);
+        $dataHandler->process_datamap();
+        $taskUid = (int)$dataHandler->substNEWwithIDs[$newId];
+        if ($taskUid) {
+            $task->setTaskUid($taskUid);
+            return true;
+        }
+        return false;
+    }
 
     /**
      * Removes a task completely from the system.
@@ -108,23 +148,31 @@ readonly class SchedulerTaskRepository
             'disable' => $forceDisablingTask ? true : $fields['disable'],
             'execution_details' => $fields['execution_details'],
         ];
+        $backendUser = $GLOBALS['BE_USER'] ?? null;
+        if ($backendUser === null && Environment::isCli()) {
+            /** @var CommandLineUserAuthentication $backendUser */
+            $backendUser = Bootstrap::initializeBackendUser(CommandLineUserAuthentication::class);
+            $backendUser->authenticate();
+        }
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
+        // We don't want every execution information logged
+        $dataHandler->enableLogging = false;
         $dataHandler->start([
             self::TABLE_NAME => [
                 $taskUid => $fields,
             ],
-        ], []);
+        ], [], $backendUser);
         $dataHandler->process_datamap();
     }
 
     /**
      * Fetches a task object from the db with the given $uid. The object representing
      * the next due task is returned.
-     * If there are no due tasks the method throws an exception.
+     * If there are no tasks due, the method throws an exception.
      *
      * @param int $uid Primary key of a task
      * @throws \OutOfBoundsException
-     * @throws \UnexpectedValueException
+     * @throws InvalidTaskException
      */
     public function findByUid(int $uid): AbstractTask
     {
@@ -138,33 +186,33 @@ readonly class SchedulerTaskRepository
     }
 
     /**
+     * Fetches the DB record for a given task UID.
+     *
+     * @param int $uid Primary key of the task to get
+     * @return array|null Database record for the task
+     * @see findByUid()
+     */
+    public function findRecordByUid(int $uid): ?array
+    {
+        $row = BackendUtility::getRecord(self::TABLE_NAME, $uid);
+        if (empty($row)) {
+            return null;
+        }
+        return $row;
+    }
+
+    /**
      * Fetch and unserialize a task object from the db. Returns the object representing the
      * next due task is returned. If there are no due tasks, the method throws an exception.
      *
-     * @return AbstractTask|null The fetched task object
-     * @throws \UnexpectedValueException
+     * @throws InvalidTaskException
      */
     public function findNextExecutableTask(): ?AbstractTask
     {
         // If no uid is given, take any non-disabled task that has a next execution time in the past
-        $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
-        $queryBuilder = $connectionPool->getQueryBuilderForTable(self::TABLE_NAME);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE_NAME);
         $queryBuilder->select(
-            't.uid',
-            't.crdate',
-            't.deleted',
-            't.description',
-            't.nextexecution',
-            't.lastexecution_time',
-            't.lastexecution_failure',
-            't.lastexecution_context',
-            't.serialized_task_object',
-            't.disable',
-            't.tasktype',
-            't.parameters',
-            't.execution_details',
-            't.serialized_executions',
-            't.task_group',
+            't.*'
         )
             ->from(self::TABLE_NAME, 't')
             ->setMaxResults(1);
@@ -192,7 +240,7 @@ readonly class SchedulerTaskRepository
             ),
             $queryBuilder->expr()->eq('t.deleted', $queryBuilder->createNamedParameter(0, Connection::PARAM_INT))
         );
-        $queryBuilder->orderBy('t.nextexecution', 'ASC');
+        $queryBuilder->orderBy('t.priority', 'DESC')->addOrderBy('t.nextexecution', 'ASC');
 
         $row = $queryBuilder->executeQuery()->fetchAssociative();
         if (empty($row)) {
@@ -203,18 +251,19 @@ readonly class SchedulerTaskRepository
     }
 
     /**
-     * @internal This will get split up into errored classes
+     * @todo This will get split up into errored classes
      */
     public function getGroupedTasks(): array
     {
         // Get all registered tasks
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable(self::TABLE_NAME);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE_NAME);
         $queryBuilder->getRestrictions()->removeAll();
         $result = $queryBuilder->select('t.*')
             ->addSelect(
                 'g.groupName AS taskGroupName',
                 'g.description AS taskGroupDescription',
                 'g.uid AS taskGroupId',
+                'g.color AS taskGroupColor',
                 'g.deleted AS isTaskGroupDeleted',
                 'g.hidden AS isTaskGroupHidden',
             )
@@ -281,10 +330,13 @@ readonly class SchedulerTaskRepository
                 $taskData['frequency'] = $taskObject->getExecution()->getCronCmd() ?: $taskObject->getExecution()->getInterval();
             }
             $taskData['multiple'] = (bool)$taskObject->getExecution()->isParallelExecutionAllowed();
+            $taskData['priority'] = (int)$row['priority'];
+            $taskData['priorityLabel'] = $this->resolvePriorityLabel((int)$row['priority']);
             $taskData['lastExecutionFailure'] = false;
             if (!empty($row['lastexecution_failure'])) {
                 $taskData['lastExecutionFailure'] = true;
-                $exceptionArray = @unserialize($row['lastexecution_failure']);
+                // only scalars are serialized in \TYPO3\CMS\Scheduler\Scheduler::executeTask
+                $exceptionArray = @unserialize($row['lastexecution_failure'], ['allowed_classes' => false]);
                 $taskData['lastExecutionFailureCode'] = '';
                 $taskData['lastExecutionFailureMessage'] = '';
                 if (is_array($exceptionArray)) {
@@ -293,6 +345,8 @@ readonly class SchedulerTaskRepository
                 }
             }
 
+            $taskData['statuses'] = $this->buildTaskStatuses($taskData, (bool)$row['isTaskGroupHidden']);
+
             // If a group is deleted or no group is set it needs to go into "not assigned groups"
             $groupIndex = $row['isTaskGroupDeleted'] === 1 || $row['isTaskGroupDeleted'] === null ? 0 : (int)$row['task_group'];
             if (!isset($taskGroupsWithTasks[$groupIndex])) {
@@ -300,6 +354,7 @@ readonly class SchedulerTaskRepository
                     'uid' => $row['taskGroupId'],
                     'groupName' => $row['taskGroupName'],
                     'description' => $row['taskGroupDescription'],
+                    'color' => $row['taskGroupColor'],
                     'hidden' => $row['isTaskGroupHidden'],
                     'tasks' => [],
                 ];
@@ -327,20 +382,15 @@ readonly class SchedulerTaskRepository
                 ->get(self::TABLE_NAME)
                 ->getCapability(TcaSchemaCapability::RestrictionDisabledField)
                 ->getFieldName();
-            // Forcibly set the disabled flag to 1 in the database,
-            // so that the task does not come up again and again for execution
-            $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
-            $dataHandler->start([
-                self::TABLE_NAME => [
-                    $row['uid'] => [
-                        $fieldName => 1,
-                    ],
-                ],
-            ], []);
-            $dataHandler->process_datamap();
-            // Throw an exception to raise the problem
-            // @todo: This should most likely be changed to a specific exception.
-            throw new \UnexpectedValueException('Could not unserialize task', 1255083671);
+            if ((bool)$row[$fieldName] !== true) {
+                // Forcibly set the disabled flag to 1 in the database (if not already set), so that the
+                // task does not come up again and again for execution. Execute a simple update statement
+                // to avoid triggering any DH hook again, which would lead to an infinity loop.
+                $this->connectionPool
+                    ->getConnectionForTable(self::TABLE_NAME)
+                    ->update(self::TABLE_NAME, [$fieldName => 1], ['uid' => (int)$row['uid']]);
+            }
+            throw new InvalidTaskException('Could not unserialize task', 1255083671);
         }
 
         // The task is valid, return it
@@ -356,7 +406,7 @@ readonly class SchedulerTaskRepository
      */
     public function findNextExecutableTaskForUid(int $uid): ?AbstractTask
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
+        $queryBuilder = $this->connectionPool
             ->getQueryBuilderForTable(self::TABLE_NAME);
         $queryBuilder->getRestrictions()
             ->removeAll()
@@ -421,14 +471,15 @@ readonly class SchedulerTaskRepository
 
             $runningExecutions = $previousExecutions !== null
                 && $previousExecutions !== ''
-                    ? unserialize($previousExecutions)
+                    // serialized in \TYPO3\CMS\Scheduler\Domain\Repository\SchedulerTaskRepository::addExecutionToTask as `array<int, int>`
+                    ? unserialize($previousExecutions, ['allowed_classes' => false])
                     : [];
 
             // Count the number of existing executions and use that number as a key
             // (we need to know that number, because it is returned at the end of the method)
             $numExecutions = count($runningExecutions);
             $runningExecutions[$numExecutions] = time();
-            $updateCount = GeneralUtility::makeInstance(ConnectionPool::class)
+            $updateCount = $this->connectionPool
                 ->getConnectionForTable(self::TABLE_NAME)
                 ->update(
                     self::TABLE_NAME,
@@ -466,8 +517,8 @@ readonly class SchedulerTaskRepository
             if ($previousExecutions === '') {
                 break;
             }
-
-            $runningExecutions = unserialize($previousExecutions);
+            // serialized in \TYPO3\CMS\Scheduler\Domain\Repository\SchedulerTaskRepository::addExecutionToTask as `array<int, int>`
+            $runningExecutions = unserialize($previousExecutions, ['allowed_classes' => false]);
             // Remove the selected execution
             unset($runningExecutions[$executionID]);
             if (!empty($runningExecutions)) {
@@ -486,7 +537,7 @@ readonly class SchedulerTaskRepository
             if ($failureReason !== null) {
                 $fieldUpdates['lastexecution_failure'] = (string)$failureReason;
             }
-            $updateCount = GeneralUtility::makeInstance(ConnectionPool::class)
+            $updateCount = $this->connectionPool
                 ->getConnectionForTable(self::TABLE_NAME)
                 ->update(
                     self::TABLE_NAME,
@@ -513,7 +564,7 @@ readonly class SchedulerTaskRepository
     public function removeAllRegisteredExecutionsForTask(AbstractTask $task): bool
     {
         // Set the serialized executions field to empty
-        $result = GeneralUtility::makeInstance(ConnectionPool::class)
+        $result = $this->connectionPool
             ->getConnectionForTable(self::TABLE_NAME)
             ->update(
                 self::TABLE_NAME,
@@ -529,7 +580,7 @@ readonly class SchedulerTaskRepository
      */
     public function hasTasks(): bool
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable(self::TABLE_NAME);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE_NAME);
         $queryBuilder->getRestrictions()
             ->removeAll()
             ->add(GeneralUtility::makeInstance(DeletedRestriction::class));
@@ -541,6 +592,89 @@ readonly class SchedulerTaskRepository
 
     protected function isValidTaskObject($task): bool
     {
-        return (new TaskValidator())->isValid($task);
+        return new TaskValidator()->isValid($task);
+    }
+
+    /**
+     * Resolves the status flags of a single task into an ordered list, shared as a single
+     * source of truth by the backend module listing and the "scheduler:list" CLI command.
+     *
+     * @return list<TaskStatus>
+     */
+    private function buildTaskStatuses(array $task, bool $groupHidden): array
+    {
+        $now = $this->context->getAspect('date')->get('timestamp');
+        $statuses = [];
+
+        if ($task['isRunning']) {
+            $statuses[] = new TaskStatus(
+                type: 'running',
+                severity: ContextualFeedbackSeverity::INFO,
+                state: 'running',
+                label: 'scheduler.messages:status.running',
+            );
+        }
+        if ($task['nextExecution'] && $task['nextExecution'] < $now && !$groupHidden && !$task['disabled']) {
+            $statuses[] = new TaskStatus(
+                type: 'late',
+                severity: ContextualFeedbackSeverity::WARNING,
+                state: 'warning',
+                label: 'scheduler.messages:status.late',
+            );
+        }
+        if ($task['disabled'] && !$task['isRunning']) {
+            $statuses[] = new TaskStatus(
+                type: 'disabled',
+                severity: ContextualFeedbackSeverity::NOTICE,
+                state: 'disabled',
+                label: 'scheduler.messages:status.disabled',
+            );
+        }
+        if ($groupHidden && !$task['isRunning']) {
+            $statuses[] = new TaskStatus(
+                type: 'disabledByGroup',
+                severity: ContextualFeedbackSeverity::NOTICE,
+                state: 'disabled',
+                label: 'scheduler.messages:status.disabledByGroup',
+            );
+        }
+        if ($task['lastExecutionFailure'] ?? false) {
+            if (($task['lastExecutionFailureMessage'] ?? '') !== '') {
+                $statuses[] = new TaskStatus(
+                    type: 'failure',
+                    severity: ContextualFeedbackSeverity::ERROR,
+                    state: 'danger',
+                    label: 'scheduler.messages:status.failure',
+                    message: 'scheduler.messages:msg.executionFailureReport',
+                    messageArguments: [
+                        $task['lastExecutionFailureCode'],
+                        $task['lastExecutionFailureMessage'],
+                    ],
+                );
+            } else {
+                $statuses[] = new TaskStatus(
+                    type: 'failure',
+                    severity: ContextualFeedbackSeverity::ERROR,
+                    state: 'default',
+                    label: 'scheduler.messages:status.failure',
+                    message: 'scheduler.messages:msg.executionFailureDefault',
+                );
+            }
+        }
+
+        return $statuses;
+    }
+
+    private function resolvePriorityLabel(int $priority): string
+    {
+        $field = $this->tcaSchemaFactory->get(self::TABLE_NAME)->getField('priority');
+        if ($field instanceof StaticSelectFieldType) {
+            foreach ($field->getItems() as $item) {
+                if ((int)$item->getValue() === $priority) {
+                    return $item->getLabel();
+                }
+            }
+        }
+        return (string)$priority;
     }
 }

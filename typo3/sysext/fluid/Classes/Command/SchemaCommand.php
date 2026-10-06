@@ -23,19 +23,28 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Fluid\Core\ViewHelper\ViewHelperResolverDelegateRegistry;
+use TYPO3\CMS\Fluid\Core\ViewHelper\ViewHelperResolverFactoryInterface;
+use TYPO3Fluid\Fluid\Core\Component\ComponentDefinitionProviderInterface;
+use TYPO3Fluid\Fluid\Core\Component\ComponentListProviderInterface;
 use TYPO3Fluid\Fluid\Schema\SchemaGenerator;
 use TYPO3Fluid\Fluid\Schema\ViewHelperFinder;
+use TYPO3Fluid\Fluid\Schema\ViewHelperMetadata;
+use TYPO3Fluid\Fluid\Schema\ViewHelperMetadataFactory;
 
 /**
  * Generate schema files from fluid view helpers
  *
  * @internal: Specific command implementation, not API itself.
  */
-#[AsCommand('fluid:schema:generate', 'Generate XSD schema files for all available ViewHelpers in var/transient/')]
+#[AsCommand('fluid:schema:generate', 'Generates XSD schema files for all available ViewHelpers in var/transient/.')]
 final class SchemaCommand extends Command
 {
-    public function __construct(private readonly ClassLoader $classLoader)
-    {
+    public function __construct(
+        private readonly ClassLoader $classLoader,
+        private readonly ViewHelperResolverFactoryInterface $viewHelperResolverFactory,
+        private readonly ViewHelperResolverDelegateRegistry $viewHelperResolverDelegateRegistry,
+    ) {
         parent::__construct();
     }
 
@@ -45,47 +54,23 @@ final class SchemaCommand extends Command
         $allViewHelpers = $viewHelperFinder->findViewHelpersInComposerProject($this->classLoader);
         $errors = $viewHelperFinder->getLastErrors();
 
-        // Group ViewHelpers by xml namespace to split them into xsd files later
-        $xsdFiles = $groupedByNamespace = [];
-        foreach ($allViewHelpers as $viewHelper) {
-            $xsdFiles[$viewHelper->xmlNamespace] ??= [];
-            $xsdFiles[$viewHelper->xmlNamespace][] = $viewHelper;
-
-            $groupedByNamespace[$viewHelper->namespace] ??= [];
-            $groupedByNamespace[$viewHelper->namespace][] = $viewHelper;
-        }
-
-        // Special handling of TYPO3's global ViewHelper namespaces which allows
-        // merging of several PHP namespaces into one Fluid namespace. If a configured
-        // global Fluid namespace has more than one PHP namespace, ViewHelpers can be
-        // overridden by subsequent namespaces if they are defined with the same name.
-        // For example, both Fluid Standalone and EXT:fluid define <f:render>,
-        // but EXT:fluid is the higher item in the namespace array, so it will be part
-        // of the xsd file, while the <f:render> from Fluid Standalone will be omitted.
-        foreach ($GLOBALS['TYPO3_CONF_VARS']['SYS']['fluid']['namespaces'] ?? [] as $mergedNamespace) {
-            // If a global namespace has only one item, it is already covered by the
-            // default handling above
-            if (count($mergedNamespace) < 2) {
-                continue;
-            }
-
-            // Last PHP namespace defines the xml namespace
-            $targetNamespace = end($mergedNamespace);
-            if (!isset($groupedByNamespace[$targetNamespace])) {
-                continue;
-            }
-            $xmlNamespace = $groupedByNamespace[$targetNamespace][0]->xmlNamespace;
-
-            // Combine PHP namespaces into one XML namespace
-            // Subsequent ViewHelpers with the same name can override
-            $xsdFiles[$xmlNamespace] = [];
-            foreach ($mergedNamespace as $namespace) {
-                foreach ($groupedByNamespace[$namespace] ?? [] as $viewHelper) {
-                    $xsdFiles[$xmlNamespace][$viewHelper->name] = $viewHelper;
+        // Get available component definitions and merge with ViewHelpers
+        $viewHelperMetadataFactory = new ViewHelperMetadataFactory();
+        foreach ($this->viewHelperResolverDelegateRegistry->getAll() as $delegate) {
+            if (
+                $delegate instanceof ComponentListProviderInterface
+                && $delegate instanceof ComponentDefinitionProviderInterface
+            ) {
+                foreach ($delegate->getAvailableComponents() as $componentName) {
+                    $allViewHelpers[] = $viewHelperMetadataFactory->createFromComponentDefinition(
+                        $delegate,
+                        $delegate->getComponentDefinition($componentName)
+                    );
                 }
             }
-            $xsdFiles[$xmlNamespace] = array_values($xsdFiles[$xmlNamespace]);
         }
+
+        $xsdFiles = $this->combineViewHelperNamespaces($allViewHelpers, $this->viewHelperResolverFactory->create()->getNamespaces());
 
         // Create transient folder if necessary
         $temporaryPath = Environment::getVarPath() . '/transient/';
@@ -103,11 +88,12 @@ final class SchemaCommand extends Command
 
         // Write schema files to transient folder
         foreach ($xsdFiles as $xmlNamespace => $viewHelpers) {
-            $schema = (new SchemaGenerator())->generate($xmlNamespace, $viewHelpers);
+            $schema = new SchemaGenerator()->generate($xmlNamespace, $viewHelpers);
             $fileName = str_replace('http://typo3.org/ns/', '', $xmlNamespace);
             $fileName = str_replace('/', '_', $fileName);
             $fileName = preg_replace('#[^0-9a-zA-Z_]#', '', $fileName);
             GeneralUtility::writeFile($temporaryPath . 'schema_' . $fileName . '.xsd', $schema->asXml(), true);
+            $output->writeln(sprintf('Generated schema file <info>%s</info>', $temporaryPath . 'schema_' . $fileName . '.xsd'), OutputInterface::VERBOSITY_DEBUG);
         }
 
         if ($errors !== []) {
@@ -125,5 +111,57 @@ final class SchemaCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * @param ViewHelperMetadata[] $viewHelpers
+     * @param array<string, string[]> $globalNamespaces
+     * @return array<string, ViewHelperMetadata[]>
+     */
+    private static function combineViewHelperNamespaces(array $viewHelpers, array $globalNamespaces): array
+    {
+        // Group ViewHelpers by xml namespace to split them into xsd files later
+        $viewHelperNamespaces = $groupedByNamespace = [];
+        foreach ($viewHelpers as $viewHelper) {
+            $viewHelperNamespaces[$viewHelper->xmlNamespace] ??= [];
+            $viewHelperNamespaces[$viewHelper->xmlNamespace][] = $viewHelper;
+
+            $groupedByNamespace[$viewHelper->namespace] ??= [];
+            $groupedByNamespace[$viewHelper->namespace][] = $viewHelper;
+        }
+
+        // Special handling of TYPO3's global ViewHelper namespaces which allows
+        // merging of several PHP namespaces into one Fluid namespace. If a configured
+        // global Fluid namespace has more than one PHP namespace, ViewHelpers can be
+        // overridden by subsequent namespaces if they are defined with the same name.
+        // For example, both Fluid Standalone and EXT:fluid define <f:render>,
+        // but EXT:fluid is the higher item in the namespace array, so it will be part
+        // of the xsd file, while the <f:render> from Fluid Standalone will be omitted.
+        foreach ($globalNamespaces as $mergedNamespace) {
+            // If a global namespace has only one item, it is already covered by the
+            // default handling above
+            if (count($mergedNamespace) < 2) {
+                continue;
+            }
+
+            // Last PHP namespace defines the xml namespace
+            $targetNamespace = end($mergedNamespace);
+            if (!isset($groupedByNamespace[$targetNamespace])) {
+                continue;
+            }
+            $xmlNamespace = $groupedByNamespace[$targetNamespace][0]->xmlNamespace;
+
+            // Combine PHP namespaces into one XML namespace; basically, all previous
+            // namespaces are "pulled" into the current namespace and then overlayed with
+            // it, so that ViewHelpers with the same name can override
+            $viewHelperNamespaces[$xmlNamespace] = [];
+            foreach ($mergedNamespace as $namespace) {
+                foreach ($groupedByNamespace[$namespace] ?? [] as $viewHelper) {
+                    $viewHelperNamespaces[$xmlNamespace][$viewHelper->tagName] = $viewHelper;
+                }
+            }
+            $viewHelperNamespaces[$xmlNamespace] = array_values($viewHelperNamespaces[$xmlNamespace]);
+        }
+        return $viewHelperNamespaces;
     }
 }

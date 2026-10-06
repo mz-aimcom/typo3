@@ -21,7 +21,10 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Type\Bitmask\Permission;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
+use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\ViewHelperNode;
+use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
+use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperNodeInitializedEventInterface;
 
 /**
  * ViewHelper which returns the current page path as known from TYPO3 backend modules.
@@ -33,9 +36,9 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * **Note:** This ViewHelper is experimental!
  *
  * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-fluid-be-pagepath
- * @todo: Candidate to deprecate? The page info is typically displayed in doc header, done by ModuleTemplate in controllers.
+ * @deprecated since TYPO3 v15.0, will be removed in TYPO3 v16.0.
  */
-final class PagePathViewHelper extends AbstractBackendViewHelper
+final class PagePathViewHelper extends AbstractViewHelper implements ViewHelperNodeInitializedEventInterface
 {
     /**
      * This ViewHelper renders HTML, thus output must not be escaped
@@ -60,10 +63,7 @@ final class PagePathViewHelper extends AbstractBackendViewHelper
         }
         // Setting the path of the page
         $pagePath = htmlspecialchars(self::getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.path')) . ': <span class="typo3-docheader-pagePath">';
-        // crop the title to title limit (or 50, if not defined)
-        $cropLength = empty($GLOBALS['BE_USER']->uc['titleLen']) ? 50 : $GLOBALS['BE_USER']->uc['titleLen'];
-        $cropLength = (int)$cropLength;
-        $croppedTitle = GeneralUtility::fixed_lgd_cs($title, -$cropLength);
+        $croppedTitle = BackendUtility::cropToTitleLength($title, null, true);
         if ($croppedTitle !== $title) {
             $pagePath .= '<abbr title="' . htmlspecialchars($title) . '">' . htmlspecialchars($croppedTitle) . '</abbr>';
         } else {
@@ -71,6 +71,14 @@ final class PagePathViewHelper extends AbstractBackendViewHelper
         }
         $pagePath .= '</span>';
         return $pagePath;
+    }
+
+    public static function nodeInitializedEvent(ViewHelperNode $node, array $arguments, ParsingState $parsingState): void
+    {
+        trigger_error(
+            '<f:be.pagePath> has been deprecated in TYPO3 v15.0 and will be removed in v16.0.',
+            E_USER_DEPRECATED
+        );
     }
 
     private static function getLanguageService(): LanguageService

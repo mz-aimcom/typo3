@@ -20,6 +20,8 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers\Sanitize;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LogLevel;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Log\LogRecord;
 use TYPO3\CMS\Core\Tests\Functional\Fixtures\Log\DummyWriter;
 use TYPO3\CMS\Core\Tests\Functional\Html\DefaultSanitizerBuilderTest;
@@ -62,15 +64,19 @@ final class HtmlViewHelperTest extends FunctionalTestCase
     #[Test]
     public function isSanitizedUsingNodeInstruction(string|int $payload, string $expectation): void
     {
+        $request = new ServerRequest('http://localhost/', 'GET', 'php://input', [], ['HTTP_HOST' => 'localhost']);
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource(sprintf('<f:sanitize.html>%s</f:sanitize.html>', $payload));
-        self::assertSame($expectation, (new TemplateView($context))->render());
+        self::assertSame($expectation, new TemplateView($context)->render());
     }
 
     #[DataProvider('isSanitizedDataProvider')]
     #[Test]
     public function isSanitizedUsingInlineInstruction(string|int $payload, string $expectation): void
     {
+        $request = new ServerRequest('http://localhost/', 'GET', 'php://input', [], ['HTTP_HOST' => 'localhost']);
+        $GLOBALS['TYPO3_REQUEST'] = $request->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('{payload -> f:sanitize.html()}');
         $view = new TemplateView($context);
@@ -81,7 +87,7 @@ final class HtmlViewHelperTest extends FunctionalTestCase
     #[Test]
     public function incidentIsLogged(): void
     {
-        $templatePath = __DIR__ . '/Fixtures/Template.html';
+        $templatePath = __DIR__ . '/Fixtures/Template.fluid.html';
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplatePathAndFilename($templatePath);
         $view = new TemplateView($context);

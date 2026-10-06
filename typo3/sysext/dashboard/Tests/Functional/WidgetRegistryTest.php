@@ -28,7 +28,7 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 final class WidgetRegistryTest extends FunctionalTestCase
 {
     protected array $coreExtensionsToLoad = ['dashboard'];
-    protected WidgetRegistry $subject;
+    private WidgetRegistry $subject;
 
     public function setUp(): void
     {
@@ -38,7 +38,7 @@ final class WidgetRegistryTest extends FunctionalTestCase
         $this->importCSVDataSet(__DIR__ . '/Fixtures/be_groups.csv');
     }
 
-    protected function registerWidgets(): void
+    private function registerWidgets(): void
     {
         /** @var Container $container */
         $container = $this->get('service_container');

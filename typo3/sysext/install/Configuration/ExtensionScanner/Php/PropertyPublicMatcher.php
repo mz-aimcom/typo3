@@ -1169,4 +1169,91 @@ return [
             'Breaking-106118-PropertyDataHandler-storeLogMessagesRemoved.rst',
         ],
     ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->config' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->pageContentWasLoadedFromCache' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->cacheGenerated' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->newHash' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->absRefPrefix' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController->debugInformationHeader' => [
+        'restFiles' => [
+            'Breaking-107831-RemovedTypoScriptFrontendController.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->copyWhichTables' => [
+        'restFiles' => [
+            'Breaking-107856-DataHandlerRemoveInternalPropertyCopyWhichTablesandPropertiesNeverHideAtCopyandCopyTree.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->neverHideAtCopy' => [
+        'restFiles' => [
+            'Breaking-107856-DataHandlerRemoveInternalPropertyCopyWhichTablesandPropertiesNeverHideAtCopyandCopyTree.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->copyTree' => [
+        'restFiles' => [
+            'Breaking-107856-DataHandlerRemoveInternalPropertyCopyWhichTablesandPropertiesNeverHideAtCopyandCopyTree.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\Authentication\BackendUserAuthentication->errorMsg' => [
+        'restFiles' => [
+            'Deprecation-108568-BackendUserAuthenticationRecordEditAccessInternals.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->lastTypoLinkResult' => [
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->currentRecordNumber' => [
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->parentRecordNumber' => [
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->parentRecord' => [
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer->checkPid_badDoktypeList' => [
+        'restFiles' => [
+            'Deprecation-109575-ContentObjectRendererPropertiesAndMethods.rst',
+            'Breaking-109783-DeprecatedFunctionalityRemoved.rst',
+        ],
+    ],
+    'TYPO3\CMS\Core\DataHandling\DataHandler->bypassAccessCheckForRecords' => [
+        'restFiles' => [
+            'Breaking-110188-DataHandlerDropPropertyBypassAccessCheckForRecords.rst',
+        ],
+    ],
+
 ];

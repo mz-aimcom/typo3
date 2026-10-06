@@ -24,7 +24,6 @@ use TYPO3\CMS\Backend\Form\Element\InputTextElement;
 use TYPO3\CMS\Backend\Form\Element\RadioElement;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Domain\DateTimeFactory;
-use TYPO3\CMS\Core\Domain\DateTimeFormat;
 use TYPO3\CMS\Core\Page\JavaScriptModuleInstruction;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\View\ViewFactoryData;
@@ -40,17 +39,6 @@ use TYPO3\CMS\Scheduler\Execution;
  */
 class TimingOptionsElement extends AbstractFormElement
 {
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
     public function __construct(
         private readonly ViewFactoryInterface $viewFactory,
         private readonly Context $context,
@@ -108,7 +96,7 @@ class TimingOptionsElement extends AbstractFormElement
         $start->data['containerFieldName'] = 'start';
         $start->data['parameterArray']['fieldConf']['label'] = htmlspecialchars($languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduledFrom'));
         $start->data['parameterArray']['itemFormElName'] .= '[start]';
-        $start->data['parameterArray']['itemFormElValue'] = DateTimeFactory::createFromTimestamp($executionDetails->getStart() ?: $this->context->getPropertyFromAspect('date', 'timestamp'))->format(DateTimeFormat::ISO8601_LOCALTIME);
+        $start->data['parameterArray']['itemFormElValue'] = DateTimeFactory::createFromTimestamp($executionDetails->getStart() ?: $this->context->getPropertyFromAspect('date', 'timestamp'));
         $start->data['parameterArray']['fieldConf'] = array_replace_recursive($start->data['parameterArray']['fieldConf'], $parameterArray['fieldConf']['config']['overrideFieldTca']['start'] ?? []);
         $subFieldResult = $start->render();
         $resultArray['javaScriptModules'] = array_merge($resultArray['javaScriptModules'], $subFieldResult['javaScriptModules']);
@@ -119,7 +107,7 @@ class TimingOptionsElement extends AbstractFormElement
         $end->data['containerFieldName'] = 'end';
         $end->data['parameterArray']['fieldConf']['label'] = htmlspecialchars($languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:scheduledUntil'));
         $end->data['parameterArray']['itemFormElName'] .= '[end]';
-        $end->data['parameterArray']['itemFormElValue'] = $executionDetails->getEnd() ? DateTimeFactory::createFromTimestamp($executionDetails->getEnd())->format(DateTimeFormat::ISO8601_LOCALTIME) : null;
+        $end->data['parameterArray']['itemFormElValue'] = $executionDetails->getEnd() ? DateTimeFactory::createFromTimestamp($executionDetails->getEnd()) : null;
         $end->data['parameterArray']['fieldConf'] = array_replace_recursive($end->data['parameterArray']['fieldConf'], $parameterArray['fieldConf']['config']['overrideFieldTca']['end'] ?? []);
         $subFieldResult = $end->render();
         $resultArray['javaScriptModules'] = array_merge($resultArray['javaScriptModules'], $subFieldResult['javaScriptModules']);
@@ -130,7 +118,7 @@ class TimingOptionsElement extends AbstractFormElement
         $frequency->data['containerFieldName'] = 'frequency';
         $frequency->data['parameterArray']['fieldConf']['label'] = htmlspecialchars($languageService->sL('LLL:EXT:scheduler/Resources/Private/Language/locallang.xlf:label.frequency.long'));
         $frequency->data['parameterArray']['itemFormElName'] .= '[frequency]';
-        $frequency->data['parameterArray']['itemFormElValue'] = $executionDetails->getCronCmd();
+        $frequency->data['parameterArray']['itemFormElValue'] = $executionDetails->getCronCmd() ?: $executionDetails->getInterval();
         $frequency->data['parameterArray']['fieldChangeFunc'] = [];
         $frequency->data['parameterArray']['fieldConf']['config']['size'] = 40;
         $frequency->data['parameterArray']['fieldConf'] = array_replace_recursive($frequency->data['parameterArray']['fieldConf'], $parameterArray['fieldConf']['config']['overrideFieldTca']['frequency'] ?? []);

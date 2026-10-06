@@ -18,7 +18,6 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\DependencyInjection;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\DoesNotPerformAssertions;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
@@ -31,23 +30,16 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 final class FailsafeContainerTest extends UnitTestCase
 {
     #[Test]
-    #[DoesNotPerformAssertions]
-    public function canBeInstantiated(): void
-    {
-        new Container();
-    }
-
-    #[Test]
     public function withString(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'param' => static function () {
                 return 'value';
             },
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertTrue($container->has('param'));
         self::assertEquals('value', $container->get('param'));
@@ -57,12 +49,12 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function get(mixed $factory): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'service' => $factory,
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertTrue($container->has('service'));
         self::assertInstanceOf(Service::class, $container->get('service'));
@@ -72,12 +64,12 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function multipleGetServicesShouldBeEqual(mixed $factory): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getFactories')->willReturn(['service' => $factory]);
         // A factory can also be used as extension, as it's based on the same signature
-        $providerMock->method('getExtensions')->willReturn(['extension' => $factory]);
+        $providerStub->method('getExtensions')->willReturn(['extension' => $factory]);
 
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         $serviceOne = $container->get('service');
         $serviceTwo = $container->get('service');
@@ -92,9 +84,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function passesContainerAsParameter(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'service' => static function () {
                 return new Service();
             },
@@ -102,7 +94,7 @@ final class FailsafeContainerTest extends UnitTestCase
                 return $container;
             },
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertNotSame($container, $container->get('service'));
         self::assertSame($container, $container->get('container'));
@@ -111,14 +103,14 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function nullValueEntry(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'null' => static function () {
                 return null;
             },
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertTrue($container->has('null'));
         self::assertNull($container->get('null'));
@@ -132,12 +124,12 @@ final class FailsafeContainerTest extends UnitTestCase
             $calledCount++;
             return null;
         };
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'null' => $factory,
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertTrue($container->has('null'));
         self::assertNull($container->get('null'));
@@ -149,9 +141,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function has(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'service' => static function () {
                 return new Service();
             },
@@ -171,7 +163,7 @@ final class FailsafeContainerTest extends UnitTestCase
                 return 0;
             },
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertTrue($container->has('param'));
         self::assertTrue($container->has('service'));
@@ -204,21 +196,21 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function extension(mixed $factory): void
     {
-        $providerMockA = $this->createMock(ServiceProviderInterface::class);
-        $providerMockA->method('getFactories')->willReturn(['service' => $factory]);
-        $providerMockA->method('getExtensions')->willReturn([]);
+        $providerStubA = self::createStub(ServiceProviderInterface::class);
+        $providerStubA->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStubA->method('getExtensions')->willReturn([]);
 
-        $providerMockB = $this->createMock(ServiceProviderInterface::class);
-        $providerMockB->method('getFactories')->willReturn([]);
-        $providerMockB->method('getExtensions')->willReturn([
+        $providerStubB = self::createStub(ServiceProviderInterface::class);
+        $providerStubB->method('getFactories')->willReturn([]);
+        $providerStubB->method('getExtensions')->willReturn([
             'service' => static function (ContainerInterface $c, Service $s) {
                 $s->value = 'value';
                 return $s;
             },
         ]);
-        $iterator = (static function () use ($providerMockA, $providerMockB): iterable {
-            yield $providerMockA;
-            yield $providerMockB;
+        $iterator = (static function () use ($providerStubA, $providerStubB): iterable {
+            yield $providerStubA;
+            yield $providerStubB;
         })();
         $container = new Container($iterator);
 
@@ -229,19 +221,19 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function extendingLaterProvider(mixed $factory): void
     {
-        $providerMockA = $this->createMock(ServiceProviderInterface::class);
-        $providerMockA->method('getFactories')->willReturn(['service' => $factory]);
-        $providerMockA->method('getExtensions')->willReturn([]);
+        $providerStubA = self::createStub(ServiceProviderInterface::class);
+        $providerStubA->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStubA->method('getExtensions')->willReturn([]);
 
-        $providerMockB = $this->createMock(ServiceProviderInterface::class);
-        $providerMockB->method('getFactories')->willReturn([]);
-        $providerMockB->method('getExtensions')->willReturn([
+        $providerStubB = self::createStub(ServiceProviderInterface::class);
+        $providerStubB->method('getFactories')->willReturn([]);
+        $providerStubB->method('getExtensions')->willReturn([
             'service' => static function (ContainerInterface $c, Service $s) {
                 $s->value = 'value';
                 return $s;
             },
         ]);
-        $container = new Container([$providerMockB, $providerMockA]);
+        $container = new Container([$providerStubB, $providerStubA]);
 
         self::assertSame('value', $container->get('service')->value);
     }
@@ -250,9 +242,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function extendingOwnFactory(mixed $factory): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getFactories')->willReturn(['service' => $factory]);
-        $providerMock->method('getExtensions')->willReturn(
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStub->method('getExtensions')->willReturn(
             [
                 'service' => static function (ContainerInterface $c, Service $s) {
                     $s->value = 'value';
@@ -260,7 +252,7 @@ final class FailsafeContainerTest extends UnitTestCase
                 },
             ]
         );
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertSame('value', $container->get('service')->value);
     }
@@ -268,9 +260,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function extendingNonExistingFactory(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getFactories')->willReturn([]);
-        $providerMock->method('getExtensions')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getFactories')->willReturn([]);
+        $providerStub->method('getExtensions')->willReturn([
             'service' => static function (ContainerInterface $c, ?Service $s = null) {
                 if ($s === null) {
                     $s = new Service();
@@ -279,7 +271,7 @@ final class FailsafeContainerTest extends UnitTestCase
                 return $s;
             },
         ]);
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         self::assertSame('value', $container->get('service')->value);
     }
@@ -288,28 +280,28 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function multipleExtensions(mixed $factory): void
     {
-        $providerMockA = $this->createMock(ServiceProviderInterface::class);
-        $providerMockA->method('getFactories')->willReturn(['service' => $factory]);
-        $providerMockA->method('getExtensions')->willReturn([]);
+        $providerStubA = self::createStub(ServiceProviderInterface::class);
+        $providerStubA->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStubA->method('getExtensions')->willReturn([]);
 
-        $providerMockB = $this->createMock(ServiceProviderInterface::class);
-        $providerMockB->method('getFactories')->willReturn([]);
-        $providerMockB->method('getExtensions')->willReturn([
+        $providerStubB = self::createStub(ServiceProviderInterface::class);
+        $providerStubB->method('getFactories')->willReturn([]);
+        $providerStubB->method('getExtensions')->willReturn([
             'service' => static function (ContainerInterface $c, Service $s) {
                 $s->value = '1';
                 return $s;
             },
         ]);
 
-        $providerMockC = $this->createMock(ServiceProviderInterface::class);
-        $providerMockC->method('getFactories')->willReturn([]);
-        $providerMockC->method('getExtensions')->willReturn([
+        $providerStubC = self::createStub(ServiceProviderInterface::class);
+        $providerStubC->method('getFactories')->willReturn([]);
+        $providerStubC->method('getExtensions')->willReturn([
             'service' => static function (ContainerInterface $c, Service $s) {
                 $s->value .= '2';
                 return $s;
             },
         ]);
-        $container = new Container([$providerMockA, $providerMockB, $providerMockC]);
+        $container = new Container([$providerStubA, $providerStubB, $providerStubC]);
 
         self::assertSame('12', $container->get('service')->value);
     }
@@ -318,17 +310,17 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function entryOverriding(mixed $factory): void
     {
-        $providerMockA = $this->createMock(ServiceProviderInterface::class);
-        $providerMockA->method('getFactories')->willReturn(['service' => $factory]);
-        $providerMockA->method('getExtensions')->willReturn([]);
+        $providerStubA = self::createStub(ServiceProviderInterface::class);
+        $providerStubA->method('getFactories')->willReturn(['service' => $factory]);
+        $providerStubA->method('getExtensions')->willReturn([]);
 
-        $providerMockB = $this->createMock(ServiceProviderInterface::class);
-        $providerMockB->method('getExtensions')->willReturn([]);
-        $providerMockB->method('getFactories')->willReturn(['service' => static function () {
+        $providerStubB = self::createStub(ServiceProviderInterface::class);
+        $providerStubB->method('getExtensions')->willReturn([]);
+        $providerStubB->method('getFactories')->willReturn(['service' => static function () {
             return 'value';
         }]);
 
-        $container = new Container([$providerMockA, $providerMockB]);
+        $container = new Container([$providerStubA, $providerStubB]);
 
         self::assertNotInstanceOf(Service::class, $container->get('service'));
         self::assertEquals('value', $container->get('service'));
@@ -337,9 +329,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function cyclicDependency(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'A' => static function (ContainerInterface $container) {
                 return $container->get('B');
             },
@@ -348,7 +340,7 @@ final class FailsafeContainerTest extends UnitTestCase
             },
         ]);
 
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         $this->expectException(ContainerExceptionInterface::class);
         $this->expectExceptionMessage('Container entry "A" is part of a cyclic dependency chain.');
@@ -358,9 +350,9 @@ final class FailsafeContainerTest extends UnitTestCase
     #[Test]
     public function cyclicDependencyRetrievedTwice(): void
     {
-        $providerMock = $this->createMock(ServiceProviderInterface::class);
-        $providerMock->method('getExtensions')->willReturn([]);
-        $providerMock->method('getFactories')->willReturn([
+        $providerStub = self::createStub(ServiceProviderInterface::class);
+        $providerStub->method('getExtensions')->willReturn([]);
+        $providerStub->method('getFactories')->willReturn([
             'A' => static function (ContainerInterface $container) {
                 return $container->get('B');
             },
@@ -369,7 +361,7 @@ final class FailsafeContainerTest extends UnitTestCase
             },
         ]);
 
-        $container = new Container([$providerMock]);
+        $container = new Container([$providerStub]);
 
         $this->expectException(ContainerExceptionInterface::class);
         $this->expectExceptionMessage('Container entry "A" is part of a cyclic dependency chain.');
@@ -412,6 +404,10 @@ final class FailsafeContainerTest extends UnitTestCase
                 [self::class, 'factory'],
             ],
             [
+                // Static first class callable
+                self::factory(...),
+            ],
+            [
                 // Closure
                 static function () {
                     return new Service();
@@ -419,7 +415,7 @@ final class FailsafeContainerTest extends UnitTestCase
             ],
             [
                 // Invokable
-                new class () {
+                new class {
                     public function __invoke(): Service
                     {
                         return new Service();
@@ -429,7 +425,7 @@ final class FailsafeContainerTest extends UnitTestCase
             [
                 // Non-static factory
                 [
-                    new class () {
+                    new class {
                         public function factory(): Service
                         {
                             return new Service();
@@ -437,6 +433,15 @@ final class FailsafeContainerTest extends UnitTestCase
                     },
                     'factory',
                 ],
+            ],
+            [
+                // Non-static first class callable
+                new class {
+                    public function factory(): Service
+                    {
+                        return new Service();
+                    }
+                }->factory(...),
             ],
         ];
     }

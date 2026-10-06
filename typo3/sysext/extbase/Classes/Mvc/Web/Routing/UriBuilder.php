@@ -23,7 +23,6 @@ use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Extbase\DomainObject\AbstractValueObject;
 use TYPO3\CMS\Extbase\DomainObject\DomainObjectInterface;
 use TYPO3\CMS\Extbase\Mvc\Exception\InvalidArgumentValueException;
@@ -193,7 +192,7 @@ class UriBuilder
      *
      * @param bool|string|int $addQueryString is set to "1", "true", "0", "false" or "untrusted"
      * @return static the current UriBuilder to allow method chaining
-     * @see https://docs.typo3.org/m/typo3/reference-typoscript/main/en-us/Functions/Typolink.html#addquerystring
+     * @see https://docs.typo3.org/permalink/t3tsref:confval-typolink-addquerystring
      */
     public function setAddQueryString(bool|string|int $addQueryString): UriBuilder
     {
@@ -214,7 +213,7 @@ class UriBuilder
      * Only active if addQueryString is set
      *
      * @return static the current UriBuilder to allow method chaining
-     * @see https://docs.typo3.org/m/typo3/reference-typoscript/main/en-us/Functions/Typolink.html#addquerystring
+     * @see https://docs.typo3.org/permalink/t3tsref:confval-typolink-addquerystring
      * @see setAddQueryString()
      */
     public function setArgumentsToBeExcludedFromQueryString(array $argumentsToBeExcludedFromQueryString): UriBuilder
@@ -522,14 +521,17 @@ class UriBuilder
         }
         /** @var ?ContentObjectRenderer $currentContentObject */
         $currentContentObject = $this->request->getAttribute('currentContentObject');
-        return $currentContentObject?->createUrl($typolinkConfiguration) ?? '';
+        if (!$currentContentObject) {
+            throw new \RuntimeException('Extbase UriBuilder needs a ContentObjectRenderer on its request', 1779442754);
+        }
+        return $currentContentObject->createUrl($typolinkConfiguration);
     }
 
     /**
      * Builds a TypoLink configuration array from the current settings
      *
      * @return array typolink configuration array
-     * @see https://docs.typo3.org/m/typo3/reference-typoscript/main/en-us/Functions/Typolink.html
+     * @see https://docs.typo3.org/permalink/t3tsref:typolink
      */
     protected function buildTypolinkConfiguration(): array
     {
@@ -544,7 +546,7 @@ class UriBuilder
         if (!empty($this->arguments)) {
             $arguments = $this->convertDomainObjectsToIdentityArrays($this->arguments);
             $this->lastArguments = $arguments;
-            $typolinkConfiguration['additionalParams'] = HttpUtility::buildQueryString($arguments, '&');
+            $typolinkConfiguration['queryParameters'] = $arguments;
         }
         if ($this->addQueryString && $this->addQueryString !== 'false') {
             $typolinkConfiguration['addQueryString'] = $this->addQueryString;
@@ -602,6 +604,8 @@ class UriBuilder
                 $arguments[$argumentKey] = $this->convertDomainObjectsToIdentityArrays($argumentValue);
             } elseif ($argumentValue instanceof \UnitEnum) {
                 $arguments[$argumentKey] = $argumentValue->value ?? $argumentValue->name;
+            } elseif ($argumentValue instanceof \Stringable) {
+                $arguments[$argumentKey] = (string)$argumentValue;
             }
         }
         return $arguments;

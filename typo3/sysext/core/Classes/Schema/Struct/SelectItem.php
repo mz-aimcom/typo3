@@ -19,7 +19,7 @@ namespace TYPO3\CMS\Core\Schema\Struct;
 
 final class SelectItem implements \ArrayAccess
 {
-    private const LEGACY_INDEXED_KEYS_MAPPING_TABLE = [
+    private const array LEGACY_INDEXED_KEYS_MAPPING_TABLE = [
         0 => 'label',
         1 => 'value',
         2 => 'icon',
@@ -40,13 +40,14 @@ final class SelectItem implements \ArrayAccess
         private ?string $iconIdentifierUnchecked = null,
         private ?string $labelChecked = null,
         private ?string $labelUnchecked = null,
+        private ?string $iconOverlay = null,
     ) {}
 
     public static function fromTcaItemArray(array $item, string $type = 'select'): SelectItem
     {
         return new self(
             type: $type,
-            label: $item['label'] ?? $item[0],
+            label: (string)($item['label'] ?? $item[0]),
             value: $item['value'] ?? $item[1] ?? null,
             icon: $item['icon'] ?? $item[2] ?? null,
             group: $item['group'] ?? $item[3] ?? null,
@@ -56,6 +57,7 @@ final class SelectItem implements \ArrayAccess
             iconIdentifierUnchecked: $item['iconIdentifierUnchecked'] ?? null,
             labelChecked: $item['labelChecked'] ?? null,
             labelUnchecked: $item['labelUnchecked'] ?? null,
+            iconOverlay: $item['iconOverlay'] ?? null,
         );
     }
 
@@ -84,6 +86,7 @@ final class SelectItem implements \ArrayAccess
             'label' => $this->label,
             'value' => $this->value,
             'icon' => $this->icon,
+            'iconOverlay' => $this->iconOverlay,
             'group' => $this->group,
             'description' => $this->description,
         ];
@@ -96,9 +99,7 @@ final class SelectItem implements \ArrayAccess
 
     public function withLabel(string $label): SelectItem
     {
-        $clone = clone $this;
-        $clone->label = $label;
-        return $clone;
+        return clone($this, ['label' => $label]);
     }
 
     public function getValue(): int|string|null
@@ -108,9 +109,7 @@ final class SelectItem implements \ArrayAccess
 
     public function withValue(int|string|null $value): SelectItem
     {
-        $clone = clone $this;
-        $clone->value = $value;
-        return $clone;
+        return clone($this, ['value' => $value]);
     }
 
     public function getIcon(): ?string
@@ -125,9 +124,7 @@ final class SelectItem implements \ArrayAccess
 
     public function withIcon(?string $icon): SelectItem
     {
-        $clone = clone $this;
-        $clone->icon = $icon;
-        return $clone;
+        return clone($this, ['icon' => $icon]);
     }
 
     public function getGroup(): ?string
@@ -142,9 +139,7 @@ final class SelectItem implements \ArrayAccess
 
     public function withGroup(?string $group): SelectItem
     {
-        $clone = clone $this;
-        $clone->group = $group;
-        return $clone;
+        return clone($this, ['group' => $group]);
     }
 
     public function getDescription(): string|array|null
@@ -159,9 +154,7 @@ final class SelectItem implements \ArrayAccess
 
     public function withDescription(string|array|null $description): SelectItem
     {
-        $clone = clone $this;
-        $clone->description = $description;
-        return $clone;
+        return clone($this, ['description' => $description]);
     }
 
     public function invertStateDisplay(): bool
@@ -207,6 +200,21 @@ final class SelectItem implements \ArrayAccess
     public function hasLabelUnchecked(): bool
     {
         return $this->labelUnchecked !== null;
+    }
+
+    public function getIconOverlay(): ?string
+    {
+        return $this->iconOverlay;
+    }
+
+    public function hasIconOverlay(): bool
+    {
+        return $this->iconOverlay !== null;
+    }
+
+    public function withIconOverlay(?string $iconOverlay): SelectItem
+    {
+        return clone($this, ['iconOverlay' => $iconOverlay]);
     }
 
     public function isDivider(): bool

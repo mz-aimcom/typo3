@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Typolink;
 
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -31,17 +32,20 @@ use TYPO3\CMS\Core\TypoScript\PageTsConfig;
 use TYPO3\CMS\Core\TypoScript\PageTsConfigFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
+use TYPO3\CMS\Frontend\Event\BeforeDatabaseRecordLinkResolvedEvent;
 
 /**
  * Builds a TypoLink to a database record
  */
-class DatabaseRecordLinkBuilder implements TypolinkBuilderInterface
+readonly class DatabaseRecordLinkBuilder implements TypolinkBuilderInterface
 {
     public function __construct(
-        private readonly TcaSchemaFactory $schemaFactory,
+        private TcaSchemaFactory $schemaFactory,
         #[Autowire(service: 'cache.runtime')]
-        private readonly FrontendInterface $runtimeCache,
-        private readonly TypoLinkCodecService $typoLinkCodecService,
+        private FrontendInterface $runtimeCache,
+        private TypoLinkCodecService $typoLinkCodecService,
+        private EventDispatcherInterface $eventDispatcher,
+        private PageRepository $pageRepository,
     ) {}
 
     public function buildLink(
@@ -68,29 +72,41 @@ class DatabaseRecordLinkBuilder implements TypolinkBuilderInterface
         $linkHandlerConfiguration = $linkHandlerConfiguration[$configurationKey]['configuration.'];
         $databaseTable = (string)($linkHandlerConfiguration['table'] ?? '');
 
-        $pageRepository = GeneralUtility::makeInstance(PageRepository::class);
-        if ($typoScriptLinkHandlerConfiguration[$configurationKey]['forceLink'] ?? false) {
-            $record = $pageRepository->getRawRecord($databaseTable, (int)$linkDetails['uid']);
-        } else {
-            $record = $pageRepository->checkRecord($databaseTable, (int)$linkDetails['uid']);
-            $languageAspect = GeneralUtility::makeInstance(Context::class)->getAspect('language');
-            if (is_array($record) && $this->schemaFactory->has($databaseTable)) {
-                $schema = $this->schemaFactory->get($databaseTable);
-                if ($schema->isLanguageAware()) {
-                    $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
-                    $languageIdOfRecord = $record[$languageField];
-                    // If a record is already in a localized version OR if the record is set to "All Languages"
-                    // we allow the generation of the link
-                    if ($languageIdOfRecord === 0 && $languageAspect->doOverlays()) {
-                        $overlay = $pageRepository->getLanguageOverlay(
-                            $databaseTable,
-                            $record,
-                            $languageAspect
-                        );
-                        // If the record is not translated (overlays enabled), even though it should have been done
-                        // We avoid linking to it
-                        if (!isset($overlay['_LOCALIZED_UID'])) {
-                            $record = 0;
+        $event = $this->eventDispatcher->dispatch(
+            new BeforeDatabaseRecordLinkResolvedEvent(
+                $linkDetails,
+                $databaseTable,
+                $typoScriptLinkHandlerConfiguration,
+                $linkHandlerConfiguration,
+                $request
+            )
+        );
+        $record = $event->record;
+        if ($record === null) {
+            if ($typoScriptLinkHandlerConfiguration[$configurationKey]['forceLink'] ?? false) {
+                $record = $this->pageRepository->getRawRecord($databaseTable, (int)$linkDetails['uid']);
+            } else {
+                $record = $this->pageRepository->checkRecord($databaseTable, (int)$linkDetails['uid']);
+                $languageAspect = GeneralUtility::makeInstance(Context::class)->getAspect('language');
+                if (is_array($record) && $this->schemaFactory->has($databaseTable)) {
+                    $schema = $this->schemaFactory->get($databaseTable);
+                    if ($schema->isLanguageAware()) {
+                        $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField(
+                        )->getName();
+                        $languageIdOfRecord = $record[$languageField];
+                        // If a record is already in a localized version OR if the record is set to "All Languages"
+                        // we allow the generation of the link
+                        if ($languageIdOfRecord === 0 && $languageAspect->doOverlays()) {
+                            $overlay = $this->pageRepository->getLanguageOverlay(
+                                $databaseTable,
+                                $record,
+                                $languageAspect
+                            );
+                            // If the record is not translated (overlays enabled), even though it should have been done
+                            // We avoid linking to it
+                            if (!isset($overlay['_LOCALIZED_UID'])) {
+                                $record = null;
+                            }
                         }
                     }
                 }

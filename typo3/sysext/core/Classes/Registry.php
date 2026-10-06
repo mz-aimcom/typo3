@@ -17,7 +17,7 @@ namespace TYPO3\CMS\Core;
 
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Serializer\DenyListDeserializer;
 
 /**
  * A class to store and retrieve entries in a registry database table.
@@ -41,6 +41,10 @@ class Registry implements SingletonInterface
      */
     protected $loadedNamespaces = [];
 
+    public function __construct(
+        protected readonly ConnectionPool $connectionPool,
+        protected readonly DenyListDeserializer $deserializer,
+    ) {}
     /**
      * Returns a persistent entry.
      *
@@ -79,8 +83,7 @@ class Registry implements SingletonInterface
             $this->loadEntriesByNamespace($namespace);
         }
         $serializedValue = serialize($value);
-        $connection = GeneralUtility::makeInstance(ConnectionPool::class)
-            ->getConnectionForTable('sys_registry');
+        $connection = $this->connectionPool->getConnectionForTable('sys_registry');
         $rowCount = $connection->count(
             '*',
             'sys_registry',
@@ -113,7 +116,7 @@ class Registry implements SingletonInterface
     public function remove($namespace, $key)
     {
         $this->validateNamespace($namespace);
-        GeneralUtility::makeInstance(ConnectionPool::class)
+        $this->connectionPool
             ->getConnectionForTable('sys_registry')
             ->delete(
                 'sys_registry',
@@ -131,7 +134,7 @@ class Registry implements SingletonInterface
     public function removeAllByNamespace($namespace)
     {
         $this->validateNamespace($namespace);
-        GeneralUtility::makeInstance(ConnectionPool::class)
+        $this->connectionPool
             ->getConnectionForTable('sys_registry')
             ->delete(
                 'sys_registry',
@@ -161,7 +164,7 @@ class Registry implements SingletonInterface
     {
         $this->validateNamespace($namespace);
         $this->entries[$namespace] = [];
-        $result = GeneralUtility::makeInstance(ConnectionPool::class)
+        $result = $this->connectionPool
             ->getConnectionForTable('sys_registry')
             ->select(
                 ['entry_key', 'entry_value'],
@@ -169,7 +172,7 @@ class Registry implements SingletonInterface
                 ['entry_namespace' => $namespace]
             );
         while ($row = $result->fetchAssociative()) {
-            $this->entries[$namespace][$row['entry_key']] = unserialize($row['entry_value']);
+            $this->entries[$namespace][$row['entry_key']] = $this->deserializer->deserialize($row['entry_value']);
         }
         $this->loadedNamespaces[$namespace] = true;
     }

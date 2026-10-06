@@ -1,0 +1,86 @@
+<html
+    xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers"
+    data-namespace-typo3-fluid="true"
+>
+<div class="resource-tiles-container">
+    <div class="resource-tiles my-3">
+        <f:for each="{resources}" as="resource">
+            <f:render section="ResourceTile" arguments="{resource: resource, displayThumbs: displayThumbs, displayCheckbox: displayCheckbox, defaultLanguageAccess: defaultLanguageAccess}" />
+        </f:for>
+    </div>
+</div>
+
+<f:render partial="Pagination" arguments="{
+        paginator:paginator,
+        pagination:pagination,
+        currentPage:currentPage,
+        totalPages:totalPages,
+        currentUrl:currentUrl,
+        firstElement:firstElement,
+        lastElement:lastElement
+    }" />
+
+<f:section name="ResourceTile">
+    <div
+        class="resource-tile{f:if(condition: resource.isSelected, then: ' selected')}"
+        aria-labelledby="resource-tile-label-{resource.uid}"
+        data-filelist-element="true"
+        data-filelist-type="{resource.type}"
+        data-filelist-identifier="{resource.identifier}"
+        data-filelist-name="{resource.name}"
+        data-filelist-icon="{resource.iconIdentifier}"
+        data-filelist-preview="{f:if(condition: resource.preview, then: 'true', else: 'false')}"
+        data-filelist-uid="{resource.uid}"
+        data-filelist-meta-uid="{resource.metaDataUid}"
+        data-filelist-url="{resource.publicUrl}"
+        data-filelist-mime-type="{resource.mimeType}"
+        data-filelist-selectable="{f:if(condition: resource.isSelectable, then: 'true', else: 'false')}"
+        data-filelist-selected="{f:if(condition: resource.isSelected, then: 'true', else: 'false')}"
+        data-multi-record-selection-element="true"
+        {f:if(condition: defaultLanguageAccess, then: 'data-default-language-access="true"')}
+        draggable="{resource.canMove ? 'true' : 'false'}"
+    >
+        <button type="button" title="{resource.name}" data-filelist-action="primary">
+            <span class="resource-tile-label" id="resource-tile-label-{resource.uid}">{resource.name}</span>
+            <span class="resource-tile-preview" role="presentation">
+                <span class="resource-tile-preview-content">
+                    <f:if condition="{displayThumbs} && {resource.preview}">
+                        <f:then>
+                            <span class="resource-tile-image">
+                                <f:image image="{resource.preview}" maxHeight="115" maxWidth="166" additionalAttributes="{draggable: 'false'}" loading="lazy" alt="" />
+                            </span>
+                        </f:then>
+                        <f:else>
+                            <span class="resource-tile-icon">
+                                {resource.iconLarge -> f:format.raw()}
+                            </span>
+                        </f:else>
+                    </f:if>
+                </span>
+            </span>
+            <span class="resource-tile-nameplate">
+                <f:if condition="{resource.missing}">
+                    <span class="resource-tile-nameplate-badge">
+                        <span class="badge badge-danger"><f:translate key="LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:warning.file_missing" /></span><br>
+                    </span>
+                </f:if>
+                <span class="resource-tile-nameplate-label">{resource.name}</span>
+                <span class="resource-tile-nameplate-activity">{resource.updatedAt -> f:format.date()}</span>
+            </span>
+        </button>
+        <f:if condition="{resource.isSelectable} && {resource.checkboxConfig} && {displayCheckbox}">
+            <span class="resource-tile-checkbox" role="checkbox" aria-label="{resource.name}">
+                <div class="form-check">
+                    <input
+                        class="form-check-input {resource.checkboxConfig.class}"
+                        type="checkbox"
+                        name="{resource.checkboxConfig.name}"
+                        value="{resource.checkboxConfig.value}"
+                        {f:if(condition: resource.checkboxConfig.checked, then: 'checked')}
+                    >
+                </div>
+            </span>
+        </f:if>
+    </div>
+</f:section>
+</html>

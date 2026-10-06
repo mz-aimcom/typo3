@@ -44,9 +44,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::createParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/createParentContent.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
     }
 
@@ -56,11 +56,11 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyParentContent.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -71,9 +71,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::deleteParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContent.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new DoesNotHaveRecordConstraint())
+        self::assertThat($responseSections, new DoesNotHaveRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
     }
 
@@ -89,6 +89,21 @@ final class ActionTest extends AbstractActionTestCase
     {
         parent::deleteParentContentThenHardDeleteParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentThenHardDeleteParentContent.csv');
+    }
+
+    #[Test]
+    public function deleteParentContentThenUndeleteParentContent(): void
+    {
+        parent::deleteParentContentThenUndeleteParentContent();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteParentContentThenUndeleteParentContent.csv');
+
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
+        $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
+        self::assertThat($responseSections, new HasRecordConstraint()
+            ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
+            ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
+            ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
 
     #[Test]
@@ -111,9 +126,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::copyParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/copyParentContent.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -124,9 +139,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::copyParentContentToDifferentPage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/copyParentContentToDifferentPage.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageIdTarget));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageIdTarget));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -160,9 +175,9 @@ final class ActionTest extends AbstractActionTestCase
             ]
         );
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['localizedContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
     }
@@ -175,9 +190,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizeParentContentWithAllChildren();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentWAllChildren.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
     }
@@ -190,11 +205,35 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizeParentContentWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
+    }
+
+    #[Test]
+    public function localizeParentContentWithMonoglotHotelChild(): void
+    {
+        $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        parent::localizeParentContentWithMonoglotHotelChild();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentMonoglotHotelChild.csv');
+    }
+
+    #[Test]
+    public function localizeParentContentWithMonoglotHotelChildWithLanguageSynchronization(): void
+    {
+        $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        parent::localizeParentContentWithMonoglotHotelChildWithLanguageSynchronization();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentMonoglotHotelChildSynchronization.csv');
+    }
+
+    #[Test]
+    public function localizeParentContentWithMonoglotHotelChildWithLocalizationExclude(): void
+    {
+        $this->actionService->copyRecordToLanguage(self::TABLE_Page, self::VALUE_PageId, self::VALUE_LanguageId);
+        parent::localizeParentContentWithMonoglotHotelChildWithLocalizationExclude();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentMonoglotHotelChildExclude.csv');
     }
 
     #[Test]
@@ -206,9 +245,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizeParentContentChainLanguageSynchronizationSource();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentChainLanguageSynchronizationSource.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageIdSecond));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageIdSecond));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Deutsch:] [Translate to Dansk:] Hotel #1', '[Translate to Deutsch:] [Translate to Dansk:] Hotel #2'));
     }
@@ -221,9 +260,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizeParentContentAndCreateNestedChildrenWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentNCreateNestedChildrenWLanguageSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1', '[Translate to Dansk:] New Hotel #1'));
     }
@@ -237,9 +276,9 @@ final class ActionTest extends AbstractActionTestCase
         // the assertion is the same as for localizeParentContentWithLanguageSynchronization()
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
     }
@@ -253,9 +292,9 @@ final class ActionTest extends AbstractActionTestCase
         // the assertion is the same as for localizeParentContentWithLanguageSynchronization()
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
     }
@@ -266,12 +305,12 @@ final class ActionTest extends AbstractActionTestCase
         parent::changeParentContentSorting();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/changeParentContentSorting.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Hotel #2'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -282,11 +321,11 @@ final class ActionTest extends AbstractActionTestCase
         parent::moveParentContentToDifferentPage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/moveParentContentToDifferentPage.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageIdTarget));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageIdTarget));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -297,14 +336,14 @@ final class ActionTest extends AbstractActionTestCase
         parent::moveParentContentToDifferentPageAndChangeSorting();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/moveParentContentToDifferentPageNChangeSorting.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageIdTarget));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageIdTarget));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Regular Element #2', 'Regular Element #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Hotel #2'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -315,9 +354,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyPage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyPage.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Page)->setField('title')->setValues('Testing #1'));
     }
 
@@ -327,7 +366,7 @@ final class ActionTest extends AbstractActionTestCase
         parent::deletePage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePage.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         self::assertEquals(404, $response->getStatusCode());
     }
 
@@ -337,9 +376,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::copyPage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/copyPage.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId($this->recordIds['newPageId']));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId($this->recordIds['newPageId']));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Hotel #2', 'Hotel #1'));
     }
 
@@ -349,9 +388,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::copyPageWithHotelBeforeParentContent();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/copyPageWHotelBeforeParentContent.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId($this->recordIds['newPageId']));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId($this->recordIds['newPageId']));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Hotel #2', 'Hotel #1'));
     }
 
@@ -361,11 +400,11 @@ final class ActionTest extends AbstractActionTestCase
         parent::createParentContentWithHotelAndOfferChildren();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/createParentContentNHotelNOfferChildren.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('Testing #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
     }
@@ -376,15 +415,15 @@ final class ActionTest extends AbstractActionTestCase
         parent::createAndCopyParentContentWithHotelAndOfferChildren();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/createNCopyParentContentNHotelNOfferChildren.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['copiedContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Hotel . ':' . $this->recordIds['copiedHotelId'])->setRecordField(self::FIELD_HotelOffer)
             ->setTable(self::TABLE_Offer)->setField('title')->setValues('Offer #1'));
     }
@@ -397,14 +436,14 @@ final class ActionTest extends AbstractActionTestCase
         parent::createAndLocalizeParentContentWithHotelAndOfferChildren();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/createNLocalizeParentContentNHotelNOfferChildren.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
         // Content record gets overlaid, thus using newContentId
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
         // Hotel record gets overlaid, thus using newHotelId
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Hotel . ':' . $this->recordIds['newHotelId'])->setRecordField(self::FIELD_HotelOffer)
             ->setTable(self::TABLE_Offer)->setField('title')->setValues('[Translate to Dansk:] Offer #1'));
     }
@@ -417,14 +456,14 @@ final class ActionTest extends AbstractActionTestCase
         parent::createAndLocalizeParentContentWithHotelAndOfferChildrenWithoutSortByConfiguration();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/createNLocalizeParentContentNHotelNOfferChildrenWOSortBy.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new HasRecordConstraint())
+        self::assertThat($responseSections, new HasRecordConstraint()
             ->setTable(self::TABLE_Content)->setField('header')->setValues('[Translate to Dansk:] Testing #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . $this->recordIds['newContentId'])->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #1'));
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Hotel . ':' . $this->recordIds['newHotelId'])->setRecordField(self::FIELD_HotelOffer)
             ->setTable(self::TABLE_Offer)->setField('title')->setValues('[Translate to Dansk:] Offer #1'));
     }
@@ -435,9 +474,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyOnlyHotelChild();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyOnlyHotelChild.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Testing #1'));
     }
@@ -448,9 +487,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyParentAndChangeHotelChildrenSorting();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyParentNChangeHotelChildrenSorting.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #2', 'Hotel #1'));
     }
@@ -461,9 +500,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyParentWithHotelChild();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyParentNHotelChild.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdFirst)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Testing #1'));
     }
@@ -474,9 +513,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyParentAndAddHotelChild();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyParentNAddHotelChild.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1', 'Hotel #2'));
     }
@@ -487,12 +526,12 @@ final class ActionTest extends AbstractActionTestCase
         parent::modifyParentAndDeleteHotelChild();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/modifyParentNDeleteHotelChild.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections('Default', 'Extbase:list()');
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #1'));
-        self::assertThat($responseSections, (new StructureDoesNotHaveRecordConstraint())
+        self::assertThat($responseSections, new StructureDoesNotHaveRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Content . ':' . self::VALUE_ContentIdLast)->setRecordField(self::FIELD_ContentHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #2'));
     }
@@ -503,9 +542,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageWithLocalizationExclude();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageWExclude.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #0'));
     }
@@ -516,9 +555,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageTwiceWithLocalizationExclude();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageTwiceWExclude.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #0'));
     }
@@ -529,9 +568,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageAndAddHotelChildWithLocalizationExclude();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageNAddHotelChildWExclude.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #0', 'Hotel #007'));
     }
@@ -542,9 +581,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageWSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #0'));
     }
@@ -555,9 +594,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageAndAddHotelChildWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageNAddHotelChildWSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #0', '[Translate to Dansk:] Hotel #007'));
     }
@@ -568,9 +607,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageAndAddMonoglotHotelChildWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageNAddMonoglotHotelChildWSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #0', 'Hotel #007'));
     }
@@ -581,9 +620,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizeAndCopyPageWithLanguageSynchronization();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeNCopyPageWSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #0'));
     }
@@ -598,9 +637,9 @@ final class ActionTest extends AbstractActionTestCase
         parent::localizePageWithSynchronizationAndCustomLocalizedHotel();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageWithSynchronizationAndCustomLocalizedHotel.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('[Translate to Dansk:] Hotel #0'));
     }
@@ -612,11 +651,25 @@ final class ActionTest extends AbstractActionTestCase
         parent::copyPage();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/localizePageAddMonoglotHotelChildNCopyPageWSynchronization.csv');
 
-        $response = $this->executeFrontendSubRequest((new InternalRequest())->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
+        $response = $this->executeFrontendSubRequest(new InternalRequest()->withPageId(self::VALUE_PageId)->withLanguageId(self::VALUE_LanguageId));
         $responseSections = ResponseContent::fromString((string)$response->getBody())->getSections();
-        self::assertThat($responseSections, (new StructureHasRecordConstraint())
+        self::assertThat($responseSections, new StructureHasRecordConstraint()
             ->setRecordIdentifier(self::TABLE_Page . ':' . self::VALUE_PageId)->setRecordField(self::FIELD_PageHotel)
             ->setTable(self::TABLE_Hotel)->setField('title')->setValues('Hotel #0', 'Hotel #007'));
+    }
+
+    #[Test]
+    public function inlineLocalizeSynchronizeSortsNewChildLikeOriginal(): void
+    {
+        parent::inlineLocalizeSynchronizeSortsNewChildLikeOriginal();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/inlineLocalizeSynchronizeSortsNewChildLikeOriginal.csv');
+    }
+
+    #[Test]
+    public function inlineLocalizeSynchronizeKeepsTranslationOnlyChildPosition(): void
+    {
+        parent::inlineLocalizeSynchronizeKeepsTranslationOnlyChildPosition();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/inlineLocalizeSynchronizeKeepsTranslationOnlyChildPosition.csv');
     }
 
     #[Test]
@@ -624,5 +677,40 @@ final class ActionTest extends AbstractActionTestCase
     {
         parent::inlineLocalizeSynchronizeLocalizeMissing();
         $this->assertCSVDataSet(__DIR__ . '/DataSet/inlineLocalizeSynchronizeLocalizeMissing.csv');
+    }
+
+    #[Test]
+    public function deletePageWithDirectHotelChild(): void
+    {
+        parent::deletePageWithDirectHotelChild();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePageWithDirectHotelChild.csv');
+    }
+
+    #[Test]
+    public function deletePageWithDirectHotelChildThenHardDelete(): void
+    {
+        parent::deletePageWithDirectHotelChildThenHardDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deletePageWithDirectHotelChildThenHardDelete.csv');
+    }
+
+    #[Test]
+    public function deleteHotelWithMultipleOffers(): void
+    {
+        parent::deleteHotelWithMultipleOffers();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteHotelWithMultipleOffers.csv');
+    }
+
+    #[Test]
+    public function deleteHotelWithMultipleOffersThenHardDelete(): void
+    {
+        parent::deleteHotelWithMultipleOffersThenHardDelete();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/deleteHotelWithMultipleOffersThenHardDelete.csv');
+    }
+
+    #[Test]
+    public function localizeParentContentAndMoveToDifferentPage(): void
+    {
+        parent::localizeParentContentAndMoveToDifferentPage();
+        $this->assertCSVDataSet(__DIR__ . '/DataSet/localizeParentContentNMoveToDifferentPage.csv');
     }
 }

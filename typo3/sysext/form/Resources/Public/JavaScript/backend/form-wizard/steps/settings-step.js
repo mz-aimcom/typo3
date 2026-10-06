@@ -1,0 +1,13 @@
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+import{html as o,nothing as n}from"lit";import a from"~labels/form.form_manager_javascript";class r{constructor(e){this.context=e,this.key="settings",this.title=a.get("formManager.newFormWizard.step2.title"),this.autoAdvance=!0,this.data={formName:"",storageLocation:""},this.reset()}isComplete(){return this.getValue()?.formName!==""}render(){return o`${this.renderSavePath()} ${this.renderFormNameInput()}`}reset(){this.setValue({formName:"",storageLocation:""}),this.context.clearStoreData(this.key)}getValue(){return this.data}setValue(e){this.data={...this.data,...e},this.context.wizard.requestUpdate()}beforeAdvance(){this.context.setStoreData(this.key,this.getValue())}getSummaryData(){const e=this.context.getStoreData(this.key),t=this.context.getStoreData("storage"),s=(t?this.context.formManager.getAccessibleStorageLocationsForAdapter(t):[]).find(i=>i.value===e.storageLocation)?.label??e.storageLocation;return[{value:e.formName,label:a.get("formManager.form_name")},{value:s,label:a.get("formManager.form_storageLocation")}]}renderSavePath(){const e=this.context.formManager.getAccessibleStorageLocationsForAdapter(this.context.getStoreData("storage"))??[];return e.length<=1?(this.setValue({storageLocation:e[0]?.value??""}),n):(!this.data.storageLocation&&e.length>0&&this.setValue({storageLocation:e[0].value}),o`<div class=form-group><label class=form-label for=new-form-save-path>${a.get("formManager.form_storageLocation")}</label><div class=form-description>${a.get("formManager.form_storageLocation_description")}</div><select class="new-form-save-path form-select" id=new-form-save-path data-identifier=newFormSavePath @change=${t=>this.setValue({storageLocation:t.target.value})}>${e.map(t=>o`<option value=${t.value} ?selected=${t.value===this.data.storageLocation}>${t.label}</option>`)}</select></div>`)}renderFormNameInput(){return o`<div class=form-group><label class=form-label for=new-form-name>${a.get("formManager.form_name")}</label><div class=form-description>${a.get("formManager.form_name_description")}</div><input class="form-control ${this.isComplete()?"":"has-error"}" id=new-form-name data-identifier=newFormName name=newFormName .value=${this.data.formName} @input=${e=>this.setValue({formName:e.target.value})}></div>`}}export{r as SettingsStep,r as default};

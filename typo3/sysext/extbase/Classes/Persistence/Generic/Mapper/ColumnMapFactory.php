@@ -22,9 +22,11 @@ use TYPO3\CMS\Core\Schema\Field\CountryFieldType;
 use TYPO3\CMS\Core\Schema\Field\DateTimeFieldType;
 use TYPO3\CMS\Core\Schema\Field\FieldTypeInterface;
 use TYPO3\CMS\Core\Schema\Field\FolderFieldType;
+use TYPO3\CMS\Core\Schema\Field\GroupFieldType;
 use TYPO3\CMS\Core\Schema\Field\RelationalFieldTypeInterface;
+use TYPO3\CMS\Core\Schema\Field\StaticSelectFieldType;
 use TYPO3\CMS\Core\Schema\RelationshipType;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Extbase\DomainObject\DomainObjectInterface;
 use TYPO3\CMS\Extbase\Persistence\Generic\Mapper\ColumnMap\Relation;
 use TYPO3\CMS\Extbase\Reflection\ClassSchema\Exception\NoSuchPropertyException;
 use TYPO3\CMS\Extbase\Reflection\ReflectionService;
@@ -44,7 +46,7 @@ readonly class ColumnMapFactory
         $propertyCollectionValueType = null;
         try {
             $property = $this->reflectionService->getClassSchema($className)->getProperty($propertyName);
-            $nonProxyPropertyTypes = $property->getFilteredTypes([$property, 'filterLazyLoadingProxyAndLazyObjectStorage']);
+            $nonProxyPropertyTypes = $property->getFilteredTypes($property->filterLazyLoadingProxyAndLazyObjectStorage(...));
             $primaryType = $nonProxyPropertyTypes[0] ?? null;
             $propertyType = $primaryType?->getClassName() ?? $primaryType?->getBuiltinType() ?? null;
             if ($primaryType?->isCollection() && $primaryType->getCollectionValueTypes() !== []) {
@@ -72,13 +74,12 @@ readonly class ColumnMapFactory
         $columnName = $field->getName();
         $tableColumnType = TableColumnType::tryFrom($field->getType());
         $childTableName = null;
-        if ($field->isType(TableColumnType::GROUP)) {
+        if ($field instanceof GroupFieldType) {
             // TCA type="group" has no TCA property "foreign_table" and can only deal with single-table
             // relations in extbase (no support for union types). That means `allowed` should only
             // contain ONE table entry, as Extbase can only evaluate the first one, if multiple
             // are defined.
-            $allowed = GeneralUtility::trimExplode(',', $columnConfiguration['allowed'] ?? '', true);
-            $childTableName = $allowed[0] ?? $columnConfiguration['foreign_table'] ?? null;
+            $childTableName = $field->getAllowedSchemaNames()[0] ?? $columnConfiguration['foreign_table'] ?? null;
         } elseif ($field instanceof RelationalFieldTypeInterface) {
             $childTableName = $columnConfiguration['foreign_table'] ?? null;
         }
@@ -133,8 +134,11 @@ readonly class ColumnMapFactory
             );
         }
 
-        if ($propertyType !== null && strpbrk($propertyType, '_\\') !== false) {
-            // @todo: Check this. Seems to be a check for Tx_Foo_Bar style class names?!
+        if ($propertyType !== null && is_subclass_of($propertyType, DomainObjectInterface::class)) {
+            // The model property is typed with a domain object and therefore defines a to-one relation,
+            // even if the TCA column type is not a relational one (e.g. type="passthrough").
+            // Any other class type (backed enums, TypeInterface implementations, ...) is a value that is
+            // persisted inline and must not be treated as a relation to another domain object.
             return new ColumnMap(
                 columnName: $columnName,
                 type: $tableColumnType,
@@ -177,12 +181,19 @@ readonly class ColumnMapFactory
             );
         }
 
-        if ($field instanceof RelationalFieldTypeInterface
-            && $field->getRelationshipType()->hasMany()
-            && (
-                !$field->isType(TableColumnType::GROUP, TableColumnType::SELECT)
-                || ($field->isType(TableColumnType::GROUP) && (!isset($columnConfiguration['maxitems']) || $columnConfiguration['maxitems'] > 1))
-                || ($field->isType(TableColumnType::SELECT) && (($columnConfiguration['renderType'] ?? '') !== 'selectSingle' || (int)($columnConfiguration['maxitems'] ?? 0) > 1))
+        if (
+            (
+                $field instanceof RelationalFieldTypeInterface
+                && $field->getRelationshipType()->hasMany()
+                && (
+                    !$field->isType(TableColumnType::GROUP, TableColumnType::SELECT)
+                    || ($field->isType(TableColumnType::GROUP) && (!isset($columnConfiguration['maxitems']) || $columnConfiguration['maxitems'] > 1))
+                    || ($field->isType(TableColumnType::SELECT) && (($columnConfiguration['renderType'] ?? '') !== 'selectSingle' || (int)($columnConfiguration['maxitems'] ?? 0) > 1))
+                )
+            )
+            || (
+                $field instanceof StaticSelectFieldType
+                && (int)($columnConfiguration['maxitems'] ?? 0) > 1 // @todo: Get rid of the "maxitems" and rely purely on the relationship type
             )
         ) {
             return new ColumnMap(

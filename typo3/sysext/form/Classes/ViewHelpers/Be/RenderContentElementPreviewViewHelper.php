@@ -18,6 +18,10 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Form\ViewHelpers\Be;
 
 use Psr\Http\Message\ServerRequestInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
+use TYPO3\CMS\Backend\Context\PageContext;
+use TYPO3\CMS\Backend\Context\PageContextFactory;
+use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Backend\View\BackendLayout\BackendLayout;
 use TYPO3\CMS\Backend\View\BackendLayout\Grid\GridColumn;
@@ -25,7 +29,9 @@ use TYPO3\CMS\Backend\View\BackendLayout\Grid\GridColumnItem;
 use TYPO3\CMS\Backend\View\Drawing\DrawingConfiguration;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
 use TYPO3\CMS\Backend\View\PageViewMode;
-use TYPO3\CMS\Core\Site\Entity\NullSite;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Domain\RecordFactory;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
 
@@ -34,8 +40,11 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
  * Render a content element preview like the page module
  *
  * Scope: backend
+ *
+ * @see https://docs.typo3.org/permalink/t3viewhelper:typo3-form-be-rendercontentelementpreview
  * @internal
  */
+#[Autoconfigure(public: true)]
 final class RenderContentElementPreviewViewHelper extends AbstractViewHelper
 {
     /**
@@ -45,9 +54,16 @@ final class RenderContentElementPreviewViewHelper extends AbstractViewHelper
      */
     protected $escapeOutput = false;
 
+    public function __construct(
+        private readonly PageContextFactory $pageContextFactory,
+        private readonly UriBuilder $uriBuilder,
+        private readonly RecordFactory $recordFactory,
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('contentElementUid', 'int', 'The uid of a content element');
+        $this->registerArgument('formPersistenceIdentifier', 'string', 'The form persistence identifier for return URL', false, '');
     }
 
     public function render(): string
@@ -61,19 +77,69 @@ final class RenderContentElementPreviewViewHelper extends AbstractViewHelper
         }
         if (!empty($contentRecord) && $request !== null) {
             $backendLayout = GeneralUtility::makeInstance(BackendLayout::class, 'dummy', 'dummy', []);
-            $pageRow = BackendUtility::getRecord('pages', $contentRecord['pid']);
+            $pageId = (int)$contentRecord['pid'];
+            $pageContext = $request->getAttribute('pageContext');
+            if (!$pageContext instanceof PageContext) {
+                try {
+                    $pageContext = $this->pageContextFactory->createFromRequest($request, $pageId, $this->getBackendUser());
+                } catch (\Exception $e) {
+                    return '';
+                }
+            }
+
+            $manipulatedRequest = $this->getManipulatedRequestToFormEditor($request, $contentRecord);
+
             $pageLayoutContext = GeneralUtility::makeInstance(
                 PageLayoutContext::class,
-                $pageRow,
+                $pageContext,
                 $backendLayout,
-                $request->getAttribute('site') ?? new NullSite(),
-                DrawingConfiguration::create($backendLayout, BackendUtility::getPagesTSconfig($contentRecord['pid']), PageViewMode::LayoutView),
-                $request
+                DrawingConfiguration::create($backendLayout, BackendUtility::getPagesTSconfig($pageId), PageViewMode::LayoutView),
+                $manipulatedRequest
             );
             $gridColumn = GeneralUtility::makeInstance(GridColumn::class, $pageLayoutContext, []);
+            $contentRecord = $this->recordFactory->createResolvedRecordFromDatabaseRow('tt_content', $contentRecord, null, $pageLayoutContext->getRecordIdentityMap());
             $columnItem = GeneralUtility::makeInstance(GridColumnItem::class, $pageLayoutContext, $gridColumn, $contentRecord);
             return $columnItem->getPreview();
         }
         return $content;
+    }
+
+    private function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
+    }
+
+    /**
+     * Create a manipulated request with custom NormalizedParams to override the return URL.
+     * This allows customizing the return URL used by PageLayoutContext->getReturnUrl()
+     * without modifying the original request or the PageLayoutContext logic.
+     */
+    private function getManipulatedRequestToFormEditor(ServerRequestInterface $request, array $contentRecord): ServerRequestInterface
+    {
+        $serverParams = $request->getServerParams();
+        $serverParams['REQUEST_URI'] = $this->buildCustomReturnUrl($request, $contentRecord);
+
+        $customNormalizedParams = NormalizedParams::createFromServerParams($serverParams);
+
+        return $request->withAttribute('normalizedParams', $customNormalizedParams);
+    }
+
+    /**
+     * Build the custom return URL for the form editor.
+     * Generates the URL to FormEditor->index action with the formPersistenceIdentifier parameter.
+     */
+    private function buildCustomReturnUrl(ServerRequestInterface $request, array $contentRecord): string
+    {
+        $formPersistenceIdentifier = $this->arguments['formPersistenceIdentifier'] ?? '';
+
+        if (empty($formPersistenceIdentifier)) {
+            return $request->getAttribute('normalizedParams')->getRequestUri();
+        }
+
+        $uri = $this->uriBuilder->buildUriFromRoute(
+            'form_editor',
+            ['formPersistenceIdentifier' => $formPersistenceIdentifier]
+        );
+        return (string)$uri;
     }
 }

@@ -33,8 +33,8 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
  * The dropdown items can be manipulated using ModifyClearCacheActionsEvent.
  *
  * @phpstan-type CacheAction array{
- *     href: non-empty-string,
  *     id: non-empty-string,
+ *     endpoint: non-empty-string,
  *     iconIdentifier: non-empty-string,
  *     title: non-empty-string,
  *     description?: non-empty-string,
@@ -68,11 +68,11 @@ class ClearCacheToolbarItem implements ToolbarItemInterface, RequestAwareToolbar
         if ($isAdmin || ($userTsConfig['options.']['clearCache.']['pages'] ?? false)) {
             $this->cacheActions[] = [
                 'id' => 'pages',
-                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:flushPageCachesTitle',
-                'description' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:flushPageCachesDescription',
-                'href' => (string)$uriBuilder->buildUriFromRoute('tce_db', ['cacheCmd' => 'pages']),
+                'title' => 'core.cache:group.pages.label',
+                'description' => 'core.cache:group.pages.description',
+                'endpoint' => (string)$uriBuilder->buildUriFromRoute('ajax_clearcache_group_pages'),
                 'severity' => 'success',
-                'iconIdentifier' => 'actions-system-cache-clear-impact-low',
+                'iconIdentifier' => 'actions-bolt-alt',
             ];
             $this->optionValues[] = 'pages';
         }
@@ -85,11 +85,11 @@ class ClearCacheToolbarItem implements ToolbarItemInterface, RequestAwareToolbar
         ) {
             $this->cacheActions[] = [
                 'id' => 'all',
-                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:flushAllCachesTitle2',
-                'description' => 'LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:flushAllCachesDescription2',
-                'href' => (string)$uriBuilder->buildUriFromRoute('tce_db', ['cacheCmd' => 'all']),
+                'title' => 'core.cache:group.all.label',
+                'description' => 'core.cache:group.all.description',
+                'endpoint' => (string)$uriBuilder->buildUriFromRoute('ajax_clearcache_group_all'),
                 'severity' => 'danger',
-                'iconIdentifier' => 'actions-system-cache-clear-impact-high',
+                'iconIdentifier' => 'actions-bolt-alt',
             ];
             $this->optionValues[] = 'all';
         }
@@ -97,6 +97,7 @@ class ClearCacheToolbarItem implements ToolbarItemInterface, RequestAwareToolbar
         $event = new ModifyClearCacheActionsEvent($this->cacheActions, $this->optionValues);
         $event = $eventDispatcher->dispatch($event);
         $this->cacheActions = $event->getCacheActions();
+
         $this->optionValues = $event->getCacheActionIdentifiers();
     }
 
@@ -133,7 +134,7 @@ class ClearCacheToolbarItem implements ToolbarItemInterface, RequestAwareToolbar
         }
         $cacheAction = end($this->cacheActions);
         $view->assignMultiple([
-            'link'  => $cacheAction['href'],
+            'endpoint'  => $cacheAction['endpoint'],
             'title' => $cacheAction['title'],
             'iconIdentifier'  => $cacheAction['iconIdentifier'],
         ]);
@@ -171,7 +172,7 @@ class ClearCacheToolbarItem implements ToolbarItemInterface, RequestAwareToolbar
      */
     public function getIndex(): int
     {
-        return 25;
+        return 20;
     }
 
     protected function getBackendUser(): BackendUserAuthentication

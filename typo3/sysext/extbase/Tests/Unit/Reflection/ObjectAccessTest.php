@@ -33,7 +33,7 @@ final class ObjectAccessTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
 
-    protected DummyClassWithGettersAndSetters $dummyObject;
+    private DummyClassWithGettersAndSetters $dummyObject;
 
     protected function setUp(): void
     {
@@ -156,8 +156,8 @@ final class ObjectAccessTest extends UnitTestCase
     public function getPropertyCanAccessPropertiesOfAnArray(): void
     {
         $array = ['key' => 'value'];
-        $expected = ObjectAccess::getProperty($array, 'key');
-        self::assertEquals('value', $expected, 'getProperty does not work with Array property.');
+        $actual = ObjectAccess::getProperty($array, 'key');
+        self::assertEquals('value', $actual, 'getProperty does not work with Array property.');
     }
 
     #[Test]
@@ -199,7 +199,7 @@ final class ObjectAccessTest extends UnitTestCase
         self::assertSame(2, $i);
     }
 
-    protected function setUpObjectStorageWithTwoItems(): ObjectStorage
+    private function setUpObjectStorageWithTwoItems(): ObjectStorage
     {
         $objectStorage = new ObjectStorage();
         $exampleObject = new \stdClass();
@@ -234,7 +234,7 @@ final class ObjectAccessTest extends UnitTestCase
         self::assertSame(2, $i);
     }
 
-    protected function setUpSplObjectStorageWithTwoItems(): \SplObjectStorage
+    private function setUpSplObjectStorageWithTwoItems(): \SplObjectStorage
     {
         $objectStorage = new \SplObjectStorage();
         $exampleObject = new \stdClass();
@@ -252,7 +252,7 @@ final class ObjectAccessTest extends UnitTestCase
         GeneralUtility::setSingletonInstance(ReflectionService::class, new ReflectionService(new NullFrontend('extbase'), 'ClassSchemata'));
         $gettablePropertyNames = ObjectAccess::getGettablePropertyNames($this->dummyObject);
         $expectedPropertyNames = ['anotherBooleanProperty', 'anotherProperty', 'booleanProperty', 'property', 'property2', 'publicProperty', 'publicProperty2', 'someValue'];
-        self::assertEquals($gettablePropertyNames, $expectedPropertyNames, 'getGettablePropertyNames returns not all gettable properties.');
+        self::assertEquals($expectedPropertyNames, $gettablePropertyNames, 'getGettablePropertyNames returns not all gettable properties.');
     }
 
     #[Test]
@@ -273,7 +273,7 @@ final class ObjectAccessTest extends UnitTestCase
         GeneralUtility::setSingletonInstance(ReflectionService::class, new ReflectionService(new NullFrontend('extbase'), 'ClassSchemata'));
         $settablePropertyNames = ObjectAccess::getSettablePropertyNames($this->dummyObject);
         $expectedPropertyNames = ['anotherBooleanProperty', 'anotherProperty', 'property', 'property2', 'publicProperty', 'publicProperty2', 'writeOnlyMagicProperty'];
-        self::assertEquals($settablePropertyNames, $expectedPropertyNames, 'getSettablePropertyNames returns not all settable properties.');
+        self::assertEquals($expectedPropertyNames, $settablePropertyNames, 'getSettablePropertyNames returns not all settable properties.');
     }
 
     #[Test]
@@ -302,7 +302,7 @@ final class ObjectAccessTest extends UnitTestCase
             'publicProperty2' => 42,
             'someValue' => true,
         ];
-        self::assertEquals($allProperties, $expectedProperties, 'expectedProperties did not return the right values for the properties.');
+        self::assertEquals($expectedProperties, $allProperties, 'expectedProperties did not return the right values for the properties.');
     }
 
     #[Test]
@@ -365,8 +365,7 @@ final class ObjectAccessTest extends UnitTestCase
     #[Test]
     public function isPropertyGettableWorksOnArrayAccessObjects(): void
     {
-        $arrayObject = new \ArrayObject();
-        $arrayObject['key'] = 'v';
+        $arrayObject = new \ArrayObject(['key' => 'v']);
         self::assertTrue(ObjectAccess::isPropertyGettable($arrayObject, 'key'));
         self::assertFalse(ObjectAccess::isPropertyGettable($arrayObject, 'undefinedKey'));
     }
@@ -374,8 +373,7 @@ final class ObjectAccessTest extends UnitTestCase
     #[Test]
     public function isPropertyGettableWorksOnObjectsMixingRegularPropertiesAndArrayAccess(): void
     {
-        /** @var \ArrayAccess $object */
-        $object = new class () extends \ArrayObject {
+        $object = new class extends \ArrayObject {
             private $regularProperty = 'foo';
 
             public function getRegularProperty(): string

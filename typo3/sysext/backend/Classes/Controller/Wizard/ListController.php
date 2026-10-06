@@ -19,13 +19,14 @@ namespace TYPO3\CMS\Backend\Controller\Wizard;
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use TYPO3\CMS\Backend\Form\Utility\FormEngineUtility;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Http\RedirectResponse;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Script Class for redirecting the user to the Web > List module if a wizard-link has been clicked in FormEngine.
+ * Script Class for redirecting the user to the Content > Records module if a wizard-link has been clicked in FormEngine.
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
@@ -44,7 +45,7 @@ class ListController
         $id = $parsedBody['id'] ?? $queryParams['id'] ?? null;
         $table = $parameters['table'] ?? '';
         $origRow = BackendUtility::getRecord($table, $parameters['uid']);
-        $tsConfig = BackendUtility::getTCEFORM_TSconfig($table, $origRow ?? ['pid' => $parameters['pid'] ?? 0]);
+        $tsConfig = FormEngineUtility::getTCEFORM_TSconfig($table, $origRow ?? ['pid' => $parameters['pid'] ?? 0]);
 
         if (str_starts_with($parameters['params']['pid'], '###') && substr($parameters['params']['pid'], -3) === '###') {
             $keyword = substr($parameters['params']['pid'], 3, -3);
@@ -59,7 +60,7 @@ class ListController
 
         if ((string)$id !== '') {
             // If pid is blank
-            $redirectUrl = GeneralUtility::sanitizeLocalUrl($parameters['returnUrl']);
+            $redirectUrl = GeneralUtility::sanitizeLocalUrl($parameters['returnUrl'], $request);
         } else {
             // Otherwise, show the list
             $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
@@ -69,9 +70,9 @@ class ListController
             $urlParameters['id'] = $pid;
             $urlParameters['table'] = $parameters['params']['table'];
             $urlParameters['returnUrl'] = !empty($parameters['returnUrl'])
-                ? GeneralUtility::sanitizeLocalUrl($parameters['returnUrl'])
+                ? GeneralUtility::sanitizeLocalUrl($parameters['returnUrl'], $request)
                 : $requestUri;
-            $redirectUrl = (string)$uriBuilder->buildUriFromRoute('web_list', $urlParameters);
+            $redirectUrl = (string)$uriBuilder->buildUriFromRoute('records', $urlParameters);
         }
 
         return new RedirectResponse($redirectUrl);

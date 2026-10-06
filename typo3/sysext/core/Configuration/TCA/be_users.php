@@ -49,6 +49,16 @@ return [
                 'passwordPolicy' => $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordPolicy'] ?? '',
                 'size' => 20,
                 'required' => true,
+                'fieldControl' => [
+                    'passwordGenerator' => [
+                        'renderType' => 'passwordGenerator',
+                        'options' => [
+                            'title' => 'core.core:labels.generatePassword',
+                            'allowEdit' => true,
+                            'passwordPolicy' => $GLOBALS['TYPO3_CONF_VARS']['BE']['passwordPolicy'] ?? '',
+                        ],
+                    ],
+                ],
             ],
             'authenticationContext' => [
                 //'group' => 'be.userManagement',
@@ -259,7 +269,8 @@ return [
                 'type' => 'select',
                 'renderType' => 'selectSingle',
                 'itemsProcFunc' => \TYPO3\CMS\Core\Localization\TcaSystemLanguageCollector::class . '->populateAvailableSystemLanguagesForBackend',
-                'default' => 'default',
+                'default' => 'en',
+                'dbFieldLength' => 10,
                 'items' => [
                 ],
                 'itemGroups' => [
@@ -299,10 +310,22 @@ return [
             'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:TSconfig',
             'config' => [
                 'type' => 'text',
+                'renderType' => 'codeEditor',
+                'format' => 'typoscript',
                 'cols' => 40,
                 'rows' => 5,
                 'enableTabulator' => true,
                 'fixedFont' => true,
+            ],
+        ],
+        'tsconfig_includes' => [
+            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:tsconfig_includes',
+            'config' => [
+                'type' => 'select',
+                'renderType' => 'selectMultipleSideBySide',
+                'size' => 10,
+                'items' => [],
+                'softref' => 'ext_fileref',
             ],
         ],
         'lastlogin' => [
@@ -329,71 +352,73 @@ return [
                 'group' => 'be.userManagement',
             ],
         ],
+        'user_settings' => [
+            'label' => 'core.tca:user_settings',
+            'config' => [
+                'type' => 'json',
+            ],
+        ],
     ],
     'types' => [
         '0' => [
+            'title' => 'core.tca:be_users.types.user',
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                     --palette--;;account,
                     usergroup,
                     --palette--;;authentication,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
+                --div--;core.form.tabs:personaldata,
                     realName, email, avatar, lang,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.permissionRecords,
+                --div--;core.form.tabs:recordpermissions,
                     --palette--;;permissionLanguages,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.permissions,
+                --div--;core.form.tabs:modulepermissions,
                     userMods, workspace_perms,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.mounts_and_workspaces,
+                --div--;core.form.tabs:mounts,
                     db_mountpoints, options, file_mountpoints, file_permissions, category_perms,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
-                    TSconfig,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:options,
+                    TSconfig, tsconfig_includes,
+                --div--;core.form.tabs:access,
                     --palette--;;status,
                     --palette--;;timeRestriction,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                --div--;core.form.tabs:notes,
                     description,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+                --div--;core.form.tabs:extended,
             ',
-            'creationOptions' => [
-                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.types.user',
-            ],
         ],
         '1' => [
+            'title' => 'core.tca:be_users.types.admin',
             'showitem' => '
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,
+                --div--;core.form.tabs:general,
                     --palette--;;account,
                     usergroup,
                     --palette--;;authentication,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.personal_data,
+                --div--;core.form.tabs:personaldata,
                     realName, email, avatar, lang,
-                --div--;LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.tabs.options,
-                    TSconfig, db_mountpoints, options, file_mountpoints,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:access,
+                --div--;core.form.tabs:options,
+                    TSconfig, tsconfig_includes, db_mountpoints, options, file_mountpoints,
+                --div--;core.form.tabs:access,
                     --palette--;;status,
                     --palette--;;timeRestriction,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:notes,
+                --div--;core.form.tabs:notes,
                     description,
-                --div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:extended,
+                --div--;core.form.tabs:extended,
             ',
-            'creationOptions' => [
-                'title' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.types.admin',
-            ],
         ],
     ],
     'palettes' => [
         'account' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.account',
+            'label' => 'core.form.palettes:account',
             'showitem' => '
                 admin,
                 --linebreak--, username, password
             ',
         ],
         'authentication' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.authentication',
+            'label' => 'core.form.palettes:authentication',
             'showitem' => 'mfa',
         ],
         'permissionLanguages' => [
-            'label' => 'LLL:EXT:core/Resources/Private/Language/locallang_tca.xlf:be_users.palettes.permissionLanguages',
+            'label' => 'core.form.palettes:permission_languages',
             'showitem' => 'allowed_languages',
         ],
         'status' => [

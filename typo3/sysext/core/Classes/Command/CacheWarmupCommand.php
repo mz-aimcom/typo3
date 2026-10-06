@@ -26,7 +26,6 @@ use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Event\CacheWarmupEvent;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Configuration\Extension\ExtLocalconfFactory;
-use TYPO3\CMS\Core\Configuration\Extension\ExtTablesFactory;
 use TYPO3\CMS\Core\Configuration\Tca\TcaFactory;
 use TYPO3\CMS\Core\Core\BootService;
 use TYPO3\CMS\Core\DependencyInjection\ContainerBuilder;
@@ -49,10 +48,36 @@ class CacheWarmupCommand extends Command
     protected function configure(): void
     {
         $this->setDescription('Warmup TYPO3 caches.');
-        $this->setHelp('This command is useful for deployments to warmup caches during release preparation.');
+        $this->setHelp(
+            <<<'EOF'
+This command is useful for deployments to warmup caches during release preparation.
+
+<fg=yellow>
+Cache warming does not work if the PHP version used to execute the command differs from
+the PHP version used in the web context.
+
+See: https://docs.typo3.org/permalink/changelog:important-107649-1760090777
+</>
+EOF
+        );
         $this->setDefinition([
-            new InputOption('group', 'g', InputOption::VALUE_OPTIONAL, 'The cache group to warmup (system, pages, di or all)', 'all'),
+            new InputOption('group', 'g', InputOption::VALUE_OPTIONAL, 'The cache group to warmup (system, pages, di or all)', 'all', function (): array {
+                return $this->getAvailableCacheGroups();
+            }),
         ]);
+    }
+
+    /**
+     * All cache groups registered by the core and extensions, plus the
+     * pseudo groups "di" and "all" which are handled by this command only.
+     *
+     * @return string[]
+     */
+    private function getAvailableCacheGroups(): array
+    {
+        $groups = $this->bootService->getContainer()->get(CacheManager::class)->getCacheGroups();
+
+        return array_values(array_unique([...$groups, 'di', 'all']));
     }
 
     /**
@@ -75,18 +100,12 @@ class CacheWarmupCommand extends Command
         if ($group === 'system' || $group === 'all') {
             $allowExtFileCaches = false;
             $container->get(ExtLocalconfFactory::class)->createCacheEntry();
-            $container->get(ExtTablesFactory::class)->createCacheEntry();
         }
         // Perform a full boot to load localconf (requirement for extensions and for TCA loading).
-        $this->bootService->loadExtLocalconfDatabaseAndExtTables(false, $allowExtFileCaches, false);
+        $this->bootService->loadExtLocalconfDatabase(false, $allowExtFileCaches);
         if ($group === 'system' || $group === 'all') {
             $tcaFactory = $container->get(TcaFactory::class);
             $tcaFactory->createBaseTcaCacheFile($GLOBALS['TCA']);
-        }
-        if ($allowExtFileCaches) {
-            $container->get(ExtTablesFactory::class)->load();
-        } else {
-            $container->get(ExtTablesFactory::class)->loadUncached();
         }
 
         $eventDispatcher = $container->get(EventDispatcherInterface::class);

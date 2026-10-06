@@ -17,47 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Page;
 
-use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Localization\Locale;
-use TYPO3\CMS\Core\Page\ImportMap;
-use TYPO3\CMS\Core\Page\ImportMapFactory;
+use TYPO3\CMS\Core\Page\JavaScriptRenderer;
 use TYPO3\CMS\Core\Page\PageRenderer;
-use TYPO3\CMS\Core\Security\ContentSecurityPolicy\ConsumableNonce;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class PageRendererTest extends UnitTestCase
 {
     use PageRendererFactoryTrait;
-
-    protected bool $resetSingletonInstances = true;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $importMapMock = $this->createMock(ImportMap::class);
-        $importMapMock->method('render')
-            ->with(self::isString(), self::isInstanceOf(ConsumableNonce::class))
-            ->willReturn('');
-        $importMapFactoryMock = $this->createMock(ImportMapFactory::class);
-        $importMapFactoryMock->method('create')->willReturn($importMapMock);
-        GeneralUtility::setSingletonInstance(ImportMapFactory::class, $importMapFactoryMock);
-    }
-
-    #[Test]
-    public function renderMethodCallsResetInAnyCase(): void
-    {
-        $pageRenderer = $this->getMockBuilder(PageRenderer::class)
-            ->setConstructorArgs($this->getPageRendererConstructorArgs())
-            ->onlyMethods(['reset', 'prepareRendering', 'renderJavaScriptAndCss', 'getPreparedMarkerArray', 'getTemplate'])
-            ->getMock();
-
-        $pageRenderer->expects($this->once())->method('reset');
-        GeneralUtility::setSingletonInstance(PageRenderer::class, $pageRenderer);
-        $pageRenderer->render();
-    }
 
     #[Test]
     public function addBodyContentAddsContent(): void
@@ -69,8 +40,8 @@ final class PageRendererTest extends UnitTestCase
         $subject->addBodyContent('C');
         $subject->addBodyContent('D');
         $subject->addBodyContent('E');
-        $out = $subject->getBodyContent();
-        self::assertEquals($expectedReturnValue, $out);
+        $subjectPropertyReflection = (new \ReflectionProperty($subject, 'bodyContent'));
+        self::assertEquals($expectedReturnValue, $subjectPropertyReflection->getValue($subject));
     }
 
     #[Test]
@@ -88,7 +59,8 @@ final class PageRendererTest extends UnitTestCase
         ];
 
         $subject->addInlineLanguageLabelFile($fileReference, $selectionPrefix, $stripFromSelectionName);
-        $actualResult = $subject->getInlineLanguageLabelFiles();
+        $subjectPropertyReflection = (new \ReflectionProperty($subject, 'inlineLanguageLabelFiles'));
+        $actualResult = $subjectPropertyReflection->getValue($subject);
 
         self::assertSame($expectedInlineLanguageLabelFile, array_pop($actualResult));
     }
@@ -116,7 +88,8 @@ final class PageRendererTest extends UnitTestCase
 
         $subject->addInlineLanguageLabelFile($fileReference1, $selectionPrefix1, $stripFromSelectionName1);
         $subject->addInlineLanguageLabelFile($fileReference2, $selectionPrefix2, $stripFromSelectionName2);
-        $actualResult = $subject->getInlineLanguageLabelFiles();
+        $subjectPropertyReflection = (new \ReflectionProperty($subject, 'inlineLanguageLabelFiles'));
+        $actualResult = $subjectPropertyReflection->getValue($subject);
 
         self::assertSame($expectedInlineLanguageLabelFile2, array_pop($actualResult));
         self::assertSame($expectedInlineLanguageLabelFile1, array_pop($actualResult));
@@ -132,122 +105,25 @@ final class PageRendererTest extends UnitTestCase
 
         $subject->addInlineLanguageLabelFile($fileReference, $selectionPrefix, $stripFromSelectionName);
         $subject->addInlineLanguageLabelFile($fileReference, $selectionPrefix, $stripFromSelectionName);
-        self::assertCount(1, $subject->getInlineLanguageLabelFiles());
+        $subjectPropertyReflection = (new \ReflectionProperty($subject, 'inlineLanguageLabelFiles'));
+        self::assertCount(1, $subjectPropertyReflection->getValue($subject));
     }
 
     #[Test]
-    public function includeLanguageFileForInlineDoesNotAddToInlineLanguageLabelsIfFileCouldNotBeRead(): void
+    public function updateStateUpdatesState(): void
     {
-        $subject = $this->getAccessibleMock(PageRenderer::class, ['readLLfile'], [], '', false);
-        $subject->setLanguage(new Locale());
-        $subject->method('readLLfile')->willReturn([]);
-        $subject->_call('includeLanguageFileForInline', 'someLLFile.xml');
-        self::assertEquals([], $subject->_get('inlineLanguageLabels'));
-    }
-
-    public static function includeLanguageFileForInlineAddsProcessesLabelsToInlineLanguageLabelsProvider(): array
-    {
-        $llFileContent = [
-            'inline_label_first_Key' => 'first',
-            'inline_label_second_Key' => 'second',
-            'thirdKey' => 'third',
-        ];
-        return [
-            'No processing' => [
-                $llFileContent,
-                '',
-                '',
-                $llFileContent,
-            ],
-            'Respect $selectionPrefix' => [
-                $llFileContent,
-                'inline_',
-                '',
-                [
-                    'inline_label_first_Key' => 'first',
-                    'inline_label_second_Key' => 'second',
-                ],
-            ],
-            'Respect $stripFromSelectionName' => [
-                $llFileContent,
-                '',
-                'inline_',
-                [
-                    'label_first_Key' => 'first',
-                    'label_second_Key' => 'second',
-                    'thirdKey' => 'third',
-                ],
-            ],
-            'Respect $selectionPrefix and $stripFromSelectionName' => [
-                $llFileContent,
-                'inline_',
-                'inline_label_',
-                [
-                    'first_Key' => 'first',
-                    'second_Key' => 'second',
-                ],
-            ],
-        ];
-    }
-
-    #[DataProvider('includeLanguageFileForInlineAddsProcessesLabelsToInlineLanguageLabelsProvider')]
-    #[Test]
-    public function includeLanguageFileForInlineAddsProcessesLabelsToInlineLanguageLabels(array $llFileContent, string $selectionPrefix, string $stripFromSelectionName, array $expectation): void
-    {
-        $subject = $this->getAccessibleMock(PageRenderer::class, ['readLLfile'], [], '', false);
-        $subject->setLanguage(new Locale());
-        $subject->method('readLLfile')->willReturn($llFileContent);
-        $subject->_call('includeLanguageFileForInline', 'someLLFile.xml', $selectionPrefix, $stripFromSelectionName);
-        self::assertEquals($expectation, $subject->_get('inlineLanguageLabels'));
-    }
-
-    #[Test]
-    public function getAddedMetaTag(): void
-    {
+        GeneralUtility::addInstance(JavaScriptRenderer::class, self::createStub(JavaScriptRenderer::class));
         $subject = $this->getMockBuilder(PageRenderer::class)
             ->setConstructorArgs($this->getPageRendererConstructorArgs())
             ->onlyMethods([])
             ->getMock();
-        $subject->setMetaTag('nAme', 'Author', 'foobar');
-        $actualResult = $subject->getMetaTag('naMe', 'AUTHOR');
-        $expectedResult = [
-            'type' => 'name',
-            'name' => 'author',
-            'content' => 'foobar',
-        ];
-        self::assertSame($expectedResult, $actualResult);
-    }
 
-    #[Test]
-    public function overrideMetaTag(): void
-    {
-        $subject = $this->getMockBuilder(PageRenderer::class)
-            ->setConstructorArgs($this->getPageRendererConstructorArgs())
-            ->onlyMethods([])
-            ->getMock();
-        $subject->setMetaTag('nAme', 'Author', 'Axel Foley');
-        $subject->setMetaTag('nAme', 'Author', 'foobar');
-        $actualResult = $subject->getMetaTag('naMe', 'AUTHOR');
-        $expectedResult = [
-            'type' => 'name',
-            'name' => 'author',
-            'content' => 'foobar',
-        ];
-        self::assertSame($expectedResult, $actualResult);
-    }
+        $state = $subject->getState();
+        $state['title'] = 'Test Title';
 
-    #[Test]
-    public function unsetAddedMetaTag(): void
-    {
-        $subject = $this->getMockBuilder(PageRenderer::class)
-            ->setConstructorArgs($this->getPageRendererConstructorArgs())
-            ->onlyMethods([])
-            ->getMock();
-        $subject->setMetaTag('nAme', 'Author', 'foobar');
-        $subject->removeMetaTag('naMe', 'AUTHOR');
-        $actualResult = $subject->getMetaTag('naMe', 'AUTHOR');
-        $expectedResult = [];
-        self::assertSame($expectedResult, $actualResult);
+        $subject->updateState($state);
+
+        self::assertSame('Test Title', $subject->getState()['title']);
     }
 
     #[Test]

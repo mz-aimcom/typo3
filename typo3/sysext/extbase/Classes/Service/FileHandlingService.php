@@ -18,6 +18,7 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Extbase\Service;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\Random;
 use TYPO3\CMS\Core\Http\UploadedFile;
@@ -28,7 +29,7 @@ use TYPO3\CMS\Core\Resource\FileReference as CoreFileReference;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceInstructionTrait;
-use TYPO3\CMS\Core\SingletonInterface;
+use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 use TYPO3\CMS\Extbase\Domain\Model\FileReference;
@@ -49,19 +50,21 @@ use TYPO3\CMS\Extbase\Utility\TypeHandlingUtility;
 /**
  * @internal Only to be used within Extbase, not part of TYPO3 Core API.
  */
-class FileHandlingService implements SingletonInterface
+#[Autoconfigure(public: true)]
+readonly class FileHandlingService
 {
     use ResourceInstructionTrait;
 
-    public const DELETE_IDENTIFIER = '@delete';
+    public const string DELETE_IDENTIFIER = '@delete';
 
     public function __construct(
-        protected readonly ReflectionService $reflectionService,
-        protected readonly ResourceFactory $resourceFactory,
-        protected readonly DataMapFactory $dataMapFactory,
-        protected readonly EventDispatcherInterface $eventDispatcher,
-        protected readonly HashService $hashService,
-        protected readonly ExtensionService $extensionService,
+        protected ReflectionService $reflectionService,
+        protected ResourceFactory $resourceFactory,
+        protected StorageRepository $storageRepository,
+        protected DataMapFactory $dataMapFactory,
+        protected EventDispatcherInterface $eventDispatcher,
+        protected HashService $hashService,
+        protected ExtensionService $extensionService,
     ) {}
 
     /**
@@ -77,14 +80,15 @@ class FileHandlingService implements SingletonInterface
         }
         /** @var Argument $argument */
         foreach ($arguments as $argument) {
-            if (!$argument->getValidator() ||
-                !class_exists($argument->getDataType())
+            if (!$argument->getValidator()
+                || !class_exists($argument->getDataType())
             ) {
                 // Either argument has no validator (IgnoreValidation) or the datatype of the argument is not a class.
                 continue;
             }
 
-            $classSchema = $this->reflectionService->getClassSchema($argument->getDataType());
+            $dataType = GeneralUtility::getClassName($argument->getDataType());
+            $classSchema = $this->reflectionService->getClassSchema($dataType);
             foreach ($classSchema->getProperties() as $property) {
                 $this->addUploadConfigurationForProperty($argument, $property);
             }
@@ -111,19 +115,19 @@ class FileHandlingService implements SingletonInterface
         }
 
         $propertyTargetClassName = $primaryType->getClassName() ?? $primaryType->getBuiltinType();
-        if ($propertyTargetClassName !== FileReference::class &&
-            !TypeHandlingUtility::isSimpleType($propertyTargetClassName)
+        if ($propertyTargetClassName !== FileReference::class
+            && !TypeHandlingUtility::isSimpleType($propertyTargetClassName)
         ) {
             $primaryCollectionValueType = $property->getPrimaryCollectionValueType();
-            if ($propertyTargetClassName === ObjectStorage::class &&
-                $primaryCollectionValueType &&
-                $primaryType->isCollection()
+            if ($propertyTargetClassName === ObjectStorage::class
+                && $primaryCollectionValueType
+                && $primaryType->isCollection()
             ) {
                 $propertyTargetClassName = $primaryCollectionValueType->getClassName() ?? $primaryCollectionValueType->getBuiltinType();
             }
         }
 
-        // Skip unsupported classes for FileUpload annotation or properties with empty FileUpload configuration
+        // Skip unsupported classes for #[FileUpload] attribute or properties with empty FileUpload configuration
         if ($propertyTargetClassName !== FileReference::class || $property->getFileUpload() === null) {
             return;
         }
@@ -131,7 +135,7 @@ class FileHandlingService implements SingletonInterface
         $fileUploadConfiguration = $property->getFileUpload();
         $configurationPropertyName = $property->getName();
 
-        $configuration = (new FileUploadConfiguration($configurationPropertyName))
+        $configuration = new FileUploadConfiguration($configurationPropertyName)
             ->initializeWithConfiguration($fileUploadConfiguration);
         $configuration->ensureValidConfiguration($propertyTargetClassName);
 
@@ -214,9 +218,9 @@ class FileHandlingService implements SingletonInterface
         array $uploadedFiles,
         FileUploadConfiguration $configuration
     ): void {
-        if ($uploadedFiles === [] ||
-            !ObjectAccess::isPropertyGettable($argumentValue, $propertyName) ||
-            !ObjectAccess::isPropertySettable($argumentValue, $propertyName)
+        if ($uploadedFiles === []
+            || !ObjectAccess::isPropertyGettable($argumentValue, $propertyName)
+            || !ObjectAccess::isPropertySettable($argumentValue, $propertyName)
         ) {
             return;
         }
@@ -416,7 +420,7 @@ class FileHandlingService implements SingletonInterface
             }
 
             [$storageId, $storagePath] = explode(':', $uploadFolderIdentifier, 2);
-            $storage = $this->resourceFactory->getStorageObject((int)$storageId);
+            $storage = $this->storageRepository->getStorageObject((int)$storageId);
 
             if (!$storage->hasFolder($storagePath)) {
                 $folder = $storage->createFolder($storagePath);

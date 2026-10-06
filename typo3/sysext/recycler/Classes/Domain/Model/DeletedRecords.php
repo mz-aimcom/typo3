@@ -36,10 +36,13 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 
 /**
- * Model class for the 'recycler' extension.
+ * Each GeneralUtility::makeInstance() call must return a fresh
+ * DeletedRecords instance so that loadData() and getTotalCount()
+ * in the controller do not accumulate state across calls.
+ *
  * @internal This class is a specific domain model implementation and is not part of the Public TYPO3 API.
  */
-#[Autoconfigure(public: true)]
+#[Autoconfigure(public: true, shared: false)]
 class DeletedRecords
 {
     /**
@@ -47,76 +50,36 @@ class DeletedRecords
      */
     protected array $deletedRows = [];
 
-    /**
-     * String with the global limit
-     */
-    protected string $limit = '';
-
-    /**
-     * Array with all available tables
-     */
-    protected array $table = [];
-
     public function __construct(
         private readonly TcaSchemaFactory $tcaSchemaFactory,
         #[Autowire(service: 'cache.runtime')]
         protected readonly FrontendInterface $runtimeCache,
+        private readonly ConnectionPool $connectionPool,
     ) {}
 
     /**
-     * Load all deleted rows from $table
-     * If table is not set, it iterates the TCA tables
+     * Load all deleted rows from $table.
+     * If table is not set, it iterates the TCA tables.
      *
      * @param int $id UID from selected page
      * @param string $table Tablename
      * @param int $depth How many levels recursive
-     * @param string $limit MySQL LIMIT
      * @param string $filter Filter text
+     * @param int|null $languageId Restrict to this (site) language. Null yields all records, regardless of language awareness.
      */
-    public function loadData($id, string $table, $depth, $limit = '', $filter = ''): self
+    public function loadData(int $id, string $table, int $depth, string $filter = '', ?int $languageId = null): self
     {
-        // set the limit
-        $this->limit = trim($limit);
         if ($table) {
             $schemata = $this->getRelevantSchemata();
             if (array_key_exists($table, $schemata)) {
-                $this->table[] = $table;
-                $this->setData($id, $schemata[$table], $depth, $filter);
+                $this->setData($id, $schemata[$table], $depth, $filter, $languageId);
             }
         } else {
-            foreach ($this->getRelevantSchemata() as $tableKey => $schema) {
-                // only go into this table if the limit allows it
-                if ($this->limit !== '') {
-                    $parts = GeneralUtility::intExplode(',', $this->limit, true);
-                    // abort loop if LIMIT 0,0
-                    if ($parts[0] === 0 && $parts[1] === 0) {
-                        break;
-                    }
-                }
-                $this->table[] = $tableKey;
-                $this->setData($id, $schema, $depth, $filter);
+            foreach ($this->getRelevantSchemata() as $schema) {
+                $this->setData($id, $schema, $depth, $filter, $languageId);
             }
         }
         return $this;
-    }
-
-    /**
-     * Find the total count of deleted records
-     *
-     * @param int $id UID from record
-     * @param string $table Tablename from record
-     * @param int $depth How many levels recursive
-     * @param string $filter Filter text
-     * @return int
-     */
-    public function getTotalCount($id, $table, $depth, $filter): int
-    {
-        $deletedRecords = $this->loadData($id, $table, $depth, '', $filter)->getDeletedRows();
-        $countTotal = 0;
-        foreach ($this->table as $tableName) {
-            $countTotal += count($deletedRecords[$tableName] ?? []);
-        }
-        return $countTotal;
     }
 
     /**
@@ -125,109 +88,52 @@ class DeletedRecords
      * @param int $id UID from record
      * @param int $depth How many levels recursive
      * @param string $filter Filter text
+     * @param int|null $languageId Restrict to this (site) language. Null yields all records, regardless of language awareness.
      */
-    protected function setData($id, TcaSchema $schema, $depth, $filter): void
+    protected function setData(int $id, TcaSchema $schema, int $depth, string $filter, ?int $languageId = null): void
     {
         $deletedField = $schema->getCapability(TcaSchemaCapability::SoftDelete)->getFieldName();
         if (!$deletedField) {
             return;
         }
 
-        $id = (int)$id;
-        $firstResult = 0;
-        $maxResults = 0;
-
-        // get the limit
-        if (!empty($this->limit)) {
-            // count the number of deleted records for this pid
-            $queryBuilder = $this->getFilteredQueryBuilder($schema, $id, $depth, $filter);
-
-            $deletedCount = (int)$queryBuilder
-                ->count('*')
-                ->from($schema->getName())
-                ->andWhere(
-                    $queryBuilder->expr()->neq(
-                        $deletedField,
-                        $queryBuilder->createNamedParameter(0, Connection::PARAM_INT)
-                    )
-                )
-                ->executeQuery()
-                ->fetchOne();
-
-            // split the limit
-            [$offset, $rowCount] = GeneralUtility::intExplode(',', $this->limit, true);
-            // subtract the number of deleted records from the limit's offset
-            $result = $offset - $deletedCount;
-            // if the result is >= 0
-            if ($result >= 0) {
-                // store the new offset in the limit and go into the next depth
-                $offset = $result;
-                $this->limit = implode(',', [$offset, $rowCount]);
-                // do NOT query this depth; limit also does not need to be set, we set it anyways
-                $allowQuery = false;
-            } else {
-                // the offset for the temporary limit has to remain like the original offset
-                // in case the original offset was just crossed by the amount of deleted records
-                $tempOffset = 0;
-                if ($offset !== 0) {
-                    $tempOffset = $offset;
-                }
-                // set the offset in the limit to 0
-                $newOffset = 0;
-                // convert to negative result to the positive equivalent
-                $absResult = abs($result);
-                // if the result now is > limit's row count
-                if ($absResult > $rowCount) {
-                    // use the limit's row count as the temporary limit
-                    $firstResult = $tempOffset;
-                    $maxResults = $rowCount;
-                    // set the limit's row count to 0
-                    $this->limit = implode(',', [$newOffset, 0]);
-                } else {
-                    // if the result now is <= limit's row count
-                    // use the result as the temporary limit
-                    $firstResult = $tempOffset;
-                    $maxResults = $absResult;
-                    // subtract the result from the row count
-                    $newCount = $rowCount - $absResult;
-                    // store the new result in the limit's row count
-                    $this->limit = implode(',', [$newOffset, $newCount]);
-                }
-                // allow query for this depth
-                $allowQuery = true;
-            }
-        } else {
-            $allowQuery = true;
+        // When a language is requested, only tables that are language aware can contribute records.
+        // Tables without language awareness are skipped entirely, whereas an unset language ($languageId === null)
+        // returns all records, independent of their language or language awareness.
+        if ($languageId !== null && !$schema->isLanguageAware()) {
+            return;
         }
-        // query for actual deleted records
-        if ($allowQuery) {
-            $queryBuilder = $this->getFilteredQueryBuilder($schema, $id, $depth, $filter);
-            if ($firstResult) {
-                $queryBuilder->setFirstResult($firstResult);
-            }
-            if ($maxResults) {
-                $queryBuilder->setMaxResults($maxResults);
-            }
-            $queryBuilder = $queryBuilder->select('*')
-                ->from($schema->getName())
-                ->andWhere(
-                    $queryBuilder->expr()->eq(
-                        $deletedField,
-                        $queryBuilder->createNamedParameter(1, Connection::PARAM_INT)
-                    )
-                );
 
-            if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
-                $queryBuilder = $queryBuilder
-                    ->orderBy($schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName(), 'desc')
-                    ->addOrderBy('uid');
-            } else {
-                $queryBuilder = $queryBuilder->orderBy('uid');
-            }
-            $recordsToCheck = $queryBuilder->executeQuery()->fetchAllAssociative();
-            if ($recordsToCheck !== []) {
-                $this->checkRecordAccess($schema->getName(), $recordsToCheck);
-            }
+        $queryBuilder = $this->getFilteredQueryBuilder($schema, $id, $depth, $filter);
+        $queryBuilder = $queryBuilder->select('*')
+            ->from($schema->getName())
+            ->andWhere(
+                $queryBuilder->expr()->eq(
+                    $deletedField,
+                    $queryBuilder->createNamedParameter(1, Connection::PARAM_INT)
+                )
+            );
+
+        if ($languageId !== null) {
+            $languageField = $schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName();
+            $queryBuilder = $queryBuilder->andWhere(
+                $queryBuilder->expr()->eq(
+                    $languageField,
+                    $queryBuilder->createNamedParameter($languageId, Connection::PARAM_INT)
+                )
+            );
+        }
+
+        if ($schema->hasCapability(TcaSchemaCapability::UpdatedAt)) {
+            $queryBuilder = $queryBuilder
+                ->orderBy($schema->getCapability(TcaSchemaCapability::UpdatedAt)->getFieldName(), 'desc')
+                ->addOrderBy('uid');
+        } else {
+            $queryBuilder = $queryBuilder->orderBy('uid');
+        }
+        $recordsToCheck = $queryBuilder->executeQuery()->fetchAllAssociative();
+        if ($recordsToCheck !== []) {
+            $this->checkRecordAccess($schema->getName(), $recordsToCheck);
         }
     }
 
@@ -238,7 +144,7 @@ class DeletedRecords
     {
         $table = $schema->getName();
         $pidList = $this->getTreeList($pid, $depth);
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll()
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
 
@@ -308,21 +214,23 @@ class DeletedRecords
     /**
      * Delete element from any table
      *
-     * @param array|null $recordsArray Representation of the records
+     * @param list<string> $recordsArray Representation of the records as "table:uid" strings
+     * @return int Number of records successfully deleted
      */
-    public function deleteData(?array $recordsArray): bool
+    public function deleteData(array $recordsArray): int
     {
-        if (is_array($recordsArray)) {
-            /** @var DataHandler $tce */
-            $tce = GeneralUtility::makeInstance(DataHandler::class);
-            $tce->start([], []);
-            foreach ($recordsArray as $record) {
-                [$table, $uid] = explode(':', $record);
-                $tce->deleteAction($table, (int)$uid, true, true);
+        $tce = GeneralUtility::makeInstance(DataHandler::class);
+        $tce->start([], []);
+        $deletedCount = 0;
+        foreach ($recordsArray as $record) {
+            [$table, $uid] = explode(':', $record);
+            $errorCountBefore = count($tce->errorLog);
+            $tce->deleteAction($table, (int)$uid, false, true);
+            if (count($tce->errorLog) === $errorCountBefore) {
+                $deletedCount++;
             }
-            return true;
         }
-        return false;
+        return $deletedCount;
     }
 
     /************************************************************
@@ -364,7 +272,7 @@ class DeletedRecords
             $cmd[$table][$uid]['undelete'] = 1;
             $affectedRecords++;
             if ($table === 'pages' && $recursive) {
-                $this->loadData($uid, '', $depth, '');
+                $this->loadData($uid, '', $depth);
                 $childRecords = $this->getDeletedRows();
                 if (!empty($childRecords)) {
                     foreach ($childRecords as $childTable => $childRows) {
@@ -389,7 +297,7 @@ class DeletedRecords
      */
     protected function getDeletedParentPages(int $uid, array &$pages = []): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
         $queryBuilder->getRestrictions()->removeAll()
             ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
 
@@ -445,7 +353,7 @@ class DeletedRecords
         $id = abs($id);
         $theList = [];
         if ($depth > 0) {
-            $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
             $queryBuilder->getRestrictions()->removeAll()
                 ->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, $this->getBackendUser()->workspace));
             $statement = $queryBuilder->select('uid')
@@ -470,7 +378,7 @@ class DeletedRecords
      */
     protected function getPidOfUid(int $uid, string $table): int
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable($table);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable($table);
         $queryBuilder->getRestrictions()->removeAll();
 
         $pid = $queryBuilder
@@ -502,7 +410,8 @@ class DeletedRecords
             return false;
         }
 
-        // Checking if the user has permissions? (Only working as a precaution, because the final permission check is always down in TCE. But it's good to notify the user on beforehand...)
+        // Checking if the user has permissions? (Only working as a precaution, because the final permission check
+        // is always down in TCE. But it's good to notify the user on beforehand...)
         // First, resetting flags.
         $hasAccess = false;
         $calcPRec = $row;
@@ -513,13 +422,13 @@ class DeletedRecords
                 $hasAccess = $calculatedPermissions->editPagePermissionIsGranted();
             } else {
                 $rec = BackendUtility::getRecord('pages', $calcPRec['pid'], '*', '', false);
-                $calculatedPermissions = new Permission($backendUser->calcPerms(BackendUtility::getRecord('pages', $calcPRec['pid'], '*', '', false), false));
+                $calculatedPermissions = new Permission($backendUser->calcPerms($rec, false));
                 // Fetching pid-record first.
                 $hasAccess = $calculatedPermissions->editContentPermissionIsGranted();
             }
             // Check internals regarding access:
             if ($hasAccess) {
-                $hasAccess = $backendUser->recordEditAccessInternals($table, $calcPRec);
+                $hasAccess = $backendUser->checkRecordEditAccess($table, $calcPRec)->isAllowed;
             }
         }
         return $hasAccess;

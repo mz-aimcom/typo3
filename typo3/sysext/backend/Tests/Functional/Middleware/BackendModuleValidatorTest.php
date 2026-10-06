@@ -27,6 +27,7 @@ use TYPO3\CMS\Backend\Module\ModuleFactory;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Localization\LanguageServiceFactory;
@@ -39,9 +40,9 @@ use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
 final class BackendModuleValidatorTest extends FunctionalTestCase
 {
-    protected BackendModuleValidator $subject;
-    protected ServerRequestInterface $request;
-    protected RequestHandlerInterface $requestHandler;
+    private BackendModuleValidator $subject;
+    private ServerRequestInterface $request;
+    private RequestHandlerInterface $requestHandler;
 
     protected function setUp(): void
     {
@@ -57,13 +58,17 @@ final class BackendModuleValidatorTest extends FunctionalTestCase
             $this->get(FlashMessageService::class),
             $this->get(TcaSchemaFactory::class),
         );
-        $this->request = new ServerRequest('/some/uri');
-        $this->requestHandler = new class () implements RequestHandlerInterface {
+        $normalizedParams = self::createStub(NormalizedParams::class);
+        $normalizedParams->method('getSitePath')
+            ->willReturn('/');
+        $this->request = new ServerRequest('/some/uri')
+            ->withAttribute('normalizedParams', $normalizedParams);
+        $this->requestHandler = new class implements RequestHandlerInterface {
             public function handle(ServerRequestInterface $request): ResponseInterface
             {
                 // In case the module is valid, it is added to the request, together with the
                 // module data. To test this, we add some properties as header to the response.
-                return (new Response())
+                return new Response()
                     ->withHeader('X-Module-identifier', (string)($request->getAttribute('module')?->getIdentifier() ?? ''))
                     ->withHeader('X-ModuleData-sort', (string)($request->getAttribute('moduleData')?->get('sort') ?? ''))
                     ->withHeader('X-ModuleData-pointer', (string)($request->getAttribute('moduleData')?->get('pointer') ?? '12'))

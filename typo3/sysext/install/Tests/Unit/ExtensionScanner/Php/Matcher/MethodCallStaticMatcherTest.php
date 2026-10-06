@@ -32,7 +32,7 @@ final class MethodCallStaticMatcherTest extends UnitTestCase
     #[Test]
     public function hitsFromFixtureAreFound(): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $fixtureFile = __DIR__ . '/Fixtures/MethodCallStaticMatcherFixture.php';
         $statements = $parser->parse(file_get_contents($fixtureFile));
 
@@ -262,6 +262,51 @@ final class MethodCallStaticMatcherTest extends UnitTestCase
                     ],
                 ],
             ],
+            // Regression test for issue #108413: dynamic method calls must not crash
+            'no match for dynamic static call with method call expression' => [
+                [
+                    'Foo::aMethod' => [
+                        'numberOfMandatoryArguments' => 0,
+                        'maximumNumberOfArguments' => 2,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                SomeClass::{self::getMethod()}();',
+                [], // no match, must not crash
+            ],
+            // Trap test: config matches the variable name - buggy code would incorrectly match
+            'no match for dynamic method call with variable as method name' => [
+                [
+                    'Foo::methodName' => [
+                        'numberOfMandatoryArguments' => 0,
+                        'maximumNumberOfArguments' => 2,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                $someVar::$methodName();',
+                [], // no match - dynamic method names must be skipped
+            ],
+            // Trap test: config matches inner method name - buggy code would incorrectly match
+            'no match for dynamic method call with expression as method name' => [
+                [
+                    'SomeClass::getMethod' => [
+                        'numberOfMandatoryArguments' => 0,
+                        'maximumNumberOfArguments' => 2,
+                        'restFiles' => [
+                            'Foo-1.rst',
+                        ],
+                    ],
+                ],
+                '<?php
+                \SomeClass::{self::getMethod()}();',
+                [], // no match - dynamic method names must be skipped
+            ],
         ];
     }
 
@@ -269,7 +314,7 @@ final class MethodCallStaticMatcherTest extends UnitTestCase
     #[Test]
     public function matchesReturnsExpectedRestFiles(array $configuration, string $phpCode, array $expected): void
     {
-        $parser = (new ParserFactory())->createForVersion(PhpVersion::fromComponents(8, 2));
+        $parser = new ParserFactory()->createForVersion(PhpVersion::fromComponents(8, 5));
         $statements = $parser->parse($phpCode);
 
         $subject = new MethodCallStaticMatcher($configuration);

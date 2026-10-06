@@ -22,6 +22,7 @@ use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\Exception\TransferException;
 use GuzzleHttp\Promise\Utils;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Crypto\Random;
@@ -45,11 +46,6 @@ class ServerResponseCheck implements CheckInterface
     protected const WRAP_NESTED = 2;
 
     /**
-     * @var bool
-     */
-    protected $useMarkup;
-
-    /**
      * @var FlashMessageQueue
      */
     protected $messageQueue;
@@ -69,10 +65,10 @@ class ServerResponseCheck implements CheckInterface
      */
     protected $fileDeclarations;
 
-    public function __construct(bool $useMarkup = true)
-    {
-        $this->useMarkup = $useMarkup;
-
+    public function __construct(
+        protected readonly UriBuilder $uriBuilder,
+        protected readonly bool $useMarkup = true,
+    ) {
         $fileName = bin2hex(random_bytes(4));
         $folderName = bin2hex(random_bytes(4));
         $this->assetLocation = new FileLocation(sprintf('/typo3temp/assets/%s.tmp/', $folderName));
@@ -81,9 +77,9 @@ class ServerResponseCheck implements CheckInterface
         $this->fileDeclarations = $this->initializeFileDeclarations($fileName);
     }
 
-    public function asStatus(): Status
+    public function asStatus(ServerRequestInterface $request): Status
     {
-        $messageQueue = $this->getStatus();
+        $messageQueue = $this->getStatus($request);
         $messages = [];
         foreach ($messageQueue->getAllMessages() as $flashMessage) {
             $messages[] = $flashMessage->getMessage();
@@ -110,8 +106,11 @@ class ServerResponseCheck implements CheckInterface
         );
     }
 
-    public function getStatus(): FlashMessageQueue
+    public function getStatus(?ServerRequestInterface $request = null): FlashMessageQueue
     {
+        if ($request === null) {
+            throw new \RuntimeException('ServerResponseCheck requires a request', 1775761298);
+        }
         $messageQueue = new FlashMessageQueue('install-server-response-check');
         if (PHP_SAPI === 'cli-server') {
             $messageQueue->addMessage(
@@ -126,7 +125,7 @@ class ServerResponseCheck implements CheckInterface
         try {
             $this->buildFileDeclarations();
             $this->processHostCheck($messageQueue);
-            $this->processFileDeclarations($messageQueue);
+            $this->processFileDeclarations($messageQueue, $request);
             $this->finishMessageQueue($messageQueue);
         } finally {
             $this->purgeFileDeclarations();
@@ -156,37 +155,37 @@ class ServerResponseCheck implements CheckInterface
         };
 
         return [
-            (new FileDeclaration($this->assetLocation, $fileName . '.html'))
+            new FileDeclaration($this->assetLocation, $fileName . '.html')
                 ->withExpectedContentType('text/html')
                 ->withExpectedContent('HTML content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.wrong'))
+            new FileDeclaration($this->assetLocation, $fileName . '.wrong')
                 ->withUnexpectedContentType('text/html')
                 ->withExpectedContent('HTML content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.html.wrong'))
+            new FileDeclaration($this->assetLocation, $fileName . '.html.wrong')
                 ->withUnexpectedContentType('text/html')
                 ->withExpectedContent('HTML content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.1.svg.wrong'))
+            new FileDeclaration($this->assetLocation, $fileName . '.1.svg.wrong')
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_SVG | FileDeclaration::FLAG_BUILD_SVG_DOCUMENT)
                 ->withUnexpectedContentType('image/svg+xml')
                 ->withExpectedContent('SVG content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.2.svg.wrong'))
+            new FileDeclaration($this->assetLocation, $fileName . '.2.svg.wrong')
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_SVG | FileDeclaration::FLAG_BUILD_SVG_DOCUMENT)
                 ->withUnexpectedContentType('image/svg')
                 ->withExpectedContent('SVG content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.php.wrong', true))
+            new FileDeclaration($this->assetLocation, $fileName . '.php.wrong', true)
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_PHP | FileDeclaration::FLAG_BUILD_HTML_DOCUMENT)
                 ->withUnexpectedContent('PHP content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.html.txt'))
+            new FileDeclaration($this->assetLocation, $fileName . '.html.txt')
                 ->withExpectedContentType('text/plain')
                 ->withUnexpectedContentType('text/html')
                 ->withExpectedContent('HTML content'),
-            (new FileDeclaration($this->assetLocation, $fileName . '.php.txt', true))
+            new FileDeclaration($this->assetLocation, $fileName . '.php.txt', true)
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_PHP | FileDeclaration::FLAG_BUILD_HTML_DOCUMENT)
                 ->withUnexpectedContent('PHP content'),
-            (new FileDeclaration($this->fileadminLocation, $fileName . '.html'))
+            new FileDeclaration($this->fileadminLocation, $fileName . '.html')
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_HTML_DOCUMENT)
                 ->withHandler($cspClosure),
-            (new FileDeclaration($this->fileadminLocation, $fileName . '.svg'))
+            new FileDeclaration($this->fileadminLocation, $fileName . '.svg')
                 ->withBuildFlags(FileDeclaration::FLAG_BUILD_SVG | FileDeclaration::FLAG_BUILD_SVG_DOCUMENT)
                 ->withHandler($cspClosure),
         ];
@@ -219,13 +218,13 @@ class ServerResponseCheck implements CheckInterface
         $randomHost = $random->generateRandomHexString(10) . '.random.example.org';
         $time = (string)time();
         $hashService = GeneralUtility::makeInstance(HashService::class);
-        $url = GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute(
+        $url = $this->uriBuilder->buildUriFromRoute(
             'install.server-response-check.host',
             ['src-time' => $time, 'src-hash' => $hashService->hmac($time, 'server-response-check')],
             UriBuilder::ABSOLUTE_URL
         );
         try {
-            $client = new Client(['timeout' => 10]);
+            $client = new Client($this->getHttpClientOptions());
             $response = $client->request('GET', (string)$url, [
                 'headers' => ['Host' => $randomHost],
                 'allow_redirects' => false,
@@ -238,7 +237,7 @@ class ServerResponseCheck implements CheckInterface
         // in case we end up here, the server processed an HTTP request with invalid HTTP host header
         $messageParts = [];
         $locationHeader = $response->getHeaderLine('location');
-        if (!empty($locationHeader) && (new Uri($locationHeader))->getHost() === $randomHost) {
+        if (!empty($locationHeader) && new Uri($locationHeader)->getHost() === $randomHost) {
             $messageParts[] = sprintf('HTTP Location header contained unexpected "%s"', $randomHost);
         }
         $data = json_decode((string)$response->getBody(), true);
@@ -261,12 +260,12 @@ class ServerResponseCheck implements CheckInterface
         }
     }
 
-    protected function processFileDeclarations(FlashMessageQueue $messageQueue): void
+    protected function processFileDeclarations(FlashMessageQueue $messageQueue, ServerRequestInterface $request): void
     {
         $promises = [];
-        $client = new Client(['timeout' => 10]);
+        $client = new Client($this->getHttpClientOptions());
         foreach ($this->fileDeclarations as $fileDeclaration) {
-            $promises[] = $client->requestAsync('GET', $fileDeclaration->getUrl());
+            $promises[] = $client->requestAsync('GET', $fileDeclaration->getUrl($request));
         }
         foreach (Utils::settle($promises)->wait() as $index => $response) {
             $fileDeclaration = $this->fileDeclarations[$index];
@@ -289,7 +288,7 @@ class ServerResponseCheck implements CheckInterface
             }
             $messageQueue->addMessage(
                 new FlashMessage(
-                    $this->createMismatchMessage($fileDeclaration, $response['value']),
+                    $this->createMismatchMessage($fileDeclaration, $response['value'], $request),
                     'Unexpected server response',
                     $fileDeclaration->shallFail() ? ContextualFeedbackSeverity::ERROR : ContextualFeedbackSeverity::WARNING
                 )
@@ -312,7 +311,7 @@ class ServerResponseCheck implements CheckInterface
         );
     }
 
-    protected function createMismatchMessage(FileDeclaration $fileDeclaration, ResponseInterface $response): string
+    protected function createMismatchMessage(FileDeclaration $fileDeclaration, ResponseInterface $response, ServerRequestInterface $request): string
     {
         $messageParts = array_map(
             function (StatusMessage $mismatch): string {
@@ -323,7 +322,7 @@ class ServerResponseCheck implements CheckInterface
             },
             $fileDeclaration->getMismatches($response)
         );
-        return $this->wrapList($messageParts, $fileDeclaration->getUrl(), self::WRAP_FLAT);
+        return $this->wrapList($messageParts, $fileDeclaration->getUrl($request), self::WRAP_FLAT);
     }
 
     protected function wrapList(array $items, string $label, int $style): string
@@ -375,5 +374,14 @@ class ServerResponseCheck implements CheckInterface
             return $before . htmlspecialchars($value) . $after;
         }
         return $value;
+    }
+
+    protected function getHttpClientOptions(): array
+    {
+        $options = ['timeout' => 10];
+        if (isset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'])) {
+            $options['auth'] = [$_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW']];
+        }
+        return $options;
     }
 }

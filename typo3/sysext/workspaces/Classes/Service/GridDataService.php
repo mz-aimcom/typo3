@@ -28,6 +28,7 @@ use TYPO3\CMS\Backend\View\ValueFormatter\FlexFormValueFormatter;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\RelationHandler;
 use TYPO3\CMS\Core\DataHandling\TableColumnType;
+use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
@@ -82,6 +83,7 @@ readonly class GridDataService
         private VisibleSchemaFieldsCollector $visibleSchemaFieldsCollector,
         private Avatar $avatar,
         private TranslationConfigurationProvider $translationConfigurationProvider,
+        private CollectionService $dependencyCollectionService,
     ) {}
 
     /**
@@ -100,14 +102,102 @@ readonly class GridDataService
         $filterTxt = $parameter->filterTxt ?? '';
         $start = isset($parameter->start) ? (int)$parameter->start : 0;
         $limit = isset($parameter->limit) ? (int)$parameter->limit : 30;
-        $dataArray = $this->generateDataArray($stages, $versions, $filterTxt);
+        $dataArray = $this->determineActions($this->generateDataArray($stages, $versions, $filterTxt));
         return [
             // Only count parent records for pagination
             'total' => count(array_filter($dataArray, static function ($element) {
                 return (int)($element['Workspaces_CollectionLevel'] ?? 0) === 0;
             })),
             'data' => $this->getDataArray($dataArray, $start, $limit),
+            'additionalColumns' => $this->determineAdditionalColumns($dataArray),
         ];
+    }
+
+    /**
+     * The action buttons of a row, indexed by their identifier and rendered in the order and grouping
+     * given here. Listeners of AfterDataGeneratedForWorkspaceEvent turn an action off ('enabled'),
+     * remove it from the row ('visible') or add an own one ('icon', 'title', 'url'), which is why the
+     * default set is determined after that event has been dispatched and merged with what listeners
+     * provided. Actions the module does not know itself are rendered from the payload alone and are
+     * picked up by the JavaScript of the declaring extension via their 'data-action' attribute.
+     */
+    protected function determineActions(array $dataArray): array
+    {
+        foreach ($dataArray as &$row) {
+            $actions = [
+                'preview' => [
+                    'group' => 'element',
+                    'enabled' => (bool)($row['allowedAction_view'] ?? false) && ($row['previewUrl'] ?? '') !== '',
+                ],
+                'qrcode' => [
+                    'group' => 'element',
+                    'enabled' => ($row['previewUrl'] ?? '') !== '',
+                ],
+                'open' => [
+                    'group' => 'element',
+                    'enabled' => (bool)($row['allowedAction_edit'] ?? false) && ($row['state_Workspace'] ?? '') !== 'deleted',
+                ],
+                'version' => [
+                    'group' => 'element',
+                    'enabled' => (bool)($row['allowedAction_versionPageOpen'] ?? false),
+                ],
+                'expand' => [
+                    'group' => 'version',
+                    'enabled' => (int)($row['Workspaces_CollectionChildren'] ?? 0) > 0 && ($row['Workspaces_CollectionCurrent'] ?? '') !== '',
+                ],
+                'changes' => [
+                    'group' => 'version',
+                    'enabled' => (bool)($row['hasChanges'] ?? false),
+                ],
+                'publish' => [
+                    'group' => 'version',
+                    'enabled' => (bool)($row['allowedAction_publish'] ?? false) && ($row['Workspaces_CollectionParent'] ?? '') === '',
+                ],
+                'remove' => [
+                    'group' => 'version',
+                    'enabled' => (bool)($row['allowedAction_delete'] ?? false),
+                ],
+            ];
+            foreach (($row['actions'] ?? []) as $identifier => $action) {
+                $identifier = (string)$identifier;
+                $actions[$identifier] = array_replace($actions[$identifier] ?? ['group' => 'custom'], $action);
+            }
+            $row['actions'] = $actions;
+        }
+        unset($row);
+        return $dataArray;
+    }
+
+    /**
+     * Additional columns are contributed by listeners of AfterDataGeneratedForWorkspaceEvent, which add an
+     * 'additional' section to the rows they want to enrich:
+     *
+     * $row['additional']['myColumn'] = ['label' => 'My column', 'value' => 'Some value', 'icon' => 'actions-clock'];
+     *
+     * A column is rendered as soon as one row declares it, its label is taken from the first row that provides
+     * a non-empty one and falls back to the column identifier. The columns are determined from all rows of the
+     * workspace and not only from those of the current page, so the table header does not change while paging.
+     *
+     * @return array<string, string> Column labels, indexed by column identifier
+     */
+    protected function determineAdditionalColumns(array $dataArray): array
+    {
+        $columns = [];
+        foreach ($dataArray as $row) {
+            foreach (($row['additional'] ?? []) as $identifier => $column) {
+                $identifier = (string)$identifier;
+                $label = (string)($column['label'] ?? '');
+                if (!array_key_exists($identifier, $columns) || ($columns[$identifier] === '' && $label !== '')) {
+                    $columns[$identifier] = $label;
+                }
+            }
+        }
+        foreach ($columns as $identifier => $label) {
+            if ($label === '') {
+                $columns[$identifier] = $identifier;
+            }
+        }
+        return $columns;
     }
 
     /**
@@ -270,7 +360,7 @@ readonly class GridDataService
             $preparedEntry['previous_stage_title'] = $this->stagesService->getStageTitle((int)$entry['history_data']['current']);
             $preparedEntry['user_uid'] = (int)$entry['userid'];
             $preparedEntry['user_username'] = is_array($beUserRecord) ? $beUserRecord['username'] : '';
-            $preparedEntry['tstamp'] = BackendUtility::datetime($entry['tstamp']);
+            $preparedEntry['tstamp'] = DateTimeFactory::createFromTimestamp((int)$entry['tstamp'])->format(\DateTimeInterface::ATOM);
             $preparedEntry['user_comment'] = $entry['history_data']['comment'];
             $preparedEntry['user_avatar'] = $beUserRecord ? $this->avatar->render($beUserRecord) : '';
             $commentsForRecord[] = $preparedEntry;
@@ -284,15 +374,14 @@ readonly class GridDataService
                     'icon_Workspace' => $iconWorkspace->getIdentifier(),
                     'icon_Workspace_Overlay' => $iconWorkspace->getOverlayIcon()?->getIdentifier() ?? '',
                     'comments' => $commentsForRecord,
-                    // escape/sanitize the others
-                    'path_Live' => htmlspecialchars(BackendUtility::getRecordPath($liveRecord['pid'], '', 999)),
-                    'label_Stage' => htmlspecialchars($currentStage->title),
+                    'path_Live' => BackendUtility::getRecordPath($liveRecord['pid'], '', 999),
+                    'label_Stage' => $currentStage !== null ? $currentStage->title : '',
                     'label_PrevStage' => $previousStageSendToTitle ? ['title' => $previousStageSendToTitle] : false,
                     'label_NextStage' => $nextStageSendToTitle ? ['title' => $nextStageSendToTitle] : false,
-                    'stage_position' => $this->stagesService->getPositionOfCurrentStage($stages, $currentStage->uid),
+                    'stage_position' => $currentStage !== null ? $this->stagesService->getPositionOfCurrentStage($stages, $currentStage->uid) : 0,
                     'stage_count' => count($stages) - 1, // Do not count 'pseudo' execute stage
                     'parent' => [
-                        'table' => htmlspecialchars($table),
+                        'table' => $table,
                         'uid' => (int)$parameter->uid,
                     ],
                     'history' => [
@@ -354,13 +443,14 @@ readonly class GridDataService
                     $nextStage = $this->stagesService->getNextStage($stages, $currentStage->uid);
                     $previousStage = $this->stagesService->getPreviousStage($stages, $currentStage->uid);
                 } catch (WorkspaceStageNotFoundException) {
-                    // Shouldn't happen except for 'editing' stage, which has no previous stage.
+                    // The 'editing' stage has no previous stage, and a record may sit in a
+                    // stage that has been removed from the workspace in the meantime.
                 }
 
                 if ($hiddenField !== null) {
                     $recordState = $this->workspaceState($versionRecord['t3ver_state'], (bool)$origRecord[$hiddenField], (bool)$versionRecord[$hiddenField], $hasDiff);
                 } else {
-                    $recordState = $this->workspaceState($versionRecord['t3ver_state'], $hasDiff);
+                    $recordState = $this->workspaceState($versionRecord['t3ver_state'], false, false, $hasDiff);
                 }
 
                 $isDeletedPage = $table === 'pages' && $recordState === 'deleted';
@@ -384,16 +474,21 @@ readonly class GridDataService
                 $versionArray['table'] = $table;
                 $versionArray['id'] = $table . ':' . $record['uid'];
                 $versionArray['uid'] = $record['uid'];
-                $versionArray['label_Workspace'] = htmlspecialchars($workspaceRecordLabel);
-                $versionArray['label_Stage'] = htmlspecialchars($currentStageTitle);
+                $versionArray['label_Workspace'] = $workspaceRecordLabel;
+                $versionArray['label_Stage'] = $currentStageTitle;
                 $versionArray['value_nextStage'] = $nextStage->uid ?? 0;
                 $versionArray['value_prevStage'] = $previousStage->uid ?? 0;
-                $versionArray['path_Workspace'] = htmlspecialchars(BackendUtility::getRecordPath((int)$record['wspid'], '', 0));
-                $versionArray['lastChangedFormatted'] = '';
+                $versionArray['path_Workspace'] = BackendUtility::getRecordPath((int)$record['wspid'], '', 0);
+                $versionArray['lastChanged'] = '';
                 if (array_key_exists('tstamp', $versionRecord)) {
                     // @todo: Avoid hard coded access to 'tstamp' and use table TCA 'ctrl' 'tstamp' value instead, if set.
-                    $versionArray['lastChangedFormatted'] = BackendUtility::datetime((int)$versionRecord['tstamp']);
+                    $versionArray['lastChanged'] = DateTimeFactory::createFromTimestamp((int)$versionRecord['tstamp'])->format(\DateTimeInterface::ATOM);
                 }
+                $history = $this->historyService->getHistory($table, (int)$record['uid']);
+                $versionArray['lastEditorId'] = isset($history[0]['user_uid']) ? (int)$history[0]['user_uid'] : 0;
+                $versionArray['lastEditorName'] = (string)($history[0]['user'] ?? '');
+                $versionArray['lastEditorRealName'] = (string)($history[0]['user_realName'] ?? '');
+                $versionArray['lastEditorAvatar'] = (string)($history[0]['user_avatar'] ?? '');
                 $versionArray['t3ver_wsid'] = $versionRecord['t3ver_wsid'];
                 $versionArray['t3ver_oid'] = $calculatedT3verOid;
                 $versionArray['livepid'] = $record['livepid'];
@@ -404,7 +499,7 @@ readonly class GridDataService
                 $versionArray['language'] = [
                     'icon' => $this->iconFactory->getIcon($this->getSystemLanguageValue($languageValue, $pageId, 'flagIcon') ?? 'empty-empty', IconSize::SMALL)->getIdentifier(),
                     'title' => $this->getSystemLanguageValue($languageValue, $pageId, 'title'),
-                    'title_crop' => htmlspecialchars(GeneralUtility::fixed_lgd_cs($this->getSystemLanguageValue($languageValue, $pageId, 'title'), (int)$backendUser->uc['titleLen'])),
+                    'title_crop' => BackendUtility::cropToTitleLength($this->getSystemLanguageValue($languageValue, $pageId, 'title') ?? ''),
                 ];
                 if ($isAllowedToPublish && $swapStage === StagesService::STAGE_PUBLISH_ID && (int)$versionRecord['t3ver_stage'] === StagesService::STAGE_PUBLISH_ID) {
                     $versionArray['allowedAction_publish'] = $isRecordTypeAllowedToModify && $this->stagesService->getStage($stages, StagesService::STAGE_PUBLISH_ID)->isAllowed;
@@ -416,11 +511,23 @@ readonly class GridDataService
                 $versionArray['allowedAction_delete'] = $isRecordTypeAllowedToModify;
                 // preview and editing of a deleted page won't work ;)
                 $versionArray['allowedAction_view'] = !$isDeletedPage && $viewUrl;
+                // Generate preview URL with ADMCMD_prev keyword for QR code (works without backend login)
+                $versionArray['previewUrl'] = '';
+                $isDeletedRecord = VersionState::tryFrom($versionRecord['t3ver_state'] ?? 0) === VersionState::DELETE_PLACEHOLDER;
+                if (!$isDeletedRecord && $viewUrl) {
+                    $versionArray['previewUrl'] = $this->previewUriBuilder->buildUriForElementWithToken(
+                        $table,
+                        (int)$record['uid'],
+                        $languageValue,
+                        $origRecord,
+                        $versionRecord
+                    );
+                }
                 $versionArray['allowedAction_edit'] = $isRecordTypeAllowedToModify && !$isDeletedPage;
                 $versionArray['allowedAction_versionPageOpen'] = $this->isPageModuleAllowed() && !$isDeletedPage;
                 $versionArray['state_Workspace'] = $recordState;
                 $versionArray['hasChanges'] = $recordState !== 'unchanged';
-                $versionArray['urlToPage'] = (string)$this->uriBuilder->buildUriFromRoute('workspaces_admin', [
+                $versionArray['urlToPage'] = (string)$this->uriBuilder->buildUriFromRoute('workspaces_publish', [
                     'workspace' => $backendUser->workspace,
                     'id' => $record['pid'] ?? 0,
                 ]);
@@ -451,7 +558,7 @@ readonly class GridDataService
                 $messages = $this->integrityService->getIssueMessages($integrityIssues, $identifier);
                 $element['integrity'] = [
                     'status' => $this->integrityService->getStatusRepresentation($integrityIssues, $identifier),
-                    'messages' => htmlspecialchars(implode('<br>', $messages)),
+                    'messages' => implode('<br>', $messages),
                 ];
             }
         }
@@ -476,8 +583,12 @@ readonly class GridDataService
         $params->table = $combinedRecord->getLiveRecord()->getTable();
         $params->uid = $combinedRecord->getVersionRecord()->getUid();
         // @todo: Refactor. It is odd this calls the huge getRowDetails() method when only the 'diff' array section is needed.
-        $result = $this->getRowDetails($stages, $params);
-        return !empty($result['data'][0]['diff']);
+        try {
+            $result = $this->getRowDetails($stages, $params);
+            return !empty($result['data'][0]['diff']);
+        } catch (\RuntimeException $e) {
+            return false;
+        }
     }
 
     /**
@@ -486,12 +597,11 @@ readonly class GridDataService
      */
     protected function resolveDataArrayDependencies(array $dataArray): array
     {
-        $collectionService = $this->getDependencyCollectionService();
-        $dependencyResolver = $collectionService->getDependencyResolver();
+        $dependencyResolver = $this->dependencyCollectionService->getDependencyResolver();
         foreach ($dataArray as $dataElement) {
             $dependencyResolver->addElement($dataElement['table'], $dataElement['uid']);
         }
-        return $collectionService->process($dataArray);
+        return $this->dependencyCollectionService->process($dataArray);
     }
 
     /**
@@ -785,13 +895,16 @@ readonly class GridDataService
             return null;
         }
         foreach ($candidates as $identifierWithRandomValue => $fileReference) {
-            if ($useThumbnails) {
-                $thumbnailFile = $fileReference->getOriginalFile()->process(
-                    ProcessedFile::CONTEXT_IMAGEPREVIEW,
-                    ['width' => 40, 'height' => 40]
-                );
-                $thumbnailMarkup = '<img src="' . htmlspecialchars($thumbnailFile->getPublicUrl() ?? '') . '" />';
-                $substitutes[$identifierWithRandomValue] = $thumbnailMarkup;
+            $originalFile = $fileReference->getOriginalFile();
+            $thumbnailFile = $useThumbnails ? $originalFile->process(
+                ProcessedFile::CONTEXT_IMAGEPREVIEW,
+                ['width' => 40, 'height' => 40]
+            ) : null;
+            // A processed file falling back to a non-image original means no processor was
+            // able to create a thumbnail, so link the file instead of rendering a broken image.
+            $hasThumbnail = $thumbnailFile !== null && (!$thumbnailFile->usesOriginalFile() || $originalFile->isImage());
+            if ($hasThumbnail) {
+                $substitutes[$identifierWithRandomValue] = '<img src="' . htmlspecialchars($thumbnailFile->getPublicUrl() ?? '') . '" />';
             } else {
                 $substitutes[$identifierWithRandomValue] = $fileReference->getPublicUrl();
             }
@@ -803,11 +916,6 @@ readonly class GridDataService
             'live' => $liveInformation,
             'differences' => $differences,
         ];
-    }
-
-    protected function getDependencyCollectionService(): CollectionService
-    {
-        return GeneralUtility::makeInstance(CollectionService::class);
     }
 
     protected function getBackendUser(): BackendUserAuthentication

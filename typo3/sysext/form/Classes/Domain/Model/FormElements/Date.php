@@ -21,12 +21,15 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Domain\Model\FormElements;
 
+use TYPO3\CMS\Extbase\Property\TypeConverter\DateTimeConverter;
+use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
+
 /**
  * A date form element
  *
  * Scope: frontend
  */
-class Date extends AbstractFormElement implements StringableFormElementInterface
+class Date extends AbstractFormElement implements StringableFormElementInterface, ProcessableValueFormElementInterface
 {
     /**
      * Initializes the Form Element by setting the data type to "DateTime"
@@ -35,6 +38,11 @@ class Date extends AbstractFormElement implements StringableFormElementInterface
     public function initializeFormElement()
     {
         $this->setDataType(\DateTime::class);
+        /** @var \TYPO3\CMS\Extbase\Property\PropertyMappingConfiguration $propertyMappingConfiguration */
+        $propertyMappingConfiguration = $this->getRootForm()->getProcessingRule($this->getIdentifier())->getPropertyMappingConfiguration();
+        // @see https://www.w3.org/TR/2011/WD-html-markup-20110405/input.date.html#input.date.attrs.value
+        // 'Y-m-d' = https://tools.ietf.org/html/rfc3339#section-5.6 -> full-date
+        $propertyMappingConfiguration->setTypeConverterOption(DateTimeConverter::class, DateTimeConverter::CONFIGURATION_DATE_FORMAT, 'Y-m-d');
     }
 
     /**
@@ -45,5 +53,13 @@ class Date extends AbstractFormElement implements StringableFormElementInterface
         $dateFormat = $this->properties['displayFormat'] ?? 'Y-m-d';
 
         return $value->format($dateFormat);
+    }
+
+    public function processElementValue(mixed $value, FormRuntime $formRuntime): mixed
+    {
+        if ($value instanceof \DateTime) {
+            return $this->valueToString($value);
+        }
+        return $value;
     }
 }

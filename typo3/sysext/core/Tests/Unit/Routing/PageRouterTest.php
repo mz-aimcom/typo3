@@ -18,6 +18,9 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Core\Tests\Unit\Routing;
 
 use PHPUnit\Framework\Attributes\Test;
+use Psr\EventDispatcher\EventDispatcherInterface;
+use Psr\EventDispatcher\ListenerProviderInterface;
+use TYPO3\CMS\Core\EventDispatcher\EventDispatcher;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Routing\BackendEntryPointResolver;
 use TYPO3\CMS\Core\Routing\PageArguments;
@@ -39,6 +42,7 @@ final class PageRouterTest extends UnitTestCase
     {
         $requestContextFactory = new RequestContextFactory(new BackendEntryPointResolver());
         GeneralUtility::addInstance(RequestContextFactory::class, $requestContextFactory);
+        GeneralUtility::setSingletonInstance(EventDispatcherInterface::class, new EventDispatcher(self::createStub(ListenerProviderInterface::class)));
         parent::setUp();
     }
 
@@ -71,13 +75,13 @@ final class PageRouterTest extends UnitTestCase
         $language = $site->getDefaultLanguage();
 
         $pageSlugCandidateProvider = $this->createMock(PageSlugCandidateProvider::class);
-        $pageSlugCandidateProvider->method('getCandidatesForPath')->with('/mr-magpie/bloom', $language)->willReturn([$pageRecord]);
+        $pageSlugCandidateProvider->expects($this->atMost(PHP_INT_MAX))->method('getCandidatesForPath')->with('/mr-magpie/bloom', $language)->willReturn([$pageRecord]);
         GeneralUtility::addInstance(PageSlugCandidateProvider::class, $pageSlugCandidateProvider);
-        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, self::createStub(TcaSchemaFactory::class));
 
         $request = new ServerRequest($incomingUrl, 'GET');
         $previousResult = new SiteRouteResult($request->getUri(), $site, $language, '/mr-magpie/bloom');
-        $routeResult = (new PageRouter($site))->matchRequest($request, $previousResult);
+        $routeResult = new PageRouter($site)->matchRequest($request, $previousResult);
 
         $expectedRouteResult = new PageArguments(13, '0', [], [], []);
         self::assertEquals($expectedRouteResult, $routeResult);
@@ -102,14 +106,14 @@ final class PageRouterTest extends UnitTestCase
             ],
         ]);
         $language = $site->getDefaultLanguage();
-        $pageSlugCandidateProvider = $this->createMock(PageSlugCandidateProvider::class);
-        $pageSlugCandidateProvider->method('getCandidatesForPath')->with(self::anything())->willReturn([$pageRecord]);
+        $pageSlugCandidateProvider = self::createStub(PageSlugCandidateProvider::class);
+        $pageSlugCandidateProvider->method('getCandidatesForPath')->willReturn([$pageRecord]);
         GeneralUtility::addInstance(PageSlugCandidateProvider::class, $pageSlugCandidateProvider);
-        GeneralUtility::addInstance(TcaSchemaFactory::class, $this->createMock(TcaSchemaFactory::class));
+        GeneralUtility::addInstance(TcaSchemaFactory::class, self::createStub(TcaSchemaFactory::class));
 
         $request = new ServerRequest($incomingUrl, 'GET');
         $previousResult = new SiteRouteResult($request->getUri(), $site, $language, '/mr-magpie/bloom/');
-        $routeResult = (new PageRouter($site))->matchRequest($request, $previousResult);
+        $routeResult = new PageRouter($site)->matchRequest($request, $previousResult);
 
         $expectedRouteResult = new PageArguments((int)$pageRecord['uid'], '0', []);
         self::assertEquals($expectedRouteResult, $routeResult);

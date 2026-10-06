@@ -36,7 +36,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * in this decorator class to prioritize possible overrides for the metadata for this specific usage
  * of the file.
  */
-class FileReference implements FileInterface
+class FileReference implements FileInterface, ProcessableFileInterface
 {
     /**
      * Various properties of the FileReference. Note that these information can be different
@@ -55,6 +55,13 @@ class FileReference implements FileInterface
      * as overlays for the defined File properties.
      */
     protected array $mergedProperties = [];
+
+    /**
+     * The merged properties contain the metadata of the original file, which is resolved for the
+     * language and workspace of the current context. They therefore have to be built again once
+     * that context changed, see MetaDataAspect::getContextIdentifier().
+     */
+    private ?string $mergedPropertiesContext = null;
 
     /**
      * Constructor for a file in use object. Should normally not be used
@@ -126,7 +133,9 @@ class FileReference implements FileInterface
      */
     public function getProperties(): array
     {
-        if (empty($this->mergedProperties)) {
+        $currentContext = $this->originalFile->getMetaData()->getContextIdentifier();
+        if (empty($this->mergedProperties) || $this->mergedPropertiesContext !== $currentContext) {
+            $this->mergedPropertiesContext = $currentContext;
             $this->mergedProperties = $this->propertiesOfFileReference;
             ArrayUtility::mergeRecursiveWithOverrule(
                 $this->mergedProperties,
@@ -472,6 +481,14 @@ class FileReference implements FileInterface
     }
 
     /**
+     * Processing always works on the original file, a file reference only adds metadata on top of it.
+     */
+    public function process(string $taskType, array $configuration): ProcessedFile
+    {
+        return $this->originalFile->process($taskType, $configuration);
+    }
+
+    /**
      * @return non-empty-string
      */
     public function getHashedIdentifier(): string
@@ -493,7 +510,7 @@ class FileReference implements FileInterface
     public function __sleep(): array
     {
         $keys = get_object_vars($this);
-        unset($keys['originalFile'], $keys['mergedProperties']);
+        unset($keys['originalFile'], $keys['mergedProperties'], $keys['mergedPropertiesContext']);
         return array_keys($keys);
     }
 

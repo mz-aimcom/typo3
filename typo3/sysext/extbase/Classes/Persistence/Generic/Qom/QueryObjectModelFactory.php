@@ -17,8 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Extbase\Persistence\Generic\Qom;
 
-use TYPO3\CMS\Core\SingletonInterface;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Database\Query\QueryBuilder;
 use TYPO3\CMS\Extbase\Persistence\QueryInterface;
 
 /**
@@ -26,7 +25,7 @@ use TYPO3\CMS\Extbase\Persistence\QueryInterface;
  *
  * @internal only to be used within Extbase, not part of TYPO3 Core API.
  */
-class QueryObjectModelFactory implements SingletonInterface
+class QueryObjectModelFactory
 {
     /**
      * Selects a subset of the nodes in the repository based on node type.
@@ -42,9 +41,9 @@ class QueryObjectModelFactory implements SingletonInterface
     /**
      * Sets a statement as constraint. This is not part of the JCR 2.0 Specification!
      */
-    public function statement(string $statement, array $boundVariables = []): Statement
+    public function statement(string|\Doctrine\DBAL\Statement|QueryBuilder $statement, array $boundVariables = []): Statement
     {
-        return GeneralUtility::makeInstance(Statement::class, $statement, $boundVariables);
+        return new Statement($statement, $boundVariables);
     }
 
     /**
@@ -64,7 +63,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function equiJoinCondition(string $selector1Name, string $property1Name, string $selector2Name, string $property2Name): EquiJoinConditionInterface
     {
-        return GeneralUtility::makeInstance(EquiJoinCondition::class, $selector1Name, $property1Name, $selector2Name, $property2Name);
+        return new EquiJoinCondition($selector1Name, $property1Name, $selector2Name, $property2Name);
     }
 
     /**
@@ -72,7 +71,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function _and(ConstraintInterface $constraint1, ConstraintInterface $constraint2): AndInterface
     {
-        return GeneralUtility::makeInstance(LogicalAnd::class, $constraint1, $constraint2);
+        return new LogicalAnd($constraint1, $constraint2);
     }
 
     /**
@@ -80,7 +79,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function _or(ConstraintInterface $constraint1, ConstraintInterface $constraint2): OrInterface
     {
-        return GeneralUtility::makeInstance(LogicalOr::class, $constraint1, $constraint2);
+        return new LogicalOr($constraint1, $constraint2);
     }
 
     /**
@@ -88,15 +87,17 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function not(ConstraintInterface $constraint): NotInterface
     {
-        return GeneralUtility::makeInstance(LogicalNot::class, $constraint);
+        return new LogicalNot($constraint);
     }
 
     /**
      * Filters node-tuples based on the outcome of a binary operation.
+     *
+     * @param QueryInterface::OPERATOR_* $operator
      */
     public function comparison(PropertyValueInterface $operand1, int $operator, mixed $operand2): ComparisonInterface
     {
-        return GeneralUtility::makeInstance(Comparison::class, $operand1, $operator, $operand2);
+        return new Comparison($operand1, $operator, $operand2);
     }
 
     /**
@@ -104,7 +105,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function propertyValue(string $propertyName, string $selectorName = ''): PropertyValueInterface
     {
-        return GeneralUtility::makeInstance(PropertyValue::class, $propertyName, $selectorName);
+        return new PropertyValue($propertyName, $selectorName);
     }
 
     /**
@@ -112,7 +113,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function lowerCase(PropertyValueInterface $operand): LowerCaseInterface
     {
-        return GeneralUtility::makeInstance(LowerCase::class, $operand);
+        return new LowerCase($operand);
     }
 
     /**
@@ -120,7 +121,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function upperCase(PropertyValueInterface $operand): UpperCaseInterface
     {
-        return GeneralUtility::makeInstance(UpperCase::class, $operand);
+        return new UpperCase($operand);
     }
 
     /**
@@ -130,7 +131,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function ascending(DynamicOperandInterface $operand): OrderingInterface
     {
-        return GeneralUtility::makeInstance(Ordering::class, $operand, QueryInterface::ORDER_ASCENDING);
+        return new Ordering($operand, QueryInterface::ORDER_ASCENDING);
     }
 
     /**
@@ -140,7 +141,7 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function descending(DynamicOperandInterface $operand): OrderingInterface
     {
-        return GeneralUtility::makeInstance(Ordering::class, $operand, QueryInterface::ORDER_DESCENDING);
+        return new Ordering($operand, QueryInterface::ORDER_DESCENDING);
     }
 
     /**
@@ -148,6 +149,36 @@ class QueryObjectModelFactory implements SingletonInterface
      */
     public function bindVariable(string $bindVariableName): BindVariableValueInterface
     {
-        return GeneralUtility::makeInstance(BindVariableValue::class, $bindVariableName);
+        return new BindVariableValue($bindVariableName);
+    }
+
+    /**
+     * Evaluates to the concatenated string value of the operands.
+     *
+     * @param DynamicOperandInterface|string ...$operands Property names or operand objects to concatenate
+     */
+    public function concat(DynamicOperandInterface|string ...$operands): ConcatInterface
+    {
+        return new Concat($operands);
+    }
+
+    /**
+     * Evaluates to the trimmed string value of the operand.
+     *
+     * @param DynamicOperandInterface $operand The operand to trim
+     */
+    public function trim(DynamicOperandInterface $operand): TrimInterface
+    {
+        return new Trim($operand);
+    }
+
+    /**
+     * Evaluates to the first non-NULL value among the operands.
+     *
+     * @param DynamicOperandInterface|string ...$operands Property names or operand objects
+     */
+    public function coalesce(DynamicOperandInterface|string ...$operands): CoalesceInterface
+    {
+        return new Coalesce($operands);
     }
 }

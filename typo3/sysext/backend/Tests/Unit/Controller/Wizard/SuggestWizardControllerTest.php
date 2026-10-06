@@ -17,24 +17,27 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Controller\Wizard;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Controller\Wizard\SuggestWizardController;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Schema\Field\FieldCollection;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class SuggestWizardControllerTest extends UnitTestCase
 {
     #[Test]
     public function getFlexFieldConfigurationThrowsExceptionIfSimpleFlexFieldIsNotFound(): void
     {
         $dataStructureIdentifier = '{"type":"tca","tableName":"tt_content","fieldName":"pi_flexform","dataStructureKey":"blog_example,list"}';
-        $request = (new ServerRequest())->withParsedBody([
+        $request = new ServerRequest()->withParsedBody([
             'value' => 'theSearchValue',
             'tableName' => 'aTable',
             'fieldName' => 'aField',
@@ -65,20 +68,20 @@ final class SuggestWizardControllerTest extends UnitTestCase
 
         $schema = new TcaSchema('aTable', new FieldCollection(), []);
         $flexFormToolsMock = $this->createMock(FlexFormTools::class);
-        $flexFormToolsMock->method('parseDataStructureByIdentifier')->with($dataStructureIdentifier, $schema)->willReturn($dataStructure);
+        $flexFormToolsMock->expects($this->atLeastOnce())->method('parseDataStructureByIdentifier')->with($dataStructureIdentifier, $schema)->willReturn($dataStructure);
         $tcaSchemaFactoryMock = $this->createMock(TcaSchemaFactory::class);
-        $tcaSchemaFactoryMock->method('get')->with('aTable')->willReturn($schema);
+        $tcaSchemaFactoryMock->expects($this->atLeastOnce())->method('get')->with('aTable')->willReturn($schema);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1480609491);
-        (new SuggestWizardController($flexFormToolsMock, $tcaSchemaFactoryMock))->searchAction($request);
+        new SuggestWizardController($flexFormToolsMock, $tcaSchemaFactoryMock, self::createStub(ConnectionPool::class))->searchAction($request);
     }
 
     #[Test]
     public function getFlexFieldConfigurationThrowsExceptionIfSectionContainerFlexFieldIsNotFound(): void
     {
         $dataStructureIdentifier = '{"type":"tca","tableName":"tt_content","fieldName":"pi_flexform","dataStructureKey":"blog_example,list"}';
-        $request = (new ServerRequest())->withParsedBody([
+        $request = new ServerRequest()->withParsedBody([
             'value' => 'theSearchValue',
             'tableName' => 'aTable',
             'fieldName' => 'aField',
@@ -109,13 +112,13 @@ final class SuggestWizardControllerTest extends UnitTestCase
 
         $schema = new TcaSchema('aTable', new FieldCollection(), []);
         $flexFormToolsMock = $this->createMock(FlexFormTools::class);
-        $flexFormToolsMock->method('parseDataStructureByIdentifier')->with($dataStructureIdentifier, $schema)->willReturn($dataStructure);
+        $flexFormToolsMock->expects($this->atLeastOnce())->method('parseDataStructureByIdentifier')->with($dataStructureIdentifier, $schema)->willReturn($dataStructure);
         $tcaSchemaFactoryMock = $this->createMock(TcaSchemaFactory::class);
-        $tcaSchemaFactoryMock->method('get')->with('aTable')->willReturn($schema);
+        $tcaSchemaFactoryMock->expects($this->atLeastOnce())->method('get')->with('aTable')->willReturn($schema);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1480611208);
-        (new SuggestWizardController($flexFormToolsMock, $tcaSchemaFactoryMock))->searchAction($request);
+        new SuggestWizardController($flexFormToolsMock, $tcaSchemaFactoryMock, self::createStub(ConnectionPool::class))->searchAction($request);
     }
 
     #[DataProvider('currentBackendUserMayAccessTableIsEvaluatedCorrectlyDataProvider')]
@@ -125,7 +128,7 @@ final class SuggestWizardControllerTest extends UnitTestCase
         array $tableConfig,
         bool $isAdmin
     ): void {
-        $backendUser = $this->createMock(BackendUserAuthentication::class);
+        $backendUser = self::createStub(BackendUserAuthentication::class);
         $backendUser->method('isAdmin')->willReturn($isAdmin);
         $schema = new TcaSchema('irrelevant', new FieldCollection(), $tableConfig);
 
@@ -225,6 +228,34 @@ final class SuggestWizardControllerTest extends UnitTestCase
                 [
                     'foreign_table' => 'aTable',
                     'foreign_table_where' => ' aTable.pid = 123 ORDER BY aTable.uid',
+                ],
+            ],
+            'where clause with line break between ORDER and BY' => [
+                'aTable.pid = 123',
+                [
+                    'foreign_table' => 'aTable',
+                    'foreign_table_where' => ' aTable.pid = 123 ORDER' . LF . 'BY aTable.uid',
+                ],
+            ],
+            'where clause with line break after ORDER BY' => [
+                'aTable.pid = 123',
+                [
+                    'foreign_table' => 'aTable',
+                    'foreign_table_where' => ' aTable.pid = 123 ORDER BY' . LF . 'aTable.uid ASC',
+                ],
+            ],
+            'where clause with line break after ORDER BY and multiple sort fields on separate lines' => [
+                'aTable.pid = 123 AND aTable.hidden = 0',
+                [
+                    'foreign_table' => 'aTable',
+                    'foreign_table_where' => ' aTable.pid = 123 AND aTable.hidden = 0 ORDER BY' . LF . 'aTable.sorting ASC,' . LF . 'aTable.uid DESC',
+                ],
+            ],
+            'multiline where clause with ORDER BY on its own line' => [
+                'aTable.pid = 123' . LF . 'AND aTable.hidden = 0',
+                [
+                    'foreign_table' => 'aTable',
+                    'foreign_table_where' => ' aTable.pid = 123' . LF . 'AND aTable.hidden = 0' . LF . 'ORDER BY' . LF . 'aTable.uid',
                 ],
             ],
         ];

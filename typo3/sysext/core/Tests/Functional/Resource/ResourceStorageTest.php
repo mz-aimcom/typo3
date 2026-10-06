@@ -17,26 +17,54 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Resource;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Cache\Backend\Typo3DatabaseBackend;
+use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
+use TYPO3\CMS\Core\Http\NormalizedParams;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Http\UploadedFile;
 use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
 use TYPO3\CMS\Core\Resource\Driver\LocalDriver;
+use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
 use TYPO3\CMS\Core\Resource\File;
 use TYPO3\CMS\Core\Resource\Folder;
+use TYPO3\CMS\Core\Resource\InaccessibleFolder;
 use TYPO3\CMS\Core\Resource\Index\Indexer;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Resource\ResourceStorageInterface;
+use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class ResourceStorageTest extends FunctionalTestCase
 {
+    /**
+     * The testing framework replaces the "hash" cache with a NullBackend,
+     * the offline state of a storage needs a persisting one.
+     */
+    protected array $configurationToUseInTestInstance = [
+        'SYS' => [
+            'caching' => [
+                'cacheConfigurations' => [
+                    'hash' => [
+                        'backend' => Typo3DatabaseBackend::class,
+                    ],
+                ],
+            ],
+        ],
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
         mkdir($this->instancePath . '/resource-storage-test');
+        $this->get(CacheManager::class)->getCache('hash')->flush();
     }
 
     protected function tearDown(): void
@@ -70,6 +98,109 @@ final class ResourceStorageTest extends FunctionalTestCase
         );
         $subject->markAsPermanentlyOffline();
         self::assertNull($subject->getPublicUrl($file));
+    }
+
+    #[Test]
+    public function getPublicUrlReturnsNullForNonPublicStorageWithoutRequest(): void
+    {
+        unset($GLOBALS['TYPO3_REQUEST']);
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']);
+        $subject = new ResourceStorage($localDriver, ['uid' => 1, 'name' => 'testing', 'is_online' => 1, 'is_public' => 0], new NoopEventDispatcher());
+        $file = new File(['uid' => 5, 'identifier' => '/private/foo.jpg', 'name' => 'foo.jpg'], $subject);
+
+        self::assertNull($subject->getPublicUrl($file));
+    }
+
+    #[Test]
+    public function getPublicUrlReturnsAbsoluteDumpFileUrlForNonPublicStorageWithRequest(): void
+    {
+        $request = new ServerRequest('https://example.com/', 'GET', null, [], ['HTTP_HOST' => 'example.com', 'HTTPS' => 'on']);
+        $GLOBALS['TYPO3_REQUEST'] = $request
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withAttribute('normalizedParams', NormalizedParams::createFromRequest($request));
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']);
+        $subject = new ResourceStorage($localDriver, ['uid' => 1, 'name' => 'testing', 'is_online' => 1, 'is_public' => 0], new NoopEventDispatcher());
+        $file = new File(['uid' => 5, 'identifier' => '/private/foo.jpg', 'name' => 'foo.jpg'], $subject);
+
+        $publicUrl = $subject->getPublicUrl($file);
+
+        self::assertNotNull($publicUrl);
+        self::assertStringStartsWith('https://example.com/', $publicUrl);
+        parse_str((string)parse_url($publicUrl, PHP_URL_QUERY), $query);
+        self::assertSame('dumpFile', $query['eID']);
+        self::assertSame('f', $query['t']);
+        self::assertSame('5', $query['f']);
+        self::assertNotEmpty($query['token']);
+    }
+
+    #[Test]
+    public function markAsTemporaryOfflineDoesNotWriteTheStorageRecord(): void
+    {
+        $storageRepository = $this->get(StorageRepository::class);
+        $uid = $storageRepository->createLocalStorage('testing', $this->instancePath . '/resource-storage-test', 'absolute');
+        $subject = $storageRepository->findByUid($uid);
+        self::assertTrue($subject->isOnline());
+
+        $subject->markAsTemporaryOffline();
+
+        self::assertFalse($subject->isOnline());
+        $isOnlineInDatabase = $this->getConnectionPool()
+            ->getConnectionForTable('sys_file_storage')
+            ->select(['is_online'], 'sys_file_storage', ['uid' => $uid])
+            ->fetchOne();
+        self::assertSame(1, (int)$isOnlineInDatabase);
+    }
+
+    #[Test]
+    public function temporaryOfflineStateIsSharedAcrossInstancesUntilCachesAreFlushed(): void
+    {
+        $storageRepository = $this->get(StorageRepository::class);
+        $uid = $storageRepository->createLocalStorage('testing', $this->instancePath . '/resource-storage-test', 'absolute');
+        $storageRepository->findByUid($uid)->markAsTemporaryOffline();
+
+        $storageRepository->flush();
+        self::assertFalse($storageRepository->findByUid($uid)->isOnline());
+
+        $this->get(CacheManager::class)->getCache('hash')->flush();
+        $storageRepository->flush();
+        self::assertTrue($storageRepository->findByUid($uid)->isOnline());
+    }
+
+    #[Test]
+    public function temporaryOfflineStateExpiresAfterFiveMinutes(): void
+    {
+        $storageRepository = $this->get(StorageRepository::class);
+        $uid = $storageRepository->createLocalStorage('testing', $this->instancePath . '/resource-storage-test', 'absolute');
+        $storageRepository->findByUid($uid)->markAsTemporaryOffline();
+
+        $storageRepository->flush();
+        self::assertFalse($storageRepository->findByUid($uid)->isOnline());
+
+        $originalExecTime = $GLOBALS['EXEC_TIME'];
+        try {
+            $GLOBALS['EXEC_TIME'] = $originalExecTime + 299;
+            $storageRepository->flush();
+            self::assertFalse($storageRepository->findByUid($uid)->isOnline());
+
+            $GLOBALS['EXEC_TIME'] = $originalExecTime + 301;
+            $storageRepository->flush();
+            self::assertTrue($storageRepository->findByUid($uid)->isOnline());
+        } finally {
+            $GLOBALS['EXEC_TIME'] = $originalExecTime;
+        }
+    }
+
+    #[Test]
+    public function offlineStateIsNotPersistedInRegistry(): void
+    {
+        $storageRepository = $this->get(StorageRepository::class);
+        $uid = $storageRepository->createLocalStorage('testing', $this->instancePath . '/resource-storage-test', 'absolute');
+        $storageRepository->findByUid($uid)->markAsTemporaryOffline();
+
+        $registryEntries = $this->getConnectionPool()
+            ->getConnectionForTable('sys_registry')
+            ->count('*', 'sys_registry', ['entry_namespace' => 'core']);
+        self::assertSame(0, $registryEntries);
     }
 
     /**
@@ -108,8 +239,8 @@ final class ResourceStorageTest extends FunctionalTestCase
             ->onlyMethods(['getPermissions'])
             ->getMock();
         $localDriver->method('getPermissions')->willReturn($permissionsFromDriver);
-        $mockedResourceFactory = $this->createMock(ResourceFactory::class);
-        $mockedFolder = $this->createMock(Folder::class);
+        $resourceFactoryStub = self::createStub(ResourceFactory::class);
+        $folderStub = self::createStub(Folder::class);
 
         // Let all other checks pass
         $subject = $this->getMockBuilder(ResourceStorage::class)
@@ -119,9 +250,9 @@ final class ResourceStorageTest extends FunctionalTestCase
         $subject->method('isWritable')->willReturn(true);
         $subject->method('isBrowsable')->willReturn(true);
         $subject->method('checkUserActionPermission')->willReturn(true);
-        $subject->method('getResourceFactoryInstance')->willReturn($mockedResourceFactory);
+        $subject->method('getResourceFactoryInstance')->willReturn($resourceFactoryStub);
         $subject->setDriver($localDriver);
-        self::assertSame($expectedResult, $subject->checkFolderActionPermission($action, $mockedFolder));
+        self::assertSame($expectedResult, $subject->checkFolderActionPermission($action, $folderStub));
     }
 
     #[Test]
@@ -223,17 +354,84 @@ final class ResourceStorageTest extends FunctionalTestCase
     }
 
     #[Test]
+    public function getProcessingFolderRestoresPermissionEvaluationWhenFolderCreationFails(): void
+    {
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']);
+        $subject = $this->getMockBuilder(ResourceStorage::class)
+            ->onlyMethods(['createFolder'])
+            ->setConstructorArgs([$localDriver, ['uid' => 1, 'name' => 'testing'], new NoopEventDispatcher()])
+            ->getMock();
+        $subject->method('createFolder')->willThrowException(new \InvalidArgumentException());
+        $subject->setEvaluatePermissions(true);
+        $subject->setUserPermissions(['readFolder' => false]);
+        self::assertFalse($subject->checkUserActionPermission('read', 'folder'));
+
+        $subject->getProcessingFolder();
+
+        self::assertFalse($subject->checkUserActionPermission('read', 'folder'));
+    }
+
+    #[Test]
+    public function getProcessingFolderRestoresPermissionEvaluationOnConfiguredStorageWhenFolderCreationFails(): void
+    {
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']);
+        $configuredStorage = $this->getMockBuilder(ResourceStorage::class)
+            ->onlyMethods(['createFolder'])
+            ->setConstructorArgs([$localDriver, ['uid' => 2, 'name' => 'configured'], new NoopEventDispatcher()])
+            ->getMock();
+        $configuredStorage->method('createFolder')->willThrowException(new \InvalidArgumentException());
+        $configuredStorage->setEvaluatePermissions(true);
+        $configuredStorage->setUserPermissions(['readFolder' => true]);
+        $storageRepository = $this->createMock(StorageRepository::class);
+        $storageRepository->expects($this->once())->method('findByUid')->with(2)->willReturn($configuredStorage);
+        GeneralUtility::addInstance(StorageRepository::class, $storageRepository);
+        $subject = new ResourceStorage(
+            $localDriver,
+            ['uid' => 1, 'name' => 'testing', 'processingfolder' => '2:/_processed_/'],
+            new NoopEventDispatcher(),
+        );
+        self::assertTrue($configuredStorage->getEvaluatePermissions());
+
+        try {
+            $subject->getProcessingFolder();
+        } catch (\InvalidArgumentException) {
+        }
+
+        self::assertTrue($configuredStorage->getEvaluatePermissions());
+    }
+
+    #[Test]
+    public function getProcessingFolderRestoresPermissionEvaluationWhenNestedFolderCreationFails(): void
+    {
+        $subject = $this->getAccessibleMock(ResourceStorage::class, null, [], '', false);
+        $subject->setEvaluatePermissions(true);
+        $file = self::createStub(File::class);
+        $file->method('getIdentifier')->willReturn('/file.txt');
+        $processingFolder = $this->createMock(Folder::class);
+        $processingFolder->method('getSubfolder')->willThrowException(new FolderDoesNotExistException());
+        $processingFolder->method('getStorage')->willReturn($subject);
+        $processingFolder->method('createFolder')->willThrowException(new \InvalidArgumentException());
+
+        try {
+            $subject->_call('getNestedProcessingFolder', $file, $processingFolder);
+        } catch (\InvalidArgumentException) {
+        }
+
+        self::assertTrue($subject->getEvaluatePermissions());
+    }
+
+    #[Test]
     public function deleteFolderThrowsExceptionIfFolderIsNotEmptyAndRecursiveDeleteIsDisabled(): void
     {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1325952534);
-        $folderMock = $this->createMock(Folder::class);
+        $folderStub = self::createStub(Folder::class);
         $mockedDriver = $this->createMock(DriverInterface::class);
         $mockedDriver->expects($this->once())->method('isFolderEmpty')->willReturn(false);
         $subject = $this->getAccessibleMock(ResourceStorage::class, ['checkFolderActionPermission'], [], '', false);
         $subject->method('checkFolderActionPermission')->willReturn(true);
         $subject->_set('driver', $mockedDriver);
-        $subject->deleteFolder($folderMock);
+        $subject->deleteFolder($folderStub);
     }
 
     #[Test]
@@ -289,5 +487,69 @@ final class ResourceStorageTest extends FunctionalTestCase
 
         self::assertSame($uploadedFilePath, $subject->getUploadedLocalFilePath($uploadedFile));
         self::assertSame('directory__up_loaded.txt', $subject->getUploadedTargetFileName($uploadedFile));
+    }
+
+    #[Test]
+    public function getProcessingFolderReturnsFolderCreatedByAParallelRequest(): void
+    {
+        mkdir($this->instancePath . '/resource-storage-test/_processed_');
+        $subject = new ResourceStorage(
+            $this->createDriverReportingTheProcessingFolderAsMissingOnce($this->instancePath . '/resource-storage-test'),
+            ['uid' => 1, 'name' => 'testing', 'is_writable' => true, 'is_browsable' => true, 'is_online' => true],
+            new NoopEventDispatcher()
+        );
+
+        $processingFolder = $subject->getProcessingFolder();
+
+        self::assertNotInstanceOf(InaccessibleFolder::class, $processingFolder);
+        self::assertSame('/_processed_/', $processingFolder->getIdentifier());
+    }
+
+    #[Test]
+    public function getProcessingFolderReturnsFolderOfAnotherStorageCreatedByAParallelRequest(): void
+    {
+        mkdir($this->instancePath . '/resource-storage-test/processing');
+        mkdir($this->instancePath . '/resource-storage-test/processing/_processed_');
+        $processingStorage = new ResourceStorage(
+            $this->createDriverReportingTheProcessingFolderAsMissingOnce($this->instancePath . '/resource-storage-test/processing'),
+            ['uid' => 2, 'name' => 'processing', 'is_writable' => true, 'is_browsable' => true, 'is_online' => true],
+            new NoopEventDispatcher()
+        );
+        $storageRepository = $this->createMock(StorageRepository::class);
+        $storageRepository->method('findByUid')->willReturn($processingStorage);
+        GeneralUtility::addInstance(StorageRepository::class, $storageRepository);
+        $subject = new ResourceStorage(
+            new LocalDriver(['basePath' => $this->instancePath . '/resource-storage-test']),
+            ['uid' => 1, 'name' => 'testing', 'is_writable' => true, 'is_browsable' => true, 'is_online' => true, 'processingfolder' => '2:/_processed_/'],
+            new NoopEventDispatcher()
+        );
+
+        $processingFolder = $subject->getProcessingFolder();
+
+        self::assertNotInstanceOf(InaccessibleFolder::class, $processingFolder);
+        self::assertSame('/_processed_/', $processingFolder->getIdentifier());
+        self::assertSame(2, $processingFolder->getStorage()->getUid());
+    }
+
+    /**
+     * The returned driver reports the processing folder as missing on the very first check only,
+     * which mimics a parallel request creating that folder right after the check.
+     */
+    private function createDriverReportingTheProcessingFolderAsMissingOnce(string $basePath): LocalDriver
+    {
+        return new class (['basePath' => $basePath]) extends LocalDriver {
+            private bool $processingFolderReportedAsMissing = false;
+
+            public function folderExists(string $folderIdentifier): bool
+            {
+                if (!$this->processingFolderReportedAsMissing
+                    && trim($folderIdentifier, '/') === ResourceStorageInterface::DEFAULT_ProcessingFolder
+                ) {
+                    $this->processingFolderReportedAsMissing = true;
+                    return false;
+                }
+                return parent::folderExists($folderIdentifier);
+            }
+        };
     }
 }

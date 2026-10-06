@@ -23,6 +23,7 @@ use Doctrine\DBAL\Platforms\MySQLPlatform;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Type\ContextualFeedbackSeverity;
 use TYPO3\CMS\Install\SystemEnvironment\DatabaseCheck\Platform\MySql;
@@ -89,10 +90,10 @@ final class MySqlTest extends UnitTestCase
         ContextualFeedbackSeverity $expectedSeverity,
         string $expectedTitle
     ): void {
-        $connectionMock = $this->getMockBuilder(Connection::class)->disableOriginalConstructor()->getMock();
+        $connectionMock = self::createStub(Connection::class);
         $connectionMock->method('getPlatformServerVersion')->willReturn($serverVersionString);
         $connectionMock->method('getDatabasePlatform')->willReturn($platform);
-        $subject = new class () extends MySql {
+        $subject = new class ($this->createStub(ConnectionPool::class)) extends MySql {
             public function callCheckMySQLOrMariaDBVersion(Connection $connection): void
             {
                 $this->checkMySQLOrMariaDBVersion($connection);
@@ -101,13 +102,11 @@ final class MySqlTest extends UnitTestCase
 
         $subject->callCheckMySQLOrMariaDBVersion($connectionMock);
         $messages = $subject->getMessageQueue()->getAllMessagesAndFlush();
-        $firstMessage = $messages[0] ?? null;
-
         self::assertCount(1, $messages);
+
+        $firstMessage = $messages[0] ?? null;
         self::assertInstanceOf(FlashMessage::class, $firstMessage);
-        if ($firstMessage instanceof FlashMessage) {
-            self::assertSame($expectedTitle, $firstMessage->getTitle(), 'Message Title matches');
-            self::assertSame($expectedSeverity, $firstMessage->getSeverity(), 'Message Severity matches');
-        }
+        self::assertSame($expectedTitle, $firstMessage->getTitle(), 'Message Title matches');
+        self::assertSame($expectedSeverity, $firstMessage->getSeverity(), 'Message Severity matches');
     }
 }

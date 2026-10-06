@@ -1,0 +1,48 @@
+{
+	"name": "typo3/theme-camino",
+	"type": "typo3-cms-framework",
+	"description": "TYPO3 Theme: \"Camino\" - The default theme for TYPO3 sites in the TYPO3 v14 series.",
+	"homepage": "https://typo3.community/",
+	"funding": [
+		{
+			"type": "membership",
+			"url": "https://typo3.org/membership"
+		}
+	],
+	"license": [
+		"GPL-2.0-or-later"
+	],
+	"authors": [
+		{
+			"name": "TYPO3 Core Team",
+			"email": "typo3cms@typo3.org",
+			"role": "Developer"
+		}
+	],
+	"support": {
+		"issues": "https://forge.typo3.org/issues/",
+		"forum": "https://talk.typo3.org/",
+		"source": "https://github.com/TYPO3/typo3/",
+		"docs": "https://docs.typo3.org/",
+		"rss": "https://news.typo3.com/rss/",
+		"chat": "https://typo3.community/meet/slack/",
+		"security": "https://typo3.org/security/"
+	},
+	"config": {
+		"sort-packages": true
+	},
+	"require": {
+		"typo3/cms-core": "15.0.*@dev"
+	},
+	"conflict": {
+		"typo3/cms": "*"
+	},
+	"extra": {
+		"branch-alias": {
+			"dev-main": "15.0.x-dev"
+		},
+		"typo3/cms": {
+			"extension-key": "theme_camino"
+		}
+	}
+}

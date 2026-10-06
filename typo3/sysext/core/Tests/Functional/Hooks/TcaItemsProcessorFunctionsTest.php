@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Module\ModuleFactory;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
@@ -28,6 +29,8 @@ use TYPO3\CMS\Core\Hooks\TcaItemsProcessorFunctions;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconRegistry;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Resource\Driver\LocalDriver;
+use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -40,11 +43,16 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     {
         parent::setUp();
         // Default LANG mock just returns incoming value as label if calling ->sL()
-        $languageServiceMock = $this->createMock(LanguageService::class);
-        $languageServiceMock->method('sL')->with(self::anything())->willReturnArgument(0);
-        $GLOBALS['LANG'] = $languageServiceMock;
-        $iconRegistryMock = $this->createMock(IconRegistry::class);
-        GeneralUtility::setSingletonInstance(IconRegistry::class, $iconRegistryMock);
+        $languageServiceStub = self::createStub(LanguageService::class);
+        $languageServiceStub->method('sL')->willReturnArgument(0);
+        $GLOBALS['LANG'] = $languageServiceStub;
+        GeneralUtility::setSingletonInstance(IconRegistry::class, self::createStub(IconRegistry::class));
+    }
+
+    protected function tearDown(): void
+    {
+        unset($GLOBALS['BE_USER']);
+        parent::tearDown();
     }
 
     #[Test]
@@ -128,14 +136,16 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
     #[Test]
     public function populateAvailableUserModulesTest(): void
     {
-        $moduleProviderMock = $this->createMock(ModuleProvider::class);
-        $moduleFactory = new ModuleFactory($this->createMock(IconRegistry::class), new NoopEventDispatcher());
-        $moduleProviderMock->method('getUserModules')->willReturn([
+        $moduleProviderStub = self::createStub(ModuleProvider::class);
+        $moduleFactory = new ModuleFactory(self::createStub(IconRegistry::class), new NoopEventDispatcher());
+        $moduleProviderStub->method('getUserModules')->willReturn([
+            // Short-form language domain variant
             'aModule' => $moduleFactory->createModule('aModule', [
                 'iconIdentifier' => 'a-module',
-                'labels' => 'LLL:EXT:a-module/locallang',
+                'labels' => 'a-module.modules.sub',
                 'packageName' => 'typo3/cms-testing',
             ]),
+            // Legacy long-form language domain variant
             'bModule' => $moduleFactory->createModule('bModule', [
                 'iconIdentifier' => 'b-module',
                 'labels' => 'LLL:EXT:b-module/locallang',
@@ -147,12 +157,12 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
         ];
         $expected['items'] = [
             0 => [
-                'label' => 'LLL:EXT:a-module/locallang:mlang_tabs_tab',
+                'label' => 'a-module.modules.sub:title',
                 'value' => 'aModule',
                 'icon' => 'a-module',
                 'description' => [
-                    'title' => 'LLL:EXT:a-module/locallang:mlang_labels_tablabel',
-                    'description' => 'LLL:EXT:a-module/locallang:mlang_labels_tabdescr',
+                    'title' => 'a-module.modules.sub:short_description',
+                    'description' => 'a-module.modules.sub:description',
                 ],
             ],
             1 => [
@@ -168,7 +178,7 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
         $subject = new TcaItemsProcessorFunctions(
             $this->get(IconFactory::class),
             $this->get(IconRegistry::class),
-            $moduleProviderMock,
+            $moduleProviderStub,
             $this->get(FlexFormTools::class),
             $this->get(TcaSchemaFactory::class),
             $this->get(PageDoktypeRegistry::class),
@@ -590,6 +600,64 @@ final class TcaItemsProcessorFunctionsTest extends FunctionalTestCase
             ],
         ];
         $this->get(TcaItemsProcessorFunctions::class)->populateCustomPermissionOptions($fieldDefinition);
+        self::assertSame($expected, $fieldDefinition);
+    }
+
+    #[Test]
+    public function populateFileStoragesAddsStoragesOfBackendUser(): void
+    {
+        $localDriver = new LocalDriver(['basePath' => $this->instancePath]);
+        $storages = [
+            1 => new ResourceStorage($localDriver, ['uid' => 1, 'name' => 'fileadmin'], new NoopEventDispatcher()),
+            3 => new ResourceStorage($localDriver, ['uid' => 3, 'name' => 'assets'], new NoopEventDispatcher()),
+        ];
+        $backendUserStub = self::createStub(BackendUserAuthentication::class);
+        $backendUserStub->method('getFileStorages')->willReturn($storages);
+        $GLOBALS['BE_USER'] = $backendUserStub;
+
+        $fieldDefinition = [
+            'items' => [
+                0 => [
+                    'label' => '',
+                    'value' => 0,
+                ],
+            ],
+        ];
+        $expected = [
+            'items' => [
+                0 => [
+                    'label' => '',
+                    'value' => 0,
+                ],
+                1 => [
+                    'label' => 'fileadmin',
+                    'value' => 1,
+                    'icon' => 'mimetypes-x-sys_file_storage',
+                ],
+                2 => [
+                    'label' => 'assets',
+                    'value' => 3,
+                    'icon' => 'mimetypes-x-sys_file_storage',
+                ],
+            ],
+        ];
+        $this->get(TcaItemsProcessorFunctions::class)->populateFileStorages($fieldDefinition);
+        self::assertSame($expected, $fieldDefinition);
+    }
+
+    #[Test]
+    public function populateFileStoragesAddsNoItemsWithoutBackendUser(): void
+    {
+        $fieldDefinition = [
+            'items' => [
+                0 => [
+                    'label' => '',
+                    'value' => 0,
+                ],
+            ],
+        ];
+        $expected = $fieldDefinition;
+        $this->get(TcaItemsProcessorFunctions::class)->populateFileStorages($fieldDefinition);
         self::assertSame($expected, $fieldDefinition);
     }
 

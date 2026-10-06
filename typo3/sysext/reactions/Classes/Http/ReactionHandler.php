@@ -36,12 +36,12 @@ use TYPO3\CMS\Reactions\ReactionRegistry;
  *
  * @internal This is a specific controller implementation and is not considered part of the Public TYPO3 API.
  */
-class ReactionHandler
+readonly class ReactionHandler
 {
     public function __construct(
-        private readonly ReactionRegistry $reactionRegistry,
-        private readonly LoggerInterface $logger,
-        private readonly LanguageServiceFactory $languageServiceFactory
+        private ReactionRegistry $reactionRegistry,
+        private LoggerInterface $logger,
+        private LanguageServiceFactory $languageServiceFactory
     ) {}
 
     public function handleReaction(ServerRequestInterface $request, ?ReactionInstruction $reactionInstruction, ReactionUserAuthentication $user): ResponseInterface
@@ -71,15 +71,7 @@ class ReactionHandler
 
     protected function getPayload(ServerRequestInterface $request): array
     {
-        $body = (string)$request->getBody();
-
-        try {
-            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-            return is_array($payload) ? $payload : [];
-        } catch (\JsonException $e) {
-            // do nothing
-            return [];
-        }
+        return PayloadDecoder::decode((string)$request->getBody()) ?? [];
     }
 
     protected function buildReactionResponse(ResponseInterface $response): ResponseInterface

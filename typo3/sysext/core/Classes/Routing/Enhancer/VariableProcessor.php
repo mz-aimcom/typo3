@@ -25,19 +25,11 @@ use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 #[Autoconfigure(public: true, shared: false)]
 class VariableProcessor
 {
-    protected const LEVEL_DELIMITER = '__';
+    protected const LEVEL_DELIMITER = '___';
     protected const ARGUMENT_SEPARATOR = '/';
     protected const VARIABLE_PATTERN = '#\{(?P<modifier>!)?(?P<name>[^}]+)\}#';
-
-    /**
-     * @var array
-     */
-    protected $hashes = [];
-
-    /**
-     * @var array
-     */
-    protected $nestedValues = [];
+    protected array $hashes = [];
+    protected array $nestedValues = [];
 
     public function __construct(private readonly VariableProcessorCache $cache) {}
 
@@ -74,8 +66,8 @@ class VariableProcessor
             // Symfony Route Compiler requires the first literal to be non-integer
             if ($hash[0] === (string)(int)$hash[0]) {
                 $hash[0] = str_replace(
-                    range('0', '9'),
-                    range('o', 'x'),
+                    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                    ['o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x'],
                     $hash[0]
                 );
             }
@@ -123,9 +115,6 @@ class VariableProcessor
         return $this->nestedValues[$value] ?? $value;
     }
 
-    /**
-     * @param string|null $namespace
-     */
     public function deflateRoutePath(string $routePath, ?string $namespace = null, array $arguments = []): string
     {
         if (!preg_match_all(static::VARIABLE_PATTERN, $routePath, $matches)) {
@@ -133,7 +122,7 @@ class VariableProcessor
         }
 
         $replace = [];
-        $search = array_values($matches[0]);
+        $search = $matches[0];
         $deflatedNames = $this->deflateValues($matches['name'], $namespace, $arguments);
         foreach ($deflatedNames as $index => $deflatedName) {
             $modifier = $matches['modifier'][$index] ?? '';
@@ -142,9 +131,6 @@ class VariableProcessor
         return str_replace($search, $replace, $routePath);
     }
 
-    /**
-     * @param string|null $namespace
-     */
     public function inflateRoutePath(string $routePath, ?string $namespace = null, array $arguments = []): string
     {
         if (!preg_match_all(static::VARIABLE_PATTERN, $routePath, $matches)) {
@@ -152,7 +138,7 @@ class VariableProcessor
         }
 
         $replace = [];
-        $search = array_values($matches[0]);
+        $search = $matches[0];
         $inflatedNames = $this->inflateValues($matches['name'], $namespace, $arguments);
         foreach ($inflatedNames as $index => $inflatedName) {
             $modifier = $matches['modifier'][$index] ?? '';
@@ -216,9 +202,6 @@ class VariableProcessor
     /**
      * Deflates keys names on the first level, now recursion into sub-arrays.
      * Can be used to adjust key names of route requirements, mappers, etc.
-     *
-     * @param string|null $namespace
-     * @param bool $hash = true
      */
     public function deflateKeys(array $items, ?string $namespace = null, array $arguments = [], bool $hash = true): array
     {
@@ -235,9 +218,6 @@ class VariableProcessor
     /**
      * Inflates keys names on the first level, now recursion into sub-arrays.
      * Can be used to adjust key names of route requirements, mappers, etc.
-     *
-     * @param string|null $namespace
-     * @param bool $hash = true
      */
     public function inflateKeys(array $items, ?string $namespace = null, array $arguments = [], bool $hash = true): array
     {
@@ -253,8 +233,6 @@ class VariableProcessor
 
     /**
      * Deflates plain values.
-     *
-     * @param string|null $namespace
      */
     protected function deflateValues(array $values, ?string $namespace = null, array $arguments = [], bool $hash = true): array
     {
@@ -279,8 +257,6 @@ class VariableProcessor
 
     /**
      * Inflates plain values.
-     *
-     * @param string|null $namespace
      */
     protected function inflateValues(array $values, ?string $namespace = null, array $arguments = [], bool $hash = true): array
     {
@@ -311,7 +287,7 @@ class VariableProcessor
     protected function deflateArray(array $array, string $prefix = ''): array
     {
         $delimiter = static::LEVEL_DELIMITER;
-        if ($prefix !== '' && substr($prefix, -strlen($delimiter)) !== $delimiter) {
+        if ($prefix !== '' && !str_ends_with($prefix, $delimiter)) {
             $prefix .= static::LEVEL_DELIMITER;
         }
 
@@ -356,9 +332,6 @@ class VariableProcessor
         return $result;
     }
 
-    /**
-     * @param string $namespace
-     */
     protected function inflateNestedValue(string $value, ?string $namespace, array $arguments): string
     {
         $namespacePrefix = $namespace ? $namespace . static::LEVEL_DELIMITER : '';

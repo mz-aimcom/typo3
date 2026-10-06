@@ -22,7 +22,11 @@ use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Module\ModuleInterface;
 use TYPO3\CMS\Backend\Module\ModuleProvider;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\Buttons\ButtonInterface;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\Components\DocHeaderComponent;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
@@ -47,17 +51,21 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
 {
     use PageRendererBackendSetupTrait;
 
-    protected bool $uiBlock = false;
+    private bool $uiBlock = false;
 
-    protected string $moduleId = '';
-    protected string $moduleName = '';
-    protected string $moduleClass = '';
-    protected string $title = '';
-    protected string $bodyTag = '<body>';
-    protected string $formTag = '';
+    private string $moduleId = '';
+    private string $moduleName = '';
+    private string $moduleClass = '';
+    /**
+     * @internal
+     */
+    private ModuleLayout $moduleLayout = ModuleLayout::WIDE;
+    private string $title = '';
+    private string $bodyTag = '<body>';
+    private string $formTag = '';
 
-    protected FlashMessageQueue $flashMessageQueue;
-    protected DocHeaderComponent $docHeaderComponent;
+    private FlashMessageQueue $flashMessageQueue;
+    private DocHeaderComponent $docHeaderComponent;
 
     /**
      * Init PageRenderer and properties.
@@ -70,6 +78,7 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
         protected readonly FlashMessageService $flashMessageService,
         protected readonly ExtensionConfiguration $extensionConfiguration,
         protected readonly ViewInterface $view,
+        protected readonly ComponentFactory $componentFactory,
         protected readonly ServerRequestInterface $request,
     ) {
         $module = $request->getAttribute('module');
@@ -113,7 +122,7 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
     public function render(string $templateFileName = ''): string
     {
         $this->prepareRender($templateFileName);
-        return $this->pageRenderer->render();
+        return $this->pageRenderer->render($this->request);
     }
 
     /**
@@ -123,10 +132,10 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
     public function renderResponse(string $templateFileName = ''): ResponseInterface
     {
         $this->prepareRender($templateFileName);
-        return $this->pageRenderer->renderResponse();
+        return $this->pageRenderer->renderResponse($this->request);
     }
 
-    protected function prepareRender(string $templateFileName): void
+    private function prepareRender(string $templateFileName): void
     {
         if ($templateFileName === '') {
             $extbaseRequestMessage = '';
@@ -136,29 +145,31 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
                 // This extbase specific code is a helper for a more detailed exception
                 // message, and a tribute to extbase backend extensions being upgraded.
                 // Introduced with v13, it could potentially vanish at some point again.
-                $templateFileName = $extbaseRequestParameters->getControllerName() . '/' .
-                    ucfirst($extbaseRequestParameters->getControllerActionName());
+                $templateFileName = $extbaseRequestParameters->getControllerName() . '/'
+                    . ucfirst($extbaseRequestParameters->getControllerActionName());
                 $extbaseRequestMessage = ' Expected template filename is "' . $templateFileName . '".';
             }
             throw new \InvalidArgumentException('A template filename must be provided.' . $extbaseRequestMessage, 1732184506);
         }
 
         $this->assignMultiple([
-            'docHeader' => $this->docHeaderComponent->docHeaderContent(),
+            'docHeader' => $this->docHeaderComponent->docHeaderContent($this->request),
             'moduleId' => $this->moduleId,
             'moduleName' => $this->moduleName,
             'moduleClass' => $this->moduleClass,
+            'moduleLayout' => $this->moduleLayout->value,
             'uiBlock' => $this->uiBlock,
             'flashMessageQueueIdentifier' => $this->flashMessageQueue->getIdentifier(),
             'formTag' => $this->formTag,
         ]);
+        $this->pageRenderer->getJavaScriptRenderer()->includeAllImports();
         $this->pageRenderer->loadJavaScriptModule('bootstrap');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/dropdown.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/context-help.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/global-event-handler.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/key-bindings.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/action-dispatcher.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/element/immediate-action-element.js');
-        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/live-search/live-search-shortcut.js');
+        $this->pageRenderer->loadJavaScriptModule('@typo3/backend/hotkeys.js');
         $this->pageRenderer->addBodyContent($this->bodyTag . $this->view->render($templateFileName));
         $this->pageRenderer->setTitle($this->title);
         $updateSignalDetails = BackendUtility::getUpdateSignalDetails();
@@ -166,6 +177,15 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
             $this->pageRenderer->addHeaderData(implode("\n", $updateSignalDetails['html']));
         }
         $this->dispatchNotificationMessages();
+    }
+
+    /**
+     * @internal
+     */
+    public function setLayout(ModuleLayout $moduleLayout): self
+    {
+        $this->moduleLayout = $moduleLayout;
+        return $this;
     }
 
     /**
@@ -244,7 +264,7 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
      */
     public function addFlashMessage(string $messageBody, string $messageTitle = '', ContextualFeedbackSeverity $severity = ContextualFeedbackSeverity::OK, bool $storeInSession = true): self
     {
-        $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $messageBody, $messageTitle, $severity, $storeInSession);
+        $flashMessage = new FlashMessage($messageBody, $messageTitle, $severity, $storeInSession);
         $this->flashMessageQueue->enqueue($flashMessage);
         return $this;
     }
@@ -265,6 +285,10 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
      * UI block is a spinner shown during browser rendering phase of the module,
      * automatically removed when rendering finished. This is done by default,
      * but the UI block can be turned off when needed for whatever reason.
+     *
+     * While the UI block is active, the doc header button bar is rendered "inert"
+     * as well, so that its buttons stay visible but can not be operated. It is
+     * released together with the spinner.
      */
     public function setUiBlock(bool $uiBlock): self
     {
@@ -273,7 +297,10 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
     }
 
     /**
-     * Generates a menu in the docheader to access third-level modules
+     * Generates a module actions dropdown in the docheader button bar.
+     *
+     * Creates a dropdown button on the LEFT side (group 0) containing navigation to
+     * submodules or module actions. The button label shows the currently active module/action.
      */
     public function makeDocHeaderModuleMenu(array $additionalQueryParams = []): self
     {
@@ -288,40 +315,68 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
             // This is a fallback in case a second level module is called here
             $menuModule = $this->moduleProvider->getModuleForMenu($currentModule->getIdentifier(), $this->getBackendUser());
         }
-        if ($menuModule === null) {
+
+        if ($menuModule === null || !$menuModule->hasSubModules()) {
             return $this;
         }
-        $menu = $this->getDocHeaderComponent()->getMenuRegistry()->makeMenu();
-        $menu->setIdentifier('moduleMenu');
-        $menu->setLabel(
-            $this->getLanguageService()->sL(
-                'LLL:EXT:backend/Resources/Private/Language/locallang.xlf:moduleMenu.dropdown.label'
-            )
-        );
 
-        foreach ($menuModule->getSubModules() as $module) {
-            $item = $menu
-                ->makeMenuItem()
-                ->setHref(
-                    (string)$this->uriBuilder->buildUriFromRoute(
-                        $module->getIdentifier(),
-                        $additionalQueryParams,
-                    )
-                )
-                ->setTitle($this->getLanguageService()->sL($module->getTitle()));
-            if ($module->getIdentifier() === $currentModule->getIdentifier()) {
-                $item->setActive(true);
-            }
-            $menu->addMenuItem($item);
+        $itemCount = 0;
+        $dropdownButton = $this->componentFactory->createDropDownButton()
+            ->setLabel($this->getLanguageService()->sL('backend.messages:moduleMenu.dropdown.label'))
+            ->setShowActiveLabelText(true)
+            ->setShowLabelText(true);
+
+        // Add "Overview" link if exists
+        if ($menuModule->hasSubmoduleOverview()) {
+            $isActive = $menuModule->getIdentifier() === $currentModule->getIdentifier();
+            $overviewLabel = $this->getLanguageService()->sL('backend.messages:moduleMenu.dropdown.overview');
+            $dropdownItem = $this->componentFactory->createDropDownRadio()
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute($menuModule->getIdentifier(), $additionalQueryParams))
+                ->setLabel($overviewLabel)
+                ->setActive($isActive);
+
+            $dropdownButton->addItem($dropdownItem);
+            $itemCount++;
         }
-        $this->getDocHeaderComponent()->getMenuRegistry()->addMenu($menu);
+
+        // Add all submodules
+        foreach ($menuModule->getSubModules() as $module) {
+            $isActive = $module->getIdentifier() === $currentModule->getIdentifier();
+            $moduleTitle = $this->getLanguageService()->sL($module->getTitle());
+            $dropdownItem = $this->componentFactory->createDropDownRadio()
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute($module->getIdentifier(), $additionalQueryParams))
+                ->setLabel($moduleTitle)
+                ->setActive($isActive);
+
+            $dropdownButton->addItem($dropdownItem);
+            $itemCount++;
+        }
+
+        // Only add dropdown if there's more than one item
+        if ($itemCount > 1) {
+            // Add to button bar at LEFT, group 0 (first position)
+            $this->getDocHeaderComponent()->getButtonBar()->addButton($dropdownButton, ButtonBar::BUTTON_POSITION_LEFT, 0);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Shorthand method to add a new button to the button bar
+     */
+    public function addButtonToButtonBar(
+        ButtonInterface $button,
+        string $buttonPosition = ButtonBar::BUTTON_POSITION_LEFT,
+        int $buttonGroup = 1
+    ): self {
+        $this->getDocHeaderComponent()->getButtonBar()->addButton($button, $buttonPosition, $buttonGroup);
         return $this;
     }
 
     /**
      * Dispatches all messages in a special FlashMessageQueue to the PageRenderer to be rendered as inline notifications
      */
-    protected function dispatchNotificationMessages(): void
+    private function dispatchNotificationMessages(): void
     {
         $notificationQueue = $this->flashMessageService->getMessageQueueByIdentifier(FlashMessageQueue::NOTIFICATION_QUEUE);
         foreach ($notificationQueue->getAllMessagesAndFlush() as $message) {
@@ -331,12 +386,12 @@ final class ModuleTemplate implements ViewInterface, ResponsableViewInterface
         }
     }
 
-    protected function getLanguageService(): LanguageService
+    private function getLanguageService(): LanguageService
     {
         return $GLOBALS['LANG'];
     }
 
-    protected function getBackendUser(): BackendUserAuthentication
+    private function getBackendUser(): BackendUserAuthentication
     {
         return $GLOBALS['BE_USER'];
     }

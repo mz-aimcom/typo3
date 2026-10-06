@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Extbase\Tests\Functional\Mvc\Validation;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Http\ServerRequest;
@@ -70,11 +71,11 @@ final class ActionControllerValidationTest extends FunctionalTestCase
     #[Test]
     public function forwardedActionValidatesPreviouslyIgnoredArgument(array $blogPostArgument, array $trustedProperties, array $expectedErrorCodes): void
     {
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'testkey';
 
         $response = new Response();
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $GLOBALS['TYPO3_REQUEST'] = $serverRequest;
         $request = new Request($serverRequest);
 
@@ -86,7 +87,7 @@ final class ActionControllerValidationTest extends FunctionalTestCase
         $referrerRequest['@action'] = 'testForm';
         $request = $request->withArgument(
             '__referrer',
-            ['@request' => (new HashService())->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix())]
+            ['@request' => new HashService()->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix(), HashAlgo::SHA3_256)]
         );
 
         $titleMappingResults = new Result();
@@ -117,11 +118,11 @@ final class ActionControllerValidationTest extends FunctionalTestCase
     #[Test]
     public function validationResultsAreProvidedForTheSameObjectInDifferentArguments(): void
     {
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'testkey';
 
         $response = new Response();
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $GLOBALS['TYPO3_REQUEST'] = $serverRequest;
         $request = new Request($serverRequest);
 
@@ -149,7 +150,7 @@ final class ActionControllerValidationTest extends FunctionalTestCase
         $referrerRequest['@action'] = 'testForm';
         $request = $request->withArgument(
             '__referrer',
-            ['@request' => (new HashService())->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix())]
+            ['@request' => new HashService()->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix(), HashAlgo::SHA3_256)]
         );
 
         $isDispatched = false;
@@ -160,7 +161,6 @@ final class ActionControllerValidationTest extends FunctionalTestCase
                 /** @var Result $validationResult */
                 $validationResult = $response->getArgumentsValidationResult();
 
-                self::assertInstanceOf(ForwardResponse::class, $response);
                 self::assertCount(1, $validationResult->forProperty('blog.title')->getErrors());
                 self::assertCount(1, $validationResult->forProperty('blog.description')->getErrors());
                 self::assertCount(1, $validationResult->forProperty('blogPost.title')->getErrors());
@@ -178,11 +178,11 @@ final class ActionControllerValidationTest extends FunctionalTestCase
     #[Test]
     public function argumentsOfOriginalRequestRemainOnValidationErrors(): void
     {
-        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('default');
+        $GLOBALS['LANG'] = $this->get(LanguageServiceFactory::class)->create('en');
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'] = 'testkey';
 
         $response = new Response();
-        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters())
+        $serverRequest = new ServerRequest()->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $request = new Request($serverRequest);
 
@@ -210,7 +210,7 @@ final class ActionControllerValidationTest extends FunctionalTestCase
         $referrerRequest['@action'] = 'testForm';
         $request = $request->withArgument(
             '__referrer',
-            ['@request' => (new HashService())->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix())]
+            ['@request' => new HashService()->appendHmac(json_encode($referrerRequest), HashScope::ReferringRequest->prefix(), HashAlgo::SHA3_256)]
         );
         $GLOBALS['TYPO3_REQUEST'] = $request;
 
@@ -231,7 +231,7 @@ final class ActionControllerValidationTest extends FunctionalTestCase
         self::assertEquals('testFormAction', $response->getBody()->getContents());
     }
 
-    protected function generateTrustedPropertiesToken(array $formFieldNames): string
+    private function generateTrustedPropertiesToken(array $formFieldNames): string
     {
         $mvcPropertyMappingConfigurationService = $this->get(
             MvcPropertyMappingConfigurationService::class

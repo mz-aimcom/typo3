@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Install\Tests\Unit\FolderStructure;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
@@ -31,6 +32,7 @@ use TYPO3\CMS\Install\FolderStructure\RootNode;
 use TYPO3\CMS\Install\FolderStructure\RootNodeInterface;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class RootNodeTest extends UnitTestCase
 {
     #[Test]
@@ -39,7 +41,7 @@ final class RootNodeTest extends UnitTestCase
         $this->expectException(RootNodeException::class);
         $this->expectExceptionCode(1366140117);
         $node = $this->getAccessibleMock(RootNode::class, ['isWindowsOs'], [], '', false);
-        $falseParent = $this->createMock(RootNodeInterface::class);
+        $falseParent = self::createStub(RootNodeInterface::class);
         $node->__construct([], $falseParent);
     }
 
@@ -164,9 +166,11 @@ final class RootNodeTest extends UnitTestCase
         );
         // do not use var path here, as root nodes get checked for public path as first part
         $testRoot = Environment::getPublicPath() . '/typo3temp/tests/';
-        $this->testFilesToDelete[] = $testRoot;
         $path = $testRoot . StringUtility::getUniqueId('dir_');
         GeneralUtility::mkdir_deep($path);
+        // Register the unique directory and not the shared root: other test cases
+        // keep their files below the same root and must not have them removed.
+        $this->testFilesToDelete[] = $path;
         $node->method('getAbsolutePath')->willReturn($path);
         $node->expects($this->once())->method('exists')->willReturn(true);
         $node->expects($this->once())->method('isDirectory')->willReturn(true);
@@ -188,9 +192,11 @@ final class RootNodeTest extends UnitTestCase
         );
         // do not use var path here, as root nodes get checked for public path as first part
         $testRoot = Environment::getPublicPath() . '/typo3temp/tests/';
-        $this->testFilesToDelete[] = $testRoot;
         $path = $testRoot . StringUtility::getUniqueId('dir_');
         GeneralUtility::mkdir_deep($path);
+        // Register the unique directory and not the shared root: other test cases
+        // keep their files below the same root and must not have them removed.
+        $this->testFilesToDelete[] = $path;
         $node->method('getAbsolutePath')->willReturn($path);
         $node->method('exists')->willReturn(true);
         $node->method('isDirectory')->willReturn(true);

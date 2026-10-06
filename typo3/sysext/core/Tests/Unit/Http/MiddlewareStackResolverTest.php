@@ -35,13 +35,13 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             require __DIR__ . '/Fixtures/Package2/Configuration/RequestMiddlewares.php'
         ));
         $containerMock = $this->createMock(ContainerInterface::class);
-        $containerMock->method('get')->with('middlewares')->willReturn($middlewares);
-        $dependencyOrderingServiceMock = $this->createMock(DependencyOrderingService::class);
-        $dependencyOrderingServiceMock->method('orderByDependencies')->with(self::anything())->willReturnArgument(0);
+        $containerMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('middlewares')->willReturn($middlewares);
+        $dependencyOrderingServiceStub = self::createStub(DependencyOrderingService::class);
+        $dependencyOrderingServiceStub->method('orderByDependencies')->willReturnArgument(0);
 
         $subject = new MiddlewareStackResolver(
             $containerMock,
-            $dependencyOrderingServiceMock,
+            $dependencyOrderingServiceStub,
             new NullFrontend('test'),
             ''
         );
@@ -49,7 +49,7 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             'secondMiddleware' => 'anotherClassName',
             'firstMiddleware' => 'aClassName',
         ];
-        self::assertEquals($expected, $subject->resolve('testStack'));
+        self::assertEquals($expected, $subject->resolve('testStack')->getArrayCopy());
     }
 
     #[Test]
@@ -57,19 +57,19 @@ final class MiddlewareStackResolverTest extends UnitTestCase
     {
         $middlewares = new \ArrayObject();
         $containerMock = $this->createMock(ContainerInterface::class);
-        $containerMock->method('get')->with('middlewares')->willReturn($middlewares);
-        $dependencyOrderingServiceMock = $this->createMock(DependencyOrderingService::class);
-        $dependencyOrderingServiceMock->method('orderByDependencies')->with(self::anything())->willReturnArgument(0);
+        $containerMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('middlewares')->willReturn($middlewares);
+        $dependencyOrderingServiceStub = self::createStub(DependencyOrderingService::class);
+        $dependencyOrderingServiceStub->method('orderByDependencies')->willReturnArgument(0);
 
         $subject = new MiddlewareStackResolver(
             $containerMock,
-            $dependencyOrderingServiceMock,
+            $dependencyOrderingServiceStub,
             new NullFrontend('test'),
             'PackageDependentCacheIdentifier'
         );
         // empty array expected
         $expected = [];
-        self::assertEquals($expected, $subject->resolve('testStack'));
+        self::assertEquals($expected, $subject->resolve('testStack')->getArrayCopy());
     }
 
     #[Test]
@@ -81,13 +81,13 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             require __DIR__ . '/Fixtures/Package2Disables1/Configuration/RequestMiddlewares.php'
         ));
         $containerMock = $this->createMock(ContainerInterface::class);
-        $containerMock->method('get')->with('middlewares')->willReturn($middlewares);
-        $dependencyOrderingServiceMock = $this->createMock(DependencyOrderingService::class);
-        $dependencyOrderingServiceMock->method('orderByDependencies')->with(self::anything())->willReturnArgument(0);
+        $containerMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('middlewares')->willReturn($middlewares);
+        $dependencyOrderingServiceStub = self::createStub(DependencyOrderingService::class);
+        $dependencyOrderingServiceStub->method('orderByDependencies')->willReturnArgument(0);
 
         $subject = new MiddlewareStackResolver(
             $containerMock,
-            $dependencyOrderingServiceMock,
+            $dependencyOrderingServiceStub,
             new NullFrontend('test'),
             'PackageDependentCacheIdentifier'
         );
@@ -95,7 +95,7 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             // firstMiddleware is missing, RequestMiddlewares.php of Package2 sets disables=true on firstMiddleware
             'secondMiddleware' => 'anotherClassName',
         ];
-        self::assertEquals($expected, $subject->resolve('testStack'));
+        self::assertEquals($expected, $subject->resolve('testStack')->getArrayCopy());
     }
 
     #[Test]
@@ -107,13 +107,13 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             require __DIR__ . '/Fixtures/Package2Replaces1/Configuration/RequestMiddlewares.php'
         ));
         $containerMock = $this->createMock(ContainerInterface::class);
-        $containerMock->method('get')->with('middlewares')->willReturn($middlewares);
-        $dependencyOrderingServiceMock = $this->createMock(DependencyOrderingService::class);
-        $dependencyOrderingServiceMock->method('orderByDependencies')->with(self::anything())->willReturnArgument(0);
+        $containerMock->expects($this->atMost(PHP_INT_MAX))->method('get')->with('middlewares')->willReturn($middlewares);
+        $dependencyOrderingServiceStub = self::createStub(DependencyOrderingService::class);
+        $dependencyOrderingServiceStub->method('orderByDependencies')->willReturnArgument(0);
 
         $subject = new MiddlewareStackResolver(
             $containerMock,
-            $dependencyOrderingServiceMock,
+            $dependencyOrderingServiceStub,
             new NullFrontend('test'),
             'PackageDependentCacheIdentifier'
         );
@@ -122,6 +122,6 @@ final class MiddlewareStackResolverTest extends UnitTestCase
             'firstMiddleware' => 'replacedClassName',
             'secondMiddleware' => 'anotherClassName',
         ];
-        self::assertEquals($expected, $subject->resolve('testStack'));
+        self::assertEquals($expected, $subject->resolve('testStack')->getArrayCopy());
     }
 }

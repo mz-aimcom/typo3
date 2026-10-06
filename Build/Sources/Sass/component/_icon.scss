@@ -12,6 +12,12 @@
     display: inline-block;
 }
 
+:root,
+.icon,
+typo3-backend-icon {
+    --icon-color-accent: var(--typo3-icons-accent);
+}
+
 //
 // Icon alignment
 //

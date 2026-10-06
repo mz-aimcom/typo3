@@ -17,21 +17,26 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\FormProtection;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Crypto\HashService;
 use TYPO3\CMS\Core\FormProtection\AbstractFormProtection;
 use TYPO3\CMS\Core\FormProtection\BackendFormProtection;
 use TYPO3\CMS\Core\Registry;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class BackendFormProtectionTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
-    protected BackendFormProtection $subject;
-    protected BackendUserAuthentication&MockObject $backendUserMock;
-    protected HashService $hashService;
+    private BackendFormProtection $subject;
+    private BackendUserAuthentication&MockObject $backendUserMock;
+    private HashService $hashService;
 
     protected function setUp(): void
     {
@@ -40,7 +45,7 @@ final class BackendFormProtectionTest extends UnitTestCase
         $this->backendUserMock->user['uid'] = 1;
         $this->subject = new BackendFormProtection(
             $this->backendUserMock,
-            $this->createMock(Registry::class),
+            self::createStub(Registry::class),
             static function () {
                 throw new \Exception('Closure called', 1442592030);
             }
@@ -70,7 +75,8 @@ final class BackendFormProtectionTest extends UnitTestCase
 
         $tokenId = $this->hashService->hmac(
             $formName . $action . $formInstanceName . $sessionToken,
-            AbstractFormProtection::class
+            AbstractFormProtection::class,
+            HashAlgo::SHA3_256
         );
 
         $this->backendUserMock

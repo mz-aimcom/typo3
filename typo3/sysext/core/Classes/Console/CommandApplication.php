@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -68,12 +70,12 @@ class CommandApplication implements ApplicationInterface
         $this->languageServiceFactory = $languageServiceFactory;
 
         $this->checkEnvironmentOrDie();
-        $this->application = new Application('TYPO3 CMS', (new Typo3Version())->getVersion());
+        $this->application = new Application('TYPO3 CMS', new Typo3Version()->getVersion());
         $this->application->setAutoExit(false);
         $this->application->setDispatcher($eventDispatcher);
         $this->application->setCommandLoader($commandRegistry);
         // Replace default list command with TYPO3 override
-        $this->application->add($commandRegistry->get('list'));
+        $this->application->addCommands([$commandRegistry->get('list')]);
     }
 
     /**
@@ -99,16 +101,21 @@ class CommandApplication implements ApplicationInterface
             // Load ext_localconf, except if a low level command shortcut was found
             // or if essential configuration is missing
             if (!$isLowLevelCommandShortcut && Bootstrap::checkIfEssentialConfigurationExists($this->configurationManager)) {
-                $this->bootService->loadExtLocalconfDatabaseAndExtTables();
+                $this->bootService->loadExtLocalconfDatabase();
             }
+        }
+
+        // Make sure output is not buffered, so command-line output and interaction can take place.
+        // Bootstrap does not open a buffer anymore, but third-party extension code may have done
+        // so while ext_localconf.php files were loaded.
+        while (ob_get_level()) {
+            ob_end_clean();
         }
 
         $this->initializeContext();
         // create the BE_USER object (not logged in yet)
         Bootstrap::initializeBackendUser(CommandLineUserAuthentication::class);
         $GLOBALS['LANG'] = $this->languageServiceFactory->createFromUserPreferences($GLOBALS['BE_USER']);
-        // Make sure output is not buffered, so command-line output and interaction can take place
-        ob_end_clean();
 
         $exitCode = $this->application->run($input, $output);
         // exit codes > 255 are not handled in UNIX
@@ -175,7 +182,13 @@ class CommandApplication implements ApplicationInterface
     protected function initializeContext(): void
     {
         $this->context->setAspect('date', new DateTimeAspect(DateTimeFactory::createFromTimestamp($GLOBALS['EXEC_TIME'])));
-        $this->context->setAspect('visibility', new VisibilityAspect(true, true, false, true));
+        $this->context->setAspect(
+            'visibility',
+            VisibilityAspect::create()
+                ->withIncludeHiddenPages(true)
+                ->withIncludeHiddenContent(true)
+                ->withIncludeScheduledRecords(true)
+        );
         $this->context->setAspect('workspace', new WorkspaceAspect(0));
         $this->context->setAspect('backend.user', new UserAspect(null));
     }

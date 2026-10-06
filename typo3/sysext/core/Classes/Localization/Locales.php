@@ -22,7 +22,6 @@ use TYPO3\CMS\Core\Authentication\AbstractUserAuthentication;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Log\LogManager;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
 use TYPO3\CMS\Core\Utility\CommandUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
@@ -33,15 +32,17 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * These system languages are used for determining the proper language labels of XLF files.
  */
-class Locales implements SingletonInterface
+class Locales
 {
     /**
      * Supported TYPO3 languages with locales
      *
+     * Important: This uses "underscore" to separate locale and country e.g. fr_CA
+     *
      * @var array<non-empty-string, non-empty-string>
      */
     protected array $languages = [
-        'default' => 'English', // internally, this is the fallback, the mapping from "default" to "en" is done within LanguageService + LocalizationFactory.
+        'en' => 'English',
         'af' => 'Afrikaans',
         'ar' => 'Arabic',
         'bs' => 'Bosnian',
@@ -77,6 +78,7 @@ class Locales implements SingletonInterface
         'km' => 'Khmer',
         'ko' => 'Korean',
         'lb' => 'Luxembourgish',
+        'lo' => 'Lao',
         'lt' => 'Lithuanian',
         'lv' => 'Latvian',
         'mi' => 'Maori',
@@ -118,11 +120,13 @@ class Locales implements SingletonInterface
      *   $GLOBALS['TYPO3_CONF_VARS']['SYS']['localization']['locales']['dependencies']
      * it is possible to extend the dependency list.
      *
+     * Important: This uses "dash" to separate locale and country e.g. fr-CA
+     *
      * Example:
-     * If "lb" is chosen, but no label was found, a fallback to the label in "de" is used.
+     * If "lb" is chosen, but no label was found, a fallback to the label in "de-LU" is used.
      */
     protected array $localeDependencies = [
-        'lb' => ['de'],
+        'lb' => ['de-LU'],
     ];
 
     public function __construct()
@@ -132,28 +136,37 @@ class Locales implements SingletonInterface
             if (!is_string($locale) || $locale === '') {
                 continue;
             }
+            // Normalize: $this->languages uses "underscore" to separate locale and country e.g. fr_CA
+            $locale = $this->normalizeLanguage($locale);
             if (!isset($this->languages[$locale])) {
                 $this->languages[$locale] = $name;
             }
         }
         // Merge user-provided locale dependencies
         if (is_array($GLOBALS['TYPO3_CONF_VARS']['SYS']['localization']['locales']['dependencies'] ?? null)) {
+            // Normalize: $this->localeDependencies uses "dash" to separate locale and country e.g. fr-CA
+            $localDependenciesOverride = [];
+            foreach ($GLOBALS['TYPO3_CONF_VARS']['SYS']['localization']['locales']['dependencies'] as $locale => $dependencies) {
+                $localDependenciesOverride[$this->normalizeLocale($locale)] = $this->normalizeLocaleDependencies($dependencies);
+            }
             $this->localeDependencies = array_replace_recursive(
                 $this->localeDependencies,
-                $GLOBALS['TYPO3_CONF_VARS']['SYS']['localization']['locales']['dependencies']
+                $localDependenciesOverride
             );
         }
     }
 
     public function createLocale(string $localeKey, ?array $alternativeDependencies = null): Locale
     {
-        if (strpos($localeKey, '.')) {
-            [$sanitizedLocaleKey] = explode('.', $localeKey);
-        }
         // Find the requested language in this list based on the $languageKey
         // Language is found. Configure it:
-        if ($localeKey === 'en' || $this->isValidLanguageKey($sanitizedLocaleKey ?? $localeKey)) {
-            return new Locale($localeKey, $alternativeDependencies ?? $this->getLocaleDependencies($sanitizedLocaleKey ?? $localeKey));
+        if ($this->isValidLanguageKey($localeKey)) {
+            if ($alternativeDependencies !== null) {
+                $dependencies = $this->normalizeLocaleDependencies($alternativeDependencies);
+            } else {
+                $dependencies = $this->getLocaleDependencies($localeKey);
+            }
+            return new Locale($localeKey, $dependencies);
         }
         return new Locale();
     }
@@ -169,24 +182,28 @@ class Locales implements SingletonInterface
 
     public function isValidLanguageKey(string $locale): bool
     {
-        // "en" implicitly equals "default", so this is OK
-        if ($locale === 'en' || $locale === 'default') {
+        // "default" is converted to "en" in Locale::normalize(), so this is OK
+        if ($locale === 'default') {
             return true;
         }
-        if (!isset($this->languages[$locale])) {
-            // the given locale is not found in the current locales, let us see if
-            // the base language (iso-639-1) is in the list of supported locales.
-            if (str_contains($locale, '_')) {
-                [$baseIsoCodeLanguageKey] = explode('_', $locale);
-                return $this->isValidLanguageKey($baseIsoCodeLanguageKey);
-            }
-            if (str_contains($locale, '-')) {
-                [$baseIsoCodeLanguageKey] = explode('-', $locale);
-                return $this->isValidLanguageKey($baseIsoCodeLanguageKey);
-            }
-            return false;
+
+        // Remove code-set if any
+        if (str_contains($locale, '.')) {
+            [$locale] = explode('.', $locale, 2);
         }
-        return true;
+        // Normalize: $this->languages uses "underscore" to separate locale and country e.g. fr_CA
+        $locale = $this->normalizeLanguage($locale);
+        // Check if the normalized locale is already in the list of supported locales.
+        if (isset($this->languages[$locale])) {
+            return true;
+        }
+
+        // Remove country-code if any
+        if (str_contains($locale, '_')) {
+            [$locale] = explode('_', $locale, 2);
+        }
+        // Check if the base language (iso-639-1) is in the list of supported locales.
+        return isset($this->languages[$locale]);
     }
 
     /**
@@ -199,13 +216,13 @@ class Locales implements SingletonInterface
     }
 
     /**
-     * Returns a list of all ISO codes / TYPO3 languages that have active language packs, but also includes "default".
+     * Returns a list of all ISO codes / TYPO3 languages that have active language packs, including "en" (English).
      * @return array<int, non-empty-string>
      */
     public function getActiveLanguages(): array
     {
         return array_merge(
-            ['default'],
+            ['en'],
             array_filter(array_values($GLOBALS['TYPO3_CONF_VARS']['LANG']['availableLocales'] ?? []))
         );
     }
@@ -220,37 +237,55 @@ class Locales implements SingletonInterface
      *
      * @return array<int, non-empty-string>
      */
-    public function getLocaleDependencies(string $locale): array
+    public function getLocaleDependencies(string $localeKey): array
     {
+        $locale = new Locale($localeKey);
         $dependencies = [];
-        if (isset($this->localeDependencies[$locale])) {
-            $dependencies = $this->localeDependencies[$locale];
+        if (isset($this->localeDependencies[$locale->getName()])) {
+            $localeDependencies = $this->localeDependencies[$locale->getName()];
             // Search for dependencies recursively
-            $localeDependencies = $dependencies;
             foreach ($localeDependencies as $dependency) {
-                if (isset($this->localeDependencies[$dependency])) {
-                    $dependencies = array_merge($dependencies, $this->getLocaleDependencies($dependency));
-                }
+                // Ensure order of dependencies including their direct fallbacks is preserved
+                $dependencies[] = $dependency;
+                $dependencies = array_merge($dependencies, $this->getLocaleDependencies($dependency));
             }
         }
         // Use automatic dependency resolving.
         // "de_AT" automatically has a dependency on "de".
+        // "en_US" automatically has a dependency on "en".
         // but only do this if the actual "de_AT" does not have a custom dependency already defined in
         // $this->localeDependencies
-        if ($dependencies === [] && str_contains($locale, '_')) {
-            [$languageIsoCode] = explode('_', $locale);
-            // "en" = "default" is always implicitly the default fallback dependency
-            if ($languageIsoCode !== 'en') {
-                $dependencies[] = $languageIsoCode;
-                $dependencies = array_merge($dependencies, $this->getLocaleDependencies($languageIsoCode));
-            }
-        } elseif ($dependencies === [] && str_contains($locale, '-')) {
-            [$languageIsoCode] = explode('-', $locale);
-            // "en" = "default" is always implicitly the default fallback dependency
-            if ($languageIsoCode !== 'en') {
-                $dependencies[] = $languageIsoCode;
-                $dependencies = array_merge($dependencies, $this->getLocaleDependencies($languageIsoCode));
-            }
+        if ($dependencies === [] && $locale->getCountryCode() !== null) {
+            $languageIsoCode = $locale->getLanguageCode();
+            $dependencies[] = $languageIsoCode;
+            $dependencies = array_merge($dependencies, $this->getLocaleDependencies($languageIsoCode));
+        }
+        return array_unique($dependencies);
+    }
+
+    protected function normalizeLocale(string $locale): string
+    {
+        return new Locale($locale)->getName();
+    }
+
+    protected function normalizeLanguage(string $locale): string
+    {
+        $locale = $this->normalizeLocale($locale);
+        if (str_contains($locale, '-')) {
+            $locale = str_replace('-', '_', $locale);
+        }
+        return $locale;
+    }
+
+    /**
+     * Normalizes dependencies
+     *
+     * @return array<int, non-empty-string>
+     */
+    protected function normalizeLocaleDependencies(array $dependencies): array
+    {
+        foreach ($dependencies as &$dependency) {
+            $dependency = $this->normalizeLocale($dependency);
         }
         return array_unique($dependencies);
     }
@@ -260,16 +295,16 @@ class Locales implements SingletonInterface
      * into a TYPO3-readable language code
      *
      * @param string $languageCodesList List of language codes. something like 'de,en-us;q=0.9,de-de;q=0.7,es-cl;q=0.6,en;q=0.4,es;q=0.3,zh;q=0.1'
-     * @return non-empty-string A preferred language that TYPO3 supports, or "default" if none found
+     * @return non-empty-string A preferred language that TYPO3 supports, or "en" as fallback if none found
      */
     public function getPreferredClientLanguage(string $languageCodesList): string
     {
-        $allLanguageCodesFromLocales = ['en' => 'default'];
+        $allLanguageCodesFromLocales = [];
         foreach ($this->languages as $locale => $localeTitle) {
             $locale = str_replace('_', '-', $locale);
             $allLanguageCodesFromLocales[$locale] = $locale;
         }
-        $selectedLanguage = 'default';
+        $selectedLanguage = 'en';
         $preferredLanguages = GeneralUtility::trimExplode(',', $languageCodesList);
         // Order the preferred languages after they key
         $sortedPreferredLanguages = [];
@@ -293,9 +328,6 @@ class Locales implements SingletonInterface
                 $selectedLanguage = $allLanguageCodesFromLocales[$preferredLanguage];
                 break;
             }
-        }
-        if (!$selectedLanguage || $selectedLanguage === 'en') {
-            $selectedLanguage = 'default';
         }
         return str_replace('-', '_', $selectedLanguage);
     }

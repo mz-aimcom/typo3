@@ -22,8 +22,10 @@ use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
 use TYPO3\CMS\Core\Schema\Exception\InvalidSchemaTypeException;
+use TYPO3\CMS\Core\Schema\Exception\UndefinedFieldException;
 use TYPO3\CMS\Core\Schema\FieldTypeFactory;
 use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -125,7 +127,7 @@ final class TcaSchemaFactoryTest extends UnitTestCase
                 ],
                 'types' => [
                     '0' => [
-                        'showitem' => '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,header,text;LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:bodytext.ALT.bulletlist_formlabel',
+                        'showitem' => '--div--;core.form.tabs:general,header,text;LLL:EXT:frontend/Resources/Private/Language/locallang_ttc.xlf:bodytext.ALT.bulletlist_formlabel',
                     ],
                 ],
                 'columns' => [
@@ -154,7 +156,7 @@ final class TcaSchemaFactoryTest extends UnitTestCase
                 ],
                 'types' => [
                     '0' => [
-                        'showitem' => '--div--;LLL:EXT:core/Resources/Private/Language/Form/locallang_tabs.xlf:general,--palette--;;palette_1',
+                        'showitem' => '--div--;core.form.tabs:general,--palette--;;palette_1',
                     ],
                 ],
                 'columns' => [
@@ -188,10 +190,12 @@ final class TcaSchemaFactoryTest extends UnitTestCase
     public function findRelevantFieldsForSubSchemaFindsRelevantFields(array $tableTca, ?string $subSchemaName, array $expected): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -233,10 +237,12 @@ final class TcaSchemaFactoryTest extends UnitTestCase
         ];
         $this->expectExceptionCode(1661617062);
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -244,167 +250,16 @@ final class TcaSchemaFactoryTest extends UnitTestCase
         $subject->get('myschema')->getSubSchema('undefined');
     }
 
-    public static function getFinalFieldConfigurationProcessesColumnOverridesDataProvider(): iterable
-    {
-        yield 'No overrides, no label' => [
-            'fieldName' => 'text',
-            'schemaConfiguration' => [
-                'columns' => [
-                    'header' => [
-                        'label' => 'Header',
-                        'config' => [
-                            'type' => 'input',
-                        ],
-                    ],
-                    'text' => [
-                        'label' => 'Text',
-                        'config' => [
-                            'type' => 'text',
-                        ],
-                    ],
-                ],
-            ],
-            'subSchemaConfiguration' => [],
-            'fieldLabel' => null,
-            'expected' => [
-                'label' => 'Text',
-                'config' => [
-                    'type' => 'text',
-                ],
-            ],
-        ];
-
-        yield 'No overrides, alternative label' => [
-            'fieldName' => 'text',
-            'schemaConfiguration' => [
-                'columns' => [
-                    'header' => [
-                        'label' => 'Header',
-                        'config' => [
-                            'type' => 'input',
-                        ],
-                    ],
-                    'text' => [
-                        'label' => 'Text',
-                        'config' => [
-                            'type' => 'text',
-                        ],
-                    ],
-                ],
-            ],
-            'subSchemaConfiguration' => [],
-            'fieldLabel' => 'Text alt',
-            'expected' => [
-                'label' => 'Text alt',
-                'config' => [
-                    'type' => 'text',
-                ],
-            ],
-        ];
-
-        yield 'overrides, no label' => [
-            'fieldName' => 'text',
-            'schemaConfiguration' => [
-                'columns' => [
-                    'header' => [
-                        'label' => 'Header',
-                        'config' => [
-                            'type' => 'input',
-                        ],
-                    ],
-                    'text' => [
-                        'label' => 'Text',
-                        'config' => [
-                            'type' => 'text',
-                        ],
-                    ],
-                ],
-            ],
-            'subSchemaConfiguration' => [
-                'columnsOverrides' => [
-                    'text' => [
-                        'config' => [
-                            'required' => true,
-                        ],
-                    ],
-                ],
-            ],
-            'fieldLabel' => null,
-            'expected' => [
-                'label' => 'Text',
-                'config' => [
-                    'type' => 'text',
-                    'required' => true,
-                ],
-            ],
-        ];
-
-        yield 'overrides, alternative label' => [
-            'fieldName' => 'text',
-            'schemaConfiguration' => [
-                'columns' => [
-                    'header' => [
-                        'label' => 'Header',
-                        'config' => [
-                            'type' => 'input',
-                        ],
-                    ],
-                    'text' => [
-                        'label' => 'Text',
-                        'config' => [
-                            'type' => 'text',
-                            'required' => false,
-                        ],
-                    ],
-                ],
-            ],
-            'subSchemaConfiguration' => [
-                'columnsOverrides' => [
-                    'text' => [
-                        'config' => [
-                            'required' => true,
-                        ],
-                    ],
-                ],
-            ],
-            'fieldLabel' => 'Alt label',
-            'expected' => [
-                'label' => 'Alt label',
-                'config' => [
-                    'type' => 'text',
-                    'required' => true,
-                ],
-            ],
-        ];
-    }
-
-    #[DataProvider('getFinalFieldConfigurationProcessesColumnOverridesDataProvider')]
-    #[Test]
-    public function getFinalFieldConfigurationProcessesColumnOverrides(string $fieldName, array $schemaConfiguration, array $subSchemaConfiguration, ?string $fieldLabel, array $expected): void
-    {
-        $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
-        $subject = $this->getAccessibleMock(
-            TcaSchemaFactory::class,
-            ['load'],
-            [
-                new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-                new FieldTypeFactory(),
-                '', $cacheMock,
-            ]
-        );
-        $result = $subject->_call('getFinalFieldConfiguration', $fieldName, $schemaConfiguration, $subSchemaConfiguration, $fieldLabel);
-        self::assertSame($expected, $result);
-    }
-
     #[Test]
     public function recordTypesInfoIsMergedWithMainSchemaInformation(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -436,13 +291,62 @@ final class TcaSchemaFactoryTest extends UnitTestCase
     }
 
     #[Test]
+    public function typeSpecificTitleOverridesCtrlTitle(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $subject = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+        $subject->load([
+            'myTable' => [
+                'ctrl' => [
+                    'title' => 'table_title',
+                    'type' => 'record_type',
+                ],
+                'columns' => [
+                    'record_type' => [
+                        'config' => ['type' => 'select'],
+                    ],
+                ],
+                'types' => [
+                    'type1' => [
+                        'title' => 'type1_title',
+                        'showitem' => 'record_type',
+                    ],
+                    'type2' => [
+                        'showitem' => 'record_type',
+                    ],
+                ],
+            ],
+        ]);
+        $schema = $subject->get('myTable');
+        $subSchemaType1 = $schema->getSubSchema('type1');
+        $subSchemaType2 = $schema->getSubSchema('type2');
+
+        // Main schema should have the base title
+        self::assertSame('table_title', $schema->getTitle());
+        // type1 should have its own title
+        self::assertSame('type1_title', $subSchemaType1->getTitle());
+        // type2 should inherit the base title (no override)
+        self::assertSame('table_title', $subSchemaType2->getTitle());
+    }
+
+    #[Test]
     public function recordTypesWithForeignField(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -519,14 +423,64 @@ final class TcaSchemaFactoryTest extends UnitTestCase
         self::assertSame([['value' => 'A', 'label' => 'A']], $subject->get($subSchemaTypeInformation->getForeignSchemaName())->getField($subSchemaTypeInformation->getForeignFieldName())->getConfiguration()['items']);
     }
 
+    public function subSchemaWithWizardSteps(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $subject = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+
+        $subject->load([
+            'myTable' => [
+                'ctrl' => [
+                    'title' => 'table_title',
+                    'type' => 'record_type',
+                ],
+                'columns' => [
+                    'record_type' => [
+                        'config' => ['type' => 'select'],
+                    ],
+                    'my_other_field' => [
+                        'config' => ['type' => 'input'],
+                    ],
+                ],
+                'types' => [
+                    'type1' => [
+                        'showitem' => 'record_type,my_other_field',
+                        'wizardSteps' => [
+                            'setup' => [
+                                'title' => 'Setup step',
+                                'fields' => ['record_type', 'my_other_field'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $subSchema = $subject->get('myTable')->getSubSchema('type1');
+        self::assertCount(1, $subSchema->getWizardSteps());
+        self::assertEquals('Setup step', $subSchema->getWizardSteps()[0]->getTitle());
+        self::assertEquals(['record_type', 'my_other_field'], $subSchema->getWizardSteps()[0]->getFields()->getNames());
+        self::assertEquals('setup', $subSchema->getWizardSteps()[0]->getIdentifier());
+    }
+
     #[Test]
     public function throwsExceptionForTypelessSchema(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -547,10 +501,12 @@ final class TcaSchemaFactoryTest extends UnitTestCase
     public function throwsExceptionForNonExistingTypeFieldSchema(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -575,10 +531,12 @@ final class TcaSchemaFactoryTest extends UnitTestCase
     public function throwsExceptionForNonExistingTypeFieldForForeignTypeSchema(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -603,10 +561,12 @@ final class TcaSchemaFactoryTest extends UnitTestCase
     public function throwsExceptionForNonRelationalForeignTypeField(): void
     {
         $cacheMock = $this->createMock(PhpFrontend::class);
-        $cacheMock->method('has')->with(self::isString())->willReturn(false);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
         $subject = new TcaSchemaFactory(
-            new RelationMapBuilder($this->createMock(FlexFormTools::class)),
-            new FieldTypeFactory(),
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
             '',
             $cacheMock
         );
@@ -632,5 +592,131 @@ final class TcaSchemaFactoryTest extends UnitTestCase
         $this->expectExceptionCode(1749241444);
 
         $schema->getSubSchemaTypeInformation();
+    }
+
+    #[Test]
+    public function throwsExceptionForWizardStepFieldNotInSchema(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $subject = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+
+        $this->expectException(UndefinedFieldException::class);
+        $this->expectExceptionCode(1774355993);
+        $subject->load([
+            'myTable' => [
+                'ctrl' => [
+                    'title' => 'table_title',
+                    'type' => 'record_type',
+                ],
+                'columns' => [
+                    'record_type' => [
+                        'config' => ['type' => 'select'],
+                    ],
+                ],
+                'types' => [
+                    'type1' => [
+                        'title' => 'type1_title',
+                        'showitem' => 'record_type',
+                        'wizardSteps' => [
+                            'setup' => ['fields' => ['myNonExistingField']],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    #[Test]
+    public function throwsExceptionForWizardStepFieldNotInShowitem(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $subject = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+
+        $this->expectException(UndefinedFieldException::class);
+        $this->expectExceptionCode(1774355993);
+        $subject->load([
+            'myTable' => [
+                'ctrl' => [
+                    'title' => 'table_title',
+                    'type' => 'record_type',
+                ],
+                'columns' => [
+                    'record_type' => [
+                        'config' => ['type' => 'select'],
+                    ],
+                    'not_in_showitem' => [
+                        'config' => ['type' => 'input'],
+                    ],
+                ],
+                'types' => [
+                    'type1' => [
+                        'title' => 'type1_title',
+                        'showitem' => 'record_type',
+                        'wizardSteps' => [
+                            'setup' => ['fields' => ['record_type', 'not_in_showitem']],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+    }
+
+    #[Test]
+    public function throwsExceptionForWizardStepFieldsNotConfigured(): void
+    {
+        $cacheMock = $this->createMock(PhpFrontend::class);
+        $cacheMock->expects($this->atLeastOnce())->method('has')->with(self::isString())->willReturn(false);
+        $subject = new TcaSchemaFactory(
+            new TcaSchemaBuilder(
+                new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+                new FieldTypeFactory(),
+            ),
+            '',
+            $cacheMock
+        );
+
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionCode(1774356281);
+        $subject->load([
+            'myTable' => [
+                'ctrl' => [
+                    'title' => 'table_title',
+                    'type' => 'record_type',
+                ],
+                'columns' => [
+                    'record_type' => [
+                        'config' => ['type' => 'select'],
+                    ],
+                    'not_in_showitem' => [
+                        'config' => ['type' => 'input'],
+                    ],
+                ],
+                'types' => [
+                    'type1' => [
+                        'title' => 'type1_title',
+                        'showitem' => 'record_type',
+                        'wizardSteps' => [
+                            'setup' => [],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
     }
 }

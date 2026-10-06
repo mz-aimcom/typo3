@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataGroup;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataGroup\OrderedProviderList;
 use TYPO3\CMS\Backend\Form\FormDataGroup\TcaDatabaseRecord;
@@ -26,6 +27,7 @@ use TYPO3\CMS\Core\Service\DependencyOrderingService;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TcaDatabaseRecordTest extends UnitTestCase
 {
     #[Test]
@@ -34,7 +36,7 @@ final class TcaDatabaseRecordTest extends UnitTestCase
         $GLOBALS['TYPO3_CONF_VARS']['SYS']['formEngine']['formDataGroup']['tcaDatabaseRecord'] = [];
         $input = ['foo'];
         $subject = new TcaDatabaseRecord(
-            new OrderedProviderList($this->createMock(FrontendInterface::class), new DependencyOrderingService())
+            new OrderedProviderList(self::createStub(FrontendInterface::class), new DependencyOrderingService())
         );
         self::assertEquals($input, $subject->compile($input));
     }
@@ -47,7 +49,7 @@ final class TcaDatabaseRecordTest extends UnitTestCase
         ];
         GeneralUtility::addInstance(
             \stdClass::class,
-            new class () extends \stdClass implements FormDataProviderInterface {
+            new class extends \stdClass implements FormDataProviderInterface {
                 public function addData(array $result)
                 {
                     return ['foo'];
@@ -55,7 +57,7 @@ final class TcaDatabaseRecordTest extends UnitTestCase
             }
         );
         $subject = new TcaDatabaseRecord(
-            new OrderedProviderList($this->createMock(FrontendInterface::class), new DependencyOrderingService())
+            new OrderedProviderList(self::createStub(FrontendInterface::class), new DependencyOrderingService())
         );
         self::assertEquals(['foo'], $subject->compile([]));
     }
@@ -69,7 +71,7 @@ final class TcaDatabaseRecordTest extends UnitTestCase
             \stdClass::class => [],
         ];
         $subject = new TcaDatabaseRecord(
-            new OrderedProviderList($this->createMock(FrontendInterface::class), new DependencyOrderingService())
+            new OrderedProviderList(self::createStub(FrontendInterface::class), new DependencyOrderingService())
         );
         $subject->compile([]);
     }

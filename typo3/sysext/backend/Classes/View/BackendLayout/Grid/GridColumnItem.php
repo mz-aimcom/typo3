@@ -18,14 +18,22 @@ declare(strict_types=1);
 namespace TYPO3\CMS\Backend\View\BackendLayout\Grid;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
+use TYPO3\CMS\Backend\Domain\Repository\Localization\LocalizationRepository;
 use TYPO3\CMS\Backend\Preview\StandardPreviewRendererResolver;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\BackendLayoutView;
+use TYPO3\CMS\Backend\View\Event\AfterPageContentPreviewRenderedEvent;
 use TYPO3\CMS\Backend\View\Event\PageContentPreviewRenderingEvent;
 use TYPO3\CMS\Backend\View\PageLayoutContext;
+use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
+use TYPO3\CMS\Core\Domain\RecordInterface;
+use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
+use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Schema\Capability\TcaSchemaCapability;
+use TYPO3\CMS\Core\Schema\SchemaLabelResolver;
 use TYPO3\CMS\Core\Schema\TcaSchema;
 use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
@@ -42,44 +50,48 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  *
  * Accessed from Fluid templates.
  *
- * @internal this is experimental and subject to change in TYPO3 v10 / v11
+ * @internal
  */
-class GridColumnItem extends AbstractGridObject
+class GridColumnItem
 {
     /**
      * @var GridColumnItem[]
      */
     protected array $translations = [];
     protected TcaSchema $schema;
+    protected BackendLayoutView $backendLayoutView;
+    protected readonly IconFactory $iconFactory;
 
     public function __construct(
-        PageLayoutContext $context,
+        protected readonly PageLayoutContext $context,
         protected readonly GridColumn $column,
-        protected array $record,
+        protected RecordInterface $record,
         protected readonly string $table = 'tt_content'
     ) {
-        parent::__construct($context);
+        $this->iconFactory = GeneralUtility::makeInstance(IconFactory::class);
         $this->schema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get($this->table);
+        $this->backendLayoutView = GeneralUtility::makeInstance(BackendLayoutView::class);
+    }
+
+    public function getContext(): PageLayoutContext
+    {
+        return $this->context;
     }
 
     public function isVersioned(): bool
     {
-        return ($this->record['_ORIG_uid'] ?? 0) > 0 || (int)($this->record['t3ver_state'] ?? 0) !== 0;
+        return $this->record->getComputedProperties()->getVersionedUid() > 0 || (int)($this->getRow()['t3ver_state'] ?? 0) !== 0;
     }
 
     public function getPreview(): string
     {
-        $previewRenderer = GeneralUtility::makeInstance(StandardPreviewRendererResolver::class)
-            ->resolveRendererFor(
-                $this->table,
-                $this->record,
-                $this->context->getPageId()
-            );
+        $eventDispatcher = GeneralUtility::makeInstance(EventDispatcherInterface::class);
+        $previewRenderer = GeneralUtility::makeInstance(StandardPreviewRendererResolver::class)->resolveRendererFor($this->record);
         $previewHeader = $previewRenderer->renderPageModulePreviewHeader($this);
 
         // Dispatch event to allow listeners adding an alternative content type
         // specific preview or to manipulate the content elements' record data.
-        $event = GeneralUtility::makeInstance(EventDispatcherInterface::class)->dispatch(
+        $event = $eventDispatcher->dispatch(
             new PageContentPreviewRenderingEvent($this->table, $this->getRecordType(), $this->record, $this->context)
         );
 
@@ -93,7 +105,19 @@ class GridColumnItem extends AbstractGridObject
             $previewContent = $previewRenderer->renderPageModulePreviewContent($this);
         }
 
-        return $previewRenderer->wrapPageModulePreview($previewHeader, $previewContent, $this);
+        if (!$this->backendLayoutView->isCTypeAllowedInColPosByPage(
+            $this->getRecordType(),
+            $this->getColumn()->getColumnNumber() ?? 0,
+            $this->getRecord()->getPid()
+        )) {
+            return '<span class="badge badge-warning">' . sprintf($this->getLanguageService()->sL('core.core:labels.typeNotAllowedInColumn'), $this->getContentTypeLabel()) . '</span>';
+        }
+
+        $previewContent = $previewRenderer->wrapPageModulePreview($previewHeader, $previewContent, $this);
+        $event = $eventDispatcher->dispatch(
+            new AfterPageContentPreviewRenderedEvent($this->table, $this->getRecordType(), $this->record, $this->context, $previewContent)
+        );
+        return $event->getPreviewContent();
     }
 
     public function getWrapperClassName(): string
@@ -102,7 +126,13 @@ class GridColumnItem extends AbstractGridObject
         if ($this->isDisabled()) {
             $wrapperClassNames[] = 't3-page-ce-hidden t3js-hidden-record';
         }
-        if ($this->isInconsistentLanguage()) {
+        if ($this->isInconsistentLanguage()
+            || !$this->backendLayoutView->isCTypeAllowedInColPosByPage(
+                $this->getRecordType(),
+                $this->getColumn()->getColumnNumber() ?? 0,
+                $this->getRecord()->getPid()
+            )
+        ) {
             $wrapperClassNames[] = 't3-page-ce-warning';
         }
 
@@ -125,46 +155,43 @@ class GridColumnItem extends AbstractGridObject
             [
                 'cmd' => [
                     $this->table => [
-                        $this->record['uid'] => [
+                        $this->record->getUid() => [
                             'delete' => 1,
                         ],
                     ],
                 ],
-                'redirect' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+                'redirect' => $this->context->getReturnUrl(),
             ]
         );
     }
 
     public function getDeleteMessage(): string
     {
-        $recordInfo = GeneralUtility::fixed_lgd_cs(BackendUtility::getRecordTitle($this->table, $this->record), (int)$this->getBackendUser()->uc['titleLen']);
+        $recordInfo = BackendUtility::cropToTitleLength(BackendUtility::getRecordTitle($this->table, $this->getRow()));
         if ($this->getBackendUser()->shallDisplayDebugInformation()) {
-            $recordInfo .= ' [' . $this->table . ':' . $this->record['uid'] . ']';
+            $recordInfo .= ' [' . $this->table . ':' . $this->record->getUid() . ']';
         }
 
         $refCountMsg = BackendUtility::referenceCount(
             $this->table,
-            $this->record['uid'],
-            LF . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.referencesToRecord'),
-            (string)$this->getReferenceCount($this->record['uid'])
-        ) . BackendUtility::translationCount(
-            $this->table,
-            $this->record['uid'],
-            LF . $this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.translationsOfRecord')
+            $this->record->getUid(),
+            LF . $this->getLanguageService()->sL('core.core:labels.referencesToRecord'),
+            (string)$this->getReferenceCount($this->record->getUid())
         );
+        $translationCount = count(GeneralUtility::makeInstance(LocalizationRepository::class)->getRecordTranslations($this->table, $this->record));
+        if ($translationCount > 0) {
+            $refCountMsg .= LF . sprintf(
+                $this->getLanguageService()->sL('core.core:labels.translationsOfRecord'),
+                $translationCount
+            );
+        }
 
         return sprintf($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:deleteWarning'), trim($recordInfo)) . $refCountMsg;
     }
 
     public function getFooterInfo(): string
     {
-        $record = $this->getRecord();
-        $previewRenderer = GeneralUtility::makeInstance(StandardPreviewRendererResolver::class)
-            ->resolveRendererFor(
-                $this->table,
-                $record,
-                $this->context->getPageId()
-            );
+        $previewRenderer = GeneralUtility::makeInstance(StandardPreviewRendererResolver::class)->resolveRendererFor($this->record);
         return $previewRenderer->renderPageModulePreviewFooter($this);
     }
 
@@ -173,6 +200,7 @@ class GridColumnItem extends AbstractGridObject
         if (($recordType = $this->getRecordType()) === '') {
             return '';
         }
+
         $contentTypeLabels = $this->context->getContentTypeLabels();
         $contentTypeLabel = $contentTypeLabels[$recordType] ?? '';
         if ($contentTypeLabel === '') {
@@ -184,19 +212,19 @@ class GridColumnItem extends AbstractGridObject
 
     public function getIcons(): string
     {
-        $row = $this->record;
+        $row = $this->record->getRawRecord()?->toArray() ?? [];
         $icons = [];
 
         $icon = $this->iconFactory
             ->getIconForRecord($this->table, $row, IconSize::SMALL)
             ->setTitle(BackendUtility::getRecordIconAltText($row, $this->table, false))
             ->render();
-        if ($this->getBackendUser()->recordEditAccessInternals($this->table, $row)) {
-            $icon = BackendUtility::wrapClickMenuOnIcon($icon, $this->table, $row['uid']);
+        if ($this->getBackendUser()->checkRecordEditAccess($this->table, $this->getRow())->isAllowed) {
+            $icon = BackendUtility::wrapClickMenuOnIcon($icon, $this->table, $this->record->getUid());
         }
         $icons[] = $icon;
 
-        if ($lockInfo = BackendUtility::isRecordLocked($this->table, $row['uid'])) {
+        if ($lockInfo = BackendUtility::isRecordLocked($this->table, $this->record->getUid())) {
             $icons[] = '<a href="#" title="' . htmlspecialchars($lockInfo['msg']) . '">'
                 . $this->iconFactory->getIcon('status-user-backend', IconSize::SMALL, 'overlay-edit')->render() . '</a>';
         }
@@ -205,15 +233,20 @@ class GridColumnItem extends AbstractGridObject
 
     public function getSiteLanguage(): SiteLanguage
     {
-        return $this->context->getSiteLanguage((int)($this->record[$this->schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()] ?? 0));
+        return $this->context->getSiteLanguage((int)($this->getRow()[$this->schema->getCapability(TcaSchemaCapability::Language)->getLanguageField()->getName()] ?? 0));
     }
 
-    public function getRecord(): array
+    public function getRecord(): RecordInterface
     {
         return $this->record;
     }
 
-    public function setRecord(array $record): void
+    public function getRow(): array
+    {
+        return $this->record->getRawRecord()?->toArray(true) ?? [];
+    }
+
+    public function setRecord(RecordInterface $record): void
     {
         $this->record = $record;
     }
@@ -236,12 +269,19 @@ class GridColumnItem extends AbstractGridObject
 
     public function isDisabled(): bool
     {
-        $row = $this->getRecord();
-        return
-                ($this->schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField) && $row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)])
-                || ($this->schema->hasCapability(TcaSchemaCapability::RestrictionStartTime) && ($row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionStartTime)] ?? 0) > $GLOBALS['EXEC_TIME'])
-                || ($this->schema->hasCapability(TcaSchemaCapability::RestrictionEndTime) && ($row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionEndTime)] ?? false) && $row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionEndTime)] < $GLOBALS['EXEC_TIME'])
-        ;
+        $row = $this->getRow();
+        return (
+            $this->schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField)
+            && ($row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionDisabledField)] ?? false)
+        )
+            || (
+                $this->schema->hasCapability(TcaSchemaCapability::RestrictionStartTime)
+                && ($row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionStartTime)] ?? 0) > $GLOBALS['EXEC_TIME']
+            )
+            || (
+                $this->schema->hasCapability(TcaSchemaCapability::RestrictionEndTime)
+                && (($endTime = ($row[(string)$this->schema->getCapability(TcaSchemaCapability::RestrictionEndTime)] ?? 0)) !== 0 && $endTime < $GLOBALS['EXEC_TIME'])
+            );
     }
 
     public function isEditable(): bool
@@ -252,7 +292,7 @@ class GridColumnItem extends AbstractGridObject
         }
         $pageRecord = $this->context->getPageRecord();
         return $backendUser->doesUserHaveAccess($pageRecord, Permission::CONTENT_EDIT)
-            && $backendUser->recordEditAccessInternals($this->table, $this->record)
+            && $backendUser->checkRecordEditAccess($this->table, $this->record)->isAllowed
             && (
                 !($pagesSchema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
                 || !($pageRecord[$pagesSchema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
@@ -263,12 +303,12 @@ class GridColumnItem extends AbstractGridObject
     {
         $pageRecord = $this->context->getPageRecord();
         $typeColumn = $this->getTypeColumn();
-        return (int)($this->record[$this->schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName()] ?? 0) === 0
+        return (int)($this->getRow()[$this->schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName()] ?? 0) === 0
             && (
                 $this->getBackendUser()->isAdmin()
                 || (
                     (
-                        !($this->record[$this->schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
+                        !($this->getRow()[$this->schema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
                         && (
                             !($pagesSchema = GeneralUtility::makeInstance(TcaSchemaFactory::class)->get('pages'))->hasCapability(TcaSchemaCapability::EditLock)
                             || !($pageRecord[$pagesSchema->getCapability(TcaSchemaCapability::EditLock)->getFieldName()] ?? false)
@@ -287,7 +327,7 @@ class GridColumnItem extends AbstractGridObject
         return !$allowInconsistentLanguageHandling
             && $this->getSiteLanguage()->getLanguageId() !== 0
             && $this->context->getLanguageModeIdentifier() === 'mixed'
-            && (int)($this->record[$this->schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName()] ?? 0) === 0;
+            && (int)($this->getRow()[$this->schema->getCapability(TcaSchemaCapability::Language)->getTranslationOriginPointerField()->getName()] ?? 0) === 0;
     }
 
     public function getNewContentAfterUrl(): string
@@ -297,15 +337,15 @@ class GridColumnItem extends AbstractGridObject
             'id' => $this->context->getPageId(),
             'sys_language_uid' => $this->context->getSiteLanguage()->getLanguageId(),
             'colPos' => $this->column->getColumnNumber(),
-            'uid_pid' => -$this->record['uid'],
-            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+            'uid_pid' => -$this->record->getUid(),
+            'returnUrl' => $this->context->getReturnUrl(),
         ]);
     }
 
     public function getVisibilityToggleUrl(): string
     {
         $disabledFieldName = $this->getDisabledFieldName();
-        if ($this->record[$disabledFieldName] ?? false) {
+        if ($this->getRow()[$disabledFieldName] ?? false) {
             $value = 0;
         } else {
             $value = 1;
@@ -315,19 +355,19 @@ class GridColumnItem extends AbstractGridObject
             [
                 'data' => [
                     $this->table => [
-                        (($this->record['_ORIG_uid'] ?? false) ?: ($this->record['uid'] ?? 0)) => [
+                        $this->record->getComputedProperties()->getVersionedUid() ?: $this->record->getUid() => [
                             $disabledFieldName => $value,
                         ],
                     ],
                 ],
-                'redirect' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri(),
+                'redirect' => $this->context->getReturnUrl(),
             ]
-        ) . '#element-' . $this->table . '-' . $this->record['uid'];
+        ) . '#element-' . $this->table . '-' . $this->record->getUid();
     }
 
     public function getVisibilityToggleTitle(): string
     {
-        if ($this->record[$this->getDisabledFieldName()] ?? false) {
+        if ($this->getRow()[$this->getDisabledFieldName()] ?? false) {
             return $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:unHide');
         }
         return $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_layout.xlf:hide');
@@ -335,7 +375,7 @@ class GridColumnItem extends AbstractGridObject
 
     public function getVisibilityToggleIconName(): string
     {
-        return ($this->record[$this->getDisabledFieldName()] ?? false) ? 'unhide' : 'hide';
+        return ($this->getRow()[$this->getDisabledFieldName()] ?? false) ? 'unhide' : 'hide';
     }
 
     public function isVisibilityToggling(): bool
@@ -355,13 +395,28 @@ class GridColumnItem extends AbstractGridObject
         $urlParameters = [
             'edit' => [
                 $this->table => [
-                    $this->record['uid'] => 'edit',
+                    $this->record->getUid() => 'edit',
                 ],
             ],
-            'returnUrl' => $this->context->getCurrentRequest()->getAttribute('normalizedParams')->getRequestUri() . '#element-' . $this->table . '-' . $this->record['uid'],
+            'module' => 'web_layout',
+            'returnUrl' => $this->context->getReturnUrl() . '#element-' . $this->table . '-' . $this->record->getUid(),
         ];
         $uriBuilder = GeneralUtility::makeInstance(UriBuilder::class);
-        return $uriBuilder->buildUriFromRoute('record_edit', $urlParameters) . '#element-' . $this->table . '-' . $this->record['uid'];
+        return $uriBuilder->buildUriFromRoute('record_edit', $urlParameters) . '#element-' . $this->table . '-' . $this->record->getUid();
+    }
+
+    public function getContextualEditUrl(): string
+    {
+        $urlParameters = [
+            'edit' => [
+                $this->table => [
+                    $this->record->getUid() => 'edit',
+                ],
+            ],
+            'module' => 'web_layout',
+            'returnUrl' => $this->context->getReturnUrl() . '#element-' . $this->table . '-' . $this->record->getUid(),
+        ];
+        return (string)GeneralUtility::makeInstance(UriBuilder::class)->buildUriFromRoute('record_edit_contextual', $urlParameters);
     }
 
     public function getTypeColumn(): string
@@ -374,7 +429,7 @@ class GridColumnItem extends AbstractGridObject
 
     public function getRecordType(): string
     {
-        return (string)($this->record[$this->getTypeColumn()] ?? '');
+        return $this->record->getRecordType() ?? '';
     }
 
     public function getTable(): string
@@ -395,17 +450,26 @@ class GridColumnItem extends AbstractGridObject
 
     protected function getLabelFromItemListMerged(): string
     {
-        $record = $this->record;
-        $pid = (int)($record['pid'] ?? 0);
         $table = $this->table;
         $typeColumn = $this->getTypeColumn();
         $recordType = $this->getRecordType();
-        $label = BackendUtility::getLabelFromItemListMerged($pid, $table, $typeColumn, $recordType, $record);
-        return $label;
+        $columnTsConfig = BackendUtility::getPagesTSconfig($this->record->getPid())['TCEFORM.'][$table . '.'][$typeColumn . '.'] ?? [];
+        return GeneralUtility::makeInstance(SchemaLabelResolver::class)
+            ->getLabelForFieldValue($table, $typeColumn, $recordType, $this->getRow(), is_array($columnTsConfig) ? $columnTsConfig : []);
     }
 
     protected function getDisabledFieldName(): ?string
     {
         return $this->schema->hasCapability(TcaSchemaCapability::RestrictionDisabledField) ? (string)$this->schema->getCapability(TcaSchemaCapability::RestrictionDisabledField) : null;
+    }
+
+    protected function getLanguageService(): LanguageService
+    {
+        return $GLOBALS['LANG'];
+    }
+
+    protected function getBackendUser(): BackendUserAuthentication
+    {
+        return $GLOBALS['BE_USER'];
     }
 }

@@ -15,13 +15,20 @@ import { MessageUtility } from '@typo3/backend/utility/message-utility';
 import DocumentService from '@typo3/core/document-service';
 import Modal from '@typo3/backend/modal';
 
-interface RTESettings {
-  parameters: string;
-  configuration: string;
-}
-
 interface InlineSettings {
   objectId: string;
+}
+
+export interface ElementBrowserMessage {
+  actionName: 'typo3:foreignRelation:insert' | 'typo3:elementBrowser:elementAdded';
+  close: boolean;
+}
+
+export interface ElementBrowserElementAddedMessage extends ElementBrowserMessage {
+  actionName: 'typo3:elementBrowser:elementAdded';
+  fieldName: string;
+  value: string;
+  label: string;
 }
 
 declare global {
@@ -42,10 +49,6 @@ declare global {
 class ElementBrowser {
   private opener: Window = null;
   private fieldReference: string = '';
-  private readonly rte: RTESettings = {
-    parameters: '',
-    configuration: '',
-  };
   private readonly irre: InlineSettings = {
     objectId: '',
   };
@@ -54,8 +57,6 @@ class ElementBrowser {
     DocumentService.ready().then((): void => {
       const data = document.body.dataset;
       this.fieldReference = data.fieldReference;
-      this.rte.parameters = data.rteParameters;
-      this.rte.configuration = data.rteConfiguration;
       this.irre.objectId = data.irreObjectId;
     });
   }
@@ -106,6 +107,16 @@ class ElementBrowser {
       } else if (window.opener) {
         this.opener = window.opener;
       }
+
+      // Verify the resolved opener contains the edit form (e.g. when editing
+      // in a modal iframe, list_frame resolves to the content frame
+      // which is the wrong window). Fall back to searching all frames in top.
+      if (this.opener && !this.windowHasEditForm(this.opener)) {
+        const editFormWindow = this.findEditFormWindow();
+        if (editFormWindow) {
+          this.opener = editFormWindow;
+        }
+      }
     }
 
     return this.opener;
@@ -142,7 +153,7 @@ class ElementBrowser {
       return true;
     }
 
-    if (this.fieldReference && !this.rte.parameters && !this.rte.configuration) {
+    if (this.fieldReference) {
       this.addElement(title, value ? value : table + '_' + uid, close);
     }
     return false;
@@ -157,14 +168,41 @@ class ElementBrowser {
   };
 
 
+  private windowHasEditForm(win: Window): boolean {
+    return win?.document?.querySelector('form[name="editform"]') !== null;
+  }
+
+  private findEditFormWindow(): Window | null {
+    try {
+      for (let i = 0; i < top.frames.length; i++) {
+        try {
+          const frame = top.frames[i];
+          if (frame !== window && this.windowHasEditForm(frame)) {
+            return frame;
+          }
+        } catch {
+          // Cross-origin frame, skip
+        }
+      }
+    } catch {
+      // Cannot access top.frames
+    }
+    return null;
+  }
+
   private addElement(label: string, value: string, close: boolean): void {
+    const message = {
+      actionName: 'typo3:elementBrowser:elementAdded',
+      fieldName: this.fieldReference,
+      value: value,
+      label: label,
+      close: close
+    } as const;
+    if (document.body.dataset.useEvents === 'true') {
+      this.dispatch(message);
+      return;
+    }
     if (this.getParent()) {
-      const message = {
-        actionName: 'typo3:elementBrowser:elementAdded',
-        fieldName: this.fieldReference,
-        value: value,
-        label: label
-      };
       MessageUtility.send(message, this.getParent());
 
       if (close) {
@@ -176,6 +214,13 @@ class ElementBrowser {
       alert('Error - reference to main window is not set properly!');
       this.focusOpenerAndClose();
     }
+  }
+
+  private dispatch(message: ElementBrowserMessage) {
+    window.frameElement.dispatchEvent(new CustomEvent<ElementBrowserMessage>('typo3:element-browser:message', {
+      bubbles: true,
+      detail: message
+    }));
   }
 }
 

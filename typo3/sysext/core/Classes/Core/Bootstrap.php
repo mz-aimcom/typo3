@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -17,10 +19,10 @@ namespace TYPO3\CMS\Core\Core;
 
 use Composer\Autoload\ClassLoader;
 use Composer\InstalledVersions;
-use Doctrine\Common\Annotations\AnnotationReader;
 use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerAwareInterface;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Cache\Backend\BackendInterface;
 use TYPO3\CMS\Core\Cache\Backend\NullBackend;
@@ -30,13 +32,14 @@ use TYPO3\CMS\Core\Cache\Exception\InvalidCacheException;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Cache\Frontend\PhpFrontend;
 use TYPO3\CMS\Core\Cache\Frontend\VariableFrontend;
+use TYPO3\CMS\Core\Clock\RequestClock;
 use TYPO3\CMS\Core\Configuration\ConfigurationManager;
 use TYPO3\CMS\Core\Configuration\Extension\ExtLocalconfFactory;
-use TYPO3\CMS\Core\Configuration\Extension\ExtTablesFactory;
 use TYPO3\CMS\Core\Configuration\Tca\TcaFactory;
 use TYPO3\CMS\Core\Core\Event\BootCompletedEvent;
 use TYPO3\CMS\Core\DependencyInjection\Cache\ContainerBackend;
 use TYPO3\CMS\Core\DependencyInjection\ContainerBuilder;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Package\Cache\ComposerPackageArtifact;
 use TYPO3\CMS\Core\Package\Cache\PackageCacheInterface;
@@ -59,7 +62,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
  * down. Do not fiddle with the load order in own scripts except you know
  * exactly what you are doing!
  */
-class Bootstrap
+readonly class Bootstrap
 {
     /**
      * Bootstrap TYPO3 and return a Container that may be used
@@ -79,22 +82,17 @@ class Bootstrap
             ClassLoadingInformation::registerClassLoadingInformation();
         }
 
-        // @todo Remove output buffering in TYPO3 v14
-        static::startOutputBuffering();
-
-        $configurationManager = static::createConfigurationManager();
+        // We need an early instance of the configuration manager.
+        // Since makeInstance relies on the object configuration, we create it here with new instead.
+        $configurationManager = new ConfigurationManager();
         if (!static::checkIfEssentialConfigurationExists($configurationManager)) {
             $failsafe = true;
         }
-        static::populateLocalConfiguration($configurationManager);
+        // TYPO3_CONF_VARS is now loaded by settings.php and additional.php
+        $configurationManager->exportConfiguration();
 
-        $logManager = new LogManager((string)$requestId);
-        // LogManager is used by the core ErrorHandler (using GeneralUtility::makeInstance),
-        // therefore we have to push the LogManager to GeneralUtility, in case there
-        // happen errors before we call GeneralUtility::setContainer().
-        GeneralUtility::setSingletonInstance(LogManager::class, $logManager);
-
-        static::initializeErrorHandling();
+        $logManager = new LogManager($requestId);
+        static::initializeErrorHandling($logManager);
 
         $disableCaching = $failsafe ? true : false;
         /** @var PhpFrontend $coreCache */
@@ -113,7 +111,6 @@ class Bootstrap
         $bootState = new \stdClass();
         $bootState->complete = false;
         $bootState->cacheDisabled = $disableCaching;
-        $bootState->failsafe = $failsafe;
 
         $builder = new ContainerBuilder([
             ClassLoader::class => $classLoader,
@@ -121,6 +118,7 @@ class Bootstrap
             ConfigurationManager::class => $configurationManager,
             LogManager::class => $logManager,
             RequestId::class => $requestId,
+            RequestClock::class => RequestClock::create(),
             'cache.di' => $dependencyInjectionContainerCache,
             'cache.core' => $coreCache,
             PackageManager::class => $packageManager,
@@ -135,10 +133,6 @@ class Bootstrap
         // makeInstance() method creates classes using the container from now on.
         GeneralUtility::setContainer($container);
 
-        // Reset LogManager singleton instance in order for GeneralUtility::makeInstance()
-        // to proxy LogManager retrieval to ContainerInterface->get() from now on.
-        GeneralUtility::removeSingletonInstance(LogManager::class, $logManager);
-
         // Push PackageManager instance to ExtensionManagementUtility
         ExtensionManagementUtility::setPackageManager($packageManager);
 
@@ -147,43 +141,21 @@ class Bootstrap
             return $container;
         }
 
-        $eventDispatcher = $container->get(EventDispatcherInterface::class);
-        $tcaFactory = $container->get(TcaFactory::class);
-        $container->get(ExtLocalconfFactory::class)->load();
-        static::unsetReservedGlobalVariables();
-        $GLOBALS['TCA'] = $tcaFactory->get();
+        // The encryption key is part of the system configuration and must be set up
+        // before any extension code is executed.
         static::checkEncryptionKey();
+
+        $eventDispatcher = $container->get(EventDispatcherInterface::class);
+        $container->get(ExtLocalconfFactory::class)->load();
+        $tca = $container->get(TcaFactory::class)->get();
         $bootState->complete = true;
-        $container->get(TcaSchemaFactory::class)->load($GLOBALS['TCA']);
+        // $GLOBALS['TCA'] is only published once the schema is built, so consumers
+        // triggered by the schema factory can not work with a half-initialized state.
+        $container->get(TcaSchemaFactory::class)->load($tca);
+        $GLOBALS['TCA'] = $tca;
         $eventDispatcher->dispatch(new BootCompletedEvent(true));
 
         return $container;
-    }
-
-    /**
-     * Prevent any unwanted output that may corrupt AJAX/compression.
-     * This does not interfere with "die()" or "echo"+"exit()" messages!
-     *
-     * @internal This is not a public API method, do not use in own extensions
-     */
-    public static function startOutputBuffering()
-    {
-        ob_start();
-    }
-
-    /**
-     * Run the base setup that checks server environment, determines paths,
-     * populates base files and sets common configuration.
-     *
-     * Script execution will be aborted if something fails here.
-     *
-     * @internal This is not a public API method, do not use in own extensions
-     */
-    public static function baseSetup()
-    {
-        if (!Environment::isComposerMode() && ClassLoadingInformation::isClassLoadingInformationAvailable()) {
-            ClassLoadingInformation::registerClassLoadingInformation();
-        }
     }
 
     /**
@@ -192,16 +164,9 @@ class Bootstrap
      * @param ClassLoader $classLoader an instance of the class loader
      * @internal This is not a public API method, do not use in own extensions
      */
-    public static function initializeClassLoader(ClassLoader $classLoader)
+    public static function initializeClassLoader(ClassLoader $classLoader): void
     {
         ClassLoadingInformation::setClassLoader($classLoader);
-
-        // Annotations used in unit tests
-        AnnotationReader::addGlobalIgnoredName('test');
-
-        // Annotations that control the extension scanner
-        AnnotationReader::addGlobalIgnoredName('extensionScannerIgnoreFile');
-        AnnotationReader::addGlobalIgnoredName('extensionScannerIgnoreLine');
     }
 
     /**
@@ -216,57 +181,15 @@ class Bootstrap
     public static function checkIfEssentialConfigurationExists(ConfigurationManager $configurationManager): bool
     {
         if (!Environment::isComposerMode()
-            && !file_exists(Environment::getLegacyConfigPath() . '/PackageStates.php')
+            && !file_exists(Environment::getPackageStatesFile())
         ) {
             // Early return in case system is not properly set up
             return false;
         }
 
-        $systemConfigurationPath = $configurationManager->getSystemConfigurationFileLocation();
-        $additionalConfigurationPath = $configurationManager->getAdditionalConfigurationFileLocation();
-
-        $systemConfigurationFileExists = file_exists($systemConfigurationPath);
-        $additionalConfigurationFileExists = file_exists($additionalConfigurationPath);
-        if ($systemConfigurationFileExists && $additionalConfigurationFileExists) {
-            // We have a complete configuration, off we go
-            return true;
-        }
-
-        // If system configuration file exists and no legacy additional configuration is present, we are good
-        $legacyAdditionConfigurationPath = Environment::getLegacyConfigPath() . '/AdditionalConfiguration.php';
-        $legacyAdditionalConfigurationFileExists = file_exists($legacyAdditionConfigurationPath);
-        if ($systemConfigurationFileExists && !$legacyAdditionalConfigurationFileExists) {
-            return true;
-        }
-
-        // @deprecated All code below is deprecated and can be removed with TYPO3 v15.0 (or later as
-        //              it does not hurt to keep this migration for now) and replaced with `return false;`
-
-        // All other cases will probably need some migration work
-        $migrated = false;
-
-        // In case no system configuration file exists at this point, check for the legacy "LocalConfiguration"
-        // file. If it exists, move it to the new location. Otherwise, the system is not complete.
-        if (!$systemConfigurationFileExists) {
-            $legacyLocalConfigurationPath = $configurationManager->getLocalConfigurationFileLocation();
-            $legacySystemConfigurationFileExists = file_exists($legacyLocalConfigurationPath);
-            if ($legacySystemConfigurationFileExists) {
-                mkdir(dirname($systemConfigurationPath), 02775, true);
-                rename($legacyLocalConfigurationPath, $systemConfigurationPath);
-                $migrated = true;
-            } else {
-                // Directly return as essential system configuration does not exist
-                return false;
-            }
-        }
-        // In case no additional configuration file exists at this point, check for the legacy
-        // "AdditionalConfiguration" file. If it exists, move it to the new location as well.
-        if (!$additionalConfigurationFileExists && $legacyAdditionalConfigurationFileExists) {
-            rename($legacyAdditionConfigurationPath, $additionalConfigurationPath);
-            $migrated = true;
-        }
-
-        return $migrated;
+        // The system configuration file (settings.php) is mandatory, the additional configuration
+        // file (additional.php) is optional.
+        return file_exists($configurationManager->getSystemConfigurationFileLocation());
     }
 
     /**
@@ -276,9 +199,9 @@ class Bootstrap
      * @param string $packageManagerClassName Define an alternative package manager implementation (usually for the installer)
      * @internal This is not a public API method, do not use in own extensions
      */
-    public static function createPackageManager($packageManagerClassName, PackageCacheInterface $packageCache): PackageManager
+    public static function createPackageManager(string $packageManagerClassName, PackageCacheInterface $packageCache): PackageManager
     {
-        $dependencyOrderingService = GeneralUtility::makeInstance(DependencyOrderingService::class);
+        $dependencyOrderingService = new DependencyOrderingService();
         /** @var PackageManager $packageManager */
         $packageManager = new $packageManagerClassName($dependencyOrderingService);
         $packageManager->setPackageCache($packageCache);
@@ -293,7 +216,7 @@ class Bootstrap
     public static function createPackageCache(FrontendInterface $coreCache): PackageCacheInterface
     {
         if (!Environment::isComposerMode()) {
-            return new PackageStatesPackageCache(Environment::getLegacyConfigPath() . '/PackageStates.php', $coreCache);
+            return new PackageStatesPackageCache(Environment::getPackageStatesFile(), $coreCache);
         }
 
         $composerInstallersPath = InstalledVersions::getInstallPath('typo3/cms-composer-installers');
@@ -305,34 +228,12 @@ class Bootstrap
     }
 
     /**
-     * We need an early instance of the configuration manager.
-     * Since makeInstance relies on the object configuration, we create it here with new instead.
-     */
-    public static function createConfigurationManager(): ConfigurationManager
-    {
-        return new ConfigurationManager();
-    }
-
-    /**
-     * We need an early instance of the configuration manager.
-     * Since makeInstance relies on the object configuration, we create it here with new instead.
-     *
-     * @internal This is not a public API method, do not use in own extensions
-     */
-    protected static function populateLocalConfiguration(ConfigurationManager $configurationManager)
-    {
-        $configurationManager->exportConfiguration();
-    }
-
-    /**
      * Instantiates an early cache instance
      *
-     * Creates a cache instances independently from the CacheManager.
+     * Creates a cache instances independently of the CacheManager.
      * The is used to create the core cache during early bootstrap when the CacheManager
      * is not yet available (i.e. configuration is not yet loaded).
      *
-     * @param string $identifier
-     * @param bool $disableCaching
      * @param class-string<BackendInterface>|null $enforcedCacheBackend
      * @internal
      */
@@ -356,7 +257,7 @@ class Bootstrap
             $options = [];
         }
 
-        $backendInstance = new $backend('production', $options);
+        $backendInstance = new $backend($options);
         if (!$backendInstance instanceof BackendInterface) {
             throw new InvalidBackendException('"' . $backend . '" is not a valid cache backend object.', 1545260108);
         }
@@ -378,7 +279,7 @@ class Bootstrap
     /**
      * Set default timezone
      */
-    protected static function setDefaultTimezone()
+    protected static function setDefaultTimezone(): void
     {
         $timeZone = $GLOBALS['TYPO3_CONF_VARS']['SYS']['phpTimeZone'];
         if (empty($timeZone)) {
@@ -396,10 +297,8 @@ class Bootstrap
 
     /**
      * Configure and set up exception and error handling
-     *
-     * @throws \RuntimeException
      */
-    protected static function initializeErrorHandling()
+    protected static function initializeErrorHandling(LogManager $logManager): void
     {
         $productionExceptionHandlerClassName = $GLOBALS['TYPO3_CONF_VARS']['SYS']['productionExceptionHandler'];
         $debugExceptionHandlerClassName = $GLOBALS['TYPO3_CONF_VARS']['SYS']['debugExceptionHandler'];
@@ -411,7 +310,7 @@ class Bootstrap
         $displayErrorsSetting = (int)$GLOBALS['TYPO3_CONF_VARS']['SYS']['displayErrors'];
         switch ($displayErrorsSetting) {
             case -1:
-                $ipMatchesDevelopmentSystem = GeneralUtility::cmpIP(GeneralUtility::getIndpEnv('REMOTE_ADDR'), $GLOBALS['TYPO3_CONF_VARS']['SYS']['devIPmask']);
+                $ipMatchesDevelopmentSystem = GeneralUtility::cmpIP(NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress(), $GLOBALS['TYPO3_CONF_VARS']['SYS']['devIPmask']);
                 $exceptionHandlerClassName = $ipMatchesDevelopmentSystem ? $debugExceptionHandlerClassName : $productionExceptionHandlerClassName;
                 $displayErrors = $ipMatchesDevelopmentSystem ? 1 : 0;
                 $exceptionalErrors = $ipMatchesDevelopmentSystem ? $exceptionalErrors : 0;
@@ -433,11 +332,19 @@ class Bootstrap
                     1476046290
                 );
         }
-        @ini_set('display_errors', (string)$displayErrors);
+        try {
+            @ini_set('display_errors', (string)$displayErrors);
+        } catch (\Error) {
+            // In case function "ini_set" is disabled within php.ini, we catch the error and allow TYPO3 to run
+            // anyway, see https://www.php.net/manual/en/ini.core.php#ini.disable-functions
+        }
 
         if (!empty($errorHandlerClassName)) {
             // Register an error handler for the given errorHandlerError
-            $errorHandler = GeneralUtility::makeInstance($errorHandlerClassName, $errorHandlerErrors);
+            $errorHandler = new $errorHandlerClassName($errorHandlerErrors);
+            if ($errorHandler instanceof LoggerAwareInterface) {
+                $errorHandler->setLogger($logManager->getLogger($errorHandlerClassName));
+            }
             $errorHandler->setExceptionalErrors($exceptionalErrors);
             if (is_callable([$errorHandler, 'setDebugMode'])) {
                 $errorHandler->setDebugMode($displayErrors === 1);
@@ -447,8 +354,10 @@ class Bootstrap
             }
         }
         if (!empty($exceptionHandlerClassName)) {
-            // Registering the exception handler is done in the constructor
-            GeneralUtility::makeInstance($exceptionHandlerClassName);
+            $exceptionHandler = new $exceptionHandlerClassName();
+            if ($exceptionHandler instanceof LoggerAwareInterface) {
+                $exceptionHandler->setLogger($logManager->getLogger($exceptionHandlerClassName));
+            }
         }
     }
 
@@ -456,29 +365,22 @@ class Bootstrap
      * Set PHP memory limit depending on value of
      * $GLOBALS['TYPO3_CONF_VARS']['SYS']['setMemoryLimit']
      */
-    protected static function setMemoryLimit()
+    protected static function setMemoryLimit(): void
     {
         if ((int)$GLOBALS['TYPO3_CONF_VARS']['SYS']['setMemoryLimit'] > 16) {
-            @ini_set('memory_limit', (string)((int)$GLOBALS['TYPO3_CONF_VARS']['SYS']['setMemoryLimit'] . 'm'));
+            try {
+                @ini_set('memory_limit', (int)$GLOBALS['TYPO3_CONF_VARS']['SYS']['setMemoryLimit'] . 'm');
+            } catch (\Error) {
+                // In case function "ini_set" is disabled within php.ini, we catch the error and allow TYPO3 to run
+                // anyway, see https://www.php.net/manual/en/ini.core.php#ini.disable-functions
+            }
         }
-    }
-
-    /**
-     * Unsetting reserved global variables:
-     * Those are set in "ext:core/ext_tables.php" file:
-     *
-     * @internal This is not a public API method, do not use in own extensions
-     */
-    public static function unsetReservedGlobalVariables()
-    {
-        unset($GLOBALS['TCA']);
-        unset($GLOBALS['BE_USER']);
     }
 
     /**
      * Check if a configuration key has been configured
      */
-    protected static function checkEncryptionKey()
+    protected static function checkEncryptionKey(): void
     {
         if (empty($GLOBALS['TYPO3_CONF_VARS']['SYS']['encryptionKey'])) {
             throw new \RuntimeException(
@@ -489,33 +391,11 @@ class Bootstrap
     }
 
     /**
-     * Load ext_tables and friends.
-     *
-     * This will mainly load and execute ext_tables.php files of loaded extensions
-     * or the according cache file if exists.
-     *
-     * @param bool $allowCaching True, if reading compiled ext_tables file from cache is allowed
-     * @internal This is not a public API method, do not use in own extensions
-     * @todo: It would be better to remove this method and use the factory directly.
-     *        Needs a pre-patch in testing-framework.
-     */
-    public static function loadExtTables(bool $allowCaching = true, ?FrontendInterface $coreCache = null)
-    {
-        $container = GeneralUtility::getContainer();
-        if ($allowCaching) {
-            $container->get(ExtTablesFactory::class)->load();
-        } else {
-            $container->get(ExtTablesFactory::class)->loadUncached();
-        }
-    }
-
-    /**
      * Initialize backend user object in globals
      *
      * @param string $className usually \TYPO3\CMS\Core\Authentication\BackendUserAuthentication::class but can be used for CLI
-     * @param ServerRequestInterface|null $request
      */
-    public static function initializeBackendUser($className = BackendUserAuthentication::class, ?ServerRequestInterface $request = null)
+    public static function initializeBackendUser($className = BackendUserAuthentication::class, ?ServerRequestInterface $request = null): BackendUserAuthentication
     {
         /** @var BackendUserAuthentication $backendUser */
         $backendUser = GeneralUtility::makeInstance($className);
@@ -523,12 +403,13 @@ class Bootstrap
         // might trigger code which relies on it. See: #45625
         $GLOBALS['BE_USER'] = $backendUser;
         $backendUser->start($request);
+        return $backendUser;
     }
 
     /**
      * Initializes and ensures authenticated access
      */
-    public static function initializeBackendAuthentication()
+    public static function initializeBackendAuthentication(): void
     {
         $GLOBALS['BE_USER']->backendCheckLogin();
     }

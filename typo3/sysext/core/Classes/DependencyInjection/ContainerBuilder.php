@@ -19,6 +19,7 @@ namespace TYPO3\CMS\Core\DependencyInjection;
 
 use Psr\Container\ContainerInterface;
 use Symfony\Component\Config\FileLocator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder as SymfonyContainerBuilder;
 use Symfony\Component\DependencyInjection\Dumper\PhpDumper;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
@@ -100,12 +101,13 @@ class ContainerBuilder
     {
         $containerBuilder = new SymfonyContainerBuilder();
 
+        $containerBuilder->addCompilerPass(new ResolveClassPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 1000);
         $containerBuilder->addCompilerPass(new ServiceProviderCompilationPass($registry, $this->serviceProviderRegistryServiceName));
 
         $globalConfigDir = Environment::getConfigPath();
         // If the config folder is outside of the document root, we allow further services per-project
         // This is usually the case in composer-based installations
-        if (Environment::isComposerMode() && Environment::getPublicPath() !== Environment::getProjectPath()) {
+        if (Environment::getPublicPath() !== Environment::getProjectPath()) {
             if (file_exists($globalConfigDir . '/system/services.php')) {
                 $phpFileLoader = new PhpFileLoader($containerBuilder, new FileLocator($globalConfigDir . '/system'));
                 $phpFileLoader->load('services.php');
@@ -178,6 +180,9 @@ class ContainerBuilder
 
     protected function createCacheIdentifier(PackageManager $packageManager, string $additionalIdentifier): string
     {
-        return $this->cacheIdentifiers[$additionalIdentifier] = (new PackageDependentCacheIdentifier($packageManager))->withPrefix('DependencyInjectionContainer')->toString();
+        return $this->cacheIdentifiers[$additionalIdentifier] = new PackageDependentCacheIdentifier($packageManager)
+            ->withPrefix('DependencyInjectionContainer')
+            ->withAdditionalHashedIdentifier('PHP-' . PHP_MAJOR_VERSION . '-' . PHP_MINOR_VERSION)
+            ->toString();
     }
 }

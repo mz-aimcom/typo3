@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 /*
  * This file is part of the TYPO3 CMS project.
  *
@@ -18,121 +20,94 @@ namespace TYPO3\CMS\Backend\Template\Components\Buttons;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * LinkButton
- *
  * This button type renders a regular anchor tag with TYPO3s way to render a
  * button control.
  *
  * Example:
  *
  * ```
- * $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
- * $saveButton = $buttonBar->makeLinkButton()
- *      ->setHref('#')
- *      ->setDataAttributes([
- *          'foo' => 'bar'
- *      ])
- *      ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
- *      ->setTitle('Save');
- * $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ * public function __construct(
+ *     protected readonly ComponentFactory $componentFactory,
+ * ) {}
+ *
+ * public function myAction(): ResponseInterface
+ * {
+ *     $buttonBar = $this->moduleTemplate->getDocHeaderComponent()->getButtonBar();
+ *     $saveButton = $this->componentFactory->createLinkButton()
+ *          ->setHref('#')
+ *          ->setDataAttributes([
+ *              'foo' => 'bar'
+ *          ])
+ *          ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL))
+ *          ->setTitle('Save');
+ *     $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 1);
+ * }
  * ```
  */
 class LinkButton extends AbstractButton
 {
-    /**
-     * HREF attribute of the link
-     *
-     * @var string
-     */
-    protected $href = '';
+    protected string $href = '';
 
-    /**
-     * `role` attribute of the link
-     *
-     * @var string
-     */
-    protected $role = 'button';
+    protected string $role = 'button';
 
-    /**
-     * Get href
-     *
-     * @return string
-     */
-    public function getHref()
+    protected ButtonSize $size = ButtonSize::SMALL;
+
+    public function getHref(): string
     {
         return $this->href;
     }
 
-    /**
-     * Set href
-     *
-     * @param string $href HREF attribute
-     *
-     * @return LinkButton
-     */
-    public function setHref($href)
+    public function setHref(string $href): static
     {
         $this->href = $href;
         return $this;
     }
 
-    /**
-     * Get role
-     *
-     * @return string
-     */
-    public function getRole()
+    public function getRole(): string
     {
         return $this->role;
     }
 
-    /**
-     * Set role
-     *
-     * @param string $role `role` attribute
-     *
-     * @return LinkButton
-     */
-    public function setRole($role)
+    public function setRole(string $role): static
     {
         $this->role = $role;
         return $this;
     }
 
-    /**
-     * Validates the current button
-     *
-     * @return bool
-     */
-    public function isValid()
+    public function getSize(): ButtonSize
     {
-        if (
-            trim($this->getHref()) !== ''
-            && trim($this->getTitle()) !== ''
-            && $this->getType() === self::class
-            && $this->getIcon() !== null
-        ) {
-            return true;
-        }
-        return false;
+        return $this->size;
     }
 
-    /**
-     * Renders the markup for the button
-     *
-     * @return string
-     */
-    public function render()
+    public function setSize(ButtonSize $size): static
+    {
+        $this->size = $size;
+        return $this;
+    }
+
+    public function isValid(): bool
+    {
+        return trim($this->getHref()) !== ''
+            && trim($this->getTitle()) !== ''
+            && $this->getType() === static::class
+            && $this->getIcon() !== null;
+    }
+
+    public function render(): string
     {
         $attributes = [
             'role' => $this->getRole(),
             'href' => $this->getHref(),
-            'class' => 'btn btn-sm btn-default ' . $this->getClasses(),
+            // @see SplitButton - hard-coded replacement for this hard-coded class-list
+            'class' => 'btn ' . $this->getSize()->value . ' btn-default ' . $this->getClasses(),
             'title' => $this->getTitle(),
         ];
         $labelText = '';
         if ($this->showLabelText) {
             $labelText = ' ' . $this->title;
+        }
+        foreach ($this->attributes as $attributeName => $attributeValue) {
+            $attributes[$attributeName] = $attributeValue;
         }
         foreach ($this->dataAttributes as $attributeName => $attributeValue) {
             $attributes['data-' . $attributeName] = $attributeValue;
@@ -141,16 +116,14 @@ class LinkButton extends AbstractButton
             $attributes['aria-disabled'] = 'true';
             $attributes['class'] .= ' disabled';
         }
-        $attributesString = GeneralUtility::implodeAttributes($attributes, true);
-
-        return '<a ' . $attributesString . '>'
-            . $this->getIcon()->render() . htmlspecialchars($labelText)
-            . '</a>';
+        return sprintf(
+            '<a %s>%s%s</a>',
+            GeneralUtility::implodeAttributes($attributes, true),
+            $this->getIcon()?->render() ?? '',
+            htmlspecialchars($labelText),
+        );
     }
 
-    /**
-     * Magic method so Fluid can access a button via {button}
-     */
     public function __toString(): string
     {
         return $this->render();

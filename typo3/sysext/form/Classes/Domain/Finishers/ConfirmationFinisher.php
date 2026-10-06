@@ -82,7 +82,8 @@ class ConfirmationFinisher extends AbstractFinisher
         if (!empty($contentElementUid)) {
             $pathSegments = GeneralUtility::trimExplode('.', $typoscriptObjectPath);
             $lastSegment = array_pop($pathSegments);
-            $setup = $this->extbaseConfigurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_FULL_TYPOSCRIPT);
+            $setup = $this->finisherContext->getRequest()->getAttribute('frontend.typoscript')?->getSetupArray()
+                ?? $this->extbaseConfigurationManager->getConfiguration(ExtbaseConfigurationManagerInterface::CONFIGURATION_TYPE_FULL_TYPOSCRIPT);
             foreach ($pathSegments as $segment) {
                 if (!array_key_exists($segment . '.', $setup)) {
                     throw new FinisherException(
@@ -98,14 +99,14 @@ class ConfirmationFinisher extends AbstractFinisher
             $contentObjectRenderer->setCurrentVal((string)$contentElementUid);
             $message = $contentObjectRenderer->cObjGetSingle($setup[$lastSegment], $setup[$lastSegment . '.'], $lastSegment);
         } else {
-            $message = $this->parseOption('message');
+            $message = $this->parseOptionAsDisplayValue('message');
         }
 
         $formRuntime = $this->finisherContext->getFormRuntime();
         $viewFactoryData = new ViewFactoryData(
-            templateRootPaths: is_array($options['templateRootPaths'] ?? false) ? $options['templateRootPaths'] : [],
-            partialRootPaths: is_array($options['partialRootPaths'] ?? false) ? $options['partialRootPaths'] : [],
-            layoutRootPaths: is_array($options['layoutRootPaths'] ?? false) ? $options['layoutRootPaths'] : [],
+            templateRootPaths: is_array($options['templateRootPaths'] ?? null) ? $options['templateRootPaths'] : [],
+            partialRootPaths: is_array($options['partialRootPaths'] ?? null) ? $options['partialRootPaths'] : [],
+            layoutRootPaths: is_array($options['layoutRootPaths'] ?? null) ? $options['layoutRootPaths'] : [],
             request: $this->finisherContext->getRequest(),
         );
         $view = $this->viewFactory->create($viewFactoryData);
@@ -113,7 +114,7 @@ class ConfirmationFinisher extends AbstractFinisher
             $view->getRenderingContext()->getViewHelperVariableContainer()
                 ->addOrUpdate(RenderRenderableViewHelper::class, 'formRuntime', $formRuntime);
         }
-        if (isset($this->options['variables']) && is_array($this->options['variables'])) {
+        if (is_array($this->options['variables'] ?? null)) {
             $view->assignMultiple($this->options['variables']);
         }
         $view->assignMultiple([

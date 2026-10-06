@@ -23,7 +23,7 @@ use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class ArrayPaginatorTest extends UnitTestCase
 {
-    protected array $fixture = [];
+    private array $fixture = [];
 
     protected function setUp(): void
     {
@@ -136,5 +136,20 @@ final class ArrayPaginatorTest extends UnitTestCase
         self::assertSame(0, $paginator->getKeyOfFirstPaginatedItem());
         self::assertSame(13, $paginator->getKeyOfLastPaginatedItem());
         self::assertCount(14, $paginator->getPaginatedItems());
+    }
+
+    #[Test]
+    public function paginatorSetsCurrentPageToLastPageIfCurrentPageExceedsIntegerRange(): void
+    {
+        $paginator = new ArrayPaginator(
+            range(1, 25),
+            PHP_INT_MAX,
+            10
+        );
+
+        self::assertSame(3, $paginator->getCurrentPageNumber());
+        self::assertSame(20, $paginator->getKeyOfFirstPaginatedItem());
+        self::assertSame(24, $paginator->getKeyOfLastPaginatedItem());
+        self::assertSame([21, 22, 23, 24, 25], array_values($paginator->getPaginatedItems()));
     }
 }

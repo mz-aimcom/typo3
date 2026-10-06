@@ -28,14 +28,14 @@ final class IfHasStateViewHelperTest extends FunctionalTestCase
 {
     protected bool $initializeDatabase = false;
 
-    protected TemplateView $view;
+    private TemplateView $view;
 
     protected function setUp(): void
     {
         parent::setUp();
         $renderingContext = $this->get(RenderingContextFactory::class)->create();
         $renderingContext->getViewHelperResolver()->addNamespace('be', 'TYPO3\\CMS\\Backend\\ViewHelpers');
-        $renderingContext->getTemplatePaths()->setTemplatePathAndFilename('EXT:backend/Tests/Functional/ViewHelpers/Fixtures/Mfa/IfHasStateViewHelper.html');
+        $renderingContext->getTemplatePaths()->setTemplatePathAndFilename('EXT:backend/Tests/Functional/ViewHelpers/Fixtures/Mfa/IfHasStateViewHelper.fluid.html');
         $this->view = new TemplateView($renderingContext);
         $this->view->assign('provider', $this->get(MfaProviderRegistry::class)->getProvider('totp'));
     }
@@ -74,7 +74,7 @@ final class IfHasStateViewHelperTest extends FunctionalTestCase
         self::assertStringNotContainsString('isUnlocked', $result);
     }
 
-    protected function getBackendUser(bool $activeProvider = false, bool $lockedProvider = false): BackendUserAuthentication
+    private function getBackendUser(bool $activeProvider = false, bool $lockedProvider = false): BackendUserAuthentication
     {
         $backendUser = new BackendUserAuthentication();
         $mfa = [

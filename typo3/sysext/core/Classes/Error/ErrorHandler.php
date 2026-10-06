@@ -22,6 +22,7 @@ use Psr\Log\LogLevel;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Http\ApplicationType;
+use TYPO3\CMS\Core\Http\NormalizedParams;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
@@ -50,10 +51,6 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
         E_RECOVERABLE_ERROR => 'PHP Catchable Fatal Error',
         E_USER_DEPRECATED => 'TYPO3 Deprecation Notice',
         E_DEPRECATED => 'PHP Runtime Deprecation Notice',
-        // @todo: Remove 2048 (deprecated E_STRICT) in v14, as this value is no longer used by PHP itself
-        //        and only kept here here because possible custom PHP extensions may still use it.
-        //        See https://wiki.php.net/rfc/deprecations_php_8_4#remove_e_strict_error_level_and_deprecate_e_strict_constant
-        2048 /* deprecated E_STRICT */ => 'PHP Runtime Notice',
     ];
 
     /**
@@ -106,7 +103,7 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
 
     public function registerErrorHandler()
     {
-        set_error_handler([$this, 'handleError']);
+        set_error_handler($this->handleError(...));
     }
 
     /**
@@ -201,8 +198,7 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
             default:
                 $flashMessageSeverity = ContextualFeedbackSeverity::NOTICE;
         }
-        $flashMessage = GeneralUtility::makeInstance(
-            FlashMessage::class,
+        $flashMessage = new FlashMessage(
             $message,
             self::ERROR_LEVEL_LABELS[$errorLevel],
             $flashMessageSeverity
@@ -261,7 +257,7 @@ class ErrorHandler implements ErrorHandlerInterface, LoggerAwareInterface
                     'level' => $logLevel,
                     'details' => str_replace('%', '%%', $logMessage),
                     'log_data' => empty($data) ? '' : json_encode($data),
-                    'IP' => (string)GeneralUtility::getIndpEnv('REMOTE_ADDR'),
+                    'IP' => NormalizedParams::createFromServerParams($_SERVER)->getRemoteAddress(),
                     'tstamp' => $GLOBALS['EXEC_TIME'],
                     'workspace' => $workspace,
                 ]

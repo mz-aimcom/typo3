@@ -19,15 +19,20 @@ namespace TYPO3\CMS\Core\Package;
 
 use Composer\Util\Filesystem;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Package\Exception\InvalidPackageKeyException;
 use TYPO3\CMS\Core\Package\Exception\InvalidPackagePathException;
 use TYPO3\CMS\Core\Package\MetaData\PackageConstraint;
+use TYPO3\CMS\Core\Package\Resource\ResourceCollection;
+use TYPO3\CMS\Core\Package\Resource\ResourceCollectionInterface;
 
 /**
  * A Package representing the details of an extension and/or a composer package
  */
 class Package implements PackageInterface
 {
+    private const string NO_VERSION_SET = '1.0.0+no-version-set';
+
     /**
      * If this package is part of factory default, it will be activated
      * during first installation.
@@ -47,6 +52,15 @@ class Package implements PackageInterface
      * @internal
      */
     protected ?string $serviceProvider;
+
+    /**
+     * Composer Packages this package provides in classic mode
+     * The composer.json property is public, the implementation
+     * here is private
+     *
+     * @internal
+     */
+    protected array $providesPackages = [];
 
     /**
      * Unique key of this package.
@@ -72,16 +86,18 @@ class Package implements PackageInterface
      */
     protected MetaData $packageMetaData;
 
+    protected ResourceCollectionInterface $resources;
+
     /**
      * @param PackageManager $packageManager the package manager which knows this package
      * @param string $packageKey Key of this package
      * @param string $packagePath Absolute path to the location of the package's composer manifest
-     * @param bool $ignoreExtEmConf When set ext_emconf.php is ignored when building composer manifest
+     * @param bool $isBuildingPackageArtifact When set we are in Composer mode and building the package artifact
      * @throws Exception\InvalidPackageManifestException if no composer manifest file could be found
      * @throws InvalidPackageKeyException if an invalid package key was passed
      * @throws InvalidPackagePathException if an invalid package path was passed
      */
-    public function __construct(PackageManager $packageManager, string $packageKey, string $packagePath, bool $ignoreExtEmConf = false)
+    public function __construct(PackageManager $packageManager, string $packageKey, string $packagePath, bool $isBuildingPackageArtifact = false)
     {
         if (!$packageManager->isPackageKeyValid($packageKey)) {
             throw new InvalidPackageKeyException('"' . $packageKey . '" is not a valid package key.', 1217959511);
@@ -94,20 +110,27 @@ class Package implements PackageInterface
         }
         $this->packageKey = $packageKey;
         $this->packagePath = $packagePath;
-        $this->composerManifest = $packageManager->getComposerManifest($this->packagePath, $ignoreExtEmConf);
-        $this->loadFlagsFromComposerManifest();
-        $this->createPackageMetaData($packageManager);
+        $this->composerManifest = $packageManager->getComposerManifest($this->packagePath, $isBuildingPackageArtifact);
+        $this->loadFlagsFromComposerManifest($isBuildingPackageArtifact);
+        $this->createPackageMetaData($packageManager, $isBuildingPackageArtifact);
+        $this->createResources();
     }
 
     /**
      * Loads package management related flags from the "extra:typo3/cms:Package" section
      * of extensions composer.json files into local properties
      */
-    protected function loadFlagsFromComposerManifest(): void
+    protected function loadFlagsFromComposerManifest(bool $ignoreProvidesPackages = false): void
     {
         $extraFlags = $this->getValueFromComposerManifest('extra');
         if ($extraFlags !== null && isset($extraFlags->{'typo3/cms'}->{'Package'})) {
             foreach ($extraFlags->{'typo3/cms'}->{'Package'} as $flagName => $flagValue) {
+                if ($flagName === 'providesPackages') {
+                    if ($ignoreProvidesPackages) {
+                        continue;
+                    }
+                    $flagValue = (array)$flagValue;
+                }
                 if (property_exists($this, $flagName)) {
                     $this->{$flagName} = $flagValue;
                 }
@@ -118,30 +141,126 @@ class Package implements PackageInterface
     /**
      * Creates the package meta data object of this package.
      */
-    protected function createPackageMetaData(PackageManager $packageManager): void
+    protected function createPackageMetaData(PackageManager $packageManager, bool $isBuildingPackageArtifact = false): void
     {
         $this->packageMetaData = new MetaData($this->getPackageKey());
-        $description = (string)$this->getValueFromComposerManifest('description');
-        $this->packageMetaData->setDescription($description);
-        $this->packageMetaData->setTitle($this->getValueFromComposerManifest('title') ?? $description);
-        $this->packageMetaData->setVersion((string)$this->getValueFromComposerManifest('version'));
-        $this->packageMetaData->setPackageType((string)$this->getValueFromComposerManifest('type'));
-        $requirements = $this->getValueFromComposerManifest('require');
+        $manifest = $this->getValueFromComposerManifest();
+        $title = $description = $manifest->description ?? null;
+        $descriptionParts = explode(' - ', $description ?? '', 2);
+        if (count($descriptionParts) === 2) {
+            [$title, $description] = $descriptionParts;
+        }
+        $this->packageMetaData->setTitle($title);
+        $this->packageMetaData->setDescription($title !== $description ? $description : null);
+        $this->packageMetaData->setPackageType($manifest->type ?? null);
+        $isFrameworkPackage = $packageManager->isFrameworkPackage($this->getValueFromComposerManifest('name') ?? $this->packageKey);
+        $version = $manifest->extra->{'typo3/cms'}->{'version'} ?? $manifest->version ?? self::NO_VERSION_SET;
+        if ($isFrameworkPackage) {
+            $version = new Typo3Version()->getVersion();
+        }
+        $this->packageMetaData->setVersion($version);
+        $this->packageMetaData->setExcludeFromUpdates($manifest->extra->{'typo3/cms'}->{'exclude-from-updates'} ?? false);
+
+        $requirements = $manifest->require ?? null;
         if ($requirements !== null) {
-            foreach ($requirements as $requirement => $version) {
-                $packageKey = $packageManager->getPackageKeyFromComposerName($requirement);
-                $constraint = new PackageConstraint(MetaData::CONSTRAINT_TYPE_DEPENDS, $packageKey);
-                $this->packageMetaData->addConstraint($constraint);
+            foreach ($requirements as $packageName => $versionConstraints) {
+                if ($this->ignoreDependencyInPackageConstraint($packageName, $packageManager, $isBuildingPackageArtifact)) {
+                    continue;
+                }
+                $this->packageMetaData->addConstraint(
+                    new PackageConstraint(
+                        constraintType: MetaData::CONSTRAINT_TYPE_DEPENDS,
+                        value: $packageName,
+                        versionConstraints: $versionConstraints,
+                    )
+                );
             }
         }
-        $suggestions = $this->getValueFromComposerManifest('suggest');
+        $suggestions = $manifest->suggest ?? null;
         if ($suggestions !== null) {
-            foreach ($suggestions as $suggestion => $version) {
-                $packageKey = $packageManager->getPackageKeyFromComposerName($suggestion);
-                $constraint = new PackageConstraint(MetaData::CONSTRAINT_TYPE_SUGGESTS, $packageKey);
+            foreach ($suggestions as $packageName => $description) {
+                if ($this->ignoreDependencyInPackageConstraint($packageName, $packageManager, $isBuildingPackageArtifact)) {
+                    continue;
+                }
+                $constraint = new PackageConstraint(MetaData::CONSTRAINT_TYPE_SUGGESTS, $packageName);
                 $this->packageMetaData->addConstraint($constraint);
             }
         }
+        $conflicts = $manifest->conflict ?? null;
+        if ($conflicts !== null) {
+            foreach ($conflicts as $packageName => $versionConstraints) {
+                if ($this->ignoreDependencyInPackageConstraint($packageName, $packageManager, $isBuildingPackageArtifact)) {
+                    continue;
+                }
+                $this->packageMetaData->addConstraint(
+                    new PackageConstraint(
+                        constraintType: MetaData::CONSTRAINT_TYPE_CONFLICTS,
+                        value: $packageName,
+                        versionConstraints: $versionConstraints,
+                    )
+                );
+            }
+        }
+    }
+
+    /**
+     * In Composer mode, $packageManager->isComposerDependency() will always be true already for composer dependencies,
+     * since all packages are known.
+     * In Classic mode providesPackages is evaluated for third party extensions
+     * while for framework packages only dependencies to other framework packages are tracked
+     */
+    private function ignoreDependencyInPackageConstraint(string $packageName, PackageManager $packageManager, bool $isBuildingPackageArtifact): bool
+    {
+        $isKnownComposerDependency = $packageManager->isComposerDependency($packageName);
+        if ($isBuildingPackageArtifact) {
+            return $isKnownComposerDependency;
+        }
+        // The "php" package name is kept, so that the extension manager in classic mode can check PHP version constraints
+        // It will be ignored in extension dependency ordering in PackageManager though
+        return ($packageName !== 'php' && $isKnownComposerDependency)
+            // provided Composer packages as specified by third party extensions (loaded on demand in classic mode)
+            || isset($this->providesPackages[$packageName])
+            || ($this->packageMetaData->isFrameworkType() && !$packageManager->isFrameworkPackage($packageName))
+        ;
+    }
+
+    protected function createResources(): void
+    {
+        $relativeIconPath = $this->getPackageIcon();
+        $iconIdentifier = $relativeIconPath !== null ? sprintf(
+            'PKG:%s:%s',
+            $this->getValueFromComposerManifest('name') ?? $this->getPackageKey(),
+            $relativeIconPath,
+        ) : null;
+        $resourceDefinitionClosure = $this->getResourceDefinitions(
+            __DIR__ . '/../../Configuration/DefaultPackageResources.php'
+        );
+        $customResourceDefinitionClosure = $this->getResourceDefinitions(
+            $this->getPackagePath() . 'Configuration/Resources.php'
+        );
+        $resourceDefinitions = array_merge(
+            $resourceDefinitionClosure($this),
+            $customResourceDefinitionClosure === null ? [] : $customResourceDefinitionClosure($this),
+        );
+        $this->resources = new ResourceCollection(
+            $resourceDefinitions,
+            $iconIdentifier,
+        );
+    }
+
+    protected function getResourceDefinitions(string $configPath): ?\Closure
+    {
+        if (!file_exists($configPath)) {
+            return null;
+        }
+        return (static function ($configPath) {
+            return require $configPath;
+        })($configPath);
+    }
+
+    public function getResources(): ResourceCollectionInterface
+    {
+        return $this->resources;
     }
 
     /**
@@ -194,6 +313,14 @@ class Package implements PackageInterface
     public function setProtected(bool $protected): void
     {
         $this->protected = (bool)$protected;
+    }
+
+    /**
+     * @internal Only for use in ClassLoadingInformationGenerator
+     */
+    public function getProvidesPackages(): array
+    {
+        return $this->providesPackages;
     }
 
     /**
@@ -254,13 +381,7 @@ class Package implements PackageInterface
         if ($key === null) {
             return $this->composerManifest;
         }
-
-        if (isset($this->composerManifest->{$key})) {
-            $value = $this->composerManifest->{$key};
-        } else {
-            $value = null;
-        }
-        return $value;
+        return $this->composerManifest->{$key} ?? null;
     }
 
     /**

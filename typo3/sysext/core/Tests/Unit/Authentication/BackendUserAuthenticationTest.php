@@ -17,11 +17,15 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Authentication;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use Psr\Container\ContainerInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\EventDispatcher\ListenerProviderInterface;
 use Psr\Log\NullLogger;
+use Symfony\Component\DependencyInjection\Container;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Authentication\IpLocker;
 use TYPO3\CMS\Core\Authentication\JsConfirmation;
@@ -44,6 +48,8 @@ use TYPO3\CMS\Core\Tests\Unit\Database\Mocks\MockPlatform\MockMySQLPlatform;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class BackendUserAuthenticationTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -51,31 +57,36 @@ final class BackendUserAuthenticationTest extends UnitTestCase
     #[Test]
     public function logoffCleansFormProtectionIfBackendUserIsLoggedIn(): void
     {
-        $GLOBALS['LANG'] = $this->createMock(LanguageService::class);
+        $GLOBALS['LANG'] = self::createStub(LanguageService::class);
         $connectionMock = $this->createMock(Connection::class);
-        $connectionMock->method('delete')->with('sys_lockedrecords', self::anything())->willReturn(1);
+        $connectionMock->expects($this->atMost(PHP_INT_MAX))->method('delete')->with('sys_lockedrecords', self::anything())->willReturn(1);
 
         $connectionPoolMock = $this->createMock(ConnectionPool::class);
-        $connectionPoolMock->method('getConnectionForTable')->with(self::anything())->willReturn($connectionMock);
+        $connectionPoolMock->expects($this->atMost(PHP_INT_MAX))->method('getConnectionForTable')->with(self::anything())->willReturn($connectionMock);
 
         GeneralUtility::addInstance(ConnectionPool::class, $connectionPoolMock);
 
         $formProtectionMock = $this->createMock(BackendFormProtection::class);
         $formProtectionMock->expects($this->once())->method('clean');
 
-        $runtimeCache = new VariableFrontend('null', new TransientMemoryBackend('null', ['logger' => new NullLogger()]));
+        $registryStub = self::createStub(Registry::class);
+
+        $container = new Container();
+        $container->set(Registry::class, $registryStub);
+
+        $runtimeCache = new VariableFrontend('null', new TransientMemoryBackend(['logger' => new NullLogger()]));
         $formProtectionFactory = new FormProtectionFactory(
-            $this->createMock(FlashMessageService::class),
-            $this->createMock(LanguageServiceFactory::class),
-            $this->createMock(Registry::class),
-            $runtimeCache
+            self::createStub(FlashMessageService::class),
+            self::createStub(LanguageServiceFactory::class),
+            $runtimeCache,
+            $container
         );
         GeneralUtility::addInstance(FormProtectionFactory::class, $formProtectionFactory);
         GeneralUtility::addInstance(BackendFormProtection::class, $formProtectionMock);
-        GeneralUtility::setSingletonInstance(EventDispatcherInterface::class, new EventDispatcher($this->createMock(ListenerProviderInterface::class)));
+        GeneralUtility::setSingletonInstance(EventDispatcherInterface::class, new EventDispatcher(self::createStub(ListenerProviderInterface::class)));
 
         $sessionBackendMock = $this->createMock(SessionBackendInterface::class);
-        $sessionBackendMock->method('remove')->with(self::anything())->willReturn(true);
+        $sessionBackendMock->expects($this->atMost(PHP_INT_MAX))->method('remove')->with(self::anything())->willReturn(true);
         $userSessionManager = new UserSessionManager(
             $sessionBackendMock,
             86400,
@@ -364,7 +375,7 @@ final class BackendUserAuthenticationTest extends UnitTestCase
         $subject = $this->getMockBuilder(BackendUserAuthentication::class)
             ->onlyMethods(['getTSConfig'])
             ->getMock();
-        $subject->method('getTSConfig')->with()->willReturn([
+        $subject->expects($this->atMost(PHP_INT_MAX))->method('getTSConfig')->with()->willReturn([
             'options.' => [
                 'alertPopups' => 1,
             ],
@@ -379,7 +390,7 @@ final class BackendUserAuthenticationTest extends UnitTestCase
         $subject = $this->getMockBuilder(BackendUserAuthentication::class)
             ->onlyMethods(['getTSConfig'])
             ->getMock();
-        $subject->method('getTSConfig')->with()->willReturn([
+        $subject->expects($this->atMost(PHP_INT_MAX))->method('getTSConfig')->with()->willReturn([
             'options.' => [
                 'alertPopups' => 3,
             ],
@@ -395,7 +406,7 @@ final class BackendUserAuthenticationTest extends UnitTestCase
         $subject = $this->getMockBuilder(BackendUserAuthentication::class)
             ->onlyMethods(['getTSConfig'])
             ->getMock();
-        $subject->method('getTSConfig')->with()->willReturn([
+        $subject->expects($this->atMost(PHP_INT_MAX))->method('getTSConfig')->with()->willReturn([
             'options.' => [
                 'alertPopups' => $jsConfirmation,
             ],
@@ -435,7 +446,7 @@ final class BackendUserAuthenticationTest extends UnitTestCase
         $subject = $this->getMockBuilder(BackendUserAuthentication::class)
             ->onlyMethods(['getTSConfig'])
             ->getMock();
-        $subject->method('getTSConfig')->with()->willReturn([
+        $subject->expects($this->atMost(PHP_INT_MAX))->method('getTSConfig')->with()->willReturn([
             'options.' => [
                 'alertPopups' => 0,
             ],
@@ -464,15 +475,15 @@ final class BackendUserAuthenticationTest extends UnitTestCase
             'for user' => [
                 'perms' => 2,
                 'groups' => [],
-                'expected' => ' (((`pages`.`perms_everybody` & 2 = 2) OR' .
-                ' (((`pages`.`perms_userid` = 123) AND (`pages`.`perms_user` & 2 = 2)))))',
+                'expected' => ' (((`pages`.`perms_everybody` & 2 = 2) OR'
+                . ' (((`pages`.`perms_userid` = 123) AND (`pages`.`perms_user` & 2 = 2)))))',
             ],
             'for user with groups' => [
                 'perms' => 8,
                 'groups' => [1, 2],
-                'expected' => ' (((`pages`.`perms_everybody` & 8 = 8) OR' .
-                ' (((`pages`.`perms_userid` = 123) AND (`pages`.`perms_user` & 8 = 8)))' .
-                ' OR (((`pages`.`perms_groupid` IN (1, 2)) AND (`pages`.`perms_group` & 8 = 8)))))',
+                'expected' => ' (((`pages`.`perms_everybody` & 8 = 8) OR'
+                . ' (((`pages`.`perms_userid` = 123) AND (`pages`.`perms_user` & 8 = 8)))'
+                . ' OR (((`pages`.`perms_groupid` IN (1, 2)) AND (`pages`.`perms_group` & 8 = 8)))))',
             ],
         ];
     }
@@ -481,18 +492,20 @@ final class BackendUserAuthenticationTest extends UnitTestCase
     #[Test]
     public function getPagePermissionsClauseWithValidUser(int $perms, array $groups, string $expected): void
     {
-        $connectionMock = $this->createMock(Connection::class);
+        $connectionMock = self::createStub(Connection::class);
         $connectionMock->method('getDatabasePlatform')->willReturn(new MockMySQLPlatform());
         $connectionMock->method('quoteIdentifier')
             ->willReturnCallback(fn(string $identifier): string => '`' . str_replace('.', '`.`', $identifier) . '`');
 
-        $queryBuilderMock = $this->createMock(QueryBuilder::class);
+        $containerStub = self::createStub(ContainerInterface::class);
+
+        $queryBuilderMock = self::createStub(QueryBuilder::class);
         $queryBuilderMock->method('expr')->willReturn(
-            new ExpressionBuilder($connectionMock)
+            new ExpressionBuilder($connectionMock, $containerStub)
         );
 
         $connectionPoolMock = $this->createMock(ConnectionPool::class);
-        $connectionPoolMock->method('getQueryBuilderForTable')->with('pages')->willReturn($queryBuilderMock);
+        $connectionPoolMock->expects($this->atMost(PHP_INT_MAX))->method('getQueryBuilderForTable')->with('pages')->willReturn($queryBuilderMock);
         GeneralUtility::addInstance(ConnectionPool::class, $connectionPoolMock);
 
         $subject = new BackendUserAuthentication();
@@ -549,8 +562,8 @@ final class BackendUserAuthenticationTest extends UnitTestCase
             ->method('isAdmin')
             ->willReturn(false);
 
-        $subject->groupData['explicit_allowdeny'] =
-            'dummytable:dummyfield:explicitly_allowed_value,'
+        $subject->groupData['explicit_allowdeny']
+            = 'dummytable:dummyfield:explicitly_allowed_value,'
             . 'dummytable:dummyfield:explicitly_denied_value';
 
         $result = $subject->checkAuthMode('dummytable', 'dummyfield', $theValue);

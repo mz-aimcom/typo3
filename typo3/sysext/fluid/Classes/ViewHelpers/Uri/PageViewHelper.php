@@ -24,7 +24,6 @@ use TYPO3\CMS\Backend\Routing\UriBuilder as BackendUriBuilder;
 use TYPO3\CMS\Core\Http\ApplicationType;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Core\Utility\HttpUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface as ExtbaseRequestInterface;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder as ExtbaseUriBuilder;
@@ -44,6 +43,11 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\AbstractViewHelper;
  */
 final class PageViewHelper extends AbstractViewHelper
 {
+    public function __construct(
+        private readonly BackendUriBuilder $backendUriBuilder,
+        private readonly LinkFactory $linkFactory,
+    ) {}
+
     public function initializeArguments(): void
     {
         $this->registerArgument('pageUid', 'int', 'target PID');
@@ -70,9 +74,9 @@ final class PageViewHelper extends AbstractViewHelper
         if ($request instanceof ServerRequestInterface) {
             if (ApplicationType::fromRequest($request)->isFrontend()) {
                 // Use the regular typolink functionality.
-                return self::renderFrontendLinkWithCoreContext($request, $this->arguments, $this->renderChildren(...));
+                return $this->renderFrontendLinkWithCoreContext($request, $this->arguments, $this->renderChildren(...));
             }
-            return self::renderBackendLinkWithCoreContext($request, $this->arguments);
+            return $this->renderBackendLinkWithCoreContext($request, $this->arguments);
         }
         throw new \RuntimeException(
             'The rendering context of ViewHelper f:uri.page is missing a valid request object.',
@@ -80,7 +84,7 @@ final class PageViewHelper extends AbstractViewHelper
         );
     }
 
-    private static function renderBackendLinkWithCoreContext(ServerRequestInterface $request, array $arguments): string
+    private function renderBackendLinkWithCoreContext(ServerRequestInterface $request, array $arguments): string
     {
         $pageUid = isset($arguments['pageUid']) ? (int)$arguments['pageUid'] : null;
         $section = isset($arguments['section']) ? (string)$arguments['section'] : '';
@@ -109,12 +113,11 @@ final class PageViewHelper extends AbstractViewHelper
         $arguments = array_replace_recursive($arguments, $additionalParams);
         $routeName = $arguments['route'] ?? null;
         unset($arguments['route'], $arguments['token']);
-        $backendUriBuilder = GeneralUtility::makeInstance(BackendUriBuilder::class);
         try {
             if ($absolute) {
-                $uri = (string)$backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_URL);
+                $uri = (string)$this->backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_URL);
             } else {
-                $uri = (string)$backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_PATH);
+                $uri = (string)$this->backendUriBuilder->buildUriFromRoute($routeName, $arguments, BackendUriBuilder::ABSOLUTE_PATH);
             }
         } catch (RouteNotFoundException) {
             $uri = '';
@@ -125,7 +128,7 @@ final class PageViewHelper extends AbstractViewHelper
         return $uri;
     }
 
-    private static function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
+    private function renderFrontendLinkWithCoreContext(ServerRequestInterface $request, array $arguments, \Closure $renderChildrenClosure): string
     {
         $pageUid = isset($arguments['pageUid']) ? (int)$arguments['pageUid'] : 'current';
         $pageType = isset($arguments['pageType']) ? (int)$arguments['pageType'] : 0;
@@ -157,7 +160,7 @@ final class PageViewHelper extends AbstractViewHelper
             $typolinkConfiguration['linkAccessRestrictedPages'] = 1;
         }
         if ($additionalParams) {
-            $typolinkConfiguration['additionalParams'] = HttpUtility::buildQueryString($additionalParams, '&');
+            $typolinkConfiguration['queryParameters'] = $additionalParams;
         }
         if ($absolute) {
             $typolinkConfiguration['forceAbsoluteUrl'] = true;
@@ -172,8 +175,7 @@ final class PageViewHelper extends AbstractViewHelper
         try {
             $cObj = GeneralUtility::makeInstance(ContentObjectRenderer::class);
             $cObj->setRequest($request);
-            $linkFactory = GeneralUtility::makeInstance(LinkFactory::class);
-            $linkResult = $linkFactory->create((string)$renderChildrenClosure(), $typolinkConfiguration, $cObj);
+            $linkResult = $this->linkFactory->create((string)$renderChildrenClosure(), $typolinkConfiguration, $cObj);
             return $linkResult->getUrl();
         } catch (UnableToLinkException) {
             return (string)$renderChildrenClosure();

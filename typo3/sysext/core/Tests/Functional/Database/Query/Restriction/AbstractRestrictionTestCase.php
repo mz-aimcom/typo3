@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Functional\Database\Query\Restriction;
 
+use Psr\Container\ContainerInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\Query\Expression\ExpressionBuilder;
 use TYPO3\CMS\Core\Tests\Unit\Database\Mocks\MockPlatform\MockMySQLPlatform;
@@ -27,12 +28,12 @@ class AbstractRestrictionTestCase extends FunctionalTestCase
     protected ExpressionBuilder $expressionBuilder;
 
     /**
-     * Create a new database connection mock object for every test.
+     * Create a new database connection stub for every test.
      */
     protected function setUp(): void
     {
         parent::setUp();
-        $connection = $this->createMock(Connection::class);
+        $connection = self::createStub(Connection::class);
         $connection->method('quoteIdentifier')->willReturnCallback(static function (string $identifier): string {
             return '"' . implode('"."', explode('.', $identifier)) . '"';
         });
@@ -41,6 +42,6 @@ class AbstractRestrictionTestCase extends FunctionalTestCase
         });
         $connection->method('getDatabasePlatform')->willReturn(new MockMySQLPlatform());
 
-        $this->expressionBuilder = new ExpressionBuilder($connection);
+        $this->expressionBuilder = new ExpressionBuilder($connection, $this->get(ContainerInterface::class));
     }
 }

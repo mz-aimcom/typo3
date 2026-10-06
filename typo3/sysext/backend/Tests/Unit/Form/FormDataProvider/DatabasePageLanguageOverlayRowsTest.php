@@ -20,11 +20,15 @@ namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use TYPO3\CMS\Backend\Form\FormDataProvider\DatabasePageLanguageOverlayRows;
+use TYPO3\CMS\Core\Configuration\FlexForm\FlexFormTools;
+use TYPO3\CMS\Core\Schema\FieldTypeFactory;
+use TYPO3\CMS\Core\Schema\RelationMapBuilder;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class DatabasePageLanguageOverlayRowsTest extends UnitTestCase
 {
-    protected DatabasePageLanguageOverlayRows&MockObject $subject;
+    private DatabasePageLanguageOverlayRows&MockObject $subject;
 
     protected function setUp(): void
     {
@@ -38,8 +42,14 @@ final class DatabasePageLanguageOverlayRowsTest extends UnitTestCase
     #[Test]
     public function addDataSetsPageLanguageOverlayRows(): void
     {
+        $tcaSchemaFactory = new TcaSchemaBuilder(
+            new RelationMapBuilder(self::createStub(FlexFormTools::class)),
+            new FieldTypeFactory()
+        );
+
         $input = [
             'effectivePid' => '23',
+            'tcaSchemata' => $tcaSchemaFactory->buildFromStructure(['pages' => ['columns' => []]]),
         ];
         $expected = $input;
         $expected['pageLanguageOverlayRows'] = [

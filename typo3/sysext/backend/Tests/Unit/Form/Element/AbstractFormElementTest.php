@@ -17,12 +17,16 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\Element;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\Element\AbstractFormElement;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class AbstractFormElementTest extends UnitTestCase
 {
     public static function formatValueDataProvider(): array
@@ -126,7 +130,21 @@ final class AbstractFormElementTest extends UnitTestCase
                 '64494',
                 '17:54:54',
             ],
+            'format to datetimesec' => [
+                [
+                    'format' => 'datetimesec',
+                ],
+                '309965862',
+                '1979-10-28 13:37:42',
+            ],
             'format to timesec with empty value' => [
+                [
+                    'format' => 'timesec',
+                ],
+                '',
+                '',
+            ],
+            'format to datetimesec with empty value' => [
                 [
                     'format' => 'timesec',
                 ],
@@ -136,6 +154,13 @@ final class AbstractFormElementTest extends UnitTestCase
             'format to timesec with null value' => [
                 [
                     'format' => 'timesec',
+                ],
+                null,
+                '',
+            ],
+            'format to datetimesec with null value' => [
+                [
+                    'format' => 'datetimesec',
                 ],
                 null,
                 '',

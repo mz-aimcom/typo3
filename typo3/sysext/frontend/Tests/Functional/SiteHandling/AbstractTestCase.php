@@ -17,7 +17,9 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Frontend\Tests\Functional\SiteHandling;
 
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
+use TYPO3\CMS\Frontend\Page\CacheHashCalculator;
 use TYPO3\CMS\Frontend\Tests\Functional\SiteHandling\Fixtures\LinkHandlingController;
 use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\Internal\ArrayValueInstruction;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
@@ -109,7 +111,7 @@ abstract class AbstractTestCase extends FunctionalTestCase
 
     protected function createTypoLinkUrlInstruction(array $typoScript): ArrayValueInstruction
     {
-        return (new ArrayValueInstruction(LinkHandlingController::class))
+        return new ArrayValueInstruction(LinkHandlingController::class)
             ->withArray([
                 '10' => 'TEXT',
                 '10.' => [
@@ -123,7 +125,7 @@ abstract class AbstractTestCase extends FunctionalTestCase
 
     protected function createTypoLinkTagInstruction(array $typoScript): ArrayValueInstruction
     {
-        return (new ArrayValueInstruction(LinkHandlingController::class))
+        return new ArrayValueInstruction(LinkHandlingController::class)
             ->withArray([
                 '10' => 'TEXT',
                 '10.' => [
@@ -134,11 +136,11 @@ abstract class AbstractTestCase extends FunctionalTestCase
 
     protected function createHierarchicalMenuProcessorInstruction(array $typoScript): ArrayValueInstruction
     {
-        return (new ArrayValueInstruction(LinkHandlingController::class))
+        return new ArrayValueInstruction(LinkHandlingController::class)
             ->withArray([
                 '10' => 'FLUIDTEMPLATE',
                 '10.' => [
-                    'file' => 'typo3/sysext/frontend/Tests/Functional/Fixtures/Frontend/FluidJson.html',
+                    'file' => 'EXT:frontend/Tests/Functional/Fixtures/Frontend/FluidJson.fluid.html',
                     'dataProcessing.' => [
                         '1' => 'TYPO3\\CMS\\Frontend\\DataProcessing\\MenuProcessor',
                         '1.' => array_merge(
@@ -152,11 +154,11 @@ abstract class AbstractTestCase extends FunctionalTestCase
 
     protected function createLanguageMenuProcessorInstruction(array $typoScript): ArrayValueInstruction
     {
-        return (new ArrayValueInstruction(LinkHandlingController::class))
+        return new ArrayValueInstruction(LinkHandlingController::class)
             ->withArray([
                 '10' => 'FLUIDTEMPLATE',
                 '10.' => [
-                    'file' => 'typo3/sysext/frontend/Tests/Functional/Fixtures/Frontend/FluidJson.html',
+                    'file' => 'EXT:frontend/Tests/Functional/Fixtures/Frontend/FluidJson.fluid.html',
                     'dataProcessing.' => [
                         '1' => 'TYPO3\\CMS\\Frontend\\DataProcessing\\LanguageMenuProcessor',
                         '1.' => array_merge(
@@ -197,5 +199,14 @@ abstract class AbstractTestCase extends FunctionalTestCase
             },
             $menu
         );
+    }
+
+    protected static function calculateCacheHash(
+        array $params,
+        string $encryptionKey = '4408d27a916d51e624b69af3554f516dbab61037a9f7b9fd6f81b4d3bedeccb6'
+    ): string {
+        ksort($params);
+        $secret = $encryptionKey . CacheHashCalculator::class;
+        return hash_hmac(HashAlgo::SHA3_256->value, serialize($params), $secret);
     }
 }

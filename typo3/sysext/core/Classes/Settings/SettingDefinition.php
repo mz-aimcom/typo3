@@ -17,15 +17,17 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Settings;
 
-/**
- * @internal
- */
-readonly class SettingDefinition
+final readonly class SettingDefinition implements \JsonSerializable
 {
+    /**
+     * @param array<int|string, string|int|float|bool> $enum
+     * @param list<string> $tags
+     * @param array<string, mixed> $options
+     */
     public function __construct(
         public string $key,
         public string $type,
-        public string|int|float|bool|array|null $default,
+        public string|int|float|bool|array|object|null $default,
         public string $label,
         public ?string $description = null,
         public bool $readonly = false,
@@ -35,13 +37,17 @@ readonly class SettingDefinition
         public array $options = [],
     ) {}
 
-    public function toArray(): array
-    {
-        return array_filter(get_object_vars($this), fn(mixed $value) => $value !== null && $value !== []);
-    }
-
     public static function __set_state(array $state): self
     {
         return new self(...$state);
+    }
+
+    public function jsonSerialize(): array
+    {
+        return [
+            ...get_object_vars($this),
+            'enum' => (object)$this->enum,
+            'options' => (object)$this->options,
+        ];
     }
 }

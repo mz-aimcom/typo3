@@ -33,10 +33,12 @@ final class PolicyProviderTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
         'FR' => ['id' => 1, 'title' => 'Français', 'locale' => 'fr_FR.UTF8'],
     ];
+
+    protected bool $initializeDatabase = false;
 
     protected function setUp(): void
     {
@@ -54,6 +56,10 @@ final class PolicyProviderTest extends FunctionalTestCase
             Environment::isWindows() ? 'WINDOWS' : 'UNIX'
         );
 
+        $this->writeSiteConfiguration(
+            'protocol-safe-domain',
+            $this->buildSiteConfiguration(1000, 'website.fallback'),
+        );
         $this->writeSiteConfiguration(
             'relative',
             $this->buildSiteConfiguration(1000, '/relative/'),
@@ -83,6 +89,7 @@ final class PolicyProviderTest extends FunctionalTestCase
     public static function defaultReportingUriBaseIsResolvedDataProvider(): \Generator
     {
         $frontendRelative = Scope::frontendSiteIdentifier('relative');
+        $frontendProtocolSafe = Scope::frontendSiteIdentifier('protocol-safe-domain');
         $frontendAbsoluteSameSite = Scope::frontendSiteIdentifier('absolute-same-site');
         $frontendAbsoluteCrossSite = Scope::frontendSiteIdentifier('absolute-cross-site');
 
@@ -107,6 +114,9 @@ final class PolicyProviderTest extends FunctionalTestCase
         yield [$frontendAbsoluteCrossSite, null, true, 'https://en.website.local/@http-reporting?csp=report'];
         yield [$frontendAbsoluteCrossSite, 'EN', true, 'https://en.website.local/@http-reporting?csp=report'];
         yield [$frontendAbsoluteCrossSite, 'FR', true, 'https://fr.website.local/@http-reporting?csp=report'];
+
+        yield [$frontendProtocolSafe, null, false, '/@http-reporting?csp=report'];
+        yield [$frontendProtocolSafe, null, true, 'https://website.fallback/@http-reporting?csp=report'];
 
         yield [Scope::frontend(), null, false, '/@http-reporting?csp=report'];
         yield [Scope::frontend(), null, true, 'https://website.fallback/@http-reporting?csp=report'];
@@ -169,7 +179,7 @@ final class PolicyProviderTest extends FunctionalTestCase
             [],
             [
                 'HTTPS' => 'on',
-                'HTTP_HOST' =>  'website.fallback',
+                'HTTP_HOST' => 'website.fallback',
             ]
         );
         if ($scope->siteIdentifier !== null) {
@@ -183,6 +193,7 @@ final class PolicyProviderTest extends FunctionalTestCase
                         : $site->getDefaultLanguage()
                 );
         }
+
         return $request;
     }
 }

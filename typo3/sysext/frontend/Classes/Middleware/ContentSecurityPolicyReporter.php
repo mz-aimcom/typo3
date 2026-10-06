@@ -36,7 +36,7 @@ class ContentSecurityPolicyReporter extends AbstractContentSecurityPolicyReporte
         $site = $request->getAttribute('site');
         $scope = Scope::frontendSite($site);
         if ($this->targetsCspReportUri($scope, $request)) {
-            $dispositionMap = $this->dispositionMapFactory->buildDispositionMap(
+            $dispositionMap = $this->cspConfigurationFactory->buildDispositionMap(
                 $site instanceof Site ? ($site->getConfiguration()['contentSecurityPolicies'] ?? []) : []
             );
             // find at least one configured reporting endpoint for the current request
@@ -52,7 +52,7 @@ class ContentSecurityPolicyReporter extends AbstractContentSecurityPolicyReporte
             // @todo check/store headers `origin` + `referer`
             // @todo create report, then call persist, then dispatch new event
             $this->persistCspReport($scope, $request);
-            return (new Response())->withStatus(201);
+            return new Response()->withStatus(201);
         }
         return $handler->handle($request);
     }

@@ -33,12 +33,12 @@ final class BeforeMailerSentMessageEventTest extends UnitTestCase
     #[Test]
     public function gettersReturnInitializedObjects(): void
     {
-        $transportFactory = $this->createMock(TransportFactory::class);
-        $transportFactory->method('get')->with(self::anything())->willReturn($this->createMock(SendmailTransport::class));
+        $transportFactory = self::createStub(TransportFactory::class);
+        $transportFactory->method('get')->willReturn(self::createStub(SendmailTransport::class));
         GeneralUtility::addInstance(TransportFactory::class, $transportFactory);
 
         $mailer = (new Mailer());
-        $rawMessage = (new Email())->subject('some subject');
+        $rawMessage = new Email()->subject('some subject');
         $envelope = (new Envelope(new Address('kasperYYYY@typo3.org'), [new Address('acme@example.com')]));
 
         $event = new BeforeMailerSentMessageEvent($mailer, $rawMessage, $envelope);
@@ -50,12 +50,12 @@ final class BeforeMailerSentMessageEventTest extends UnitTestCase
     #[Test]
     public function modifyingInitializedObjects(): void
     {
-        $transportFactory = $this->createMock(TransportFactory::class);
-        $transportFactory->method('get')->with(self::anything())->willReturn($this->createMock(SendmailTransport::class));
+        $transportFactory = self::createStub(TransportFactory::class);
+        $transportFactory->method('get')->willReturn(self::createStub(SendmailTransport::class));
         GeneralUtility::addInstance(TransportFactory::class, $transportFactory);
 
         $mailer = (new Mailer());
-        $rawMessage = (new Email())->subject('some subject');
+        $rawMessage = new Email()->subject('some subject');
         $envelope = (new Envelope(new Address('kasperYYYY@typo3.org'), [new Address('acme@example.com')]));
 
         $event = new BeforeMailerSentMessageEvent($mailer, $rawMessage, $envelope);

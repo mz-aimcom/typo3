@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\View\TemplateView;
@@ -27,13 +28,16 @@ use TYPO3Fluid\Fluid\View\TemplateView;
 final class SvgImageViewHelperTest extends FunctionalTestCase
 {
     protected array $coreExtensionsToLoad = ['filemetadata'];
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test',
+    ];
 
     protected array $pathsToProvideInTestInstance = [
-        'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers/ImageViewHelperTest1.svg' => 'fileadmin/user_upload/FALImageViewHelperTest1.svg',
-        'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers/ImageViewHelperTest2.svg' => 'fileadmin/user_upload/FALImageViewHelperTest2.svg',
-        'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers/ImageViewHelperTest3.svg' => 'fileadmin/user_upload/FALImageViewHelperTest3.svg',
-        'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers/ImageViewHelperTest4.svg' => 'fileadmin/user_upload/FALImageViewHelperTest4.svg',
-        'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers/ImageViewHelperTest5.svg' => 'fileadmin/user_upload/FALImageViewHelperTest5.svg',
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test/Resources/Public/Images/ImageViewHelperTest1.svg' => 'fileadmin/user_upload/FALImageViewHelperTest1.svg',
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test/Resources/Public/Images/ImageViewHelperTest2.svg' => 'fileadmin/user_upload/FALImageViewHelperTest2.svg',
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test/Resources/Public/Images/ImageViewHelperTest3.svg' => 'fileadmin/user_upload/FALImageViewHelperTest3.svg',
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test/Resources/Public/Images/ImageViewHelperTest4.svg' => 'fileadmin/user_upload/FALImageViewHelperTest4.svg',
+        'typo3/sysext/fluid/Tests/Functional/Fixtures/Extensions/svg_image_test/Resources/Public/Images/ImageViewHelperTest5.svg' => 'fileadmin/user_upload/FALImageViewHelperTest5.svg',
     ];
 
     protected array $additionalFoldersToCreate = [
@@ -107,7 +111,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
         $maximum = count($dimensionMap);
 
-        $storageDirOriginal = 'typo3/sysext/fluid/Tests/Functional/Fixtures/ViewHelpers';
+        $storageDirOriginal = '{{EXT:svg_image_test/Resources/Public/Images}}';
         $storageDirTemp     = 'typo3temp/assets/_processed_/[0-9a-f]/[0-9a-f]';
         $storageDirFal      = 'fileadmin/user_upload';
         $storageDirFalTemp  = 'fileadmin/_processed_/[0-9a-f]/[0-9a-f]';
@@ -126,7 +130,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
             //# SECTION 1: Referenced via EXT: ###
             $expected[sprintf('no crop (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%s" width="%d" height="%d" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%s" width="%d" height="%d" />',
                     $fn,
                     $width,
                     $height,
@@ -144,7 +148,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
             $expected[sprintf('empty crop (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%s" width="%d" height="%d" crop="null" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%s" width="%d" height="%d" crop="null" />',
                     $fn,
                     $width,
                     $height,
@@ -162,7 +166,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
             $expected[sprintf('crop as array - forced 60px (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%1$s" width="%2$d" height="%3$d" crop="{\'default\':{\'cropArea\':{\'width\':%4$s,\'height\':%4$s,\'x\':%5$s,\'y\':%5$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%1$s" width="%2$d" height="%3$d" crop="{\'default\':{\'cropArea\':{\'width\':%4$s,\'height\':%4$s,\'x\':%5$s,\'y\':%5$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
                     $fn,
                     $dimensionMap[$fn]['fixedCrop60px'][0], // width
                     $dimensionMap[$fn]['fixedCrop60px'][1], // height
@@ -181,7 +185,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
             $expected[sprintf('crop as array - no width/height (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%1$s" crop="{\'default\':{\'cropArea\':{\'width\':%2$s,\'height\':%2$s,\'x\':%3$s,\'y\':%3$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%1$s" crop="{\'default\':{\'cropArea\':{\'width\':%2$s,\'height\':%2$s,\'x\':%3$s,\'y\':%3$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
                     $fn,
                     $dimensionMap[$fn]['relativeCrop80Percent'][2], // crop-string width/height
                     $dimensionMap[$fn]['relativeCrop80Percent'][3] // crop-string offset left/top
@@ -198,7 +202,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
             $expected[sprintf('force pixel-conversion, no crop (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%s" width="%d" height="%d" fileExtension="png" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%s" width="%d" height="%d" fileExtension="png" />',
                     $fn,
                     $width,
                     $height,
@@ -215,7 +219,7 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
 
             $expected[sprintf('force pixel-conversion, with crop (%s)', $fn)] = [
                 sprintf(
-                    '<f:image src="EXT:fluid/Tests/Functional/Fixtures/ViewHelpers/%1$s" fileExtension="png" width="%2$d" height="%3$d" crop="{\'default\':{\'cropArea\':{\'width\':%4$s,\'height\':%4$s,\'x\':%5$s,\'y\':%5$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
+                    '<f:image src="EXT:svg_image_test/Resources/Public/Images/%1$s" fileExtension="png" width="%2$d" height="%3$d" crop="{\'default\':{\'cropArea\':{\'width\':%4$s,\'height\':%4$s,\'x\':%5$s,\'y\':%5$s},\'selectedRatio\':\'1:1\',\'focusArea\':null}}" />',
                     $fn,
                     $dimensionMap[$fn]['relativeCrop80Percent'][0], // width
                     $dimensionMap[$fn]['relativeCrop80Percent'][1], // height
@@ -493,34 +497,51 @@ final class SvgImageViewHelperTest extends FunctionalTestCase
     {
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource($template);
-        $actual = (new TemplateView($context))->render();
-        self::assertMatchesRegularExpression($expected, $actual);
+        $actual = new TemplateView($context)->render();
+        self::assertMatchesRegularExpression($this->resolveResourcePlaceholders($expected), $actual);
 
-        $dumpTables = [
-            'sys_file_processedfile' => 1,
-        ];
+        $dumpTable = 'sys_file_processedfile';
+        $expectedRecords = 1;
 
-        foreach ($dumpTables as $dumpTable => $expectedRecords) {
-            $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($dumpTable);
-            $rows =
-                $queryBuilder
-                    ->select('*')
-                    ->from($dumpTable)
-                    ->executeQuery()
-                    ->fetchAllAssociative();
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable($dumpTable);
+        $rows
+            = $queryBuilder
+                ->select('*')
+                ->from($dumpTable)
+                ->executeQuery()
+                ->fetchAllAssociative();
 
-            self::assertEquals(count($rows), $expectedRecords, sprintf('Expected post-conversion database records in %s do not match.', $dumpTable));
+        self::assertEquals(count($rows), $expectedRecords, sprintf('Expected post-conversion database records in %s do not match.', $dumpTable));
 
-            if ($dumpTable === 'sys_file_processedfile' && $expectProcessedFile) {
-                // Only SVGs count
-                if (str_ends_with($rows[0]['identifier'], '.svg')) {
-                    $this->verifySvg($rows[0], $cropResult);
-                }
+        if ($expectProcessedFile) {
+            // Only SVGs count
+            if (str_ends_with($rows[0]['identifier'], '.svg')) {
+                $this->verifySvg($rows[0], $cropResult);
             }
         }
     }
 
-    protected function verifySvg(array $file, ?string $cropResult)
+    /**
+     * Replaces {{EXT:…}} placeholders in an expectation pattern with the web path the
+     * resource actually gets, quoted for use inside the pattern.
+     *
+     * A public extension resource is served from the extension directory in classic mode
+     * and from the published _assets directory in composer mode. The data provider cannot
+     * resolve that itself - it runs before the instance is bootstrapped.
+     */
+    private function resolveResourcePlaceholders(string $pattern): string
+    {
+        return preg_replace_callback(
+            '/{{(EXT:[^}]+)}}/',
+            static fn(array $matches): string => preg_quote(
+                ltrim((string)PathUtility::getSystemResourceUri($matches[1]), '/'),
+                '@'
+            ),
+            $pattern
+        );
+    }
+
+    private function verifySvg(array $file, ?string $cropResult)
     {
         if ($file['storage'] == 1) {
             $dir = Environment::getPublicPath() . '/fileadmin';

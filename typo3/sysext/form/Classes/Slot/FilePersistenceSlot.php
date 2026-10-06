@@ -32,18 +32,19 @@ use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
 /**
  * A PSR-14 event listener for various FAL related functionality.
  *
- * @internal will be renamed at some point.
+ * @internal
+ * @deprecated: Remove in v16 along with the FileFormsToDatabaseUpgradeWizard
  */
 final class FilePersistenceSlot implements SingletonInterface
 {
-    public const COMMAND_FILE_ADD = 'fileAdd';
-    public const COMMAND_FILE_CREATE = 'fileCreate';
-    public const COMMAND_FILE_MOVE = 'fileMove';
-    public const COMMAND_FILE_RENAME = 'fileRename';
-    public const COMMAND_FILE_REPLACE = 'fileReplace';
-    public const COMMAND_FILE_SET_CONTENTS = 'fileSetContents';
+    public const string COMMAND_FILE_ADD = 'fileAdd';
+    public const string COMMAND_FILE_CREATE = 'fileCreate';
+    public const string COMMAND_FILE_MOVE = 'fileMove';
+    public const string COMMAND_FILE_RENAME = 'fileRename';
+    public const string COMMAND_FILE_REPLACE = 'fileReplace';
+    public const string COMMAND_FILE_SET_CONTENTS = 'fileSetContents';
 
-    protected array $allowedInvocations = [];
+    private array $allowedInvocations = [];
 
     public function __construct(private readonly HashService $hashService) {}
 
@@ -172,7 +173,10 @@ final class FilePersistenceSlot implements SingletonInterface
 
     private function isFormDefinition(string $identifier): bool
     {
-        return str_ends_with($identifier, FormPersistenceManagerInterface::FORM_DEFINITION_FILE_EXTENSION);
+        return str_ends_with(
+            mb_strtolower($identifier),
+            FormPersistenceManagerInterface::FORM_DEFINITION_FILE_EXTENSION
+        );
     }
 
     private function isRecycleFolder(FolderInterface $folder): bool

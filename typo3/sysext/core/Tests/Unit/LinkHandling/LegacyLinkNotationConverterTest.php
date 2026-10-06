@@ -17,8 +17,10 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\LinkHandling;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\EventDispatcher\NoopEventDispatcher;
 use TYPO3\CMS\Core\LinkHandling\Exception\UnknownLinkHandlerException;
 use TYPO3\CMS\Core\LinkHandling\LegacyLinkNotationConverter;
 use TYPO3\CMS\Core\LinkHandling\LinkService;
@@ -30,6 +32,7 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class LegacyLinkNotationConverterTest extends UnitTestCase
 {
     protected bool $resetSingletonInstances = true;
@@ -139,7 +142,7 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
 
     #[DataProvider('resolveParametersForNonFilesDataProvider')]
     #[Test]
-    public function resolveReturnsSplitParameters(string $input, array $expected): void
+    public function resolveReturnsSplitParameters(string $input, array $expected, string $_): void
     {
         $subject = new LegacyLinkNotationConverter();
         ksort($expected);
@@ -156,7 +159,7 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
     #[Test]
     public function splitParametersToUnifiedIdentifier(string $input, array $parameters, string $expected): void
     {
-        $subject = new LinkService();
+        $subject = new LinkService(new NoopEventDispatcher());
         self::assertEquals($expected, $subject->asString($parameters));
     }
 
@@ -248,24 +251,22 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
      */
     #[DataProvider('resolveParametersForFilesDataProvider')]
     #[Test]
-    public function resolveFileReferencesToSplitParameters(string $input, array $expected): void
+    public function resolveFileReferencesToSplitParameters(string $input, array $expected, string $_): void
     {
-        $storage = $this->getMockBuilder(ResourceStorage::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $storage = self::createStub(ResourceStorage::class);
 
-        $factory = $this->getMockBuilder(ResourceFactory::class)
-            ->disableOriginalConstructor()
-            ->getMock();
+        $factory = self::createStub(ResourceFactory::class);
 
         // fake methods to return proper objects
         if ($expected['type'] === LinkService::TYPE_FILE) {
             $fileObject = new File(['identifier' => $expected['file']], $storage);
-            $factory->method('getFileObjectFromCombinedIdentifier')->with($expected['file'])
-                ->willReturn($fileObject);
-            $factory->method('retrieveFileOrFolderObject')->with($expected['file'])
-                ->willReturn($fileObject);
-            $factory->method('getFileObject')->with($expected['file'])->willReturn($fileObject);
+            $returnFileObject = static function (string $file) use ($expected, $fileObject): File {
+                self::assertSame($expected['file'], $file);
+                return $fileObject;
+            };
+            $factory->method('getFileObjectFromCombinedIdentifier')->willReturnCallback($returnFileObject);
+            $factory->method('retrieveFileOrFolderObject')->willReturnCallback($returnFileObject);
+            $factory->method('getFileObject')->willReturnCallback($returnFileObject);
             $expected['file'] = $fileObject;
         }
         // fake methods to return proper objects
@@ -274,10 +275,12 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
                 $expected['folder'] = substr($expected['folder'], 5);
             }
             $folderObject = new Folder($storage, $expected['folder'], $expected['folder']);
-            $factory->method('retrieveFileOrFolderObject')->with($expected['folder'])
-                ->willReturn($folderObject);
-            $factory->method('getFolderObjectFromCombinedIdentifier')->with($expected['folder'])
-                ->willReturn($folderObject);
+            $returnFolderObject = static function (string $folder) use ($expected, $folderObject): Folder {
+                self::assertSame($expected['folder'], $folder);
+                return $folderObject;
+            };
+            $factory->method('retrieveFileOrFolderObject')->willReturnCallback($returnFolderObject);
+            $factory->method('getFolderObjectFromCombinedIdentifier')->willReturnCallback($returnFolderObject);
             $expected['folder'] = $folderObject;
         }
         GeneralUtility::setSingletonInstance(ResourceFactory::class, $factory);
@@ -336,7 +339,7 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
             $parameters['folder'] = $folderObject;
         }
 
-        $subject = new LinkService();
+        $subject = new LinkService(new NoopEventDispatcher());
         self::assertEquals($expected, $subject->asString($parameters));
     }
 
@@ -364,6 +367,6 @@ final class LegacyLinkNotationConverterTest extends UnitTestCase
     {
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1530030673);
-        (new LegacyLinkNotationConverter())->resolve($pharUrl);
+        new LegacyLinkNotationConverter()->resolve($pharUrl);
     }
 }

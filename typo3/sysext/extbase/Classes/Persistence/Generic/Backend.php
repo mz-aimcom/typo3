@@ -19,7 +19,6 @@ namespace TYPO3\CMS\Extbase\Persistence\Generic;
 
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
-use TYPO3\CMS\Core\Configuration\Features;
 use TYPO3\CMS\Core\Context\LanguageAspect;
 use TYPO3\CMS\Core\Database\Query\QueryHelper;
 use TYPO3\CMS\Core\Database\ReferenceIndex;
@@ -79,7 +78,7 @@ class Backend implements BackendInterface
         protected readonly EventDispatcherInterface $eventDispatcher,
         protected readonly ReferenceIndex $referenceIndex,
         protected readonly TcaSchemaFactory $tcaSchemaFactory,
-        protected readonly Features $features,
+        protected readonly PersistenceCorrelationScope $correlationScope,
     ) {
         $this->aggregateRootObjects = new ObjectStorage();
         $this->deletedEntities = new ObjectStorage();
@@ -127,6 +126,9 @@ class Backend implements BackendInterface
      * Returns the (internal) identifier for the object, if it is known to the
      * backend. Otherwise NULL is returned.
      *
+     * The returned identifier is the base identifier (UID or UID_localizedUID)
+     * without the language content identifier suffix, suitable for use as an external identifier.
+     *
      * @param object $object
      * @return string|null The identifier for the object if it is known, or NULL
      */
@@ -134,9 +136,25 @@ class Backend implements BackendInterface
     {
         if ($object instanceof LazyLoadingProxy) {
             $object = $object->_loadRealInstance();
+        } elseif ($object instanceof DomainObjectInterface) {
+            $reflection = new \ReflectionClass($object);
+            if ($reflection->isUninitializedLazyObject($object)) {
+                // Resolve a native lazy proxy to its real instance, as only the real
+                // instance is registered in the persistence session identity map.
+                $object = $reflection->initializeLazyObject($object);
+            }
         }
 
-        return is_object($object) ? $this->session->getIdentifierByObject($object) : null;
+        if (!is_object($object)) {
+            return null;
+        }
+
+        $identifier = $this->session->getIdentifierByObject($object);
+        if ($identifier === null) {
+            return null;
+        }
+
+        return $this->session->getBaseIdentifier($identifier);
     }
 
     /**
@@ -149,23 +167,30 @@ class Backend implements BackendInterface
      */
     public function getObjectByIdentifier($identifier, $className)
     {
-        if ($this->session->hasIdentifier($identifier, $className)) {
-            return $this->session->getObjectByIdentifier($identifier, $className);
-        }
         $query = $this->persistenceManager->createQueryForType($className);
-        $query->getQuerySettings()->setRespectStoragePage(false);
-        $query->getQuerySettings()->setRespectSysLanguage(false);
         // This allows to fetch IDs for languages for default language AND language IDs
         // This is especially important when using the PropertyMapper of the Extbase MVC part to get
         // an object of the translated version of the incoming ID of a record.
+        // "Free" mode (OVERLAYS_OFF) is mapped to OVERLAYS_MIXED - overlays need to be enabled for the
+        // identity lookup, but hiding untranslated records is not a configured intent in free mode.
+        // This is consistent with the same handling for related objects in DataMapper->getPreparedQuery().
         $languageAspect = $query->getQuerySettings()->getLanguageAspect();
         $languageAspect = new LanguageAspect(
             $languageAspect->getId(),
             $languageAspect->getContentId(),
-            $languageAspect->getOverlayType() === LanguageAspect::OVERLAYS_OFF ? LanguageAspect::OVERLAYS_ON_WITH_FLOATING : $languageAspect->getOverlayType(),
+            $languageAspect->getOverlayType() === LanguageAspect::OVERLAYS_OFF ? LanguageAspect::OVERLAYS_MIXED : $languageAspect->getOverlayType(),
             $languageAspect->getFallbackChain()
         );
+
+        // Build language-aware session identifier
+        $sessionIdentifier = $this->session->buildIdentifier($identifier, $languageAspect);
+        if ($this->session->hasIdentifier($sessionIdentifier, $className)) {
+            return $this->session->getObjectByIdentifier($sessionIdentifier, $className);
+        }
+
         $query->getQuerySettings()->setLanguageAspect($languageAspect);
+        $query->getQuerySettings()->setRespectStoragePage(false);
+        $query->getQuerySettings()->setRespectSysLanguage(false);
         return $query->matching($query->equals('uid', $identifier))->execute()->getFirst();
     }
 
@@ -209,6 +234,7 @@ class Backend implements BackendInterface
      */
     public function commit()
     {
+        $this->correlationScope->reset();
         $this->persistObjects();
         $this->processDeletedObjects();
     }
@@ -302,14 +328,18 @@ class Backend implements BackendInterface
         if (($propertyValue instanceof LazyObjectStorage) && $propertyValue->isInitialized() === false) {
             return true;
         }
+        if (is_object($propertyValue) && new \ReflectionClass($propertyValue)->isUninitializedLazyObject($propertyValue)) {
+            return true;
+        }
         return false;
     }
 
     /**
      * Persists an object storage. Objects of a 1:n or m:n relation are queued and processed with the parent object.
      * A 1:1 relation gets persisted immediately. Objects which were removed from the property were detached from
-     * the parent object. They will not be deleted by default. You have to annotate the property
-     * with '@TYPO3\CMS\Extbase\Annotation\ORM\Cascade("remove")' if you want them to be deleted as well.
+     * the parent object. They will not be deleted by default. You have to add the attribute
+     * #[\TYPO3\CMS\Extbase\Attribute\ORM\Cascade(['value' => 'remove'])] to the property if you want them to
+     * be deleted as well.
      *
      * @param \TYPO3\CMS\Extbase\Persistence\ObjectStorage $objectStorage The object storage to be persisted.
      * @param DomainObjectInterface $parentObject The parent object. One of the properties holds the object storage.
@@ -445,8 +475,8 @@ class Backend implements BackendInterface
         $parentColumnMap = $parentDataMap->getColumnMap($parentPropertyName);
         if ($parentColumnMap->typeOfRelation !== Relation::HAS_MANY) {
             throw new IllegalRelationTypeException(
-                'Parent column relation type is ' . Relation::class . '::' . $parentColumnMap->typeOfRelation->name .
-                ' but should be ' . Relation::class . '::' . Relation::HAS_MANY->name,
+                'Parent column relation type is ' . Relation::class . '::' . $parentColumnMap->typeOfRelation->name
+                . ' but should be ' . Relation::class . '::' . Relation::HAS_MANY->name,
                 1345368105
             );
         }
@@ -573,7 +603,7 @@ class Backend implements BackendInterface
 
         $uid = $this->storageBackend->addRow($dataMap->tableName, $row);
         $localizedUid = $object->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID);
-        $identifier = $uid . ($localizedUid ? '_' . $localizedUid : '');
+        $identifier = $this->session->buildIdentifier(['uid' => $uid, '_LOCALIZED_UID' => $localizedUid]);
         $object->_setProperty(AbstractDomainObject::PROPERTY_UID, $uid);
         $object->setPid((int)$row['pid']);
         if ($uid >= 1) {
@@ -614,11 +644,16 @@ class Backend implements BackendInterface
         if ($parentObject->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID) !== null) {
             $parentUid = $parentObject->_getProperty(AbstractDomainObject::PROPERTY_LOCALIZED_UID);
         }
-        $row = [
-            $columnMap->parentKeyFieldName => (int)$parentUid,
-            $columnMap->childKeyFieldName => (int)$object->getUid(),
-            $columnMap->childSortByFieldName => $sortingPosition ?? 0,
-        ];
+        $row = [];
+        if ($columnMap->parentKeyFieldName !== null) {
+            $row[$columnMap->parentKeyFieldName] = (int)$parentUid;
+        }
+        if ($columnMap->childKeyFieldName !== null) {
+            $row[$columnMap->childKeyFieldName] = (int)$object->getUid();
+        }
+        if ($columnMap->childSortByFieldName !== null) {
+            $row[$columnMap->childSortByFieldName] = $sortingPosition ?? 0;
+        }
         $relationTableName = $columnMap->relationTableName;
         if ($this->tcaSchemaFactory->has($relationTableName)) {
             $row[AbstractDomainObject::PROPERTY_PID] = $this->determineStoragePageIdForNewRecord();
@@ -640,11 +675,16 @@ class Backend implements BackendInterface
     ): bool {
         $dataMap = $this->dataMapFactory->buildDataMap(get_class($parentObject));
         $columnMap = $dataMap->getColumnMap($propertyName);
-        $row = [
-            $columnMap->parentKeyFieldName => (int)$parentObject->getUid(),
-            $columnMap->childKeyFieldName => (int)$object->getUid(),
-            $columnMap->childSortByFieldName => $sortingPosition,
-        ];
+        $row = [];
+        if ($columnMap->parentKeyFieldName !== null) {
+            $row[$columnMap->parentKeyFieldName] = (int)$parentObject->getUid();
+        }
+        if ($columnMap->childKeyFieldName !== null) {
+            $row[$columnMap->childKeyFieldName] = (int)$object->getUid();
+        }
+        if ($columnMap->childSortByFieldName !== null) {
+            $row[$columnMap->childSortByFieldName] = $sortingPosition;
+        }
         $relationTableName = $columnMap->relationTableName;
         $row = array_merge($columnMap->relationTableMatchFields, $row);
         $this->storageBackend->updateRelationTableRow($relationTableName, $row);
@@ -663,9 +703,10 @@ class Backend implements BackendInterface
         $dataMap = $this->dataMapFactory->buildDataMap(get_class($parentObject));
         $columnMap = $dataMap->getColumnMap($parentPropertyName);
         $relationTableName = $columnMap->relationTableName;
-        $relationMatchFields = [
-            $columnMap->parentKeyFieldName => (int)$parentObject->getUid(),
-        ];
+        $relationMatchFields = [];
+        if ($columnMap->parentKeyFieldName !== null) {
+            $relationMatchFields[$columnMap->parentKeyFieldName] = (int)$parentObject->getUid();
+        }
         $relationMatchFields = array_merge($columnMap->relationTableMatchFields, $relationMatchFields);
         $this->storageBackend->removeRow($relationTableName, $relationMatchFields);
         return true;
@@ -682,10 +723,13 @@ class Backend implements BackendInterface
         $dataMap = $this->dataMapFactory->buildDataMap(get_class($parentObject));
         $columnMap = $dataMap->getColumnMap($parentPropertyName);
         $relationTableName = $columnMap->relationTableName;
-        $relationMatchFields = [
-            $columnMap->parentKeyFieldName => (int)$parentObject->getUid(),
-            $columnMap->childKeyFieldName => (int)$relatedObject->getUid(),
-        ];
+        $relationMatchFields = [];
+        if ($columnMap->parentKeyFieldName !== null) {
+            $relationMatchFields[$columnMap->parentKeyFieldName] = (int)$parentObject->getUid();
+        }
+        if ($columnMap->childKeyFieldName !== null) {
+            $relationMatchFields[$columnMap->childKeyFieldName] = (int)$relatedObject->getUid();
+        }
         $relationMatchFields = array_merge($columnMap->relationTableMatchFields, $relationMatchFields);
         $this->storageBackend->removeRow($relationTableName, $relationMatchFields);
         return true;
@@ -863,9 +907,7 @@ class Backend implements BackendInterface
             return GeneralUtility::makeInstance(DataMapper::class)->getPlainValue($input, $columnMap);
         }
 
-        if ($this->features->isFeatureEnabled('extbase.consistentDateTimeHandling') &&
-            $columnMap?->type === TableColumnType::DATETIME
-        ) {
+        if ($columnMap?->type === TableColumnType::DATETIME) {
             return QueryHelper::transformDateTimeToDatabaseValue(
                 null,
                 $columnMap->isNullable,
@@ -887,25 +929,6 @@ class Backend implements BackendInterface
         // Nullable domain model property
         if (is_subclass_of($className, DomainObjectInterface::class)) {
             return 0;
-        }
-        // Nullable DateTime property (superseded by extbase.consistentDateTimeHandling above)
-        // @todo remove in TYPO3 v15 when extbase.consistentDateTimeHandling will be enforced
-        if ($columnMap && is_subclass_of($className, \DateTimeInterface::class)) {
-            if ($columnMap->isNullable() && $property->isNullable()) {
-                return null;
-            }
-
-            $datetimeFormats = QueryHelper::getDateTimeFormats();
-            $dateFormat = $columnMap->dateTimeStorageFormat;
-            if (!$dateFormat) {
-                // Datetime property with no TCA dbType
-                return 0;
-            }
-            if (isset($datetimeFormats[$dateFormat])) {
-                // Datetime property with TCA dbType defined. Nullable fields will be saved with the empty value
-                // (e.g. "00:00:00" for dbType = time) as well, but DataMapper will correctly map those values to null
-                return $datetimeFormats[$dateFormat]['empty'];
-            }
         }
         return null;
     }

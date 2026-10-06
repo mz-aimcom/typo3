@@ -32,16 +32,20 @@ class CacheTimeout implements MiddlewareInterface
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         $response = $handler->handle($request);
-        $config = $request->getAttribute('frontend.controller')?->config['config'] ?? [];
+        $config = $request->getAttribute('frontend.typoscript')?->getConfigArray() ?? [];
         if ($config['cache_clearAtMidnight'] ?? false) {
             // @todo: We should probably decide to deprecate or remove cache_clearAtMidnight
             //        altogether since it is a flawed concept based on server timezone
             //        "when is midnight?".
             $cacheDataCollector = $request->getAttribute('frontend.cache.collector');
-            $timeOutTime = min($GLOBALS['EXEC_TIME'] + $cacheDataCollector->resolveLifetime(), PHP_INT_MAX);
-            $midnightTime = mktime(0, 0, 0, (int)date('m', $timeOutTime), (int)date('d', $timeOutTime), (int)date('Y', $timeOutTime));
-            // If the midnight time of the expire-day is greater than the current time,
-            // we may set the timeOutTime to the new midnighttime.
+            $midnightTime = mktime(
+                0,
+                0,
+                0,
+                (int)date('m', $GLOBALS['EXEC_TIME']),
+                (int)date('d', $GLOBALS['EXEC_TIME']) + 1,
+                (int)date('Y', $GLOBALS['EXEC_TIME'])
+            );
             if ($midnightTime > $GLOBALS['EXEC_TIME']) {
                 $cacheDataCollector->restrictMaximumLifetime($midnightTime - $GLOBALS['EXEC_TIME']);
             }

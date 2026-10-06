@@ -17,12 +17,14 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Imaging;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Imaging\ImageManipulation\Area;
 use TYPO3\CMS\Core\Imaging\ImageProcessingInstructions;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class ImageProcessingInstructionsTest extends UnitTestCase
 {
     /**
@@ -99,6 +101,34 @@ final class ImageProcessingInstructionsTest extends UnitTestCase
             '',
             '',
             ['minW' => 200],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 1200,
+            height: 800,
+        );
+        yield 'minWidth must not shrink a source image that is already wider than minWidth' => [
+            1200,
+            800,
+            '',
+            '',
+            ['minW' => 30, 'maxW' => 1500],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 800,
+            height: 1200,
+        );
+        yield 'minHeight must not shrink a source image that is already taller than minHeight' => [
+            800,
+            1200,
+            '',
+            '',
+            ['minH' => 30, 'maxH' => 1500],
             true,
             $result,
         ];
@@ -302,6 +332,177 @@ final class ImageProcessingInstructionsTest extends UnitTestCase
             true,
             $result,
         ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with invalid format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => 'invalid',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with empty format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with null format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => null,
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with "false" format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => false,
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(12.4, 8, 1, 16),
+        );
+        yield 'crop array option with valid "A,B,C,D" format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '4,8,15,16',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with invalid "A,B,C,D,E" format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '4,8,15,16,23,42',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(2.65, 2, 0.25, 4),
+        );
+        yield 'crop array option with valid json encoded format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '{"x":1,"y":2,"width":3,"height":4}',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with invalid json encoded format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '{"default":{"cropArea":{"x":0,"y":0,"width":1,"height":1},"selectedRatio":"NaN","focusArea":null}}',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with more invalid json encoded format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '{"default":{"cropArea":{"bla":0,"blo":0}}',
+            ],
+            true,
+            $result,
+        ];
+
+        $result = new ImageProcessingInstructions(
+            width: 50,
+            height: 800,
+            cropArea: new Area(26.25, 0, 56.25 /* 900 / 800 * 50 */, 900),
+        );
+        yield 'crop array option with even more invalid json encoded format' => [
+            100,
+            900,
+            '50c20',
+            '800',
+            [
+                'crop' => '{"x":1,"y":2,"height":4}',
+            ],
+            true,
+            $result,
+        ];
+
     }
 
     /**

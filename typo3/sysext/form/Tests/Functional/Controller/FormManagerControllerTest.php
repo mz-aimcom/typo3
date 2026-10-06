@@ -17,29 +17,33 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Form\Tests\Functional\Controller;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Component\DependencyInjection\Container;
-use Symfony\Component\Routing\Route as SymfonyRoute;
-use TYPO3\CMS\Backend\Routing\Route as BackendRoute;
+use TYPO3\CMS\Backend\Routing\Route;
 use TYPO3\CMS\Backend\Routing\Router;
 use TYPO3\CMS\Backend\Routing\UriBuilder as CoreUriBuilder;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Core\Charset\CharsetConverter;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\EventDispatcher\ListenerProvider;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Page\PageRenderer;
-use TYPO3\CMS\Core\Resource\Folder;
-use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Extbase\Core\Bootstrap;
 use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Extbase\Mvc\Web\Routing\UriBuilder as ExtbaseUriBuilder;
 use TYPO3\CMS\Form\Controller\FormManagerController;
+use TYPO3\CMS\Form\Domain\DTO\FormConfiguration\FormManagerConfiguration;
+use TYPO3\CMS\Form\Domain\DTO\FormMetadata;
+use TYPO3\CMS\Form\Domain\DTO\SearchCriteria;
 use TYPO3\CMS\Form\Event\BeforeFormIsCreatedEvent;
 use TYPO3\CMS\Form\Event\BeforeFormIsDeletedEvent;
 use TYPO3\CMS\Form\Event\BeforeFormIsDuplicatedEvent;
+use TYPO3\CMS\Form\Exception as FormException;
 use TYPO3\CMS\Form\Mvc\Configuration\ConfigurationManagerInterface as ExtFormConfigurationManagerInterface;
 use TYPO3\CMS\Form\Mvc\Configuration\YamlSource;
 use TYPO3\CMS\Form\Mvc\Persistence\FormPersistenceManagerInterface;
@@ -47,142 +51,77 @@ use TYPO3\CMS\Form\Service\DatabaseService;
 use TYPO3\CMS\Form\Service\TranslationService;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class FormManagerControllerTest extends FunctionalTestCase
 {
     protected array $coreExtensionsToLoad = [
         'form',
     ];
 
-    protected array $pathsToProvideInTestInstance = [
-        'typo3/sysext/form/Tests/Functional/Controller/Fixtures/Folders/fileadmin/form_definitions' => 'fileadmin/form_definitions',
-    ];
-
-    protected array $configurationToUseInTestInstance = [
-        'FE' => [
-            'defaultTypoScript_setup' => '@import "EXT:form/Tests/Functional/Controller/Fixtures/formSetup.typoscript"',
-        ],
+    protected array $testExtensionsToLoad = [
+        'typo3/sysext/form/Tests/Functional/Fixtures/Extensions/form_manager_controller_tests',
     ];
 
     #[Test]
-    public function getAccessibleFormStorageFoldersReturnsProcessedArray(): void
+    public function getFormManagerAppInitialDataReturnsProcessedArray(): void
     {
-        $formPersistenceManagerMock = $this->createMock(FormPersistenceManagerInterface::class);
+        $translationServiceStub = self::createStub(TranslationService::class);
+        $translationServiceStub->method('translateValuesRecursive')->willReturnArgument(0);
+        $formPersistenceManagerStub = self::createStub(FormPersistenceManagerInterface::class);
+        $formPersistenceManagerStub->method('getAccessibleStorageAdapters')->willReturn([
+            [
+                'typeIdentifier' => 'database',
+                'label' => 'Database Storage',
+                'description' => 'Store forms in database',
+                'iconIdentifier' => 'content-form',
+                'options' => [],
+            ],
+        ]);
         $subjectMock = $this->getAccessibleMock(
             FormManagerController::class,
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $formPersistenceManagerMock,
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                $formPersistenceManagerStub,
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                $translationServiceStub,
+                self::createStub(CharsetConverter::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
 
-        $storageMock1 = $this->createMock(ResourceStorage::class);
-        $storageMock2 = $this->createMock(ResourceStorage::class);
+        $uriBuilderStub = self::createStub(ExtbaseUriBuilder::class);
+        $uriBuilderStub->method('uriFor')->willReturn('/typo3/index.php?some=param');
+        $subjectMock->_set('uriBuilder', $uriBuilderStub);
 
-        $storageMock1->method('isPublic')->willReturn(true);
-        $storageMock2->method('isPublic')->willReturn(false);
-
-        $folder1Mock = $this->createMock(Folder::class);
-        $folder1Mock->method('getPublicUrl')->willReturn('/fileadmin/user_upload/');
-        $folder1Mock->method('getStorage')->willReturn($storageMock1);
-
-        $folder2Mock = $this->createMock(Folder::class);
-        $folder2Mock->method('getStorage')->willReturn($storageMock2);
-
-        $formPersistenceManagerMock->method('getAccessibleFormStorageFolders')->willReturn([
-            '1:/user_upload/' => $folder1Mock,
-            '2:/forms/' => $folder2Mock,
-        ]);
-        $formPersistenceManagerMock->method('getAccessibleExtensionFolders')->willReturn([
-            'EXT:form/Resources/Forms/' => '/some/path/form/Resources/Forms/',
-            'EXT:form_additions/Resources/Forms/' => '/some/path/form_additions/Resources/Forms/',
-        ]);
-
-        $expected = [
-            0 => [
-                'label' => '/fileadmin/user_upload/',
-                'value' => '1:/user_upload/',
-            ],
-            1 => [
-                'label' => '2:/forms/',
-                'value' => '2:/forms/',
-            ],
-            2 => [
-                'label' => 'EXT:form/Resources/Forms/',
-                'value' => 'EXT:form/Resources/Forms/',
-            ],
-            3 => [
-                'label' => 'EXT:form_additions/Resources/Forms/',
-                'value' => 'EXT:form_additions/Resources/Forms/',
-            ],
-        ];
-
-        self::assertSame($expected, $subjectMock->_call('getAccessibleFormStorageFolders', [], true));
-    }
-
-    #[Test]
-    public function getFormManagerAppInitialDataReturnsProcessedArray(): void
-    {
-        $translationServiceMock = $this->createMock(TranslationService::class);
-        $translationServiceMock->method('translateValuesRecursive')->willReturnArgument(0);
-        $subjectMock = $this->getAccessibleMock(
-            FormManagerController::class,
-            ['getAccessibleFormStorageFolders'],
-            [
-                $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $translationServiceMock,
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
-            ],
-        );
-
-        $mockUriBuilder = $this->createMock(ExtbaseUriBuilder::class);
-        $mockUriBuilder->method('uriFor')->willReturn('/typo3/index.php?some=param');
-        $subjectMock->_set('uriBuilder', $mockUriBuilder);
-
-        $subjectMock->method('getAccessibleFormStorageFolders')
-            ->willReturn([
-                0 => [
-                    'label' => 'user_upload',
-                    'value' => '1:/user_upload/',
-                ],
-            ]);
         $expected = [
             'selectablePrototypesConfiguration' => [],
-            'accessibleFormStorageFolders' => [
-                0 => [
-                    'label' => 'user_upload',
-                    'value' => '1:/user_upload/',
-                ],
-            ],
             'endpoints' => [
                 'create' => '/typo3/index.php?some=param',
                 'duplicate' => '/typo3/index.php?some=param',
                 'delete' => '/typo3/index.php?some=param',
                 'references' => '/typo3/index.php?some=param',
             ],
+            'accessibleStorageAdapters' => [
+                0 => [
+                    'typeIdentifier' => 'database',
+                    'label' => 'Database Storage',
+                    'description' => 'Store forms in database',
+                    'iconIdentifier' => 'content-form',
+                    'options' => [],
+                ],
+            ],
         ];
         $result = $subjectMock->_call(
             'getFormManagerAppInitialData',
-            [
-                'formManager' => [
-                    'selectablePrototypesConfiguration' => [],
-                ],
-            ]
+            FormManagerConfiguration::fromArray([
+                'selectablePrototypesConfiguration' => [],
+            ])
         );
         self::assertSame($expected, $result);
     }
@@ -190,54 +129,42 @@ final class FormManagerControllerTest extends FunctionalTestCase
     #[Test]
     public function getAvailableFormDefinitionsReturnsProcessedArray(): void
     {
-        $formPersistenceManagerMock = $this->createMock(FormPersistenceManagerInterface::class);
-        $databaseServiceMock = $this->createMock(DatabaseService::class);
+        $formPersistenceManagerStub = self::createStub(FormPersistenceManagerInterface::class);
         $subjectMock = $this->getAccessibleMock(
             FormManagerController::class,
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $databaseServiceMock,
-                $formPersistenceManagerMock,
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                $formPersistenceManagerStub,
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
+                self::createStub(CharsetConverter::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
-        $formPersistenceManagerMock->method('listForms')->willReturn([
-            0 => [
-                'identifier' => 'ext-form-identifier',
-                'name' => 'some name',
-                'persistenceIdentifier' => '1:/user_uploads/someFormName.yaml',
-                'readOnly' => false,
-                'removable' => true,
-                'location' => 'storage',
-                'duplicateIdentifier' => false,
-            ],
+        $formMetadata = new FormMetadata(
+            identifier: 'ext-form-identifier',
+            type: 'Form',
+            name: 'some name',
+            prototypeName: 'Standard',
+            persistenceIdentifier: '1:/user_uploads/someFormName.yaml',
+            readOnly: false,
+            removable: true,
+            storageType: 'database',
+            duplicateIdentifier: false,
+        );
+        // Reference count enrichment now happens inside FormPersistenceManager::listForms().
+        // The mock therefore returns already-enriched metadata.
+        $formPersistenceManagerStub->method('listForms')->willReturn([
+            0 => $formMetadata->withReferenceCount(2),
         ]);
-        $databaseServiceMock->method('getAllReferencesForFileUid')->willReturn([
-            0 => 0,
-        ]);
-        $databaseServiceMock->method('getAllReferencesForPersistenceIdentifier')->willReturn([
-            '1:/user_uploads/someFormName.yaml' => 2,
-        ]);
-        $expected = [
-            0 => [
-                'identifier' => 'ext-form-identifier',
-                'name' => 'some name',
-                'persistenceIdentifier' => '1:/user_uploads/someFormName.yaml',
-                'readOnly' => false,
-                'removable' => true,
-                'location' => 'storage',
-                'duplicateIdentifier' => false,
-                'referenceCount' => 2,
-            ],
-        ];
-        self::assertSame($expected, $subjectMock->_call('getAvailableFormDefinitions', []));
+
+        self::assertSame(2, $subjectMock->_call('getAvailableFormDefinitions', [], new SearchCriteria(''))[0]->referenceCount);
     }
 
     #[Test]
@@ -257,15 +184,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
+                self::createStub(CharsetConverter::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         self::assertTrue($subjectMock->_call(
@@ -303,15 +231,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
+                self::createStub(CharsetConverter::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         self::assertFalse(
@@ -351,15 +280,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
-                $this->createMock(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
+                self::createStub(CharsetConverter::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         self::assertFalse(
@@ -409,15 +339,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
                 $this->get(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         $input = 'test form';
@@ -433,15 +364,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
                 $this->get(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         $input = 'téstform';
@@ -457,15 +389,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
                 $this->get(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         $input = 'test form ' . hex2bin('667275cc88686e65757a6569746c696368656e');
@@ -481,15 +414,16 @@ final class FormManagerControllerTest extends FunctionalTestCase
             null,
             [
                 $this->get(ModuleTemplateFactory::class),
-                $this->createMock(PageRenderer::class),
-                $this->createMock(IconFactory::class),
-                $this->createMock(DatabaseService::class),
-                $this->createMock(FormPersistenceManagerInterface::class),
-                $this->createMock(ExtFormConfigurationManagerInterface::class),
-                $this->createMock(TranslationService::class),
+                self::createStub(PageRenderer::class),
+                self::createStub(IconFactory::class),
+                self::createStub(DatabaseService::class),
+                self::createStub(FormPersistenceManagerInterface::class),
+                self::createStub(ExtFormConfigurationManagerInterface::class),
+                self::createStub(TranslationService::class),
                 $this->get(CharsetConverter::class),
-                $this->createMock(CoreUriBuilder::class),
-                $this->createMock(YamlSource::class),
+                self::createStub(CoreUriBuilder::class),
+                self::createStub(YamlSource::class),
+                self::createStub(ComponentFactory::class),
             ],
         );
         $input = 'test form ä#!_-01';
@@ -500,7 +434,6 @@ final class FormManagerControllerTest extends FunctionalTestCase
     #[Test]
     public function beforeFormIsCreatedEventIsTriggered(): void
     {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/sys_file_storage.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
 
@@ -515,7 +448,7 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $container->set(
             'before-form-create-listener',
             static function (BeforeFormIsCreatedEvent $event) use (&$state) {
-                $event->formPersistenceIdentifier = '1:/form_definitions/new_form.form.yaml';
+                $event->formPersistenceIdentifier = 'NEW_from_listener';
                 $event->form['label'] = 'bar';
                 $state['before-form-create-listener'] = $event;
             }
@@ -524,17 +457,18 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $eventListener = $this->get(ListenerProvider::class);
         $eventListener->addListener(BeforeFormIsCreatedEvent::class, 'before-form-create-listener');
 
-        $serverRequest = (new ServerRequest('https://example.com', 'POST'))
+        $serverRequest = new ServerRequest('https://example.com', 'POST')
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $parsedBody = [
             'formName' => 'test',
             'templatePath' => 'EXT:form/Resources/Private/Backend/Templates/FormEditor/Yaml/NewForms/BlankForm.yaml',
             'prototypeName' => 'standard',
-            'savePath' => '1:/form_definitions/',
+            'storage' => 'database',
+            'storageLocation' => '0',
         ];
         $serverRequest = $serverRequest->withParsedBody($parsedBody);
-        $request = (new Request($serverRequest))
+        $request = new Request($serverRequest)
             ->withControllerExtensionName(FormManagerController::class)
             ->withControllerName('FormManagerController')
             ->withArguments($parsedBody)
@@ -544,14 +478,94 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $subject->processRequest($request);
 
         self::assertInstanceOf(BeforeFormIsCreatedEvent::class, $state['before-form-create-listener']);
-        self::assertEquals('1:/form_definitions/new_form.form.yaml', $state['before-form-create-listener']->formPersistenceIdentifier);
+        self::assertEquals('NEW_from_listener', $state['before-form-create-listener']->formPersistenceIdentifier);
         self::assertEquals('bar', $state['before-form-create-listener']->form['label']);
+    }
+
+    /**
+     * The wizard's "Blank" mode offers the editor no start template, so it sends
+     * none and the controller resolves the blank form EXT:form ships.
+     */
+    #[Test]
+    public function createActionBuildsTheBlankFormWhenNoTemplatePathIsGiven(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+
+        /** @var Container $container */
+        $container = $this->get('service_container');
+        $state = ['before-form-create-listener' => null];
+        $container->set(
+            'before-form-create-listener',
+            static function (BeforeFormIsCreatedEvent $event) use (&$state) {
+                $state['before-form-create-listener'] = $event;
+            }
+        );
+        $this->get(ListenerProvider::class)->addListener(BeforeFormIsCreatedEvent::class, 'before-form-create-listener');
+
+        $parsedBody = [
+            'formName' => 'test',
+            'templatePath' => '',
+            'prototypeName' => 'standard',
+            'storage' => 'database',
+            'storageLocation' => '0',
+        ];
+        $this->processCreateAction($parsedBody);
+
+        self::assertInstanceOf(BeforeFormIsCreatedEvent::class, $state['before-form-create-listener']);
+        self::assertSame(
+            [
+                [
+                    'type' => 'Page',
+                    'identifier' => 'page-1',
+                    'label' => 'Step',
+                ],
+            ],
+            $state['before-form-create-listener']->form['renderables']
+        );
+    }
+
+    /**
+     * Resolving an empty template path server side must not widen what a client
+     * may name: a path outside newFormTemplates is still refused.
+     */
+    #[Test]
+    public function createActionRejectsATemplatePathTheConfigurationDoesNotList(): void
+    {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+
+        $this->expectException(FormException::class);
+        $this->expectExceptionCode(1329233410);
+
+        $this->processCreateAction([
+            'formName' => 'test',
+            'templatePath' => 'EXT:form/Tests/Functional/Controller/Fixtures/BlankForm.yaml',
+            'prototypeName' => 'standard',
+            'storage' => 'database',
+            'storageLocation' => '0',
+        ]);
+    }
+
+    private function processCreateAction(array $parsedBody): void
+    {
+        $serverRequest = new ServerRequest('https://example.com', 'POST')
+            ->withAttribute('extbase', new ExtbaseRequestParameters())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE)
+            ->withParsedBody($parsedBody);
+        $request = new Request($serverRequest)
+            ->withControllerExtensionName(FormManagerController::class)
+            ->withControllerName('FormManagerController')
+            ->withArguments($parsedBody)
+            ->withControllerActionName('create');
+        $GLOBALS['TYPO3_REQUEST'] = $request;
+        $this->get(FormManagerController::class)->processRequest($request);
     }
 
     #[Test]
     public function beforeFormIsDeletedEventIsTriggered(): void
     {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/sys_file_storage.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/form_definition.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
 
@@ -584,14 +598,14 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $eventListener->addListener(BeforeFormIsDeletedEvent::class, 'before-form-deleted-listener');
         $eventListener->addListener(BeforeFormIsDeletedEvent::class, 'before-form-deleted-listener-unused');
 
-        $serverRequest = (new ServerRequest('https://example.com', 'POST'))
+        $serverRequest = new ServerRequest('https://example.com', 'POST')
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $parsedBody = [
-            'formPersistenceIdentifier' => '1:/form_definitions/test_form.form.yaml',
+            'formPersistenceIdentifier' => '1',
         ];
         $serverRequest = $serverRequest->withParsedBody($parsedBody);
-        $request = (new Request($serverRequest))
+        $request = new Request($serverRequest)
             ->withControllerExtensionName(FormManagerController::class)
             ->withControllerName('FormManagerController')
             ->withArguments($parsedBody)
@@ -608,7 +622,7 @@ final class FormManagerControllerTest extends FunctionalTestCase
     #[Test]
     public function beforeFormIsDuplicatedEventIsTriggered(): void
     {
-        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/sys_file_storage.csv');
+        $this->importCSVDataSet(__DIR__ . '/Fixtures/DatabaseImports/form_definition.csv');
         $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
         $this->setUpBackendUser(1);
 
@@ -623,7 +637,7 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $container->set(
             'before-form-duplicated-listener',
             static function (BeforeFormIsDuplicatedEvent $event) use (&$state) {
-                $event->formPersistenceIdentifier = '1:/form_definitions/duplicated_form.form.yaml';
+                $event->formPersistenceIdentifier = 'NEW_from_listener';
                 $event->form['label'] = 'bar';
                 $state['before-form-duplicated-listener'] = $event;
             }
@@ -632,16 +646,17 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $eventListener = $this->get(ListenerProvider::class);
         $eventListener->addListener(BeforeFormIsDuplicatedEvent::class, 'before-form-duplicated-listener');
 
-        $serverRequest = (new ServerRequest('https://example.com', 'POST'))
+        $serverRequest = new ServerRequest('https://example.com', 'POST')
             ->withAttribute('extbase', new ExtbaseRequestParameters())
             ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $parsedBody = [
             'formName' => 'test',
-            'formPersistenceIdentifier' => '1:/form_definitions/test_form.form.yaml',
-            'savePath' => '1:/form_definitions/',
+            'formPersistenceIdentifier' => '1',
+            'storage' => 'database',
+            'storageLocation' => '0',
         ];
         $serverRequest = $serverRequest->withParsedBody($parsedBody);
-        $request = (new Request($serverRequest))
+        $request = new Request($serverRequest)
             ->withControllerExtensionName(FormManagerController::class)
             ->withControllerName('FormManagerController')
             ->withArguments($parsedBody)
@@ -651,25 +666,30 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $subject->processRequest($request);
 
         self::assertInstanceOf(BeforeFormIsDuplicatedEvent::class, $state['before-form-duplicated-listener']);
-        self::assertEquals('1:/form_definitions/duplicated_form.form.yaml', $state['before-form-duplicated-listener']->formPersistenceIdentifier);
+        self::assertEquals('NEW_from_listener', $state['before-form-duplicated-listener']->formPersistenceIdentifier);
         self::assertEquals('bar', $state['before-form-duplicated-listener']->form['label']);
     }
 
     #[Test]
     public function formIsCreatedFromTemplateWithEnvSubstitution(): void
     {
+        $this->importCSVDataSet(__DIR__ . '/../Fixtures/be_users.csv');
+        $this->setUpBackendUser(1);
+
         $testEnv = 'TEST';
         putenv('FORM_ENV=' . $testEnv);
-        $route = $this->createBackendRouteFromSymfonyRoute(
-            $this->get(Router::class)->getRoute('web_FormFormbuilder.FormManager_create')
+        $route = Route::fromSymfonyRoute(
+            $this->get(Router::class)->getRoute('web_FormFormbuilder.FormManager_create'),
+            'web_FormFormbuilder.FormManager_create',
         );
-        $serverRequest = (new ServerRequest())
+        $serverRequest = new ServerRequest()
             ->withMethod('POST')
             ->withParsedBody([
                 'formName' => 'testform',
                 'templatePath' => 'EXT:form/Tests/Functional/Controller/Fixtures/FormTemplate.yaml',
                 'prototypeName' => 'standard',
-                'savePath' => '1:/form_definitions/',
+                'storage' => 'database',
+                'storageLocation' => '0',
             ])
             ->withAttribute('route', $route)
             ->withAttribute('module', $route->getOption('module'))
@@ -678,22 +698,12 @@ final class FormManagerControllerTest extends FunctionalTestCase
         $bootstrap = $this->get(Bootstrap::class);
         $result = $bootstrap->handleBackendRequest($serverRequest);
         $status = json_decode((string)$result->getBody(), true)['status'] ?? null;
-        $targetFilePath = $this->instancePath . '/fileadmin/form_definitions/testform.form.yaml';
 
         self::assertSame('success', $status);
-        self::assertFileExists($targetFilePath);
-        self::assertStringContainsString('Form env:' . $testEnv, file_get_contents($targetFilePath));
-    }
 
-    /**
-     * @todo this transformation should be in Backend\Routing\Route::fromSymfonyRoute
-     * @see https://review.typo3.org/c/Packages/TYPO3.CMS/+/90148
-     */
-    private function createBackendRouteFromSymfonyRoute(SymfonyRoute $symfonyRoute): BackendRoute
-    {
-        $symfonyRouteOptions = $symfonyRoute->getOptions();
-        $symfonyRouteOptions['_identifier'] = 'web_FormFormbuilder.FormManager_create';
-        unset($symfonyRouteOptions['methods']);
-        return new BackendRoute($symfonyRoute->getPath(), $symfonyRouteOptions);
+        $connection = $this->get(ConnectionPool::class)->getConnectionForTable('form_definition');
+        $record = $connection->select(['configuration'], 'form_definition', [])->fetchAssociative();
+        self::assertNotFalse($record, 'Form was saved to database');
+        self::assertStringContainsString('Form env:' . $testEnv, $record['configuration']);
     }
 }

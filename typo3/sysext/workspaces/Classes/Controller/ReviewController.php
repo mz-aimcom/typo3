@@ -23,6 +23,7 @@ use TYPO3\CMS\Backend\Attribute\AsController;
 use TYPO3\CMS\Backend\Configuration\TranslationConfigurationProvider;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
@@ -31,6 +32,7 @@ use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Schema\LanguageMarker;
 use TYPO3\CMS\Core\Versioning\VersionState;
 use TYPO3\CMS\Workspaces\Authorization\WorkspacePublishGate;
 use TYPO3\CMS\Workspaces\Domain\Model\WorkspaceStage;
@@ -56,6 +58,7 @@ final readonly class ReviewController
         private TranslationConfigurationProvider $translationConfigurationProvider,
         private WorkspaceRepository $workspaceRepository,
         private WorkspaceStageRepository $workspaceStageRepository,
+        private ComponentFactory $componentFactory,
     ) {}
 
     /**
@@ -74,8 +77,6 @@ final readonly class ReviewController
         $this->pageRenderer->addInlineSetting('WebLayout', 'moduleUrl', (string)$this->uriBuilder->buildUriFromRoute('web_layout'));
         $this->pageRenderer->loadJavaScriptModule('@typo3/workspaces/backend.js');
         $this->pageRenderer->loadJavaScriptModule('@typo3/backend/multi-record-selection.js');
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:core/Resources/Private/Language/locallang_core.xlf');
-        $this->pageRenderer->addInlineLanguageLabelFile('EXT:workspaces/Resources/Private/Language/locallang.xlf');
 
         $backendUser = $this->getBackendUser();
         $pageTitle = '';
@@ -118,10 +119,10 @@ final readonly class ReviewController
             'selectedStage' => (int)$moduleData->get('stage'),
         ]);
         $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang_mod.xlf:mlang_tabs_tab') . ' [' . $activeWorkspaceTitle . ']',
+            $this->getLanguageService()->translate('title', 'workspaces.module') . ' [' . $activeWorkspaceTitle . ']',
             $pageTitle
         );
-        $view->getDocHeaderComponent()->setMetaInformation($pageRecord);
+        $view->getDocHeaderComponent()->setPageBreadcrumb($pageRecord);
         $this->addPreviewLink($view, $pageUid, $activeWorkspace);
         $this->addEditWorkspaceRecordButton($view, $pageUid, $activeWorkspace);
         $this->addShortcutButton($view, $activeWorkspaceTitle, $pageTitle, $pageUid);
@@ -130,12 +131,12 @@ final readonly class ReviewController
 
     private function addShortcutButton(ModuleTemplate $view, string $activeWorkspaceTitle, string $pageTitle, int $pageId): void
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('workspaces_admin')
-            ->setDisplayName(sprintf('%s: %s [%d]', $activeWorkspaceTitle, $pageTitle, $pageId))
-            ->setArguments(['id' => (int)$pageId]);
-        $buttonBar->addButton($shortcutButton);
+        // Set shortcut context - reload button is added automatically
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'workspaces_publish',
+            sprintf('%s: %s [%d]', $activeWorkspaceTitle, $pageTitle, $pageId),
+            ['id' => $pageId]
+        );
     }
 
     private function addPreviewLink(ModuleTemplate $view, int $pageUid, int $activeWorkspace): void
@@ -149,14 +150,13 @@ final readonly class ReviewController
             }
         }
         if ($canCreatePreviewLink) {
-            $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-            $showButton = $buttonBar->makeLinkButton()
+            $showButton = $this->componentFactory->createLinkButton()
                 ->setHref('#')
                 ->setClasses('t3js-preview-link')
                 ->setShowLabelText(true)
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:tooltip.generatePagePreview'))
                 ->setIcon($this->iconFactory->getIcon('actions-version-workspaces-preview-link', IconSize::SMALL));
-            $buttonBar->addButton($showButton);
+            $view->addButtonToButtonBar($showButton);
         }
     }
 
@@ -164,25 +164,21 @@ final readonly class ReviewController
     {
         $backendUser = $this->getBackendUser();
         if ($backendUser->isAdmin() && $activeWorkspace > 0) {
-            $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
             $editWorkspaceRecordUrl = (string)$this->uriBuilder->buildUriFromRoute('record_edit', [
                 'edit' => [
                     'sys_workspace' => [
                         $activeWorkspace => 'edit',
                     ],
                 ],
-                'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('workspaces_admin', ['id' => $pageUid]),
+                'module' => 'workspaces_publish',
+                'returnUrl' => (string)$this->uriBuilder->buildUriFromRoute('workspaces_publish', ['id' => $pageUid]),
             ]);
-            $editSettingsButton = $buttonBar->makeLinkButton()
+            $editSettingsButton = $this->componentFactory->createLinkButton()
                 ->setHref($editWorkspaceRecordUrl)
                 ->setShowLabelText(true)
                 ->setTitle($this->getLanguageService()->sL('LLL:EXT:workspaces/Resources/Private/Language/locallang.xlf:button.editWorkspaceSettings'))
                 ->setIcon($this->iconFactory->getIcon('actions-cog-alt', IconSize::SMALL));
-            $buttonBar->addButton(
-                $editSettingsButton,
-                ButtonBar::BUTTON_POSITION_LEFT,
-                90
-            );
+            $view->addButtonToButtonBar($editSettingsButton, ButtonBar::BUTTON_POSITION_LEFT, 90);
         }
     }
 
@@ -192,8 +188,8 @@ final readonly class ReviewController
     private function getSystemLanguages(int $pageId, string $selectedLanguage): array
     {
         $languages = $this->translationConfigurationProvider->getSystemLanguages($pageId);
-        if (isset($languages[-1])) {
-            $languages[-1]['uid'] = 'all';
+        if (isset($languages[LanguageMarker::ALL_LANGUAGES])) {
+            $languages[LanguageMarker::ALL_LANGUAGES]['uid'] = 'all';
         }
         foreach ($languages as &$language) {
             // needs to be strict type checking as this is not possible in fluid
@@ -242,6 +238,7 @@ final readonly class ReviewController
             ],
         ];
         foreach ($stages as $stage) {
+            // @deprecated since TYPO3 v15.0, will be removed in TYPO3 v16.0.
             if ($stage->uid === StagesService::STAGE_PUBLISH_EXECUTE_ID) {
                 // Removes the publishing stage (-20) by skipping it.
                 continue;

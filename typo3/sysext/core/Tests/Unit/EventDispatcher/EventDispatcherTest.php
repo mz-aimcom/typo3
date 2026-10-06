@@ -30,7 +30,7 @@ final class EventDispatcherTest extends UnitTestCase
     {
         return [
             'Invokable' => [
-                new class () {
+                new class {
                     public function __invoke(object $event): void
                     {
                         $event->invoked += 1;
@@ -39,7 +39,7 @@ final class EventDispatcherTest extends UnitTestCase
             ],
             'Class + method' => [
                 [
-                    new class () {
+                    new class {
                         public function onEvent(object $event): void
                         {
                             $event->invoked += 1;
@@ -64,7 +64,7 @@ final class EventDispatcherTest extends UnitTestCase
         $event->invoked = 0;
 
         $listenerProviderMock = $this->createMock(ListenerProviderInterface::class);
-        $listenerProviderMock->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
+        $listenerProviderMock->expects($this->atMost(PHP_INT_MAX))->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
             yield $callable;
         });
 
@@ -78,7 +78,7 @@ final class EventDispatcherTest extends UnitTestCase
     #[Test]
     public function doesNotDispatchStoppedEvent(callable $callable): void
     {
-        $event = new class () implements StoppableEventInterface {
+        $event = new class implements StoppableEventInterface {
             public int $invoked = 0;
 
             public function isPropagationStopped(): bool
@@ -88,7 +88,7 @@ final class EventDispatcherTest extends UnitTestCase
         };
 
         $listenerProviderMock = $this->createMock(ListenerProviderInterface::class);
-        $listenerProviderMock->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
+        $listenerProviderMock->expects($this->atMost(PHP_INT_MAX))->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
             yield $callable;
         });
 
@@ -106,7 +106,7 @@ final class EventDispatcherTest extends UnitTestCase
         $event->invoked = 0;
 
         $listenerProviderMock = $this->createMock(ListenerProviderInterface::class);
-        $listenerProviderMock->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
+        $listenerProviderMock->expects($this->atMost(PHP_INT_MAX))->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
             yield $callable;
             yield $callable;
         });
@@ -121,7 +121,7 @@ final class EventDispatcherTest extends UnitTestCase
     #[Test]
     public function stopsOnStoppedEvent(callable $callable): void
     {
-        $event = new class () implements StoppableEventInterface {
+        $event = new class implements StoppableEventInterface {
             public int $invoked = 0;
             public bool $stopped = false;
 
@@ -132,7 +132,7 @@ final class EventDispatcherTest extends UnitTestCase
         };
 
         $listenerProviderMock = $this->createMock(ListenerProviderInterface::class);
-        $listenerProviderMock->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
+        $listenerProviderMock->expects($this->atMost(PHP_INT_MAX))->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event) use ($callable): iterable {
             yield $callable;
             yield static function (object $event): void {
                 $event->invoked += 1;
@@ -156,7 +156,7 @@ final class EventDispatcherTest extends UnitTestCase
         $event = new \stdClass();
 
         $listenerProviderMock = $this->createMock(ListenerProviderInterface::class);
-        $listenerProviderMock->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event): iterable {
+        $listenerProviderMock->expects($this->atMost(PHP_INT_MAX))->method('getListenersForEvent')->with($event)->willReturnCallback(static function (object $event): iterable {
             yield static function (object $event): void {
                 throw new \BadMethodCallException('some invalid state', 1563270337);
             };

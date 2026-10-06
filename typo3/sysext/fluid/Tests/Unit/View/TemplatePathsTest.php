@@ -17,11 +17,13 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Fluid\Tests\Unit\View;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Fluid\View\TemplatePaths;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
 final class TemplatePathsTest extends UnitTestCase
 {
     public static function getPathSetterMethodTestValues(): array
@@ -85,13 +87,13 @@ final class TemplatePathsTest extends UnitTestCase
 
     #[DataProvider('getPathSetterMethodTestValues')]
     #[Test]
-    public function pathSetterMethodSortsPathsByKeyDescending(string $method, array $paths, array $expected): void
+    public function pathSetterMethodSortsNumericPathsByKeyAscending(string $method, array $paths, array $expected): void
     {
         $setter = 'set' . ucfirst($method);
         $getter = 'get' . ucfirst($method);
         $subject = $this->getMockBuilder(TemplatePaths::class)->onlyMethods(['sanitizePath'])->getMock();
         $subject->method('sanitizePath')->willReturnArgument(0);
         $subject->$setter($paths);
-        self::assertEquals($expected, $subject->$getter());
+        self::assertSame($expected, $subject->$getter());
     }
 }

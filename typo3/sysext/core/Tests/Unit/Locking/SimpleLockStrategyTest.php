@@ -17,6 +17,8 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Core\Tests\Unit\Locking;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\Environment;
@@ -25,6 +27,8 @@ use TYPO3\CMS\Core\Locking\SimpleLockStrategy;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[AllowMockObjectsWithoutExpectations]
+#[BackupGlobals(true)]
 final class SimpleLockStrategyTest extends UnitTestCase
 {
     #[Test]
@@ -79,7 +83,7 @@ final class SimpleLockStrategyTest extends UnitTestCase
     public static function releaseDoesNotRemoveFilesNotWithinTypo3TempLocksDirectoryDataProvider(): array
     {
         return [
-            'not within project path' => [tempnam(sys_get_temp_dir(), 'foo')],
+            'outside lock directory' => [Environment::getVarPath() . '/typo3-lock-test-' . bin2hex(random_bytes(8))],
             'directory traversal' => [Environment::getVarPath() . '/../var/lock/foo'],
             'directory traversal 2' => [Environment::getVarPath() . '/lock/../../var/lock/foo'],
         ];
@@ -92,6 +96,7 @@ final class SimpleLockStrategyTest extends UnitTestCase
         // Make sure directory exists and create test file
         GeneralUtility::mkdir_deep(dirname($file));
         touch($file);
+        $this->testFilesToDelete[] = $file;
         // Create instance, set lock file to invalid path
         $lock = $this->getAccessibleMock(SimpleLockStrategy::class, null, ['999999999']);
         $lock->_set('filePath', $file);
@@ -99,10 +104,7 @@ final class SimpleLockStrategyTest extends UnitTestCase
 
         // Call release method
         $lock->release();
-        // Check if file is still there and clean up
-        $fileExists = is_file($file);
-        @unlink($file);
-        self::assertTrue($fileExists);
+        self::assertFileExists($file);
     }
 
     #[Test]

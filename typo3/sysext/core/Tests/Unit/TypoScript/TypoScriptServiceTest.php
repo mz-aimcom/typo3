@@ -159,7 +159,7 @@ final class TypoScriptServiceTest extends UnitTestCase
     ): void {
         $typoScriptService = new TypoScriptService();
         $processedSettings = $typoScriptService->convertTypoScriptArrayToPlainArray($typoScriptSettings);
-        self::assertEquals($expectedSettings, $processedSettings);
+        self::assertSame($expectedSettings, $processedSettings);
     }
 
     /**
@@ -291,7 +291,7 @@ final class TypoScriptServiceTest extends UnitTestCase
     {
         $typoScriptService = new TypoScriptService();
         $converted = $typoScriptService->convertPlainArrayToTypoScriptArray($extbaseTS);
-        self::assertEquals($converted, $classic);
+        self::assertSame($classic, $converted);
     }
 
     public static function explodeConfigurationForOptionSplitProvider(): array
@@ -403,7 +403,7 @@ final class TypoScriptServiceTest extends UnitTestCase
     }
 
     /**
-     * @see https://docs.typo3.org/typo3cms/TyposcriptReference/ObjectsAndProperties/Index.html#objects-optionsplit
+     * @see https://docs.typo3.org/permalink/t3tsref:optionsplit
      */
     #[DataProvider('explodeConfigurationForOptionSplitProvider')]
     #[Test]

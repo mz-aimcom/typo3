@@ -17,15 +17,18 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FieldWizard;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FieldWizard\TableList;
 use TYPO3\CMS\Core\Imaging\Icon;
 use TYPO3\CMS\Core\Imaging\IconFactory;
 use TYPO3\CMS\Core\Localization\LanguageService;
+use TYPO3\CMS\Core\Schema\SchemaCollection;
 use TYPO3\CMS\Core\Site\Entity\Site;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TableListTest extends UnitTestCase
 {
     public static function renderResolvesEntryPointDataProvider(): \Generator
@@ -47,7 +50,7 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
+                'data-allowed-types="pages" data-entry-point="123"',
             ],
         ];
         yield 'One table with default' => [
@@ -58,7 +61,7 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
+                'data-allowed-types="pages" data-entry-point="123"',
             ],
         ];
         yield 'One table with default and table definition' => [
@@ -70,7 +73,7 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="124"',
+                'data-allowed-types="pages" data-entry-point="124"',
             ],
         ];
         yield 'One table with invalid configuration' => [
@@ -97,8 +100,8 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
-                'data-params="|||some_table" data-entry-point="124"',
+                'data-allowed-types="pages" data-entry-point="123"',
+                'data-allowed-types="some_table" data-entry-point="124"',
             ],
         ];
         yield 'Two tables with just _default' => [
@@ -109,8 +112,8 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
-                'data-params="|||some_table" data-entry-point="123"',
+                'data-allowed-types="pages" data-entry-point="123"',
+                'data-allowed-types="some_table" data-entry-point="123"',
             ],
         ];
         yield 'Two tables with _default' => [
@@ -123,8 +126,8 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="124"',
-                'data-params="|||some_table" data-entry-point="125"',
+                'data-allowed-types="pages" data-entry-point="124"',
+                'data-allowed-types="some_table" data-entry-point="125"',
             ],
         ];
         yield 'Entry point is escaped' => [
@@ -134,7 +137,7 @@ final class TableListTest extends UnitTestCase
                     'pages' => '<script>alert(1)</script>',
                 ],
             ], [
-                'data-params="|||pages" data-entry-point="&lt;script&gt;alert(1)&lt;/script&gt;"',
+                'data-allowed-types="pages" data-entry-point="&lt;script&gt;alert(1)&lt;/script&gt;"',
             ],
         ];
         yield 'Pid placeholder is resolved' => [
@@ -145,7 +148,7 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
+                'data-allowed-types="pages" data-entry-point="123"',
             ],
         ];
         yield 'Site placeholder is resolved' => [
@@ -156,7 +159,7 @@ final class TableListTest extends UnitTestCase
                 ],
             ],
             [
-                'data-params="|||pages" data-entry-point="123"',
+                'data-allowed-types="pages" data-entry-point="123"',
             ],
         ];
     }
@@ -166,14 +169,14 @@ final class TableListTest extends UnitTestCase
     public function renderResolvesEntryPoint(array $config, array $expected): void
     {
         $GLOBALS['TCA'] = [];
-        $GLOBALS['LANG'] = $this->createMock(LanguageService::class);
+        $GLOBALS['LANG'] = self::createStub(LanguageService::class);
 
-        $iconMock = $this->createMock(Icon::class);
-        $iconMock->method('render')->with(self::anything())->willReturn('icon html');
-        $iconFactoryMock = $this->createMock(IconFactory::class);
-        $iconFactoryMock->method('getIconForRecord')->with(self::anything())->willReturn($iconMock);
+        $iconStub = self::createStub(Icon::class);
+        $iconStub->method('render')->willReturn('icon html');
+        $iconFactoryStub = self::createStub(IconFactory::class);
+        $iconFactoryStub->method('getIconForRecord')->willReturn($iconStub);
 
-        $tableList = new TableList($iconFactoryMock);
+        $tableList = new TableList($iconFactoryStub);
         $tableList->setData([
             'fieldName' => 'somefield',
             'isInlineChild' => false,
@@ -187,6 +190,7 @@ final class TableListTest extends UnitTestCase
                     'config' => $config,
                 ],
             ],
+            'tcaSchemata' => new SchemaCollection([]),
         ]);
         $result = $tableList->render();
 

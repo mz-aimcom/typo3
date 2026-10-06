@@ -17,8 +17,12 @@ namespace TYPO3\CMS\Impexp\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
-use TYPO3\CMS\Core\Resource\File;
-use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Configuration\SiteConfiguration;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+use TYPO3\CMS\Core\Database\ReferenceIndex;
+use TYPO3\CMS\Core\Information\Typo3Version;
+use TYPO3\CMS\Core\Localization\Locales;
 use TYPO3\CMS\Impexp\Export;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
@@ -38,38 +42,38 @@ final class ExportTest extends UnitTestCase
     #[Test]
     public function setExportFileNameSanitizesFileName(string $fileName, string $expected): void
     {
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setExportFileName($fileName);
-        $actual = $exportMock->getExportFileName();
+        $subject = $this->createSubject();
+        $subject->setExportFileName($fileName);
+        $actual = $subject->getExportFileName();
         self::assertEquals($expected, $actual);
     }
 
     #[Test]
     public function getOrGenerateExportFileNameWithFileExtensionConsidersPidAndLevels(): void
     {
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setPid(1);
-        $exportMock->setLevels(2);
+        $subject = $this->createSubject();
+        $subject->setPid(1);
+        $subject->setLevels(2);
         $patternDateTime = '[0-9-_]{16}';
-        self::assertMatchesRegularExpression("/T3D_tree_PID1_L2_$patternDateTime.xml/", $exportMock->getOrGenerateExportFileNameWithFileExtension());
+        self::assertMatchesRegularExpression("/T3D_tree_PID1_L2_$patternDateTime.xml/", $subject->getOrGenerateExportFileNameWithFileExtension());
     }
 
     #[Test]
     public function getOrGenerateExportFileNameWithFileExtensionConsidersRecords(): void
     {
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setRecord(['page:1', 'tt_content:1']);
+        $subject = $this->createSubject();
+        $subject->setRecord(['page:1', 'tt_content:1']);
         $patternDateTime = '[0-9-_]{16}';
-        self::assertMatchesRegularExpression("/T3D_recs_page_1-tt_conte_$patternDateTime.xml/", $exportMock->getOrGenerateExportFileNameWithFileExtension());
+        self::assertMatchesRegularExpression("/T3D_recs_page_1-tt_conte_$patternDateTime.xml/", $subject->getOrGenerateExportFileNameWithFileExtension());
     }
 
     #[Test]
     public function getOrGenerateExportFileNameWithFileExtensionConsidersLists(): void
     {
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setList(['sys_news:0', 'news:12']);
+        $subject = $this->createSubject();
+        $subject->setList(['sys_news:0', 'news:12']);
         $patternDateTime = '[0-9-_]{16}';
-        self::assertMatchesRegularExpression("/T3D_list_sys_news_0-news_$patternDateTime.xml/", $exportMock->getOrGenerateExportFileNameWithFileExtension());
+        self::assertMatchesRegularExpression("/T3D_list_sys_news_0-news_$patternDateTime.xml/", $subject->getOrGenerateExportFileNameWithFileExtension());
     }
 
     public static function setExportFileTypeSucceedsWithSupportedFileTypeProvider(): array
@@ -85,185 +89,28 @@ final class ExportTest extends UnitTestCase
     #[Test]
     public function setExportFileTypeSucceedsWithSupportedFileType(string $fileType): void
     {
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setExportFileType($fileType);
-        self::assertEquals($fileType, $exportMock->getExportFileType());
+        $subject = $this->createSubject();
+        $subject->setExportFileType($fileType);
+        self::assertEquals($fileType, $subject->getExportFileType());
     }
 
     #[Test]
     public function setExportFileTypeFailsWithUnsupportedFileType(): void
     {
         $this->expectException(\Exception::class);
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->setExportFileType('json');
+        $subject = $this->createSubject();
+        $subject->setExportFileType('json');
     }
 
-    public static function removeRedundantSoftRefsInRelationsProcessesOriginalRelationsArrayDataProvider(): array
+    private function createSubject(): Export
     {
-        return [
-            'Remove one typolink entry from relation' => [
-                'relations' => [
-                    ['type' => 'db', 'itemArray' => [[
-                        'id' => hexdec(substr(md5('fileRelation.png'), 0, 6)),
-                        'table' => 'sys_file',
-                    ]], 'softrefs' => ['keys' => ['typolink' => [
-                        0 => ['subst' => ['type' => 'file', 'relFileName' => 'fileRelation.png']],
-                        1 => ['subst' => ['type' => 'file', 'relFileName' => 'fileRelation2.png']],
-                    ]]]],
-                ],
-                'expected' => [
-                    ['type' => 'db', 'itemArray' => [[
-                        'id' => hexdec(substr(md5('fileRelation.png'), 0, 6)),
-                        'table' => 'sys_file',
-                    ]], 'softrefs' => ['keys' => ['typolink' => [
-                        1 => ['subst' => ['type' => 'file', 'relFileName' => 'fileRelation2.png']],
-                    ]]]],
-                ],
-            ],
-            'Remove whole softrefs array from relation' => [
-                'relations' => [
-                    ['type' => 'db', 'itemArray' => [[
-                        'id' => hexdec(substr(md5('fileRelation2.png'), 0, 6)),
-                        'table' => 'sys_file',
-                    ]], 'softrefs' => ['keys' => ['typolink' => [
-                        0 => ['subst' => ['type' => 'file', 'relFileName' => 'fileRelation2.png']],
-                    ]]]],
-                ],
-                'expected' => [
-                    ['type' => 'db', 'itemArray' => [[
-                        'id' => hexdec(substr(md5('fileRelation2.png'), 0, 6)),
-                        'table' => 'sys_file',
-                    ]]],
-                ],
-            ],
-        ];
-    }
-
-    #[DataProvider('removeRedundantSoftRefsInRelationsProcessesOriginalRelationsArrayDataProvider')]
-    #[Test]
-    public function removeRedundantSoftRefsInRelationsProcessesOriginalRelationsArray(array $relations, array $expected): void
-    {
-        $resourceFactoryMock = $this->createMock(ResourceFactory::class);
-        $resourceFactoryMock->method('retrieveFileOrFolderObject')
-            ->willReturnCallback(function (string $input): File {
-                $fakeFileUidDerivedFromFileName = hexdec(substr(md5($input), 0, 6));
-                $fileMock = $this->getAccessibleMock(
-                    File::class,
-                    null,
-                    [],
-                    '',
-                    false
-                );
-                $fileMock->_set('properties', ['uid' => $fakeFileUidDerivedFromFileName]);
-                return $fileMock;
-            });
-        $exportMock = $this->getAccessibleMock(Export::class, null, [], '', false);
-        $exportMock->_set('resourceFactory', $resourceFactoryMock);
-        self::assertEquals($expected, $exportMock->_call('removeRedundantSoftRefsInRelations', $relations));
-    }
-
-    public static function exportAddFilesFromRelationsSucceedsDataProvider(): array
-    {
-        $oneDat = [
-            'files' => [
-                'e580c5887dcea669332e96e25900b20b' => [],
-            ],
-            'records' => [
-                'tt_content:8' => [
-                    'data' => [],
-                    'rels' => [
-                        'pi_flexform' => [
-                            'type' => 'flex',
-                            'flexFormRels' => [
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ];
-
-        $fullDat = [
-            'files' => [
-                'e580c5887dcea669332e96e25900b20b' => [],
-            ],
-            'records' => [
-                'tt_content:8' => [
-                    'data' => [],
-                    'rels' => [
-                        'pi_flexform' => [
-                            'type' => 'flex',
-                            'flexFormRels' => [
-                                'softrefs' => [
-                                    [
-                                        'keys' => [
-                                            [
-                                                [
-                                                    'subst' => [
-                                                        'type' => 'file',
-                                                        'tokenID' => 'tokenID',
-                                                        'relFileName' => 'relFileNameSoftrefs',
-                                                    ],
-                                                ],
-                                            ],
-                                        ],
-                                    ],
-                                ],
-                            ],
-                            'softrefs' => [
-                                'keys' => [
-                                    [
-                                        [
-                                            'subst' => [
-                                                'type' => 'fileSoftrefs',
-                                                'tokenID' => 'tokenIDSoftrefs',
-                                                'relFileName' => 'relFileNameSoftrefsSoftrefs',
-                                            ],
-                                        ],
-                                    ],
-                                ],
-                            ],
-                        ],
-                        'tx_bootstrappackage_carousel_item' => [
-                            'type' => 'db',
-                            'itemArray' => [
-                                0 => [
-                                    'id' => 2,
-                                    'table' => 'tx_bootstrappackage_carousel_item',
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ];
-        $fullExpected = $fullDat;
-        $fullExpected['records']['tt_content:8']['rels']['pi_flexform']['flexFormRels']['softrefs'][0]['keys'][0][0]['file_ID'] = 'e580c5887dcea669332e96e25900b20b';
-
-        return [
-            'Empty $this->dat' => ['dat' => [], 'expected' => []],
-            'Empty $this->dat[\'records\']' => ['dat' => ['records' => []], 'expected' => ['records' => []]],
-            'One record example' => ['dat' => $oneDat, 'expected' => $oneDat],
-            'Full example' => ['dat' => $fullDat, 'expected' => $fullExpected],
-        ];
-    }
-
-    /**
-     * Temporary test until there is a complex functional test which tests exportAddFilesFromRelations() implicitly.
-     */
-    #[DataProvider('exportAddFilesFromRelationsSucceedsDataProvider')]
-    #[Test]
-    public function exportAddFilesFromRelationsSucceeds(array $dat, array $expected): void
-    {
-        $exportMock = $this->getAccessibleMock(
-            Export::class,
-            ['addError', 'exportAddFile', 'isSoftRefIncluded'],
-            [],
-            '',
-            false
+        return new Export(
+            self::createStub(ConnectionPool::class),
+            self::createStub(Locales::class),
+            new Typo3Version(),
+            self::createStub(ReferenceIndex::class),
+            self::createStub(SiteConfiguration::class),
+            new Context(),
         );
-        $exportMock->method('isSoftRefIncluded')->willReturn(true);
-        $exportMock->_set('dat', $dat);
-        $exportMock->_call('exportAddFilesFromRelations');
-        self::assertEquals($expected, $exportMock->_get('dat'));
     }
 }

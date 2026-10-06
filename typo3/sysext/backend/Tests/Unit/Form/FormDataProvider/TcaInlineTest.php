@@ -17,18 +17,20 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use Psr\Log\NullLogger;
 use TYPO3\CMS\Backend\Form\FormDataProvider\TcaInline;
 use TYPO3\CMS\Backend\Form\InlineStackProcessor;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
-use TYPO3\CMS\Core\Schema\TcaSchemaFactory;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class TcaInlineTest extends UnitTestCase
 {
-    protected BackendUserAuthentication&MockObject $beUserMock;
+    private BackendUserAuthentication&MockObject $beUserMock;
 
     protected function setUp(): void
     {
@@ -65,7 +67,7 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['children'] = [];
-        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        $subject = new TcaInline(self::createStub(FlashMessageService::class), self::createStub(InlineStackProcessor::class), new NullLogger());
         self::assertEquals($expected, $subject->addData($input));
     }
 
@@ -96,7 +98,7 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['config']['type'] = 'input';
-        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        $subject = new TcaInline(self::createStub(FlashMessageService::class), self::createStub(InlineStackProcessor::class), new NullLogger());
         self::assertEquals($expected, $subject->addData($input));
     }
 
@@ -129,7 +131,7 @@ final class TcaInlineTest extends UnitTestCase
 
         $expected = $input;
         $expected['processedTca']['columns']['aField']['children'] = [];
-        $subject = new TcaInline($this->createMock(FlashMessageService::class), $this->createMock(InlineStackProcessor::class), $this->createMock(TcaSchemaFactory::class));
+        $subject = new TcaInline(self::createStub(FlashMessageService::class), self::createStub(InlineStackProcessor::class), new NullLogger());
         self::assertEquals($expected, $subject->addData($input));
     }
 }

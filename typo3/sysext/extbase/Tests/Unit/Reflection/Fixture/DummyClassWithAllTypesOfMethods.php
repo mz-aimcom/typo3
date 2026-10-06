@@ -26,6 +26,7 @@ class DummyClassWithAllTypesOfMethods
 
     protected function protectedMethod(): void {}
 
+    // @phpstan-ignore-next-line method.unused
     private function privateMethod(): void {}
 
     public function methodWithMandatoryParam($param): void {}
@@ -33,9 +34,4 @@ class DummyClassWithAllTypesOfMethods
     public function methodWithDefaultValueParam($param = 'foo'): void {}
 
     public function methodWithTypeHintedParam(string $param): void {}
-
-    /**
-     * @param \TYPO3\CMS\Extbase\Tests\Unit\Reflection\Fixture\DummyClassWithAllTypesOfMethods $param
-     */
-    public function methodWithDocBlockTypeHintOnly($param): void {}
 }

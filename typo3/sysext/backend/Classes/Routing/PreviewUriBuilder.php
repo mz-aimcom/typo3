@@ -28,9 +28,9 @@ use TYPO3\CMS\Core\Context\VisibilityAspect;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
+use TYPO3\CMS\Core\DataHandling\PageDoktypeRegistry;
 use TYPO3\CMS\Core\Domain\DateTimeFactory;
 use TYPO3\CMS\Core\Domain\RecordInterface;
-use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Exception\SiteNotFoundException;
 use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Routing\InvalidRouteArgumentsException;
@@ -128,7 +128,12 @@ class PreviewUriBuilder
     {
         $this->pageId = $pageId;
         $this->context = clone GeneralUtility::makeInstance(Context::class);
-        $this->context->setAspect('visibility', new VisibilityAspect(true, false, false, true));
+        $this->context->setAspect(
+            'visibility',
+            VisibilityAspect::create()
+                ->withIncludeHiddenPages(true)
+                ->withIncludeScheduledRecords(true)
+        );
     }
 
     /**
@@ -140,9 +145,7 @@ class PreviewUriBuilder
         if ($this->moduleLoading === $moduleLoading) {
             return $this;
         }
-        $target = clone $this;
-        $target->moduleLoading = $moduleLoading;
-        return $target;
+        return clone($this, ['moduleLoading' => $moduleLoading]);
     }
 
     /**
@@ -154,9 +157,7 @@ class PreviewUriBuilder
         if ($this->rootLine === $rootLine) {
             return $this;
         }
-        $target = clone $this;
-        $target->rootLine = $rootLine;
-        return $this;
+        return clone($this, ['rootLine' => $rootLine]);
     }
 
     /**
@@ -168,9 +169,7 @@ class PreviewUriBuilder
         if ($this->languageId === $language) {
             return $this;
         }
-        $target = clone $this;
-        $target->languageId = $language;
-        return $target;
+        return clone($this, ['languageId' => $language]);
     }
 
     /**
@@ -182,9 +181,7 @@ class PreviewUriBuilder
         if ($this->section === $section) {
             return $this;
         }
-        $target = clone $this;
-        $target->section = $section;
-        return $target;
+        return clone($this, ['section' => $section]);
     }
 
     /**
@@ -209,10 +206,10 @@ class PreviewUriBuilder
             return $this;
         }
 
-        $target = clone $this;
-        $target->additionalQueryParameters = $additionalQueryParams;
-        $target->languageId = $languageId;
-        return $target;
+        return clone($this, [
+            'additionalQueryParameters' => $additionalQueryParams,
+            'languageId' => $languageId,
+        ]);
     }
 
     public function isPreviewable(): bool
@@ -293,7 +290,7 @@ class PreviewUriBuilder
                             RouterInterface::ABSOLUTE_URL
                         )
                     );
-                } catch (\InvalidArgumentException | InvalidRouteArgumentsException $e) {
+                } catch (\InvalidArgumentException|InvalidRouteArgumentsException $e) {
                     throw new UnableToLinkToPageException(sprintf('The link to the page with ID "%d" could not be generated: %s', $event->getPageId(), $e->getMessage()), 1651499354, $e);
                 }
             }
@@ -562,12 +559,19 @@ class PreviewUriBuilder
         } elseif (!empty($access['fe_group'])) {
             $additionalQueryParameters['ADMCMD_simUser'] = $access['fe_group'];
         }
-        if ($access['starttime'] > $GLOBALS['EXEC_TIME']) {
+        // PageRepository evaluates 'starttime' against the 'accessTime' of the date aspect, which has a
+        // precision of 60 seconds. A 'starttime' carrying seconds is therefore never reached by a simulated
+        // access time of that very value, so round up to the first full minute the record is live at.
+        $startTime = $access['starttime'];
+        if ($startTime % 60 !== 0) {
+            $startTime = intdiv($startTime, 60) * 60 + 60;
+        }
+        if ($startTime > $GLOBALS['EXEC_TIME']) {
             // simulate access time to ensure PageRepository will find the page and in turn PageRouter will generate
             // a URL for it
-            $dateAspect = new DateTimeAspect(DateTimeFactory::createFromTimestamp($access['starttime']));
+            $dateAspect = new DateTimeAspect(DateTimeFactory::createFromTimestamp($startTime));
             $context->setAspect('date', $dateAspect);
-            $additionalQueryParameters['ADMCMD_simTime'] = $access['starttime'];
+            $additionalQueryParameters['ADMCMD_simTime'] = $startTime;
         }
         if ($access['endtime'] < $GLOBALS['EXEC_TIME'] && $access['endtime'] !== 0) {
             // Set access time to page's endtime subtracted one second to ensure PageRepository will find the page and
@@ -647,17 +651,7 @@ class PreviewUriBuilder
         if ($pageId <= 0 || $doktype <= 0) {
             return false;
         }
-
-        $TSconfig = BackendUtility::getPagesTSconfig($pageId)['TCEMAIN.']['preview.'] ?? [];
-        if (isset($TSconfig['disableButtonForDokType'])) {
-            $excludeDokTypes = GeneralUtility::intExplode(',', (string)$TSconfig['disableButtonForDokType'], true);
-        } else {
-            // Exclude sysfolders and spacers by default
-            $excludeDokTypes = [
-                PageRepository::DOKTYPE_SYSFOLDER,
-                PageRepository::DOKTYPE_SPACER,
-            ];
-        }
-        return !in_array($doktype, $excludeDokTypes, true);
+        $doktypeRegistry = GeneralUtility::makeInstance(PageDoktypeRegistry::class);
+        return $doktypeRegistry->isPageViewable($doktype, $pageId);
     }
 }

@@ -35,7 +35,7 @@ final class HtmlViewHelperTest extends FunctionalTestCase
     /**
      * @var array Used by buildDefaultLanguageConfiguration() of SiteBasedTestTrait
      */
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -94,7 +94,7 @@ final class HtmlViewHelperTest extends FunctionalTestCase
         $this->createTypoScriptTemplate($fluidTemplateSource);
 
         $response = $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(1)
+            new InternalRequest()->withPageId(1)
         );
         self::assertStringContainsString($expected, (string)$response->getBody());
     }
@@ -128,13 +128,13 @@ final class HtmlViewHelperTest extends FunctionalTestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionCode(1641989097);
         $this->executeFrontendSubRequest(
-            (new InternalRequest())->withPageId(1)
+            new InternalRequest()->withPageId(1)
         );
     }
 
     private function createTypoScriptTemplate(string $fluidTemplateSource): void
     {
-        (new ConnectionPool())->getConnectionForTable('sys_template')
+        $this->get(ConnectionPool::class)->getConnectionForTable('sys_template')
             ->insert(
                 'sys_template',
                 [
@@ -181,7 +181,7 @@ EOT
     #[Test]
     public function throwsExceptionIfCalledInBackendContext(): void
     {
-        $request = (new ServerRequest())->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
+        $request = new ServerRequest()->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_BE);
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource('<f:format.html>TYPO3 is a cool CMS</f:format.html>');
 
@@ -189,6 +189,6 @@ EOT
         $this->expectExceptionCode(1686813703);
         $this->expectExceptionMessage('Using f:format.html in backend context is not allowed. Use f:sanitize.html or f:transform.html instead.');
 
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 }

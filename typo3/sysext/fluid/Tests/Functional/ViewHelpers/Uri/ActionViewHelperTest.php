@@ -20,6 +20,7 @@ namespace TYPO3\CMS\Fluid\Tests\Functional\ViewHelpers\Uri;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Crypto\HashAlgo;
 use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\Routing\PageArguments;
 use TYPO3\CMS\Core\Tests\Functional\SiteHandling\SiteBasedTestTrait;
@@ -30,6 +31,7 @@ use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
 use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\CMS\Fluid\Core\Rendering\RenderingContextFactory;
 use TYPO3\CMS\Frontend\ContentObject\ContentObjectRenderer;
+use TYPO3\CMS\Frontend\Page\CacheHashCalculator;
 use TYPO3\CMS\Frontend\Page\PageInformation;
 use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
 use TYPO3Fluid\Fluid\View\TemplateView;
@@ -38,7 +40,7 @@ final class ActionViewHelperTest extends FunctionalTestCase
 {
     use SiteBasedTestTrait;
 
-    protected const LANGUAGE_PRESETS = [
+    protected const array LANGUAGE_PRESETS = [
         'EN' => ['id' => 0, 'title' => 'English', 'locale' => 'en_US.UTF8'],
     ];
 
@@ -59,7 +61,7 @@ final class ActionViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1690360598);
         $context = $this->get(RenderingContextFactory::class)->create();
         $context->getTemplatePaths()->setTemplateSource('<f:uri.action />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     #[Test]
@@ -69,10 +71,10 @@ final class ActionViewHelperTest extends FunctionalTestCase
         $request = $request->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE);
         $request = $request->withAttribute('routing', new PageArguments(1, '0', []));
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionCode(1639819692);
+        $this->expectExceptionCode(1690370264);
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource('<f:uri.action />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     #[Test]
@@ -85,24 +87,35 @@ final class ActionViewHelperTest extends FunctionalTestCase
         $this->expectExceptionCode(1690360598);
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource('<f:uri.action />');
-        (new TemplateView($context))->render();
+        new TemplateView($context)->render();
     }
 
     public static function renderInFrontendWithCoreContextAndAllNecessaryExtbaseArgumentsDataProvider(): \Generator
     {
+        $cHash = self::calculateCacheHash(['id' => '1', 'tx_examples_haiku[action]' => 'show', 'tx_examples_haiku[controller]' => 'Detail']);
         yield 'link to root page with plugin' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
         ];
 
         yield 'link to root page with plugin and section' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" section="c13" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c#c13',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash . '#c13',
         ];
 
         yield 'link to root page with page type' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" pageType="1234" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=' . $cHash,
+        ];
+
+        yield 'link to current page (root page) when pageUid is empty string' => [
+            '<f:uri.action pageUid="" extensionName="examples" pluginName="haiku" controller="Detail" action="show" />',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
+        ];
+
+        yield 'link to current page (root page) when pageUid is not provided' => [
+            '<f:uri.action extensionName="examples" pluginName="haiku" controller="Detail" action="show" />',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
         ];
     }
 
@@ -120,59 +133,68 @@ final class ActionViewHelperTest extends FunctionalTestCase
         $request = $request->withAttribute('routing', new PageArguments(1, '0', ['untrusted' => 123]));
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertSame($expected, $result);
     }
 
     public static function renderInFrontendWithExtbaseContextDataProvider(): \Generator
     {
+        $cHash = self::calculateCacheHash(['id' => '1', 'tx_examples_haiku[action]' => 'show', 'tx_examples_haiku[controller]' => 'Detail']);
         // with all extbase arguments provided
         yield 'link to root page with plugin' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash . '',
         ];
 
         yield 'link to root page with plugin and section' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" section="c13" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c#c13',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash . '#c13',
         ];
 
         yield 'link to root page with page type' => [
             '<f:uri.action pageUid="1" extensionName="examples" pluginName="haiku" controller="Detail" action="show" pageType="1234" />',
-            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=5c6aa07f6ceee30ae2ea8dbf574cf26c',
+            '/?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=' . $cHash . '',
         ];
+        $cHash = self::calculateCacheHash(['id' => '1', 'tx_examples_haiku[controller]' => 'Detail']);
         // without all extbase arguments provided
         yield 'renderWillProvideEmptyATagForNonValidLinkTarget' => [
             '<f:uri.action />',
-            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=1d5a12de6bf2d5245b654deb866ee9c3',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
         ];
         yield 'link to root page in extbase context' => [
             '<f:uri.action pageUid="1" />',
-            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=1d5a12de6bf2d5245b654deb866ee9c3',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
+        ];
+        yield 'link to current page (root page) with empty pageUid in extbase context' => [
+            '<f:uri.action pageUid="" />',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
         ];
         yield 'link to root page with section' => [
             '<f:uri.action pageUid="1" section="c13" />',
-            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=1d5a12de6bf2d5245b654deb866ee9c3#c13',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash . '#c13',
         ];
         yield 'link to root page with page type in extbase context' => [
             '<f:uri.action pageUid="1" pageType="1234" />',
-            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=1d5a12de6bf2d5245b654deb866ee9c3',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;type=1234&amp;cHash=' . $cHash,
         ];
         yield 'link to root page with untrusted query arguments' => [
             '<f:uri.action addQueryString="untrusted" />',
-            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;untrusted=123&amp;cHash=1d5a12de6bf2d5245b654deb866ee9c3',
+            '/?tx_examples_haiku%5Bcontroller%5D=Detail&amp;untrusted=123&amp;cHash=' . $cHash,
         ];
+        $cHash = self::calculateCacheHash(['id' => '3', 'tx_examples_haiku[controller]' => 'Detail']);
         yield 'link to page sub page' => [
             '<f:uri.action pageUid="3" />',
-            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=d9289022f99f8cbc8080832f61e46509',
+            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Bcontroller%5D=Detail&amp;cHash=' . $cHash,
         ];
+        $cHash = self::calculateCacheHash(['id' => '3', 'tx_examples_haiku[controller]' => 'Detail', 'tx_examples_haiku[foo]' => 'bar']);
         yield 'arguments one level' => [
             '<f:uri.action pageUid="3" arguments="{foo: \'bar\'}" />',
-            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Bcontroller%5D=Detail&amp;tx_examples_haiku%5Bfoo%5D=bar&amp;cHash=74dd4635cee85b19b67cd9b497ec99e9',
+            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Bcontroller%5D=Detail&amp;tx_examples_haiku%5Bfoo%5D=bar&amp;cHash=' . $cHash,
         ];
+        $cHash = self::calculateCacheHash(['id' => '3', 'tx_examples_haiku[action]' => 'show', 'tx_examples_haiku[controller]' => 'Detail', 'tx_examples_haiku[haiku]' => '42']);
         yield 'additional parameters two levels' => [
             '<f:uri.action pageUid="3" additionalParams="{tx_examples_haiku: {action: \'show\', haiku: 42}}" />',
-            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;tx_examples_haiku%5Bhaiku%5D=42&amp;cHash=aefc37bc2323ebd8c8e39c222adb7413',
+            '/dummy-1-2/dummy-1-2-3?tx_examples_haiku%5Baction%5D=show&amp;tx_examples_haiku%5Bcontroller%5D=Detail&amp;tx_examples_haiku%5Bhaiku%5D=42&amp;cHash=' . $cHash,
         ];
     }
 
@@ -209,7 +231,16 @@ final class ActionViewHelperTest extends FunctionalTestCase
         $request = new Request($request);
         $context = $this->get(RenderingContextFactory::class)->create([], $request);
         $context->getTemplatePaths()->setTemplateSource($template);
-        $result = (new TemplateView($context))->render();
+        $result = new TemplateView($context)->render();
         self::assertSame($expected, $result);
+    }
+
+    private static function calculateCacheHash(
+        array $params,
+        string $encryptionKey = 'i-am-not-a-secure-encryption-key'
+    ): string {
+        ksort($params);
+        $secret = $encryptionKey . CacheHashCalculator::class;
+        return hash_hmac(HashAlgo::SHA3_256->value, serialize($params), $secret);
     }
 }

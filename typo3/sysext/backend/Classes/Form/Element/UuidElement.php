@@ -30,17 +30,6 @@ use TYPO3\CMS\Core\Utility\StringUtility;
  */
 class UuidElement extends AbstractFormElement
 {
-    /**
-     * Default field information enabled for this element.
-     *
-     * @var array
-     */
-    protected $defaultFieldInformation = [
-        'tcaDescription' => [
-            'renderType' => 'tcaDescription',
-        ],
-    ];
-
     public function __construct(
         private readonly IconFactory $iconFactory,
     ) {}
@@ -91,7 +80,7 @@ class UuidElement extends AbstractFormElement
         $fieldInformationHtml = $fieldInformationResult['html'];
         $resultArray = $this->mergeChildReturnIntoExistingResult($resultArray, $fieldInformationResult, false);
 
-        if (($config['enableCopyToClipboard'] ?? true) !== false) {
+        if ((bool)($config['appearance']['copyToClipboard'] ?? true)) {
             $uuidElement = '
                 <div class="input-group">
                     ' . $uuidElement . '

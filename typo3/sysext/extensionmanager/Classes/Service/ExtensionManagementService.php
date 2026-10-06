@@ -21,7 +21,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Package\Event\BeforePackageActivationEvent;
-use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extensionmanager\Domain\Model\DownloadQueue;
 use TYPO3\CMS\Extensionmanager\Domain\Model\Extension;
@@ -34,7 +33,7 @@ use TYPO3\CMS\Extensionmanager\Utility\InstallUtility;
 /**
  * Service class for managing multiple step processes (dependencies for example)
  */
-class ExtensionManagementService implements SingletonInterface
+class ExtensionManagementService
 {
     protected DependencyUtility $dependencyUtility;
     protected InstallUtility $installUtility;
@@ -214,8 +213,8 @@ class ExtensionManagementService implements SingletonInterface
     {
         $resolvedDependencies = [];
         foreach ($updateQueue as $extensionToUpdate) {
-            $this->installUtility->uninstall($extensionToUpdate->getExtensionKey());
-            $resolvedDependencies['updated'][$extensionToUpdate->getExtensionKey()] = $extensionToUpdate;
+            $this->installUtility->uninstall($extensionToUpdate->extensionKey);
+            $resolvedDependencies['updated'][$extensionToUpdate->extensionKey] = $extensionToUpdate;
         }
         return $resolvedDependencies;
     }
@@ -235,7 +234,7 @@ class ExtensionManagementService implements SingletonInterface
         $extensionKeys = array_keys($installQueue);
         $this->installUtility->install(...$extensionKeys);
         foreach ($extensionKeys as $extensionKey) {
-            if (!isset($resolvedDependencies['installed']) || !is_array($resolvedDependencies['installed'])) {
+            if (!isset($resolvedDependencies['installed'])) {
                 $resolvedDependencies['installed'] = [];
             }
             $resolvedDependencies['installed'][$extensionKey] = $extensionKey;
@@ -256,8 +255,8 @@ class ExtensionManagementService implements SingletonInterface
         foreach ($downloadQueue as $extensionToDownload) {
             $this->rawDownload($extensionToDownload);
             $this->downloadQueue->removeExtensionFromQueue($extensionToDownload);
-            $resolvedDependencies['downloaded'][$extensionToDownload->getExtensionKey()] = $extensionToDownload;
-            $this->markExtensionForInstallation($extensionToDownload->getExtensionKey());
+            $resolvedDependencies['downloaded'][$extensionToDownload->extensionKey] = $extensionToDownload;
+            $this->markExtensionForInstallation($extensionToDownload->extensionKey);
         }
         return $resolvedDependencies;
     }
@@ -285,7 +284,7 @@ class ExtensionManagementService implements SingletonInterface
     {
         // The extension object has a uid if the extension is not present in the system
         // or an update of a present extension is triggered.
-        if ($extension->getUid()) {
+        if ($extension->uid) {
             $this->rawDownload($extension);
         }
     }
@@ -299,16 +298,16 @@ class ExtensionManagementService implements SingletonInterface
             throw new ExtensionManagerException('Extension Manager is in offline mode. No TER connection available.', 1437078620);
         }
 
-        $remoteIdentifier = $extension->getRemoteIdentifier();
+        $remoteIdentifier = $extension->remote;
 
         if ($this->remoteRegistry->hasRemote($remoteIdentifier)) {
             $this->remoteRegistry
                 ->getRemote($remoteIdentifier)
                 ->downloadExtension(
-                    $extension->getExtensionKey(),
-                    $extension->getVersion(),
+                    $extension->extensionKey,
+                    $extension->version,
                     $this->fileHandlingUtility,
-                    $extension->getMd5hash()
+                    $extension->artifactSha256 !== '' ? 'sha256:' . $extension->artifactSha256 : $extension->md5hash
                 );
         }
     }

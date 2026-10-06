@@ -7,29 +7,56 @@
 // Component
 //
 .modulemenu {
-    --modulemenu-padding-x: .5rem;
-    --modulemenu-padding-y: .75rem;
-    --modulemenu-group-spacer: .5rem;
+    --modulemenu-color: var(--typo3-scaffold-sidebar-color);
+    --modulemenu-bg: var(--typo3-scaffold-sidebar-bg);
+    --modulemenu-spacer: 2px;
+    --modulemenu-group-spacer: .75rem;
+    --modulemenu-group-indent: calc(var(--modulemenu-group-line-indent) + .5rem);
+    --modulemenu-group-line-indent: calc(var(--modulemenu-action-padding) + var(--modulemenu-icon-size) / 2);
     --modulemenu-icon-size: 32px;
-    --modulemenu-icon-border-radius: 4px;
-    --modulemenu-action-bg-state: initial;
-    --modulemenu-action-color-state: initial;
-    --modulemenu-action-border-color-state: initial;
+    --modulemenu-icon-border-radius: calc(var(--modulemenu-action-border-radius) - var(--modulemenu-action-padding));
     --modulemenu-action-bg: transparent;
-    --modulemenu-action-color: inherit;
+    --modulemenu-action-color: var(--modulemenu-color);
     --modulemenu-action-border-width: 1px;
     --modulemenu-action-border-color: transparent;
     --modulemenu-action-min-width: 42px;
     --modulemenu-action-padding: 4px;
-    --modulemenu-action-border-radius: 5px;
+    --modulemenu-action-border-radius: .75em;
+    --modulemenu-action-bg-state: initial;
+    --modulemenu-action-color-state: initial;
+    --modulemenu-action-border-color-state: initial;
+    --modulemenu-action-hover-color: var(--modulemenu-color);
+    --modulemenu-action-hover-bg: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 5%);
+    --modulemenu-action-hover-border-color: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 20%);
+    --modulemenu-action-focus-color: var(--modulemenu-color);
+    --modulemenu-action-focus-bg: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 10%);
+    --modulemenu-action-focus-border-color: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 25%);
+    --modulemenu-action-active-color: var(--modulemenu-color);
+    --modulemenu-action-active-bg: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 10%);
+    --modulemenu-action-active-border-color: color-mix(in srgb, var(--modulemenu-bg), var(--modulemenu-color) 25%);
+    --modulemenu-action-collapsed-indicator-color: var(--typo3-surface-secondary-text);
+    --modulemenu-action-collapsed-indicator-bg: var(--typo3-surface-secondary);
     margin: 0;
-    padding: var(--modulemenu-padding-y) var(--modulemenu-padding-x);
     list-style: none;
+    background-color: var(--modulemenu-bg);
+    color: var(--modulemenu-color);
 
     > ul {
+        container-type: inline-size;
         min-width: var(--modulemenu-action-min-width);
         display: grid;
         gap: var(--modulemenu-group-spacer);
+    }
+}
+
+@container (max-width: 59px) {
+    [data-modulemenu-level="1"] + [data-modulemenu-level="1"]:before {
+        display: block;
+        content: '';
+        height: 1px;
+        width: 100%;
+        margin-bottom: var(--modulemenu-group-spacer);
+        background-color: color-mix(in srgb, currentColor, transparent 85%);
     }
 }
 
@@ -37,6 +64,7 @@
 // Action
 //
 .modulemenu-action {
+    position: relative;
     container-type: inline-size;
     display: flex;
     min-width: var(--modulemenu-action-min-width);
@@ -64,9 +92,9 @@
 
     &:hover,
     &:focus-visible {
-        --modulemenu-action-color-state: var(--typo3-state-default-hover-color);
-        --modulemenu-action-bg-state: var(--typo3-state-default-hover-bg);
-        --modulemenu-action-border-color-state: var(--typo3-state-default-hover-border-color);
+        --modulemenu-action-color-state: var(--modulemenu-action-hover-color);
+        --modulemenu-action-bg-state: var(--modulemenu-action-hover-bg);
+        --modulemenu-action-border-color-state: var(--modulemenu-action-hover-border-color);
     }
 
     &:focus-visible {
@@ -74,9 +102,9 @@
     }
 
     &.modulemenu-action-active:not(:has(~ ul.collapse.show)) {
-        --modulemenu-action-color-state: var(--typo3-state-default-focus-color);
-        --modulemenu-action-bg-state: var(--typo3-state-default-focus-bg);
-        --modulemenu-action-border-color-state: var(--typo3-state-default-focus-border-color);
+        --modulemenu-action-color-state: var(--modulemenu-action-active-color);
+        --modulemenu-action-bg-state: var(--modulemenu-action-active-bg);
+        --modulemenu-action-border-color-state: var(--modulemenu-action-active-border-color);
     }
 }
 
@@ -100,7 +128,7 @@
 //
 .modulemenu-name {
     flex-grow: 1;
-    margin-inline-start: 1em;
+    margin-inline-start: .5rem;
     text-overflow: ellipsis;
     position: absolute;
     width: 1px;
@@ -114,8 +142,6 @@
 @container (min-width: 60px) {
     .modulemenu-name {
         position: static;
-        margin: 0;
-        margin-inline-start: 1em;
         width: auto;
         height: auto;
     }
@@ -124,7 +150,7 @@
 //
 // Indicator
 //
-.modulemenu-group > button:not(:disabled) {
+.modulemenu-group > button:not([disabled]) {
     .modulemenu-indicator {
         display: none;
         position: relative;
@@ -158,6 +184,21 @@
     }
 }
 
+@container (max-width: 59px) {
+    .modulemenu-indicator {
+        user-select: none;
+        display: block !important;
+        color: var(--modulemenu-action-collapsed-indicator-color) !important;
+        background-color: var(--modulemenu-action-collapsed-indicator-bg) !important;
+        border-radius: 50%;
+        inset-inline-end: 3px;
+        bottom: 3px;
+        margin: 0 !important;
+        position: absolute !important;
+        outline: 2px solid var(--modulemenu-action-bg-state, var(--modulemenu-bg));
+    }
+}
+
 @container (min-width: 60px) {
     .modulemenu-indicator {
         display: block !important;
@@ -168,11 +209,30 @@
 // Group
 //
 .modulemenu-group-container {
+    position: relative;
+    container-type: inline-size;
     display: grid;
-    gap: 1px;
+    gap: var(--modulemenu-spacer);
     list-style: none;
     padding: 0;
     margin: 0;
+}
+
+@container (min-width: 80px) {
+    .modulemenu-group-container .modulemenu-group-container {
+        padding-inline-start: var(--modulemenu-group-indent);
+
+        &:before {
+            content: '';
+            display: block;
+            position: absolute;
+            background-color: color-mix(in srgb, currentColor, transparent 80%);
+            top: 0;
+            bottom: 0;
+            inset-inline-start: var(--modulemenu-group-line-indent);
+            width: 1px;
+        }
+    }
 }
 
 .modulemenu-group-spacer {
@@ -182,10 +242,10 @@
 
 .modulemenu-group {
     display: grid;
-    gap: 1px;
+    gap: var(--modulemenu-spacer);
 }
 
-button[aria-expanded="true"]:not(:disabled) {
+button[aria-expanded="true"]:not([disabled]) {
     .modulemenu-indicator {
         &:before {
             transform: rotate(-45deg);

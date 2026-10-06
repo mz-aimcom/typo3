@@ -20,23 +20,31 @@ namespace TYPO3\CMS\Backend\Controller;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use TYPO3\CMS\Backend\Attribute\AsController;
+use TYPO3\CMS\Backend\Breadcrumb\BreadcrumbContext;
 use TYPO3\CMS\Backend\Configuration\SiteTcaConfiguration;
+use TYPO3\CMS\Backend\Dto\Breadcrumb\BreadcrumbNode;
+use TYPO3\CMS\Backend\Dto\Settings\EditableSetting;
 use TYPO3\CMS\Backend\Exception\SiteValidationErrorException;
 use TYPO3\CMS\Backend\Form\FormDataCompiler;
 use TYPO3\CMS\Backend\Form\FormDataGroup\SiteConfigurationDataGroup;
-use TYPO3\CMS\Backend\Form\FormResultCompiler;
+use TYPO3\CMS\Backend\Form\FormResultFactory;
+use TYPO3\CMS\Backend\Form\FormResultHandler;
 use TYPO3\CMS\Backend\Form\NodeFactory;
 use TYPO3\CMS\Backend\Routing\UriBuilder;
 use TYPO3\CMS\Backend\Template\Components\ButtonBar;
+use TYPO3\CMS\Backend\Template\Components\ComponentFactory;
+use TYPO3\CMS\Backend\Template\Enum\ModuleLayout;
 use TYPO3\CMS\Backend\Template\ModuleTemplate;
 use TYPO3\CMS\Backend\Template\ModuleTemplateFactory;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
+use TYPO3\CMS\Backend\View\SetupModuleViewMode;
 use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Configuration\Exception\SiteConfigurationWriteException;
+use TYPO3\CMS\Core\Configuration\Processor\Placeholder\EnvPlaceholderProcessor;
 use TYPO3\CMS\Core\Configuration\SiteConfiguration;
 use TYPO3\CMS\Core\Configuration\SiteWriter;
 use TYPO3\CMS\Core\Database\ConnectionPool;
-use TYPO3\CMS\Core\Database\Query\Restriction\HiddenRestriction;
+use TYPO3\CMS\Core\Database\Query\Restriction\DeletedRestriction;
 use TYPO3\CMS\Core\Database\Query\Restriction\WorkspaceRestriction;
 use TYPO3\CMS\Core\Domain\Repository\PageRepository;
 use TYPO3\CMS\Core\Http\RedirectResponse;
@@ -45,10 +53,15 @@ use TYPO3\CMS\Core\Imaging\IconSize;
 use TYPO3\CMS\Core\Localization\LanguageService;
 use TYPO3\CMS\Core\Messaging\FlashMessage;
 use TYPO3\CMS\Core\Messaging\FlashMessageService;
-use TYPO3\CMS\Core\Page\PageRenderer;
+use TYPO3\CMS\Core\Schema\TcaSchemaBuilder;
+use TYPO3\CMS\Core\Settings\Category;
+use TYPO3\CMS\Core\Settings\SettingDefinition;
+use TYPO3\CMS\Core\Settings\SettingsTypeRegistry;
 use TYPO3\CMS\Core\Site\Entity\Site;
+use TYPO3\CMS\Core\Site\Set\CategoryRegistry;
 use TYPO3\CMS\Core\Site\Set\SetRegistry;
 use TYPO3\CMS\Core\Site\SiteFinder;
+use TYPO3\CMS\Core\Site\SiteSettingsService;
 use TYPO3\CMS\Core\SysLog\Action\Site as SiteAction;
 use TYPO3\CMS\Core\SysLog\Error as SystemLogErrorClassification;
 use TYPO3\CMS\Core\SysLog\Type;
@@ -58,25 +71,35 @@ use TYPO3\CMS\Core\Utility\MathUtility;
 use TYPO3\CMS\Core\Utility\StringUtility;
 
 /**
- * Backend controller: The "Site management" -> "Sites" module
- * List all site root pages, CRUD site configuration.
+ * Setup module main controller implementing the two main views 'overview' with 'list'
+ * and 'tiles', a details view, the edit view and save action.
  *
  * @internal This class is a specific Backend controller implementation and is not considered part of the Public TYPO3 API.
  */
 #[AsController]
-class SiteConfigurationController
+readonly class SiteConfigurationController
 {
     public function __construct(
-        protected readonly SiteFinder $siteFinder,
-        protected readonly IconFactory $iconFactory,
-        protected readonly UriBuilder $uriBuilder,
-        protected readonly ModuleTemplateFactory $moduleTemplateFactory,
-        private readonly FormDataCompiler $formDataCompiler,
-        private readonly PageRenderer $pageRenderer,
-        private readonly SiteConfiguration $siteConfiguration,
-        private readonly SiteWriter $siteWriter,
-        private readonly NodeFactory $nodeFactory,
-        private readonly SetRegistry $setRegistry,
+        protected ComponentFactory $componentFactory,
+        protected SiteFinder $siteFinder,
+        protected IconFactory $iconFactory,
+        protected UriBuilder $uriBuilder,
+        protected ModuleTemplateFactory $moduleTemplateFactory,
+        private FormDataCompiler $formDataCompiler,
+        private FormResultFactory $formResultFactory,
+        private FormResultHandler $formResultHandler,
+        private SiteConfiguration $siteConfiguration,
+        private SiteWriter $siteWriter,
+        private NodeFactory $nodeFactory,
+        private SetRegistry $setRegistry,
+        private CategoryRegistry $categoryRegistry,
+        private SettingsTypeRegistry $settingsTypeRegistry,
+        private SiteSettingsService $siteSettingsService,
+        private FlashMessageService $flashMessageService,
+        private ConnectionPool $connectionPool,
+        private TcaSchemaBuilder $tcaSchemaBuilder,
+        private EnvPlaceholderProcessor $envPlaceholderProcessor,
+        private SiteTcaConfiguration $siteTcaConfiguration,
     ) {}
 
     /**
@@ -85,6 +108,10 @@ class SiteConfigurationController
      */
     public function overviewAction(ServerRequestInterface $request): ResponseInterface
     {
+        $moduleData = $request->getAttribute('moduleData');
+        $viewMode = SetupModuleViewMode::tryFrom($moduleData->get('viewMode') ?? '') ?? SetupModuleViewMode::TILES;
+        $moduleData->set('viewMode', $viewMode->value);
+
         // forcing uncached sites will re-initialize `SiteFinder`
         // which is used later by FormEngine (implicit behavior)
         $allSites = $this->siteFinder->getAllSites(false);
@@ -107,19 +134,90 @@ class SiteConfigurationController
             }
         }
 
+        $rootPagesWithSiteConfiguration = [];
+        $rootPagesWithoutSiteConfiguration = [];
+        foreach ($pages as $page) {
+            if (!isset($page['siteConfiguration'])) {
+                $rootPagesWithoutSiteConfiguration[] = $page;
+            } else {
+                $rootPagesWithSiteConfiguration[] = $page;
+            }
+        }
+
         $view = $this->moduleTemplateFactory->create($request);
-        $this->configureOverViewDocHeader($view, $request->getAttribute('normalizedParams')->getRequestUri());
-        $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_module.xlf:mlang_tabs_tab')
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'site_configuration',
+            $this->getLanguageService()->translate('short_description', 'backend.modules.site_configuration')
         );
+        $this->addDocHeaderViewModeButton($view, $viewMode);
+        $view->setTitle($this->getLanguageService()->translate('title', 'backend.modules.site_configuration'));
+        $view->setLayout(ModuleLayout::NORMAL);
         $view->assignMultiple([
             'pages' => $pages,
+            'viewMode' => $viewMode,
             'unassignedSites' => $unassignedSites,
             'duplicatedRootPages' => $duplicatedRootPages,
             'duplicatedEntryPoints' => $this->getDuplicatedEntryPoints($allSites, $pages),
             'invalidSets' => $this->setRegistry->getInvalidSets(),
+            'rootPagesWithSiteConfiguration' => $rootPagesWithSiteConfiguration,
+            'rootPagesWithoutSiteConfiguration' => $rootPagesWithoutSiteConfiguration,
         ]);
+
         return $view->renderResponse('SiteConfiguration/Overview');
+    }
+
+    /**
+     * This lists all information about a site:
+     * - URLs
+     * - Languages + Translation Strategy
+     */
+    public function detailAction(ServerRequestInterface $request): ResponseInterface
+    {
+        $siteIdentifier = $request->getQueryParams()['site'] ?? null;
+        if (empty($siteIdentifier)) {
+            throw new \RuntimeException('Site identifier to show details must be set', 1763919655);
+        }
+        $site = $this->siteFinder->getSiteByIdentifier($siteIdentifier);
+        $pageRecord = BackendUtility::getRecord('pages', $site->getRootPageId()) ?? [];
+
+        $settings = $this->siteSettingsService->getUncachedSettings($site);
+        $setSettings = $this->siteSettingsService->getSetSettings($site);
+
+        $categoryEnhancer = function (Category $category) use (&$categoryEnhancer, $settings, $setSettings): Category {
+            return new Category(...[
+                ...get_object_vars($category),
+                'label' => $this->getLanguageService()->sL($category->label),
+                'description' => $category->description !== null ? $this->getLanguageService()->sL($category->description) : $category->description,
+                'categories' => array_map($categoryEnhancer, $category->categories),
+                'settings' => array_map(
+                    fn(SettingDefinition $definition): EditableSetting => new EditableSetting(
+                        definition: $this->resolveSettingLabels($definition),
+                        value: $settings->get($definition->key),
+                        systemDefault: $setSettings->get($definition->key),
+                        typeImplementation: $this->settingsTypeRegistry->get($definition->type)->getJavaScriptModule(),
+                    ),
+                    $category->settings
+                ),
+            ]);
+        };
+
+        $categories = array_map($categoryEnhancer, $this->categoryRegistry->getCategories(...$site->getSets()));
+
+        $view = $this->moduleTemplateFactory->create($request);
+        $this->configureDetailViewDocHeader($view, $siteIdentifier, $request);
+        $this->addDocHeaderBreadcrumb($view, $pageRecord, null, null);
+        $view->setTitle(
+            $this->getLanguageService()->translate('title', 'backend.modules.site_settings')
+        );
+        $view->setLayout(ModuleLayout::NORMAL);
+        $view->assignMultiple([
+            'site' => $site,
+            'page' => $pageRecord,
+            'categories' => $categories,
+            'localSettings' => $this->siteSettingsService->getLocalSettings($site),
+        ]);
+        // @todo: Find CSP information (if active etc)
+        return $view->renderResponse('SiteConfiguration/Detail');
     }
 
     /**
@@ -133,12 +231,9 @@ class SiteConfigurationController
         // which is used later by FormEngine (implicit behavior)
         $allSites = $this->siteFinder->getAllSites(false);
 
-        // Put site and friends TCA into global TCA
-        // @todo: We might be able to get rid of that later
-        $GLOBALS['TCA'] = array_merge($GLOBALS['TCA'], GeneralUtility::makeInstance(SiteTcaConfiguration::class)->getTca());
-
-        $siteIdentifier = $request->getQueryParams()['site'] ?? null;
+        $fullTca = array_merge($GLOBALS['TCA'], $this->siteTcaConfiguration->getTca());
         $pageUid = (int)($request->getQueryParams()['pageUid'] ?? 0);
+        $siteIdentifier = $request->getQueryParams()['site'] ?? null;
 
         if (empty($siteIdentifier) && empty($pageUid)) {
             throw new \RuntimeException('Either site identifier to edit a config or page uid to add new config must be set', 1521561148);
@@ -148,51 +243,59 @@ class SiteConfigurationController
         $defaultValues = [];
         if ($isNewConfig) {
             $defaultValues['site']['rootPageId'] = $pageUid;
+            $pageRecord = BackendUtility::getRecord('pages', $pageUid) ?? [];
+        } else {
+            $site = $this->siteFinder->getSiteByIdentifier($siteIdentifier);
+            $pageRecord = BackendUtility::getRecord('pages', $site->getRootPageId()) ?? [];
         }
 
         if (!$isNewConfig && !isset($allSites[$siteIdentifier])) {
             throw new \RuntimeException('Existing config for site ' . $siteIdentifier . ' not found', 1521561226);
         }
 
-        $returnUrl = GeneralUtility::sanitizeLocalUrl(
-            (string)($request->getQueryParams()['returnUrl'] ?? '')
-        ) ?: $this->uriBuilder->buildUriFromRoute('site_configuration');
+        $returnUrl = $this->resolveReturnUrl($request);
 
         $formDataCompilerInput = [
             'request' => $request,
             'tableName' => 'site',
             'vanillaUid' => $isNewConfig ? $pageUid : $allSites[$siteIdentifier]->getRootPageId(),
             'command' => $isNewConfig ? 'new' : 'edit',
-            'returnUrl' => (string)$returnUrl,
+            'returnUrl' => $returnUrl,
             'customData' => [
                 'siteIdentifier' => $isNewConfig ? '' : $siteIdentifier,
             ],
             'defaultValues' => $defaultValues,
+            'tcaSchemata' => $this->tcaSchemaBuilder->buildFromStructure($fullTca),
+            'fullTca' => $fullTca,
         ];
         $formData = $this->formDataCompiler->compile($formDataCompilerInput, GeneralUtility::makeInstance(SiteConfigurationDataGroup::class));
-        $formData['renderType'] = 'outerWrapContainer';
+        $formData['renderType'] = 'formWrapContainer';
         $formResult = $this->nodeFactory->create($formData)->render();
-        // Needed to be set for 'onChange="reload"' and reload on type change to work
-        $formResult['doSaveFieldName'] = 'doSave';
-        $formResultCompiler = GeneralUtility::makeInstance(FormResultCompiler::class);
-        $formResultCompiler->mergeResult($formResult);
-        $formResultCompiler->addCssFiles();
+        $languageService = $this->getLanguageService();
+        $documentTitle = $this->resolveDocumentTitle($languageService, $isNewConfig, $siteIdentifier);
+        $formResult['html'] = '<h1>' . htmlspecialchars($documentTitle) . '</h1>' . $formResult['html'];
+        $formResult = $this->formResultFactory->create($formResult);
+        $this->formResultHandler->addAssets($formResult);
 
         $view = $this->moduleTemplateFactory->create($request);
         $view->assignMultiple([
             // Always add rootPageId as additional field to have a reference for new records
             'rootPageId' => $isNewConfig ? $pageUid : $allSites[$siteIdentifier]->getRootPageId(),
             'returnUrl' => $returnUrl,
-            'formEngineHtml' => $formResult['html'],
-            'formEngineFooter' => $formResultCompiler->printNeededJSFunctions(),
+            'formEngineHtml' => $formResult->html,
         ]);
-
-        $this->pageRenderer->getJavaScriptRenderer()->includeTaggedImports('backend.form');
-        $this->configureEditViewDocHeader($view, $siteIdentifier);
-        $view->setTitle(
-            $this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_module.xlf:mlang_tabs_tab'),
-            $siteIdentifier ?? ''
+        $this->configureEditViewDocHeader($view, $siteIdentifier, $documentTitle);
+        $this->addDocHeaderBreadcrumb(
+            $view,
+            $pageRecord,
+            $isNewConfig ? null : $siteIdentifier,
+            $this->getLanguageService()->sL(
+                $isNewConfig ? 'backend.siteconfiguration:edit.createNewSite' : 'backend.siteconfiguration:edit.typeLabel'
+            ),
+            $isNewConfig ? 'actions-plus' : 'actions-open'
         );
+        $view->setTitle($documentTitle);
+        $view->setLayout(ModuleLayout::NORMAL);
         return $view->renderResponse('SiteConfiguration/Edit');
     }
 
@@ -211,24 +314,14 @@ class SiteConfigurationController
             $mappingRootPageToSite[$site->getRootPageId()] = $site;
         }
 
-        // Put site and friends TCA into global TCA
-        // @todo We might be able to get rid of that later
-        $GLOBALS['TCA'] = array_merge($GLOBALS['TCA'], GeneralUtility::makeInstance(SiteTcaConfiguration::class)->getTca());
-
-        $siteTca = GeneralUtility::makeInstance(SiteTcaConfiguration::class)->getTca();
-
-        $queryParams = $request->getQueryParams();
         $parsedBody = $request->getParsedBody();
-
-        $returnUrl = GeneralUtility::sanitizeLocalUrl(
-            (string)($parsedBody['returnUrl'] ?? $queryParams['returnUrl'] ?? '')
-        ) ?: $this->uriBuilder->buildUriFromRoute('site_configuration');
+        $returnUrl = $this->resolveReturnUrl($request);
 
         if (isset($parsedBody['closeDoc']) && (int)$parsedBody['closeDoc'] === 1) {
             // Closing means no save, just redirect to overview
             return new RedirectResponse($returnUrl);
         }
-        $isSave = $parsedBody['_savedok'] ?? $parsedBody['doSave'] ?? false;
+        $isSave = $parsedBody['_savedok'] ?? false;
         $isSaveClose = $parsedBody['_saveandclosedok'] ?? false;
         if (!$isSave && !$isSaveClose) {
             throw new \RuntimeException('Either save or save and close', 1520370364);
@@ -240,7 +333,12 @@ class SiteConfigurationController
 
         $data = $parsedBody['data'];
         // This can be NEW123 for new records
-        $pageId = (int)key($data['site']);
+        $unprocessedPageId = key($data['site']);
+        $isRootPageIdPlaceholder = $this->envPlaceholderProcessor->canProcess((string)$unprocessedPageId);
+        $pageId = $isRootPageIdPlaceholder
+            ? (int)$this->envPlaceholderProcessor->process($unprocessedPageId)
+            : (int)$unprocessedPageId;
+
         $sysSiteRow = current($data['site']);
         $siteIdentifier = $sysSiteRow['identifier'] ?? '';
 
@@ -260,14 +358,15 @@ class SiteConfigurationController
             }
         }
 
+        $siteTca = $this->siteTcaConfiguration->getTca();
         // Validate site identifier and do not store or further process it
-        $siteIdentifier = $this->validateAndProcessIdentifier($isNewConfiguration, $siteIdentifier, $pageId, $allSites, $mappingRootPageToSite);
+        $siteIdentifier = $this->validateAndProcessIdentifier($isNewConfiguration, $siteIdentifier, $pageId, $allSites, $mappingRootPageToSite, $siteTca);
         unset($sysSiteRow['identifier']);
 
         try {
             $newSysSiteData = [];
             // Hard set rootPageId: This is TCA readOnly and not transmitted by FormEngine, but is also the "uid" of the site record
-            $newSysSiteData['rootPageId'] = $pageId;
+            $newSysSiteData['rootPageId'] = $isRootPageIdPlaceholder ? $unprocessedPageId : $pageId;
             foreach ($sysSiteRow as $fieldName => $fieldValue) {
                 $type = $siteTca['site']['columns'][$fieldName]['config']['type'];
                 $renderType = $siteTca['site']['columns'][$fieldName]['config']['renderType'] ?? '';
@@ -279,7 +378,7 @@ class SiteConfigurationController
                     case 'datetime':
                     case 'color':
                     case 'text':
-                        $fieldValue = $this->validateAndProcessValue('site', $fieldName, $fieldValue);
+                        $fieldValue = $this->validateAndProcessValue('site', $fieldName, $fieldValue, $siteTca);
                         $newSysSiteData[$fieldName] = $fieldValue;
                         break;
 
@@ -432,16 +531,18 @@ class SiteConfigurationController
                     $this->getBackendUser()->writelog(Type::SITE, SiteAction::UPDATE, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was updated.', [$siteIdentifier], 'site');
                 }
             } catch (SiteConfigurationWriteException $e) {
-                $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
-                $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-                $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+                $flashMessage = new FlashMessage($e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
+                $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
                 $defaultFlashMessageQueue->enqueue($flashMessage);
             }
         } catch (SiteValidationErrorException $e) {
             // Do not store new config if a validation error is thrown, but redirect only to show a generated flash message
         }
 
-        $saveRoute = $this->uriBuilder->buildUriFromRoute('site_configuration.edit', ['site' => $siteIdentifier]);
+        $saveRoute = $this->uriBuilder->buildUriFromRoute('site_configuration.edit', [
+            'site' => $siteIdentifier,
+            'returnUrl' => $returnUrl,
+        ]);
         if ($isSaveClose) {
             return new RedirectResponse($returnUrl);
         }
@@ -456,13 +557,14 @@ class SiteConfigurationController
      * @param int $rootPageId Page uid this identifier is bound to
      * @param array<non-empty-string, Site> $allSites All sites loaded without `settings.yaml`.
      * @param array<int, Site> $mappingRootPageToSite Identifier site mapping as lookup. Not loaded `settings.yaml`.
+     * @param array $siteTca TCA for site
      * @return mixed Verified / modified value
      */
-    protected function validateAndProcessIdentifier(bool $isNew, string $identifier, int $rootPageId, array $allSites, array $mappingRootPageToSite)
+    protected function validateAndProcessIdentifier(bool $isNew, string $identifier, int $rootPageId, array $allSites, array $mappingRootPageToSite, array $siteTca)
     {
         $languageService = $this->getLanguageService();
         // Normal "eval" processing of field first
-        $identifier = $this->validateAndProcessValue('site', 'identifier', $identifier);
+        $identifier = $this->validateAndProcessValue('site', 'identifier', $identifier, $siteTca);
         if ($isNew) {
             // Verify no other site with this identifier exists. If so, find a new unique name as
             // identifier and show a flash message the identifier has been adapted
@@ -476,9 +578,8 @@ class SiteConfigurationController
                     $identifier
                 );
                 $messageTitle = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.identifierRenamed.title');
-                $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
-                $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-                $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+                $flashMessage = new FlashMessage($message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
+                $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
                 $defaultFlashMessageQueue->enqueue($flashMessage);
             }
         } else {
@@ -500,9 +601,8 @@ class SiteConfigurationController
                     $identifier
                 );
                 $messageTitle = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.identifierExists.title');
-                $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
-                $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-                $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+                $flashMessage = new FlashMessage($message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
+                $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
                 $defaultFlashMessageQueue->enqueue($flashMessage);
             }
         }
@@ -517,14 +617,15 @@ class SiteConfigurationController
      * @param string $tableName Table name
      * @param string $fieldName Field name
      * @param mixed $fieldValue Incoming value from FormEngine
+     * @param array $siteTca TCA for site
      * @return mixed Verified / modified value
      * @throws SiteValidationErrorException
      * @throws \RuntimeException
      */
-    protected function validateAndProcessValue(string $tableName, string $fieldName, $fieldValue)
+    protected function validateAndProcessValue(string $tableName, string $fieldName, $fieldValue, array $siteTca)
     {
         $languageService = $this->getLanguageService();
-        $fieldConfig = $GLOBALS['TCA'][$tableName]['columns'][$fieldName]['config'];
+        $fieldConfig = $siteTca[$tableName]['columns'][$fieldName]['config'];
         $handledEvals = [];
 
         if (!$this->validateValueForRequired($fieldConfig, $fieldValue)) {
@@ -535,9 +636,8 @@ class SiteConfigurationController
                 $fieldName
             );
             $messageTitle = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.required.title');
-            $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
-            $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-            $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+            $flashMessage = new FlashMessage($message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
+            $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
             throw new SiteValidationErrorException(
                 'Field ' . $fieldName . ' is set to required, but received empty.',
@@ -607,9 +707,8 @@ class SiteConfigurationController
                         $child['errorCode']
                     );
                     $messageTitle = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.duplicateErrorCode.title');
-                    $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
-                    $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-                    $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+                    $flashMessage = new FlashMessage($message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
+                    $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
                     $defaultFlashMessageQueue->enqueue($flashMessage);
                 }
             }
@@ -635,13 +734,12 @@ class SiteConfigurationController
                 $validChildren[] = $child;
             } else {
                 $message = sprintf(
-                    $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.duplicateLanguageId.title'),
+                    $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.duplicateLanguageId.message'),
                     $child['languageId']
                 );
                 $messageTitle = $languageService->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:validation.duplicateLanguageId.title');
-                $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
-                $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-                $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+                $flashMessage = new FlashMessage($message, $messageTitle, ContextualFeedbackSeverity::WARNING, true);
+                $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
                 $defaultFlashMessageQueue->enqueue($flashMessage);
             }
         }
@@ -676,9 +774,8 @@ class SiteConfigurationController
             $this->siteWriter->delete($siteIdentifier);
             $this->getBackendUser()->writelog(Type::SITE, SiteAction::DELETE, SystemLogErrorClassification::MESSAGE, null, 'Site configuration \'%s\' was deleted.', [$siteIdentifier], 'site');
         } catch (SiteConfigurationWriteException $e) {
-            $flashMessage = GeneralUtility::makeInstance(FlashMessage::class, $e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
-            $flashMessageService = GeneralUtility::makeInstance(FlashMessageService::class);
-            $defaultFlashMessageQueue = $flashMessageService->getMessageQueueByIdentifier();
+            $flashMessage = new FlashMessage($e->getMessage(), '', ContextualFeedbackSeverity::WARNING, true);
+            $defaultFlashMessageQueue = $this->flashMessageService->getMessageQueueByIdentifier();
             $defaultFlashMessageQueue->enqueue($flashMessage);
         }
         $overviewRoute = $this->uriBuilder->buildUriFromRoute('site_configuration');
@@ -686,57 +783,174 @@ class SiteConfigurationController
     }
 
     /**
-     * Create document header buttons of "edit" action
+     * Builds the breadcrumb for the views of a single site: the module, the site's root page and
+     * the current step below it.
+     *
+     * The site configuration module is not navigated via the page tree, so the root page is not
+     * part of a rootline here - it stands for the site itself and is the label the detail view
+     * carries as its headline. That makes the detail view the entry point for a single site, and
+     * every step below it links back to it. Passing no site identifier leaves the node unlinked,
+     * which is what the detail view itself and the "create new site" form need.
+     *
+     * The current step carries the same icon as the button leading to it in the site overview.
+     *
+     * @param array<string, mixed> $pageRecord Root page of the site, empty for a new site
      */
-    protected function configureEditViewDocHeader(ModuleTemplate $view, ?string $siteIdentifier): void
+    protected function addDocHeaderBreadcrumb(ModuleTemplate $view, array $pageRecord, ?string $siteIdentifier, ?string $currentStepLabel, ?string $currentStepIcon = null): void
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $lang = $this->getLanguageService();
-        $closeButton = $buttonBar->makeLinkButton()
-            ->setHref('#')
-            ->setClasses('t3js-editform-close')
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.closeDoc'))
-            ->setShowLabelText(true)
-            ->setIcon($this->iconFactory->getIcon('actions-close', IconSize::SMALL));
-        $saveButton = $buttonBar->makeInputButton()
-            ->setTitle($lang->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:rm.saveDoc'))
-            ->setName('_savedok')
-            ->setValue('1')
-            ->setShowLabelText(true)
-            ->setForm('siteConfigurationController')
-            ->setIcon($this->iconFactory->getIcon('actions-document-save', IconSize::SMALL));
-        $buttonBar->addButton($closeButton);
-        $buttonBar->addButton($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+        $nodes = [];
+        if ($pageRecord !== []) {
+            $nodes[] = new BreadcrumbNode(
+                identifier: 'site-root-page-' . ($pageRecord['uid'] ?? 0),
+                label: BackendUtility::getRecordTitle('pages', $pageRecord),
+                icon: $this->iconFactory->getIconForRecord('pages', $pageRecord, IconSize::SMALL)->getIdentifier(),
+                url: $siteIdentifier !== null
+                    ? (string)$this->uriBuilder->buildUriFromRoute('site_configuration.detail', ['site' => $siteIdentifier])
+                    : null,
+            );
+        }
+        if ($currentStepLabel !== null) {
+            $nodes[] = new BreadcrumbNode(
+                identifier: 'site-configuration-step',
+                label: $currentStepLabel,
+                icon: $currentStepIcon,
+            );
+        }
+        $view->getDocHeaderComponent()->setBreadcrumbContext(new BreadcrumbContext(null, $nodes));
+    }
+
+    /**
+     * Create document header buttons of "detail" action
+     */
+    protected function configureDetailViewDocHeader(ModuleTemplate $view, ?string $siteIdentifier, ServerRequestInterface $request): void
+    {
+        // Back button
+        if ($returnUrl = $this->resolveReturnUrl($request)) {
+            $view->addButtonToButtonBar($this->componentFactory->createBackButton($returnUrl));
+        }
+
         if ($siteIdentifier) {
-            $exportButton = $buttonBar->makeLinkButton()
-                ->setTitle($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:edit.editSiteSettings'))
+            // 'Edit site configuration' button
+            $editSiteConfigurationButton = $this->componentFactory->createLinkButton()
+                ->setTitle($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:edit.site_configuration'))
+                ->setIcon($this->iconFactory->getIcon('actions-open', IconSize::SMALL))
+                ->setShowLabelText(true)
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_configuration.edit', [
+                    'site' => $siteIdentifier,
+                    'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_configuration.detail', [
+                        'site' => $siteIdentifier,
+                    ]),
+                ]));
+            $view->addButtonToButtonBar($editSiteConfigurationButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
+
+            // 'Edit site settings' button
+            $editSiteSettingsButton = $this->componentFactory->createLinkButton()
+                ->setTitle($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:edit.editSiteSettings'))
                 ->setIcon($this->iconFactory->getIcon('actions-cog', IconSize::SMALL))
                 ->setShowLabelText(true)
-                ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_settings.edit', [
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_configuration.editSettings', [
+                    'site' => $siteIdentifier,
+                    'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_configuration.detail', [
+                        'site' => $siteIdentifier,
+                    ]),
+                ]));
+            $view->addButtonToButtonBar($editSiteSettingsButton, ButtonBar::BUTTON_POSITION_LEFT, 5);
+        }
+
+        // Set shortcut context - reload button is added automatically
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'site_configuration.detail',
+            sprintf($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:labels.detail'), $siteIdentifier),
+            ['site' => $siteIdentifier]
+        );
+    }
+
+    /**
+     * Create document header buttons of "edit" action
+     */
+    protected function configureEditViewDocHeader(ModuleTemplate $view, ?string $siteIdentifier, string $documentTitle = ''): void
+    {
+        $lang = $this->getLanguageService();
+        $closeButton = $this->componentFactory->createCloseButton('#')
+            ->setClasses('t3js-editform-close');
+        $saveButton = $this->componentFactory->createSaveButton('siteConfigurationController');
+        $view->addButtonToButtonBar($closeButton);
+        $view->addButtonToButtonBar($saveButton, ButtonBar::BUTTON_POSITION_LEFT, 2);
+        if ($siteIdentifier) {
+            $editSiteSettingsButton = $this->componentFactory->createLinkButton()
+                ->setTitle($lang->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration.xlf:edit.editSiteSettings'))
+                ->setIcon($this->iconFactory->getIcon('actions-open', IconSize::SMALL))
+                ->setShowLabelText(true)
+                ->setHref((string)$this->uriBuilder->buildUriFromRoute('site_configuration.editSettings', [
                     'site' => $siteIdentifier,
                     'returnUrl' => $this->uriBuilder->buildUriFromRoute('site_configuration.edit', [
                         'site' => $siteIdentifier,
                     ]),
                 ]));
-            $buttonBar->addButton($exportButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
+            $view->addButtonToButtonBar($editSiteSettingsButton, ButtonBar::BUTTON_POSITION_LEFT, 3);
         }
+        // Set shortcut context - reload button is added automatically
+        $view->getDocHeaderComponent()->setShortcutContext(
+            'site_configuration.edit',
+            $documentTitle,
+            ['site' => $siteIdentifier],
+        );
     }
 
     /**
-     * Create document header buttons of "overview" action
+     * Resolves the document title used for the browser tab and shortcut.
      */
-    protected function configureOverViewDocHeader(ModuleTemplate $view, string $requestUri): void
+    protected function resolveDocumentTitle(LanguageService $languageService, bool $isNewConfig, ?string $siteIdentifier): string
     {
-        $buttonBar = $view->getDocHeaderComponent()->getButtonBar();
-        $reloadButton = $buttonBar->makeLinkButton()
-            ->setHref($requestUri)
-            ->setTitle($this->getLanguageService()->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.reload'))
-            ->setIcon($this->iconFactory->getIcon('actions-refresh', IconSize::SMALL));
-        $buttonBar->addButton($reloadButton, ButtonBar::BUTTON_POSITION_RIGHT);
-        $shortcutButton = $buttonBar->makeShortcutButton()
-            ->setRouteIdentifier('site_configuration')
-            ->setDisplayName($this->getLanguageService()->sL('LLL:EXT:backend/Resources/Private/Language/locallang_siteconfiguration_module.xlf:mlang_labels_tablabel'));
-        $buttonBar->addButton($shortcutButton, ButtonBar::BUTTON_POSITION_RIGHT);
+        $typeLabel = $languageService->sL('backend.siteconfiguration:edit.typeLabel');
+        if ($isNewConfig) {
+            return $languageService->sL('backend.siteconfiguration:edit.createNewSite');
+        }
+        return implode(' · ', array_filter([$siteIdentifier, $typeLabel]));
+    }
+
+    /**
+     * View mode
+     */
+    protected function addDocHeaderViewModeButton(ModuleTemplate $moduleTemplate, SetupModuleViewMode $viewMode): void
+    {
+        $languageService = $this->getLanguageService();
+        $viewModeButton = $this->componentFactory->createDropDownButton()
+            ->setLabel($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view'))
+            ->setIcon($this->iconFactory->getIcon('actions-cog'))
+            ->setShowLabelText(true);
+
+        $viewModeButton->addItem(
+            $this->componentFactory->createDropDownRadio()
+            ->setActive(($viewMode === SetupModuleViewMode::TILES))
+            ->setHref(
+                (string)$this->uriBuilder->buildUriFromRoute(
+                    'site_configuration',
+                    [
+                        'viewMode' => SetupModuleViewMode::TILES->value,
+                    ]
+                )
+            )
+            ->setLabel($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.tiles'))
+            ->setIcon($this->iconFactory->getIcon('actions-viewmode-tiles', IconSize::SMALL))
+        );
+
+        $viewModeButton->addItem(
+            $this->componentFactory->createDropDownRadio()
+            ->setActive(($viewMode === SetupModuleViewMode::LIST))
+            ->setHref(
+                (string)$this->uriBuilder->buildUriFromRoute(
+                    'site_configuration',
+                    [
+                        'viewMode' => SetupModuleViewMode::LIST->value,
+                    ]
+                )
+            )
+            ->setLabel($languageService->sL('LLL:EXT:core/Resources/Private/Language/locallang_core.xlf:labels.view.list'))
+            ->setIcon($this->iconFactory->getIcon('actions-viewmode-list', IconSize::SMALL))
+        );
+
+        $moduleTemplate->addButtonToButtonBar($viewModeButton, ButtonBar::BUTTON_POSITION_RIGHT, 2);
     }
 
     /**
@@ -745,8 +959,9 @@ class SiteConfigurationController
      */
     protected function getAllSitePages(): array
     {
-        $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)->getQueryBuilderForTable('pages');
-        $queryBuilder->getRestrictions()->removeByType(HiddenRestriction::class);
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable('pages');
+        $queryBuilder->getRestrictions()->removeAll();
+        $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(DeletedRestriction::class));
         $queryBuilder->getRestrictions()->add(GeneralUtility::makeInstance(WorkspaceRestriction::class, 0));
         $statement = $queryBuilder
             ->select('*')
@@ -815,7 +1030,7 @@ class SiteConfigurationController
     protected function getLastLanguageId(): int
     {
         $lastLanguageId = 0;
-        foreach (GeneralUtility::makeInstance(SiteFinder::class)->getAllSites() as $site) {
+        foreach ($this->siteFinder->getAllSites() as $site) {
             foreach ($site->getAllLanguages() as $language) {
                 if ($language->getLanguageId() > $lastLanguageId) {
                     $lastLanguageId = $language->getLanguageId();
@@ -880,6 +1095,28 @@ class SiteConfigurationController
         }
 
         return $newSysSiteData;
+    }
+
+    private function resolveSettingLabels(SettingDefinition $definition): SettingDefinition
+    {
+        $languageService = $this->getLanguageService();
+        return new SettingDefinition(...[
+            ...get_object_vars($definition),
+            'label' => $languageService->sL($definition->label),
+            'description' => $definition->description !== null ? $languageService->sL($definition->description) : null,
+            'enum' => array_map(
+                static fn(string|int|float|bool $label): string => $languageService->sL((string)$label),
+                $definition->enum
+            ),
+        ]);
+    }
+
+    protected function resolveReturnUrl(ServerRequestInterface $request): string
+    {
+        return GeneralUtility::sanitizeLocalUrl(
+            (string)($request->getParsedBody()['returnUrl'] ?? $request->getQueryParams()['returnUrl'] ?? ''),
+            $request
+        ) ?: (string)$this->uriBuilder->buildUriFromRoute('site_configuration');
     }
 
     protected function getLanguageService(): LanguageService

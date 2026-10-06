@@ -1,0 +1,314 @@
+<?php
+
+declare(strict_types=1);
+
+/*
+ * This file is part of the TYPO3 CMS project.
+ *
+ * It is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License, either version 2
+ * of the License, or any later version.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE.txt file that was distributed with this source code.
+ *
+ * The TYPO3 project - inspiring people to share!
+ */
+
+namespace TYPO3\CMS\Form\Tests\Functional\Domain\Finishers;
+
+use PHPUnit\Framework\Attributes\Test;
+use TYPO3\CMS\Core\Context\Context;
+use TYPO3\CMS\Core\Context\DateTimeAspect;
+use TYPO3\CMS\Core\Core\SystemEnvironmentBuilder;
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\Platform\SQLitePlatform;
+use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Http\Uri;
+use TYPO3\CMS\Core\Site\Entity\SiteLanguage;
+use TYPO3\CMS\Core\TypoScript\AST\Node\RootNode;
+use TYPO3\CMS\Core\TypoScript\FrontendTypoScript;
+use TYPO3\CMS\Extbase\Configuration\ConfigurationManagerInterface as ExtbaseConfigurationManagerInterface;
+use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
+use TYPO3\CMS\Extbase\Mvc\Request;
+use TYPO3\CMS\Form\Domain\Factory\ArrayFormFactory;
+use TYPO3\CMS\Form\Domain\Finishers\FinisherContext;
+use TYPO3\CMS\Form\Domain\Finishers\SaveToDatabaseFinisher;
+use TYPO3\CMS\Form\Domain\Model\FormDefinition;
+use TYPO3\CMS\Form\Domain\Runtime\FormRuntime;
+use TYPO3\CMS\Form\Domain\Runtime\FormState;
+use TYPO3\CMS\Form\Service\FormValueResolver;
+use TYPO3\CMS\Form\Service\TranslationService;
+use TYPO3\CMS\Frontend\Authentication\FrontendUserAuthentication;
+use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
+
+final class SaveToDatabaseFinisherTest extends FunctionalTestCase
+{
+    protected array $coreExtensionsToLoad = ['form', 'sys_note'];
+
+    #[Test]
+    public function insertSetsCrdateAndTstampBasedOnTca(): void
+    {
+        $this->get(Context::class)->setAspect('date', new DateTimeAspect(new \DateTimeImmutable('@1710000000')));
+
+        $formRuntime = self::createStub(FormRuntime::class);
+        $formRuntime->method('getFormState')->willReturn(new FormState());
+        $formRuntime->method('getFormDefinition')->willReturn(new FormDefinition('form'));
+        $formRuntime->method('getRenderingOptions')->willReturn([
+            'translation' => ['translationFiles' => ['EXT:form/Resources/Private/Language/locallang.xlf']],
+        ]);
+        $finisherContext = new FinisherContext($formRuntime, self::createStub(Request::class));
+
+        $subject = new SaveToDatabaseFinisher();
+        $subject->setFinisherIdentifier('SaveToDatabase');
+        $subject->injectTranslationService($this->get(TranslationService::class));
+        $subject->setOptions([
+            'table' => 'sys_note',
+            'mode' => 'insert',
+            'databaseColumnMappings' => [
+                'pid' => ['value' => 1],
+                'subject' => ['value' => 'Form submission'],
+            ],
+        ]);
+
+        $subject->execute($finisherContext);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_note');
+        $row = $queryBuilder
+            ->select('crdate', 'tstamp')
+            ->from('sys_note')
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'subject',
+                    $queryBuilder->createNamedParameter('Form submission')
+                )
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        self::assertIsArray($row);
+        self::assertSame(1710000000, (int)$row['crdate']);
+        self::assertSame(1710000000, (int)$row['tstamp']);
+    }
+
+    #[Test]
+    public function updateSetsTstampButNotCrdate(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('sys_note')->insert(
+            'sys_note',
+            [
+                'pid' => 1,
+                'subject' => 'Original subject',
+                'crdate' => 1700000000,
+                'tstamp' => 1700000000,
+            ]
+        );
+        $uid = (int)$this->getConnectionPool()->getConnectionForTable('sys_note')->lastInsertId();
+
+        $this->get(Context::class)->setAspect('date', new DateTimeAspect(new \DateTimeImmutable('@1720000000')));
+
+        $formRuntime = self::createStub(FormRuntime::class);
+        $formRuntime->method('getFormState')->willReturn(new FormState());
+        $formRuntime->method('getFormDefinition')->willReturn(new FormDefinition('form'));
+        $formRuntime->method('getRenderingOptions')->willReturn([
+            'translation' => ['translationFiles' => ['EXT:form/Resources/Private/Language/locallang.xlf']],
+        ]);
+        $finisherContext = new FinisherContext($formRuntime, self::createStub(Request::class));
+
+        $subject = new SaveToDatabaseFinisher();
+        $subject->setFinisherIdentifier('SaveToDatabase');
+        $subject->injectTranslationService($this->get(TranslationService::class));
+        $subject->setOptions([
+            'table' => 'sys_note',
+            'mode' => 'update',
+            'whereClause' => [
+                'uid' => $uid,
+            ],
+            'databaseColumnMappings' => [
+                'subject' => ['value' => 'Updated subject'],
+            ],
+        ]);
+
+        $subject->execute($finisherContext);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_note');
+        $row = $queryBuilder
+            ->select('crdate', 'tstamp', 'subject')
+            ->from('sys_note')
+            ->where(
+                $queryBuilder->expr()->eq(
+                    'uid',
+                    $queryBuilder->createNamedParameter($uid, Connection::PARAM_INT)
+                )
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        self::assertIsArray($row);
+        self::assertSame('Updated subject', $row['subject']);
+        self::assertSame(1700000000, (int)$row['crdate']);
+        self::assertSame(1720000000, (int)$row['tstamp']);
+    }
+
+    #[Test]
+    public function insertIntoTableWithoutUidColumnCreatesRow(): void
+    {
+        // sys_category_record_mm has no auto-increment UID column; lastInsertId()
+        // throws in that case. The finisher must handle this gracefully and still
+        // write the row to the database.
+        $formRuntime = self::createStub(FormRuntime::class);
+        $formRuntime->method('getFormState')->willReturn(new FormState());
+        $formRuntime->method('getFormDefinition')->willReturn(new FormDefinition('form'));
+        $formRuntime->method('getRenderingOptions')->willReturn([
+            'translation' => ['translationFiles' => ['EXT:form/Resources/Private/Language/locallang.xlf']],
+        ]);
+        $finisherContext = new FinisherContext($formRuntime, self::createStub(Request::class));
+
+        $subject = new SaveToDatabaseFinisher();
+        $subject->setFinisherIdentifier('SaveToDatabase');
+        $subject->injectTranslationService($this->get(TranslationService::class));
+        $subject->setOptions([
+            'table' => 'sys_category_record_mm',
+            'mode' => 'insert',
+            'databaseColumnMappings' => [
+                'uid_local'   => ['value' => 47],
+                'uid_foreign' => ['value' => 11],
+            ],
+        ]);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_category_record_mm');
+        self::assertSame(0, (int)$queryBuilder->count('*')->from('sys_category_record_mm')->executeQuery()->fetchOne());
+
+        $subject->execute($finisherContext);
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_category_record_mm');
+        self::assertSame(1, (int)$queryBuilder->count('*')->from('sys_category_record_mm')->executeQuery()->fetchOne());
+
+        // These assertions only work for non-SQLite DBMSs since SQLite returns an unexpected value for lastInsertId
+        $databasePlatform = $this->getConnectionPool()->getConnectionForTable('sys_category_record_mm')->getDatabasePlatform();
+        if (!$databasePlatform instanceof SQLitePlatform) {
+            self::assertTrue($finisherContext->getFinisherVariableProvider()->exists('SaveToDatabase', 'insertedUids.0'));
+            self::assertSame(0, $finisherContext->getFinisherVariableProvider()->get('SaveToDatabase', 'insertedUids.0'));
+        }
+    }
+
+    #[Test]
+    public function bothMappingRoutesStoreTheSubmittedOptionKey(): void
+    {
+        $request = $this->buildExtbaseRequest();
+        $subject = $this->buildFinisher([
+            'table' => 'sys_category_record_mm',
+            'mode' => 'insert',
+            'elements' => [
+                'single-select' => ['mapOnDatabaseColumn' => 'fieldname'],
+            ],
+            'databaseColumnMappings' => [
+                'uid_local' => ['value' => 47],
+                'uid_foreign' => ['value' => 11],
+                'tablenames' => ['value' => '{single-select}'],
+            ],
+        ]);
+
+        $subject->execute(new FinisherContext($this->buildFormRuntime($request), $request));
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_category_record_mm');
+        $row = $queryBuilder->select('tablenames', 'fieldname')->from('sys_category_record_mm')->executeQuery()->fetchAssociative();
+        self::assertSame('mr', $row['fieldname']);
+        self::assertSame('mr', $row['tablenames']);
+    }
+
+    #[Test]
+    public function whereClauseMatchesTheSubmittedOptionKey(): void
+    {
+        $connection = $this->getConnectionPool()->getConnectionForTable('sys_category_record_mm');
+        $connection->insert('sys_category_record_mm', [
+            'uid_local' => 47,
+            'uid_foreign' => 11,
+            'tablenames' => 'mr',
+        ]);
+
+        $request = $this->buildExtbaseRequest();
+        $subject = $this->buildFinisher([
+            'table' => 'sys_category_record_mm',
+            'mode' => 'update',
+            'whereClause' => [
+                'tablenames' => '{single-select}',
+            ],
+            'databaseColumnMappings' => [
+                'uid_foreign' => ['value' => 99],
+            ],
+        ]);
+
+        $subject->execute(new FinisherContext($this->buildFormRuntime($request), $request));
+
+        $queryBuilder = $this->getConnectionPool()->getQueryBuilderForTable('sys_category_record_mm');
+        $row = $queryBuilder->select('uid_foreign')->from('sys_category_record_mm')->executeQuery()->fetchAssociative();
+        self::assertSame(99, (int)$row['uid_foreign']);
+    }
+
+    private function buildFinisher(array $options): SaveToDatabaseFinisher
+    {
+        $subject = new SaveToDatabaseFinisher();
+        $subject->setFinisherIdentifier('SaveToDatabase');
+        $subject->injectTranslationService($this->get(TranslationService::class));
+        $subject->injectFormValueResolver($this->get(FormValueResolver::class));
+        $subject->setOptions($options);
+        return $subject;
+    }
+
+    private function buildExtbaseRequest(): Request
+    {
+        $frontendTypoScript = new FrontendTypoScript(new RootNode(), [], [], []);
+        $frontendTypoScript->setSetupArray([]);
+        $this->get(ExtbaseConfigurationManagerInterface::class)->setRequest(
+            new ServerRequest()
+                ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+                ->withAttribute('frontend.typoscript', $frontendTypoScript)
+                ->withAttribute('language', new SiteLanguage(0, 'en_US.UTF-8', new Uri('/'), []))
+        );
+
+        $frontendUser = new FrontendUserAuthentication();
+        $frontendUser->initializeUserSessionManager();
+        $serverRequest = new ServerRequest()
+            ->withAttribute('extbase', new ExtbaseRequestParameters())
+            ->withAttribute('applicationType', SystemEnvironmentBuilder::REQUESTTYPE_FE)
+            ->withAttribute('frontend.user', $frontendUser)
+            ->withAttribute('language', new SiteLanguage(0, 'en_US.UTF-8', new Uri('/'), []));
+        $GLOBALS['TYPO3_REQUEST'] = $serverRequest;
+
+        return new Request($serverRequest)->withPluginName('Formframework');
+    }
+
+    private function buildFormRuntime(Request $request): FormRuntime
+    {
+        $formDefinition = $this->get(ArrayFormFactory::class)->build([
+            'type' => 'Form',
+            'identifier' => 'test-form',
+            'label' => 'Test form',
+            'prototypeName' => 'standard',
+            'renderables' => [
+                [
+                    'type' => 'Page',
+                    'identifier' => 'page-1',
+                    'label' => 'Page 1',
+                    'renderables' => [
+                        [
+                            'type' => 'SingleSelect',
+                            'identifier' => 'single-select',
+                            'label' => 'Single',
+                            'properties' => [
+                                'options' => [
+                                    'mr' => 'Mister',
+                                    'mrs' => 'Missis',
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ], null, new ServerRequest());
+        $formRuntime = $formDefinition->bind($request);
+        $formRuntime->getFormState()->setFormValue('single-select', 'mr');
+        return $formRuntime;
+    }
+}

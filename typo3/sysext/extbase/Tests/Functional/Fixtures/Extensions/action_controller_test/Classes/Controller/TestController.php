@@ -20,11 +20,12 @@ namespace TYPO3Tests\ActionControllerTest\Controller;
 use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Messaging\FlashMessageQueue;
 use TYPO3\CMS\Core\View\ViewInterface;
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Attribute as Extbase;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3\CMS\Extbase\Mvc\Controller\Arguments;
 use TYPO3\CMS\Extbase\Mvc\RequestInterface;
 use TYPO3\CMS\Extbase\Property\TypeConverter\PersistentObjectConverter;
+use TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller\Fixture\Validation\Validator\CustomValidator;
 use TYPO3Tests\ActionControllerTest\Domain\Model\Model;
 
 /**
@@ -40,11 +41,6 @@ class TestController extends ActionController
     public function getArguments(): Arguments
     {
         return $this->arguments;
-    }
-
-    public function renderAssetsForRequest($request): void
-    {
-        parent::renderAssetsForRequest($request);
     }
 
     public function initializeActionMethodArguments(): void
@@ -78,19 +74,17 @@ class TestController extends ActionController
         return $this->htmlResponse('');
     }
 
-    /**
-     * @Extbase\Validate("\TYPO3\CMS\Extbase\Tests\Functional\Mvc\Controller\Fixture\Validation\Validator\Custom", param="barParam")
-     */
-    public function barAction(string $barParam): ResponseInterface
-    {
+    public function barAction(
+        #[Extbase\Validate(validator: CustomValidator::class)]
+        string $barParam,
+    ): ResponseInterface {
         return $this->htmlResponse('');
     }
 
-    /**
-     * @Extbase\Validate("NotEmpty", param="bazParam")
-     */
-    public function bazAction(array $bazParam): ResponseInterface
-    {
+    public function bazAction(
+        #[Extbase\Validate(validator: 'NotEmpty')]
+        array $bazParam,
+    ): ResponseInterface {
         return $this->htmlResponse('');
     }
 
@@ -112,5 +106,40 @@ class TestController extends ActionController
     public function initializeActionMethodArgumentsTestActionThree($arg1): ResponseInterface
     {
         return $this->htmlResponse('');
+    }
+
+    public function initializeValidateModelAction(): void
+    {
+        $propertyMappingConfiguration = $this->arguments['model']->getPropertyMappingConfiguration();
+        $propertyMappingConfiguration->allowAllProperties();
+        $propertyMappingConfiguration->setTypeConverterOption(
+            PersistentObjectConverter::class,
+            PersistentObjectConverter::CONFIGURATION_CREATION_ALLOWED,
+            true
+        );
+    }
+
+    public function validateModelAction(
+        #[Extbase\Validate(validator: 'GenericObject')]
+        Model $model
+    ): ResponseInterface {
+        return $this->htmlResponse('success:' . $model->getValue());
+    }
+
+    public function initializeTestRateLimitAction(): void
+    {
+        $propertyMappingConfiguration = $this->arguments['model']->getPropertyMappingConfiguration();
+        $propertyMappingConfiguration->allowAllProperties();
+        $propertyMappingConfiguration->setTypeConverterOption(
+            PersistentObjectConverter::class,
+            PersistentObjectConverter::CONFIGURATION_CREATION_ALLOWED,
+            true
+        );
+    }
+
+    #[Extbase\RateLimit(limit: 2, interval: '10 minutes')]
+    public function testRateLimitAction(Model $model): ResponseInterface
+    {
+        return $this->htmlResponse('success:' . $model->getValue());
     }
 }

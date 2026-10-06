@@ -17,6 +17,7 @@ declare(strict_types=1);
 
 namespace TYPO3\CMS\Backend\Tests\Unit\Form\FormDataProvider;
 
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use TYPO3\CMS\Backend\Form\FormDataProvider\EvaluateDisplayConditions;
@@ -25,6 +26,7 @@ use TYPO3\CMS\Core\Authentication\BackendUserAuthentication;
 use TYPO3\CMS\Core\Utility\ArrayUtility;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
+#[BackupGlobals(true)]
 final class EvaluateDisplayConditionsTest extends UnitTestCase
 {
     #[Test]
@@ -47,7 +49,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481380393);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -67,7 +69,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481380393);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -85,7 +87,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481381058);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -103,7 +105,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481381950);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -121,7 +123,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481385695);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -139,7 +141,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481386239);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -157,7 +159,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1745918372);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -175,7 +177,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481401543);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -193,7 +195,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481401892);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -211,7 +213,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481456806);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -229,7 +231,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481457277);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -247,7 +249,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481457277);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -265,7 +267,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481384784);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -283,7 +285,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481384784);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -301,7 +303,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481384947);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -319,7 +321,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481385173);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -337,7 +339,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481467208);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -355,7 +357,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481383660);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -373,7 +375,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481383660);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -391,7 +393,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481383888);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -409,7 +411,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481384123);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -427,7 +429,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481469854);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -445,7 +447,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481382954);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -463,7 +465,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
                 ],
             ],
         ];
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -497,7 +499,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $expected = $input;
         unset($expected['processedTca']['columns']['field_1']['config']['ds']['sheets']['sDEF']['ROOT']['el']['foo']['displayCond']);
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 
     #[Test]
@@ -535,7 +537,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481483061);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -567,7 +569,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481485705);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -597,7 +599,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481488492);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -631,7 +633,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481492953);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -664,7 +666,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481496170);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     #[Test]
@@ -723,7 +725,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         ];
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionCode(1481634649);
-        (new EvaluateDisplayConditions())->addData($input);
+        new EvaluateDisplayConditions()->addData($input);
     }
 
     /**
@@ -3449,7 +3451,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
             'processedTca' => $processedTca,
         ];
         $expected = ArrayUtility::removeByPath($input, 'processedTca/' . $processedTcaFieldToBeRemovedPath);
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 
     /**
@@ -3721,7 +3723,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
             ],
         ];
 
-        $GLOBALS['BE_USER'] = $this->createMock(BackendUserAuthentication::class);
+        $GLOBALS['BE_USER'] = self::createStub(BackendUserAuthentication::class);
 
         $expected = $input;
         if ($expectedResult) {
@@ -3730,7 +3732,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         } else {
             unset($expected['processedTca']['columns']['testField']);
         }
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 
     /**
@@ -3763,7 +3765,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
             ];
         }
 
-        $GLOBALS['BE_USER'] = $this->createMock(BackendUserAuthentication::class);
+        $GLOBALS['BE_USER'] = self::createStub(BackendUserAuthentication::class);
 
         $expected = $input;
         if ($expectedResult) {
@@ -3772,7 +3774,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         } else {
             unset($expected['processedTca']['columns']['testField']);
         }
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 
     #[Test]
@@ -3799,7 +3801,7 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
         $expected = $input;
         unset($expected['processedTca']['columns']['aField']['displayCond']);
 
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 
     #[Test]
@@ -3825,6 +3827,6 @@ final class EvaluateDisplayConditionsTest extends UnitTestCase
 
         $expected = $input;
         unset($expected['processedTca']['columns']['aField']);
-        self::assertSame($expected, (new EvaluateDisplayConditions())->addData($input));
+        self::assertSame($expected, new EvaluateDisplayConditions()->addData($input));
     }
 }

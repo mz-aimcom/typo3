@@ -19,11 +19,12 @@ namespace TYPO3Tests\ActionControllerArgumentTest\Controller;
 
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
-use TYPO3\CMS\Extbase\Annotation as Extbase;
+use TYPO3\CMS\Extbase\Attribute as Extbase;
 use TYPO3\CMS\Extbase\Http\ForwardResponse;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 use TYPO3Tests\ActionControllerArgumentTest\Domain\Model\Model;
 use TYPO3Tests\ActionControllerArgumentTest\Domain\Model\ModelDto;
+use TYPO3Tests\ActionControllerArgumentTest\Domain\Validation\Validator\FailingValidator;
 
 /**
  * Fixture controller
@@ -62,7 +63,7 @@ class ArgumentTestController extends ActionController
 
     public function forwardAction(): ResponseInterface
     {
-        return (new ForwardResponse($this->forwardTargetAction))->withArguments($this->forwardTargetArguments);
+        return new ForwardResponse($this->forwardTargetAction)->withArguments($this->forwardTargetArguments);
     }
 
     public function inputPresetModelAction(Model $preset): ResponseInterface
@@ -85,22 +86,20 @@ class ArgumentTestController extends ActionController
         return $this->htmlResponse($this->view->render());
     }
 
-    /**
-     * @Extbase\Validate("TYPO3Tests\ActionControllerArgumentTest\Domain\Validation\Validator\Failing", param="model")
-     */
-    public function validateModelAction(Model $model): ResponseInterface
-    {
+    public function validateModelAction(
+        #[Extbase\Validate(validator: FailingValidator::class)]
+        Model $model,
+    ): ResponseInterface {
         $this->view->assignMultiple([
             'model' => $model,
         ]);
         return $this->htmlResponse($this->view->render());
     }
 
-    /**
-     * @Extbase\Validate("TYPO3Tests\ActionControllerArgumentTest\Domain\Validation\Validator\Failing", param="dto")
-     */
-    public function validateDtoAction(ModelDto $dto): ResponseInterface
-    {
+    public function validateDtoAction(
+        #[Extbase\Validate(validator: FailingValidator::class)]
+        ModelDto $dto,
+    ): ResponseInterface {
         $this->view->assignMultiple([
             'dto' => $dto,
         ]);
